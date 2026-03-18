@@ -3,6 +3,8 @@
 use std::fs::File;
 use std::io::{BufWriter, Error as IoError};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -148,6 +150,192 @@ pub struct RuntimeSnapshot {
     pub worker_threads: Option<u64>,
 }
 
+/// Configuration used to initialize one tailscope capture run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Config {
+    /// Service/application name.
+    pub service_name: String,
+    /// Optional service version.
+    pub service_version: Option<String>,
+    /// Optional caller-provided run ID.
+    pub run_id: Option<String>,
+    /// Capture mode for this run.
+    pub mode: CaptureMode,
+    /// JSON artifact path for this run.
+    pub output_path: PathBuf,
+}
+
+impl Config {
+    /// Returns a baseline configuration for `service_name`.
+    #[must_use]
+    pub fn new(service_name: impl Into<String>) -> Self {
+        Self {
+            service_name: service_name.into(),
+            service_version: None,
+            run_id: None,
+            mode: CaptureMode::Light,
+            output_path: PathBuf::from("tailscope-run.json"),
+        }
+    }
+}
+
+/// Runtime request metadata captured by [`Tailscope::request`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestMeta {
+    /// Correlation ID for the request.
+    pub request_id: String,
+    /// Route name, operation, or endpoint.
+    pub route: String,
+    /// Optional semantic request kind.
+    pub kind: Option<String>,
+}
+
+impl RequestMeta {
+    /// Creates metadata for a request scope.
+    #[must_use]
+    pub fn new(request_id: impl Into<String>, route: impl Into<String>) -> Self {
+        Self {
+            request_id: request_id.into(),
+            route: route.into(),
+            kind: None,
+        }
+    }
+}
+
+/// Errors emitted while initializing tailscope capture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InitError {
+    /// Service name was empty.
+    EmptyServiceName,
+}
+
+impl std::fmt::Display for InitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+        }
+    }
+}
+
+impl std::error::Error for InitError {}
+
+/// Per-run collector that records request events and writes the final artifact.
+#[derive(Debug)]
+pub struct Tailscope {
+    run: Mutex<Run>,
+    sink: LocalJsonSink,
+}
+
+impl Tailscope {
+    /// Initializes tailscope collection for one service run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InitError::EmptyServiceName`] if `config.service_name` is blank.
+    pub fn init(config: Config) -> Result<Self, InitError> {
+        if config.service_name.trim().is_empty() {
+            return Err(InitError::EmptyServiceName);
+        }
+
+        let now = unix_time_ms();
+        let run = Run::new(RunMetadata {
+            run_id: config.run_id.unwrap_or_else(generate_run_id),
+            service_name: config.service_name,
+            service_version: config.service_version,
+            started_at_unix_ms: now,
+            finished_at_unix_ms: now,
+            mode: config.mode,
+            host: None,
+            pid: Some(std::process::id()),
+        });
+
+        Ok(Self {
+            run: Mutex::new(run),
+            sink: LocalJsonSink::new(config.output_path),
+        })
+    }
+
+    /// Times one request future and records its completion as a [`RequestEvent`].
+    ///
+    /// `outcome` should represent your application-level request result (for example:
+    /// `"ok"`, `"error"`, or `"timeout"`).
+    pub async fn request<Fut, T>(
+        &self,
+        meta: RequestMeta,
+        outcome: impl Into<String>,
+        fut: Fut,
+    ) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        let started_at_unix_ms = unix_time_ms();
+        let started = Instant::now();
+        let value = fut.await;
+        let finished_at_unix_ms = unix_time_ms();
+
+        let event = RequestEvent {
+            request_id: meta.request_id,
+            route: meta.route,
+            kind: meta.kind,
+            started_at_unix_ms,
+            finished_at_unix_ms,
+            latency_us: duration_to_us(started.elapsed()),
+            outcome: outcome.into(),
+        };
+
+        lock_run(&self.run).requests.push(event);
+
+        value
+    }
+
+    /// Returns a clone of the current in-memory run state.
+    #[must_use]
+    pub fn snapshot(&self) -> Run {
+        lock_run(&self.run).clone()
+    }
+
+    /// Writes the current run to the configured sink.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SinkError`] if writing or serialization fails.
+    pub fn flush(&self) -> Result<(), SinkError> {
+        let mut guard = lock_run(&self.run);
+        guard.metadata.finished_at_unix_ms = unix_time_ms();
+        self.sink.write(&guard)
+    }
+
+    /// Returns the output file path used by the configured sink.
+    #[must_use]
+    pub fn output_path(&self) -> &Path {
+        self.sink.path()
+    }
+}
+
+fn lock_run(run: &Mutex<Run>) -> std::sync::MutexGuard<'_, Run> {
+    match run.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn duration_to_us(duration: Duration) -> u64 {
+    duration.as_micros().try_into().unwrap_or(u64::MAX)
+}
+
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before UNIX_EPOCH")
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+fn generate_run_id() -> String {
+    format!("run-{}", unix_time_ms())
+}
+
 /// A sink that can persist a run artifact.
 pub trait RunSink {
     /// Persists a run.
@@ -221,11 +409,12 @@ impl std::error::Error for SinkError {
 
 #[cfg(test)]
 mod tests {
+    use std::future::ready;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        CaptureMode, InFlightSnapshot, LocalJsonSink, QueueEvent, RequestEvent, Run, RunMetadata,
-        RunSink, RuntimeSnapshot, StageEvent,
+        CaptureMode, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent, RequestEvent,
+        RequestMeta, Run, RunMetadata, RunSink, RuntimeSnapshot, StageEvent, Tailscope,
     };
 
     fn sample_run() -> Run {
@@ -264,23 +453,23 @@ mod tests {
         run.queues.push(QueueEvent {
             request_id: "req-1".to_owned(),
             queue: "invoice_worker".to_owned(),
-            waited_from_unix_ms: 1_110,
-            waited_until_unix_ms: 1_200,
-            wait_us: 90_000,
-            depth_at_start: Some(8),
+            waited_from_unix_ms: 1_105,
+            waited_until_unix_ms: 1_120,
+            wait_us: 15_000,
+            depth_at_start: Some(7),
         });
 
         run.inflight.push(InFlightSnapshot {
             gauge: "invoice_requests".to_owned(),
-            at_unix_ms: 1_300,
-            count: 12,
+            at_unix_ms: 1_200,
+            count: 42,
         });
 
         run.runtime_snapshots.push(RuntimeSnapshot {
-            at_unix_ms: 1_350,
-            alive_tasks: Some(240),
-            global_queue_depth: Some(45),
-            blocking_queue_depth: Some(6),
+            at_unix_ms: 1_250,
+            alive_tasks: Some(130),
+            global_queue_depth: Some(18),
+            blocking_queue_depth: Some(4),
             worker_threads: Some(8),
         });
 
@@ -288,37 +477,97 @@ mod tests {
     }
 
     #[test]
-    fn run_serializes_all_mvp_sections() {
+    fn run_round_trips_with_json() {
         let run = sample_run();
-        let value = serde_json::to_value(&run).expect("run should serialize");
 
-        assert!(value.get("metadata").is_some());
-        assert!(value.get("requests").is_some());
-        assert!(value.get("stages").is_some());
-        assert!(value.get("queues").is_some());
-        assert!(value.get("inflight").is_some());
-        assert!(value.get("runtime_snapshots").is_some());
-        assert_eq!(value["metadata"]["mode"], "light");
-        assert_eq!(value["requests"][0]["route"], "/invoice");
+        let encoded = serde_json::to_string_pretty(&run).expect("run should serialize");
+        let decoded: Run = serde_json::from_str(&encoded).expect("run should deserialize");
+
+        assert_eq!(decoded, run);
     }
 
     #[test]
-    fn local_json_sink_writes_valid_json_file() {
-        let run = sample_run();
-        let unique = SystemTime::now()
+    fn local_json_sink_writes_pretty_json_file() {
+        let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("system time should be after UNIX_EPOCH")
+            .expect("system time before epoch")
             .as_nanos();
-        let output_path = std::env::temp_dir().join(format!("tailscope-run-{unique}.json"));
 
-        let sink = LocalJsonSink::new(&output_path);
-        sink.write(&run).expect("sink write should succeed");
+        let path = std::env::temp_dir().join(format!("tailscope_core_run_{nanos}.json"));
+        let sink = LocalJsonSink::new(&path);
 
-        let saved = std::fs::read_to_string(&output_path).expect("json file should exist");
-        let round_trip: Run = serde_json::from_str(&saved).expect("json should deserialize");
+        let run = sample_run();
+        sink.write(&run).expect("sink should write run JSON");
 
-        assert_eq!(round_trip, run);
+        let written = std::fs::read_to_string(&path).expect("written file should exist");
+        assert!(
+            written.contains("\n  \"metadata\": {\n"),
+            "expected pretty JSON formatting"
+        );
 
-        std::fs::remove_file(&output_path).expect("temporary file should be removable");
+        let decoded: Run = serde_json::from_str(&written).expect("written JSON should parse");
+        assert_eq!(decoded, run);
+
+        std::fs::remove_file(path).expect("temp run file should be removable");
+    }
+
+    #[test]
+    fn init_rejects_blank_service_name() {
+        let mut config = Config::new("payments");
+        config.service_name = "   ".to_owned();
+
+        let err = Tailscope::init(config).expect_err("blank service_name should fail");
+        assert_eq!(err, InitError::EmptyServiceName);
+    }
+
+    #[test]
+    fn request_records_timing_and_outcome() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos();
+
+        let mut config = Config::new("payments");
+        config.output_path =
+            std::env::temp_dir().join(format!("tailscope_core_scope_{nanos}.json"));
+
+        let tailscope = Tailscope::init(config).expect("init should succeed");
+        let mut request = RequestMeta::new("req-42", "/invoice");
+        request.kind = Some("create_invoice".to_owned());
+
+        let result = futures_executor::block_on(tailscope.request(request, "ok", ready(7_u32)));
+        assert_eq!(result, 7);
+
+        let snapshot = tailscope.snapshot();
+        assert_eq!(snapshot.requests.len(), 1);
+
+        let event = &snapshot.requests[0];
+        assert_eq!(event.request_id, "req-42");
+        assert_eq!(event.route, "/invoice");
+        assert_eq!(event.kind.as_deref(), Some("create_invoice"));
+        assert_eq!(event.outcome, "ok");
+        assert!(event.finished_at_unix_ms >= event.started_at_unix_ms);
+    }
+
+    #[test]
+    fn flush_writes_current_snapshot() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos();
+
+        let output_path = std::env::temp_dir().join(format!("tailscope_core_flush_{nanos}.json"));
+        let mut config = Config::new("payments");
+        config.output_path = output_path.clone();
+
+        let tailscope = Tailscope::init(config).expect("init should succeed");
+        tailscope.flush().expect("flush should write run file");
+
+        let bytes = std::fs::metadata(&output_path)
+            .expect("flush output should exist")
+            .len();
+        assert!(bytes > 0);
+
+        std::fs::remove_file(output_path).expect("temp run file should be removable");
     }
 }
