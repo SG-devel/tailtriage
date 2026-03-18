@@ -151,6 +151,11 @@ pub struct RuntimeSnapshot {
 /// A sink that can persist a run artifact.
 pub trait RunSink {
     /// Persists a run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SinkError`] if the sink cannot write the run output, such as
+    /// when file I/O fails or serialization cannot complete.
     fn write(&self, run: &Run) -> Result<(), SinkError>;
 }
 
