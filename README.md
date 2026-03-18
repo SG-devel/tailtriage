@@ -181,6 +181,19 @@ We do not aim for:
 - multi-service distributed root-cause inference
 - GPU anything
 
+
+## Workspace bootstrap status
+
+Current workspace members:
+- `tailscope-core`
+- `tailscope-tokio`
+- `tailscope-cli`
+
+Current repository state:
+- Cargo workspace compiles
+- CI runs format, clippy, and tests
+- Crates are placeholders pending MVP implementation
+
 ## Development philosophy
 - small PRs
 - tests before merge
