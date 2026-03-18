@@ -1,0 +1,11 @@
+[package]
+name = "tailscope-tokio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tailscope-core = { path = "../tailscope-core" }
+
+[lints]
+workspace = true
