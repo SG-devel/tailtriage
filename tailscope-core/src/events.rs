@@ -87,7 +87,8 @@ pub struct StageEvent {
     pub finished_at_unix_ms: u64,
     /// Stage latency in microseconds.
     pub latency_us: u64,
-    /// Whether the stage returned a successful result.
+    /// Whether the stage completed successfully (`Result::is_ok()` for
+    /// `StageTimer::await_on`, always `true` for `StageTimer::await_value`).
     pub success: bool,
 }
 

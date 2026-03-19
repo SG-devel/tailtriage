@@ -99,10 +99,21 @@ tailscope
 
 ### 5.5 Stage timing wrapper
 
+For fallible stages (`Result` output):
+
 ```rust
 tailscope
-    .stage(request_id, "fetch_customer")
+    .stage(request_id.clone(), "fetch_customer")
     .await_on(customer_api.fetch())
+    .await;
+```
+
+For infallible stages:
+
+```rust
+tailscope
+    .stage(request_id, "cache_lookup")
+    .await_value(cache.refresh())
     .await;
 ```
 

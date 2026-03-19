@@ -41,7 +41,38 @@ pub struct StageTimer<'a> {
 
 impl StageTimer<'_> {
     /// Awaits `fut`, records stage duration, and returns the original output.
-    pub async fn await_on<Fut, T>(self, fut: Fut) -> T
+    ///
+    /// This helper is intended for fallible stage work where success can be
+    /// derived from `Result::is_ok`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same error value produced by `fut` after recording the
+    /// stage event with `success = false`.
+    pub async fn await_on<Fut, T, E>(self, fut: Fut) -> Result<T, E>
+    where
+        Fut: std::future::Future<Output = Result<T, E>>,
+    {
+        let started_at_unix_ms = unix_time_ms();
+        let started = Instant::now();
+        let value = fut.await;
+        let finished_at_unix_ms = unix_time_ms();
+        let success = value.is_ok();
+
+        lock_run(&self.tailscope.run).stages.push(StageEvent {
+            request_id: self.request_id,
+            stage: self.stage,
+            started_at_unix_ms,
+            finished_at_unix_ms,
+            latency_us: duration_to_us(started.elapsed()),
+            success,
+        });
+
+        value
+    }
+
+    /// Awaits an infallible stage future and records a successful stage event.
+    pub async fn await_value<Fut, T>(self, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
     {

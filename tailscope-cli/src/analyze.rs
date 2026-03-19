@@ -137,8 +137,7 @@ pub fn analyze_run(run: &Run) -> Report {
                     .to_string(),
             ],
             vec![
-                "Wrap critical awaits with queue(...).await_on(...) and stage(...).await_on(...)."
-                    .to_string(),
+                "Wrap critical awaits with queue(...).await_on(...), and use stage(...).await_on(...) for Result-returning work or stage(...).await_value(...) for infallible work.".to_string(),
                 "Enable RuntimeSampler during the run to capture runtime pressure signals."
                     .to_string(),
             ],
