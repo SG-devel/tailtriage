@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -62,6 +64,34 @@ impl RequestMeta {
             kind: None,
         }
     }
+
+    /// Creates metadata with an auto-generated request ID for `route`.
+    ///
+    /// The generated ID keeps a readable route prefix and appends the current
+    /// unix timestamp with a process-local sequence number.
+    #[must_use]
+    pub fn for_route(route: impl Into<String>) -> Self {
+        let route = route.into();
+        let route_prefix = route
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect::<String>();
+        let sequence = REQUEST_META_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let request_id = format!("{route_prefix}-{}-{sequence}", unix_time_ms());
+
+        Self {
+            request_id,
+            route,
+            kind: None,
+        }
+    }
+
+    /// Sets a semantic request kind for this request metadata.
+    #[must_use]
+    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
+    }
 }
 
 /// Errors emitted while initializing tailscope capture.
@@ -80,3 +110,14 @@ impl std::fmt::Display for InitError {
 }
 
 impl std::error::Error for InitError {}
+
+static REQUEST_META_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before UNIX_EPOCH")
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
