@@ -120,12 +120,12 @@ async fn main() -> anyhow::Result<()> {
 
                         if mode == Mode::Investigation {
                             ts.stage(request_id.clone(), "pre_work_marker")
-                                .await_on(tokio::time::sleep(Duration::from_micros(300)))
+                                .await_value(tokio::time::sleep(Duration::from_micros(300)))
                                 .await;
                         }
 
                         ts.stage(request_id, "simulated_work")
-                            .await_on(tokio::time::sleep(work_duration))
+                            .await_value(tokio::time::sleep(work_duration))
                             .await;
 
                         drop(permit);
