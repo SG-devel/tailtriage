@@ -211,3 +211,32 @@ tailscope analyze tailscope-run.json --format json
 - document every public API
 - keep the MVP tight
 - do not expand scope casually
+
+## Queue and backpressure demo
+
+A reproducible queue-saturation proof case is provided in `demos/queue_service`.
+
+What it does:
+- launches a Tokio runtime with low worker-permit capacity
+- drives offered load above service capacity
+- records queue wait and stage timing with `tailscope-core`
+- produces a run artifact and analyzer report
+
+Run the demo and produce analysis:
+
+```bash
+scripts/run_queue_demo.sh
+```
+
+Validate that the analyzer flags application queue saturation as the primary suspect:
+
+```bash
+scripts/validate_queue_demo.sh
+```
+
+Artifacts are written to:
+- `demos/queue_service/artifacts/queue-run.json`
+- `demos/queue_service/artifacts/queue-analysis.json`
+
+A sample analyzer output fixture is stored at:
+- `demos/queue_service/fixtures/sample-analysis.json`
