@@ -1,9 +1,7 @@
-mod analyze;
-
 use std::path::PathBuf;
 
-use analyze::{analyze_run, render_text};
 use clap::{Parser, ValueEnum};
+use tailscope_cli::analyze::{analyze_run, render_text};
 use tailscope_core::Run;
 
 #[derive(Debug, Parser)]
