@@ -62,6 +62,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 ```
 
+JSON output fields to start with:
+
+- `primary_suspect.kind`
+- `p95_queue_share_permille`
+- `p95_service_share_permille`
+- `primary_suspect.evidence[]`
+
 ## Canonical integration path
 
 1. Initialize one collector: `Tailscope::init(Config::new("service-name"))`.
