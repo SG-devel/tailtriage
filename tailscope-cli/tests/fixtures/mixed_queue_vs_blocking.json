@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "run_id": "mixed-queue-vs-blocking",
+    "service_name": "svc",
+    "service_version": null,
+    "started_at_unix_ms": 1,
+    "finished_at_unix_ms": 2,
+    "mode": "light",
+    "host": null,
+    "pid": 7
+  },
+  "requests": [
+    {"request_id":"r1","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r2","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r3","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":1000,"outcome":"ok"}
+  ],
+  "stages": [],
+  "queues": [
+    {"request_id":"r1","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":350,"depth_at_start":3},
+    {"request_id":"r2","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":360,"depth_at_start":4},
+    {"request_id":"r3","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":340,"depth_at_start":4}
+  ],
+  "inflight": [],
+  "runtime_snapshots": [
+    {"at_unix_ms":1,"alive_tasks":10,"global_queue_depth":0,"local_queue_depth":null,"blocking_queue_depth":2,"remote_schedule_count":null},
+    {"at_unix_ms":2,"alive_tasks":12,"global_queue_depth":0,"local_queue_depth":null,"blocking_queue_depth":3,"remote_schedule_count":null},
+    {"at_unix_ms":3,"alive_tasks":11,"global_queue_depth":0,"local_queue_depth":null,"blocking_queue_depth":1,"remote_schedule_count":null}
+  ]
+}
