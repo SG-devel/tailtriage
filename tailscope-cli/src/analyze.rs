@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
 use tailscope_core::{Run, RuntimeSnapshot};
@@ -233,7 +233,7 @@ fn executor_pressure_suspect(run: &Run) -> Option<Suspect> {
 }
 
 fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
-    let mut stage_totals: HashMap<&str, u64> = HashMap::new();
+    let mut stage_totals: BTreeMap<&str, u64> = BTreeMap::new();
     for stage in &run.stages {
         *stage_totals.entry(stage.stage.as_str()).or_default() = stage_totals
             .get(stage.stage.as_str())
@@ -244,7 +244,7 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
 
     let (dominant_stage, total_latency) = stage_totals
         .iter()
-        .max_by(|left, right| left.1.cmp(right.1))
+        .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
         .map(|(stage, latency)| (*stage, *latency))?;
 
     let stage_count = run
@@ -380,4 +380,125 @@ pub fn render_text(report: &Report) -> String {
     }
 
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use tailscope_core::{CaptureMode, RequestEvent, Run, RunMetadata, StageEvent};
+
+    use crate::analyze::{analyze_run, DiagnosisKind};
+
+    fn test_run() -> Run {
+        Run {
+            metadata: RunMetadata {
+                run_id: "run-1".to_owned(),
+                service_name: "svc".to_owned(),
+                service_version: None,
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                mode: CaptureMode::Light,
+                host: None,
+                pid: Some(1),
+            },
+            requests: vec![
+                RequestEvent {
+                    request_id: "req-1".to_owned(),
+                    route: "/test".to_owned(),
+                    kind: None,
+                    started_at_unix_ms: 1,
+                    finished_at_unix_ms: 2,
+                    latency_us: 1_000,
+                    outcome: "ok".to_owned(),
+                },
+                RequestEvent {
+                    request_id: "req-2".to_owned(),
+                    route: "/test".to_owned(),
+                    kind: None,
+                    started_at_unix_ms: 2,
+                    finished_at_unix_ms: 3,
+                    latency_us: 1_000,
+                    outcome: "ok".to_owned(),
+                },
+                RequestEvent {
+                    request_id: "req-3".to_owned(),
+                    route: "/test".to_owned(),
+                    kind: None,
+                    started_at_unix_ms: 3,
+                    finished_at_unix_ms: 4,
+                    latency_us: 1_000,
+                    outcome: "ok".to_owned(),
+                },
+            ],
+            stages: Vec::new(),
+            queues: Vec::new(),
+            inflight: Vec::new(),
+            runtime_snapshots: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn downstream_stage_tie_break_is_deterministic() {
+        let mut run = test_run();
+        run.stages = vec![
+            StageEvent {
+                request_id: "req-1".to_owned(),
+                stage: "stage_a".to_owned(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 300,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-2".to_owned(),
+                stage: "stage_a".to_owned(),
+                started_at_unix_ms: 2,
+                finished_at_unix_ms: 3,
+                latency_us: 300,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-3".to_owned(),
+                stage: "stage_a".to_owned(),
+                started_at_unix_ms: 3,
+                finished_at_unix_ms: 4,
+                latency_us: 300,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-1".to_owned(),
+                stage: "stage_b".to_owned(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 300,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-2".to_owned(),
+                stage: "stage_b".to_owned(),
+                started_at_unix_ms: 2,
+                finished_at_unix_ms: 3,
+                latency_us: 300,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-3".to_owned(),
+                stage: "stage_b".to_owned(),
+                started_at_unix_ms: 3,
+                finished_at_unix_ms: 4,
+                latency_us: 300,
+                success: true,
+            },
+        ];
+
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::DownstreamStageDominates
+        );
+        assert!(
+            report.primary_suspect.evidence[0].contains("stage_a"),
+            "expected deterministic stage tie-breaker to choose stage_a, got {:?}",
+            report.primary_suspect.evidence
+        );
+    }
 }
