@@ -151,7 +151,7 @@ fn request_meta_for_route_generates_traceable_unique_ids() {
 }
 
 #[test]
-fn request_with_kind_records_helper_fields() {
+fn request_with_for_route_and_kind_records_expected_fields() {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before epoch")
@@ -161,12 +161,8 @@ fn request_with_kind_records_helper_fields() {
     config.output_path = std::env::temp_dir().join(format!("tailscope_core_helper_{nanos}.json"));
 
     let tailscope = Tailscope::init(config).expect("init should succeed");
-    let result = futures_executor::block_on(tailscope.request_with_kind(
-        "/invoice",
-        "create_invoice",
-        "ok",
-        ready(9_u32),
-    ));
+    let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
+    let result = futures_executor::block_on(tailscope.request(meta, "ok", ready(9_u32)));
     assert_eq!(result, 9);
 
     let snapshot = tailscope.snapshot();
@@ -175,6 +171,34 @@ fn request_with_kind_records_helper_fields() {
     assert_eq!(event.route, "/invoice");
     assert_eq!(event.kind.as_deref(), Some("create_invoice"));
     assert_eq!(event.outcome, "ok");
+    assert!(event.request_id.starts_with("_invoice-"));
+}
+
+#[test]
+fn request_with_for_route_records_route_and_outcome_without_kind() {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before epoch")
+        .as_nanos();
+
+    let mut config = Config::new("payments");
+    config.output_path =
+        std::env::temp_dir().join(format!("tailscope_core_route_only_{nanos}.json"));
+
+    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let result = futures_executor::block_on(tailscope.request(
+        RequestMeta::for_route("/invoice"),
+        "error",
+        ready(13_u32),
+    ));
+    assert_eq!(result, 13);
+
+    let snapshot = tailscope.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    let event = &snapshot.requests[0];
+    assert_eq!(event.route, "/invoice");
+    assert_eq!(event.kind, None);
+    assert_eq!(event.outcome, "error");
     assert!(event.request_id.starts_with("_invoice-"));
 }
 
