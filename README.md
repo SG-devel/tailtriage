@@ -69,16 +69,28 @@ JSON output fields to start with:
 - `p95_service_share_permille`
 - `primary_suspect.evidence[]`
 
+### Optional macro path (`tailscope-tokio`)
+
+```rust
+use tailscope_tokio::instrument_request;
+
+#[instrument_request(route = "/demo", kind = "quickstart", tailscope = tailscope)]
+async fn handle_demo(tailscope: &tailscope_core::Tailscope) {
+    // handler logic...
+}
+```
+
 ## Canonical integration path
 
 > Script workflows are Python-first and canonical.
 
 1. Initialize one collector: `Tailscope::init(Config::new("service-name"))`.
-2. Wrap request entry points with `request(...)` (or the macro path from `tailscope-tokio`).
-3. Add `queue(...).await_on(...)` around known wait points.
-4. Add `stage(...).await_on(...)` around key downstream awaits.
-5. Optionally add `inflight(...)` guards and `RuntimeSampler::start(...)` when diagnosis evidence is insufficient.
-6. Flush and analyze: `tailscope.flush()?` then `tailscope analyze <run.json>`.
+2. Manual path: wrap request entry points with `request(RequestMeta::for_route(...).with_kind(...), ...)`.
+3. Macro path: use `#[instrument_request(...)]` from `tailscope-tokio` when you want attribute-based request instrumentation.
+4. Add `queue(...).await_on(...)` around known wait points.
+5. Add `stage(...).await_on(...)` around key downstream awaits.
+6. Optionally add `inflight(...)` guards and `RuntimeSampler::start(...)` when diagnosis evidence is insufficient.
+7. Flush and analyze: `tailscope.flush()?` then `tailscope analyze <run.json>`.
 
 ## MVP limitations
 
