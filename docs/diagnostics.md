@@ -22,6 +22,22 @@ Each suspect includes:
 - evidence (human-readable)
 - recommended next checks
 
+## JSON report schema (MVP)
+
+Top-level JSON object fields currently emitted by `tailscope-cli`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `request_count` | `number` (`usize`) | Total requests seen in the run. |
+| `p50_latency_us` | `number \| null` (`Option<u64>`) | Request p50 latency in microseconds. |
+| `p95_latency_us` | `number \| null` (`Option<u64>`) | Request p95 latency in microseconds. |
+| `p99_latency_us` | `number \| null` (`Option<u64>`) | Request p99 latency in microseconds. |
+| `p95_queue_share_permille` | `number \| null` (`Option<u64>`) | p95 queue-time share of request latency, permille (0-1000). |
+| `p95_service_share_permille` | `number \| null` (`Option<u64>`) | p95 service-time share of request latency, permille (0-1000). |
+| `inflight_trend` | `object \| null` (`Option<InflightTrend>`) | Dominant in-flight gauge trend summary when snapshots are available. |
+| `primary_suspect` | `object` (`Suspect`) | Highest-ranked suspect; includes `kind`, `score`, `confidence`, `evidence`, `next_checks`. |
+| `secondary_suspects` | `array` of `Suspect` | Remaining ranked suspects, possibly empty. |
+
 ## Request-time share metrics
 
 The report includes two explicit request-time share fields:
