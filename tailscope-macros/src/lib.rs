@@ -11,6 +11,8 @@ use syn::{
 struct InstrumentArgs {
     route: Option<Expr>,
     kind: Option<Expr>,
+    tailscope: Option<Expr>,
+    request_id: Option<Expr>,
     skip: Option<Punctuated<syn::Ident, Token![,]>>,
 }
 
@@ -27,6 +29,16 @@ impl Parse for InstrumentArgs {
                 Meta::NameValue(MetaNameValue { path, value, .. }) if path.is_ident("kind") => {
                     args.kind = Some(value);
                 }
+                Meta::NameValue(MetaNameValue { path, value, .. })
+                    if path.is_ident("tailscope") =>
+                {
+                    args.tailscope = Some(value);
+                }
+                Meta::NameValue(MetaNameValue { path, value, .. })
+                    if path.is_ident("request_id") =>
+                {
+                    args.request_id = Some(value);
+                }
                 Meta::List(MetaList { path, tokens, .. }) if path.is_ident("skip") => {
                     if args.skip.is_some() {
                         return Err(Error::new_spanned(path, "duplicate skip argument"));
@@ -39,7 +51,7 @@ impl Parse for InstrumentArgs {
                 _ => {
                     return Err(Error::new_spanned(
                         meta,
-                        "unsupported argument; expected route = <expr>, kind = <expr>, or skip(...)",
+                        "unsupported argument; expected route = <expr>, kind = <expr>, tailscope = <expr>, request_id = <expr>, or skip(...)",
                     ));
                 }
             }
@@ -60,6 +72,7 @@ pub fn instrument_request(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn expand_instrument_request(
     args: InstrumentArgs,
     mut input_fn: ItemFn,
@@ -80,6 +93,8 @@ fn expand_instrument_request(
     let kind_expr = args
         .kind
         .unwrap_or_else(|| default_kind_expr(&input_fn.sig.ident));
+    let tailscope_expr = args.tailscope;
+    let request_id_expr = args.request_id;
 
     let route_field = make_field_expr("route", route_expr);
     let kind_field = make_field_expr("kind", kind_expr);
@@ -92,48 +107,91 @@ fn expand_instrument_request(
 
     let body = input_fn.block;
     let returns_result = returns_result(&input_fn.sig.output);
-    let tail_event = if returns_result {
-        quote! {
-            match &__tailscope_result {
-                Ok(_) => ::tracing::info!(
-                    target: "tailscope::request",
-                    route = __tailscope_route,
-                    kind = __tailscope_kind,
-                    outcome = "ok",
-                    duration_us = __tailscope_duration_us,
-                    "request completed"
-                ),
-                Err(_) => ::tracing::warn!(
-                    target: "tailscope::request",
-                    route = __tailscope_route,
-                    kind = __tailscope_kind,
-                    outcome = "error",
-                    duration_us = __tailscope_duration_us,
-                    "request completed"
-                ),
-            }
-        }
+    let (outcome_expr, tail_event) = if returns_result {
+        (
+            quote! {
+                let __tailscope_outcome = match &__tailscope_result {
+                    Ok(_) => "ok",
+                    Err(_) => "error",
+                };
+            },
+            quote! {
+                if __tailscope_outcome == "ok" {
+                    ::tracing::info!(
+                        target: "tailscope::request",
+                        route = __tailscope_route,
+                        kind = __tailscope_kind,
+                        outcome = __tailscope_outcome,
+                        duration_us = __tailscope_duration_us,
+                        "request completed"
+                    );
+                } else {
+                    ::tracing::warn!(
+                        target: "tailscope::request",
+                        route = __tailscope_route,
+                        kind = __tailscope_kind,
+                        outcome = __tailscope_outcome,
+                        duration_us = __tailscope_duration_us,
+                        "request completed"
+                    );
+                }
+            },
+        )
     } else {
+        (
+            quote! {
+                let __tailscope_outcome = "ok";
+            },
+            quote! {
+                ::tracing::info!(
+                    target: "tailscope::request",
+                    route = __tailscope_route,
+                    kind = __tailscope_kind,
+                    outcome = __tailscope_outcome,
+                    duration_us = __tailscope_duration_us,
+                    "request completed"
+                );
+            },
+        )
+    };
+    let record_request = if let Some(tailscope) = tailscope_expr {
+        let request_id = request_id_expr.unwrap_or_else(default_request_id_expr);
         quote! {
-            ::tracing::info!(
-                target: "tailscope::request",
-                route = __tailscope_route,
-                kind = __tailscope_kind,
-                outcome = "ok",
-                duration_us = __tailscope_duration_us,
-                "request completed"
+            (#tailscope).record_request_fields(
+                #request_id,
+                __tailscope_route.clone(),
+                Some(__tailscope_kind.clone()),
+                (__tailscope_started_at_unix_ms, __tailscope_finished_at_unix_ms),
+                __tailscope_duration_us,
+                __tailscope_outcome,
             );
         }
+    } else {
+        quote! {}
     };
 
     input_fn.block = Box::new(syn::parse_quote!({
-        let __tailscope_route = #route_field;
-        let __tailscope_kind = #kind_field;
+        let __tailscope_route = ::std::string::ToString::to_string(&#route_field);
+        let __tailscope_kind = ::std::string::ToString::to_string(&#kind_field);
+        let __tailscope_started_at_unix_ms = ::std::time::SystemTime::now()
+            .duration_since(::std::time::UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
         let __tailscope_started = ::std::time::Instant::now();
         let __tailscope_result = (async move #body).await;
+        #outcome_expr
+        let __tailscope_finished_at_unix_ms = ::std::time::SystemTime::now()
+            .duration_since(::std::time::UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
         let __tailscope_duration_us =
             ::std::convert::TryFrom::try_from(__tailscope_started.elapsed().as_micros())
                 .unwrap_or(u64::MAX);
+        #record_request
         #tail_event
         __tailscope_result
     }));
@@ -169,6 +227,13 @@ fn default_route_expr(name: &syn::Ident) -> Expr {
 
 fn default_kind_expr(name: &syn::Ident) -> Expr {
     syn::parse_quote!(stringify!(#name))
+}
+
+fn default_request_id_expr() -> Expr {
+    syn::parse_quote!(format!(
+        "{}-{}",
+        __tailscope_route, __tailscope_started_at_unix_ms
+    ))
 }
 
 fn validate_skipped_args(

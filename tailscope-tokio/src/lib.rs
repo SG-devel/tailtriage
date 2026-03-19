@@ -1,4 +1,29 @@
 //! Tokio runtime integration for tailscope.
+//!
+//! This crate provides:
+//! - [`RuntimeSampler`] for periodic Tokio runtime metrics snapshots.
+//! - [`instrument_request`] for request entry-point tracing and optional
+//!   request-event recording into a [`tailscope_core::Tailscope`] collector.
+//!
+//! Macro example:
+//! ```ignore
+//! use tailscope_core::Tailscope;
+//! use tailscope_tokio::instrument_request;
+//!
+//! #[instrument_request(
+//!     route = "/invoice",
+//!     kind = "create_invoice",
+//!     tailscope = tailscope,
+//!     request_id = request_id.clone(),
+//!     skip(tailscope)
+//! )]
+//! async fn handle_invoice(
+//!     tailscope: &Tailscope,
+//!     request_id: String,
+//! ) -> Result<(), &'static str> {
+//!     Ok(())
+//! }
+//! ```
 
 use std::sync::Arc;
 use std::time::Duration;

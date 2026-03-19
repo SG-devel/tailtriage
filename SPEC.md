@@ -118,6 +118,16 @@ sampler.shutdown().await;
 
 `tailscope-tokio` re-exports `#[instrument_request]` from `tailscope-macros` for request entry-point ergonomics.
 
+The macro always emits tracing request events. When `tailscope = <expr>` is provided,
+it also records `RequestEvent` entries directly into the active run artifact.
+
+Supported arguments:
+- `route = <expr>` (optional; defaults to `module_path!()::fn_name`)
+- `kind = <expr>` (optional; defaults to `fn_name`)
+- `tailscope = <expr>` (optional; enables run-artifact request recording)
+- `request_id = <expr>` (optional; defaults to a route+timestamp id when `tailscope` is set)
+- `skip(...)` (optional; passed through to `tracing::instrument`)
+
 ## 6. Run data model
 
 `tailscope-core` emits one JSON run artifact with:
