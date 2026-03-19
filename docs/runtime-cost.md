@@ -48,23 +48,32 @@ Artifacts written to `demos/runtime_cost/artifacts/`:
 - `runtime-cost-summary.json`
 - per-mode run JSON files for instrumented modes
 
-## Latest local run (2026-03-19)
+## Regenerating current numbers
 
-The following values come from `demos/runtime_cost/artifacts/runtime-cost-summary.json` generated in this repository on **2026-03-19**:
+This document intentionally does **not** pin “latest local run” numeric claims, because runtime-cost values are machine- and workload-dependent.
 
-| mode | throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) |
-|---|---:|---:|---:|---:|
-| baseline | 10859.91 | 50.21 | 92.71 | 96.27 |
-| light | 10607.71 | 52.23 | 97.41 | 101.07 |
-| investigation | 7958.86 | 72.07 | 132.07 | 137.31 |
+To generate fresh summary values on your machine, run:
 
-Relative overhead vs baseline:
+```bash
+python3 scripts/measure_runtime_cost.py
+```
 
-- `light`: throughput **-2.32%**, p50 **+4.02%**, p95 **+5.08%**, p99 **+4.98%**
-- `investigation`: throughput **-26.71%**, p50 **+43.54%**, p95 **+42.47%**, p99 **+42.64%**
+Then inspect:
+
+- `demos/runtime_cost/artifacts/runtime-cost-summary.json`
+
+If you need to compare runs over time, archive selected summaries under a tracked fixtures path (for example, `demos/runtime_cost/fixtures/`) and cite those committed files in docs/PRs.
+
+## Artifact policy
+
+- `demos/runtime_cost/artifacts/` is **generated at runtime** and intentionally untracked.
+- `demos/*/fixtures/` is the **tracked snapshot** area for reproducible, reviewable fixtures.
+
+Use `artifacts/` for local/regenerated outputs and `fixtures/` for intentionally versioned reference snapshots.
 
 ## Notes and limits
 
 - Results are workload- and machine-specific.
-- These numbers are provided as an honest sample from one reproducible run path, not as universal guarantees.
-- Future runtime-cost claims should cite fresh output from this script/harness.
+- Runtime-cost claims should cite either:
+  - fresh output generated via `python3 scripts/measure_runtime_cost.py`, or
+  - a committed fixture snapshot under `demos/*/fixtures/`.
