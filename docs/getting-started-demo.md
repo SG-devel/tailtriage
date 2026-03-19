@@ -20,8 +20,8 @@ Use this guide to run the MVP demos and compare generated outputs against tracke
 **Run:**
 
 ```bash
-python3 scripts/run_queue_demo.py
-python3 scripts/validate_queue_demo.py
+python3 scripts/demo_tool.py run queue
+python3 scripts/demo_tool.py validate queue
 ```
 
 **Key generated artifacts (`artifacts/`):**
@@ -49,8 +49,8 @@ python3 scripts/validate_queue_demo.py
 **Run:**
 
 ```bash
-python3 scripts/run_blocking_demo.py
-python3 scripts/validate_blocking_demo.py
+python3 scripts/demo_tool.py run blocking
+python3 scripts/demo_tool.py validate blocking
 ```
 
 **Key generated artifacts (`artifacts/`):**
@@ -78,8 +78,8 @@ python3 scripts/validate_blocking_demo.py
 **Run:**
 
 ```bash
-python3 scripts/run_downstream_demo.py
-python3 scripts/validate_downstream_demo.py
+python3 scripts/demo_tool.py run downstream
+python3 scripts/demo_tool.py validate downstream
 ```
 
 **Key generated artifacts (`artifacts/`):**
