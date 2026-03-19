@@ -90,6 +90,38 @@ cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
 ```
 
+### Example output (text + JSON)
+
+Text-mode snippet (from committed queue-service fixture style):
+
+```text
+Primary suspect: ApplicationQueueSaturation
+Score/confidence: 90 (high)
+Key evidence: Queue wait at p95 consumes 98.4% of request time.
+```
+
+JSON snippet (from committed blocking-service fixture fields):
+
+```json
+{
+  "primary_suspect": {
+    "kind": "BlockingPoolPressure",
+    "score": 80,
+    "confidence": "medium"
+  },
+  "p95_queue_share_permille": 6,
+  "recommendations": [
+    "Audit blocking sections and move avoidable synchronous work out of hot paths."
+  ]
+}
+```
+
+How this guides next action:
+
+- Start with the top suspect and confidence to choose your first investigation lane (queueing vs blocking vs downstream).
+- Use `p95_queue_share_permille` to decide whether to focus on admission/backpressure mechanics (high queue share) or execution-time work (low queue share).
+- Execute the first recommendation as a concrete next check, then re-run analysis and compare suspect score/confidence movement.
+
 ### 4) What to look for
 
 - `Primary suspect`: the top-ranked bottleneck category for this run.
