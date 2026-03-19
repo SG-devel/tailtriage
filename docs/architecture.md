@@ -18,7 +18,7 @@ Responsibilities:
 - run schema (`Run`, metadata, event/snapshot structs)
 - collection lifecycle (`Tailscope::init`, `flush`, `snapshot`)
 - request wrapper (`request`)
-- queue/stage wrappers (`queue(...).await_on(...)`, `stage(...).await_on(...)`)
+- queue/stage wrappers (`queue(...).await_on(...)`, `stage(...).await_on(...)` for `Result`, `stage(...).await_value(...)` for infallible futures)
 - in-flight RAII tracking (`inflight`)
 - local JSON sink (`LocalJsonSink`)
 

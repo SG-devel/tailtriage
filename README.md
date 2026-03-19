@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             tailscope
                 .stage(request_id, "db_call")
-                .await_on(tokio::time::sleep(Duration::from_millis(12)))
+                .await_value(tokio::time::sleep(Duration::from_millis(12)))
                 .await;
         })
         .await;
@@ -88,7 +88,7 @@ async fn handle_demo(tailscope: &tailscope_core::Tailscope) {
 2. Manual path: wrap request entry points with `request(RequestMeta::for_route(...).with_kind(...), ...)`.
 3. Macro path: use `#[instrument_request(...)]` from `tailscope-tokio` when you want attribute-based request instrumentation.
 4. Add `queue(...).await_on(...)` around known wait points.
-5. Add `stage(...).await_on(...)` around key downstream awaits.
+5. Add `stage(...).await_on(...)` around key downstream awaits that return `Result`, or `stage(...).await_value(...)` for infallible futures.
 6. Optionally add `inflight(...)` guards and `RuntimeSampler::start(...)` when diagnosis evidence is insufficient.
 7. Flush and analyze: `tailscope.flush()?` then `tailscope analyze <run.json>`.
 
