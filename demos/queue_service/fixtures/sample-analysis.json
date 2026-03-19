@@ -1,0 +1,34 @@
+{
+  "request_count": 250,
+  "p50_latency_us": 913603,
+  "p95_latency_us": 1729997,
+  "p99_latency_us": 1807406,
+  "primary_suspect": {
+    "kind": "ApplicationQueueSaturation",
+    "score": 90,
+    "confidence": "high",
+    "evidence": [
+      "Queue wait at p95 consumes 98.4% of request time.",
+      "Observed queue depth sample up to 230."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "DownstreamStageDominates",
+      "score": 60,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'simulated_work' has p95 latency 39564 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 7664590 us."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'simulated_work'.",
+        "Collect downstream service timings and retry behavior during tail windows."
+      ]
+    }
+  ]
+}

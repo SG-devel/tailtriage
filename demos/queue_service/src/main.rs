@@ -1,0 +1,79 @@
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Context;
+use tailscope_core::{Config, RequestMeta, Tailscope};
+use tokio::sync::Semaphore;
+
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+async fn main() -> anyhow::Result<()> {
+    let output_path = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("demos/queue_service/artifacts/queue-run.json"));
+
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create artifact directory {}", parent.display()))?;
+    }
+
+    let mut config = Config::new("queue_service_demo");
+    config.output_path = output_path.clone();
+    let tailscope = Arc::new(Tailscope::init(config)?);
+
+    let service_capacity = 4;
+    let offered_requests = 250_u64;
+    let work_duration = Duration::from_millis(25);
+
+    let semaphore = Arc::new(Semaphore::new(service_capacity));
+    let waiting_depth = Arc::new(AtomicU64::new(0));
+
+    let mut tasks = Vec::with_capacity(offered_requests as usize);
+
+    for request_number in 0..offered_requests {
+        let tailscope = Arc::clone(&tailscope);
+        let semaphore = Arc::clone(&semaphore);
+        let waiting_depth = Arc::clone(&waiting_depth);
+
+        tasks.push(tokio::spawn(async move {
+            let request_id = format!("request-{request_number}");
+            let meta = RequestMeta::new(request_id.clone(), "/queue-demo");
+
+            tailscope
+                .request(meta, "ok", async {
+                    let _inflight = tailscope.inflight("queue_service_inflight");
+
+                    let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
+                    let permit = tailscope
+                        .queue(request_id.clone(), "worker_permit")
+                        .with_depth_at_start(depth)
+                        .await_on(semaphore.acquire())
+                        .await
+                        .expect("semaphore should remain open");
+                    waiting_depth.fetch_sub(1, Ordering::SeqCst);
+
+                    let _permit = permit;
+                    tailscope
+                        .stage(request_id, "simulated_work")
+                        .await_on(tokio::time::sleep(work_duration))
+                        .await;
+                })
+                .await;
+        }));
+
+        if request_number % 5 == 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+
+    for task in tasks {
+        task.await.context("request task panicked")?;
+    }
+
+    tailscope.flush()?;
+    println!("wrote {}", output_path.display());
+
+    Ok(())
+}
