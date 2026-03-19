@@ -136,8 +136,22 @@ scripts/validate_queue_demo.sh
 
 Artifacts:
 
-- `demos/queue_service/artifacts/queue-run.json`
-- `demos/queue_service/artifacts/queue-analysis.json`
+- `demos/queue_service/artifacts/before-run.json`
+- `demos/queue_service/artifacts/before-analysis.json`
+- `demos/queue_service/artifacts/after-run.json`
+- `demos/queue_service/artifacts/after-analysis.json`
+- `demos/queue_service/artifacts/before-after-comparison.json`
+
+Fixture snapshots:
+
+- `demos/queue_service/fixtures/before-analysis.json`
+- `demos/queue_service/fixtures/after-analysis.json`
+
+Observed signal in the checked-in queue demo fixtures:
+
+- p95 latency drops from ~1,682,454us (before) to ~24,745us (after)
+- primary suspect score drops from 90 to 60
+- p95 queue share drops from 981 permille to 5 permille
 
 ### Blocking-pool pressure demo
 
