@@ -182,7 +182,6 @@ The report includes:
 Canonical invocation for demo validation and runtime-cost measurement is **Python-first** (`python3 scripts/*.py`).
 
 - `scripts/*.py` are the source-of-truth implementations.
-- `scripts/*.sh` remain thin compatibility wrappers for Unix workflows.
 - Required runtime dependencies for script workflows: `python3` and `cargo`.
 
 ## 8. Diagnosis categories
@@ -216,7 +215,6 @@ Repro harness:
 
 - binary: `demos/runtime_cost`
 - canonical script: `python3 scripts/measure_runtime_cost.py`
-- compatibility wrapper: `scripts/measure_runtime_cost.sh`
 
 Modes measured:
 

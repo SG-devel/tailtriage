@@ -71,6 +71,8 @@ JSON output fields to start with:
 
 ## Canonical integration path
 
+> Script workflows are Python-first and canonical.
+
 1. Initialize one collector: `Tailscope::init(Config::new("service-name"))`.
 2. Wrap request entry points with `request(...)` (or the macro path from `tailscope-tokio`).
 3. Add `queue(...).await_on(...)` around known wait points.

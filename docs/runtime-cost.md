@@ -17,7 +17,6 @@ The summary also computes relative overhead for `light` and `investigation` vs `
 
 - Binary: `demos/runtime_cost`
 - Canonical script: `python3 scripts/measure_runtime_cost.py`
-- Compatibility wrapper: `scripts/measure_runtime_cost.sh`
 
 The harness runs a queueing workload with bounded concurrency and fixed simulated work per request.
 
