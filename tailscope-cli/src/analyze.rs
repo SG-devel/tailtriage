@@ -452,6 +452,19 @@ fn percentile_sorted_u64(values: &[u64], numerator: usize, denominator: usize) -
 
 #[must_use]
 pub fn render_text(report: &Report) -> String {
+    let inflight_line = match &report.inflight_trend {
+        Some(trend) => format!(
+            "inflight_trend gauge={} samples={} peak={} p95={} growth_delta={} growth_per_sec_milli={:?}",
+            trend.gauge,
+            trend.sample_count,
+            trend.peak_count,
+            trend.p95_count,
+            trend.growth_delta,
+            trend.growth_per_sec_milli
+        ),
+        None => "inflight_trend none".to_string(),
+    };
+
     let mut lines = vec![
         "tailscope diagnosis".to_string(),
         format!("requests: {}", report.request_count),
@@ -463,7 +476,7 @@ pub fn render_text(report: &Report) -> String {
             "request_time_share_permille p95 queue={:?} service={:?}",
             report.p95_queue_share_permille, report.p95_service_share_permille
         ),
-        format!("inflight_trend {:?}", report.inflight_trend),
+        inflight_line,
         format!(
             "primary: {} (confidence={:?}, score={})",
             report.primary_suspect.kind.as_str(),
@@ -499,7 +512,9 @@ pub fn render_text(report: &Report) -> String {
 mod tests {
     use tailscope_core::{CaptureMode, RequestEvent, Run, RunMetadata, StageEvent};
 
-    use crate::analyze::{analyze_run, DiagnosisKind};
+    use crate::analyze::{
+        analyze_run, render_text, Confidence, DiagnosisKind, InflightTrend, Report, Suspect,
+    };
 
     fn test_run() -> Run {
         Run {
@@ -666,5 +681,62 @@ mod tests {
         assert_eq!(trend.p95_count, 6);
         assert_eq!(trend.growth_delta, 5);
         assert_eq!(trend.growth_per_sec_milli, Some(250_000));
+    }
+
+    #[test]
+    fn render_text_formats_inflight_trend_fields() {
+        let report = Report {
+            request_count: 2,
+            p50_latency_us: Some(10),
+            p95_latency_us: Some(20),
+            p99_latency_us: Some(20),
+            p95_queue_share_permille: Some(100),
+            p95_service_share_permille: Some(900),
+            inflight_trend: Some(InflightTrend {
+                gauge: "queue_inflight".to_owned(),
+                sample_count: 4,
+                peak_count: 8,
+                p95_count: 7,
+                growth_delta: 5,
+                growth_per_sec_milli: Some(2_500),
+            }),
+            primary_suspect: Suspect {
+                kind: DiagnosisKind::ApplicationQueueSaturation,
+                score: 90,
+                confidence: Confidence::High,
+                evidence: vec!["queue wait high".to_owned()],
+                next_checks: vec!["check queue policy".to_owned()],
+            },
+            secondary_suspects: Vec::new(),
+        };
+
+        let text = render_text(&report);
+        assert!(text.contains("inflight_trend gauge=queue_inflight"));
+        assert!(text.contains("samples=4"));
+        assert!(text.contains("growth_per_sec_milli=Some(2500)"));
+    }
+
+    #[test]
+    fn render_text_marks_missing_inflight_trend() {
+        let report = Report {
+            request_count: 0,
+            p50_latency_us: None,
+            p95_latency_us: None,
+            p99_latency_us: None,
+            p95_queue_share_permille: None,
+            p95_service_share_permille: None,
+            inflight_trend: None,
+            primary_suspect: Suspect {
+                kind: DiagnosisKind::InsufficientEvidence,
+                score: 50,
+                confidence: Confidence::Low,
+                evidence: vec!["missing signals".to_owned()],
+                next_checks: vec!["add instrumentation".to_owned()],
+            },
+            secondary_suspects: Vec::new(),
+        };
+
+        let text = render_text(&report);
+        assert!(text.contains("inflight_trend none"));
     }
 }
