@@ -8,6 +8,8 @@ This document explains what the analyzer currently reports and how to interpret 
 
 - request count
 - request p50/p95/p99 latency
+- p95 request-time share for queue wait (permille)
+- p95 request-time share for service time (permille)
 - one primary suspect
 - zero or more secondary suspects
 
@@ -18,6 +20,24 @@ Each suspect includes:
 - confidence
 - evidence (human-readable)
 - recommended next checks
+
+## Request-time share metrics
+
+The report includes two explicit request-time share fields:
+
+- `p95_queue_share_permille`
+- `p95_service_share_permille`
+
+Both are measured in permille (0-1000) across requests, where:
+
+- `1000` = 100.0% of request time
+- `500` = 50.0% of request time
+
+Interpretation guidance:
+
+- high `p95_queue_share_permille` (for example 300+ = 30%+) points to application-level queueing pressure
+- high `p95_service_share_permille` with a dominant stage points to downstream/service-time bottlenecks
+- queue + service shares are complementary at request level in current MVP heuristics (queue wait is clamped to request latency)
 
 ## Suspect kinds
 
