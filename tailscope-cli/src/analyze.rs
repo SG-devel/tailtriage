@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
-use tailscope_core::{Run, RuntimeSnapshot};
+use tailscope_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum DiagnosisKind {
@@ -72,6 +72,16 @@ impl Suspect {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct InflightTrend {
+    pub gauge: String,
+    pub sample_count: usize,
+    pub peak_count: u64,
+    pub p95_count: u64,
+    pub growth_delta: i64,
+    pub growth_per_sec_milli: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Report {
     pub request_count: usize,
     pub p50_latency_us: Option<u64>,
@@ -79,6 +89,7 @@ pub struct Report {
     pub p99_latency_us: Option<u64>,
     pub p95_queue_share_permille: Option<u64>,
     pub p95_service_share_permille: Option<u64>,
+    pub inflight_trend: Option<InflightTrend>,
     pub primary_suspect: Suspect,
     pub secondary_suspects: Vec<Suspect>,
 }
@@ -97,10 +108,11 @@ pub fn analyze_run(run: &Run) -> Report {
     let (queue_shares, service_shares) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100);
     let p95_service_share_permille = percentile(&service_shares, 95, 100);
+    let inflight_trend = dominant_inflight_trend(&run.inflight);
 
     let mut suspects = Vec::new();
 
-    if let Some(queue_suspect) = queue_saturation_suspect(run) {
+    if let Some(queue_suspect) = queue_saturation_suspect(run, inflight_trend.as_ref()) {
         suspects.push(queue_suspect);
     }
 
@@ -108,7 +120,7 @@ pub fn analyze_run(run: &Run) -> Report {
         suspects.push(blocking_suspect);
     }
 
-    if let Some(executor_suspect) = executor_pressure_suspect(run) {
+    if let Some(executor_suspect) = executor_pressure_suspect(run, inflight_trend.as_ref()) {
         suspects.push(executor_suspect);
     }
 
@@ -152,12 +164,13 @@ pub fn analyze_run(run: &Run) -> Report {
         p99_latency_us,
         p95_queue_share_permille,
         p95_service_share_permille,
+        inflight_trend,
         primary_suspect,
         secondary_suspects: ranked.collect(),
     }
 }
 
-fn queue_saturation_suspect(run: &Run) -> Option<Suspect> {
+fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
     let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
     let max_depth = run
@@ -178,6 +191,12 @@ fn queue_saturation_suspect(run: &Run) -> Option<Suspect> {
 
     if let Some(depth) = max_depth {
         evidence.push(format!("Observed queue depth sample up to {depth}."));
+    }
+    if let Some(trend) = inflight_trend.filter(|trend| trend.growth_delta > 0) {
+        evidence.push(format!(
+            "In-flight gauge '{}' grew by {} over the run window (p95={}, peak={}).",
+            trend.gauge, trend.growth_delta, trend.p95_count, trend.peak_count
+        ));
     }
 
     Some(Suspect::new(
@@ -216,7 +235,7 @@ fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
     ))
 }
 
-fn executor_pressure_suspect(run: &Run) -> Option<Suspect> {
+fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
     let global_queue_depths = runtime_metric_series(&run.runtime_snapshots, |snapshot| {
         snapshot.global_queue_depth
     });
@@ -226,12 +245,20 @@ fn executor_pressure_suspect(run: &Run) -> Option<Suspect> {
         return None;
     }
 
+    let mut evidence = vec![format!(
+        "Runtime global queue depth p95 is {p95_global_depth}, suggesting scheduler contention."
+    )];
+    if let Some(trend) = inflight_trend.filter(|trend| trend.growth_delta > 0) {
+        evidence.push(format!(
+            "In-flight gauge '{}' growth is positive (delta={}, peak={}), consistent with accumulating executor pressure.",
+            trend.gauge, trend.growth_delta, trend.peak_count
+        ));
+    }
+
     Some(Suspect::new(
         DiagnosisKind::ExecutorPressureSuspected,
         65,
-        vec![format!(
-            "Runtime global queue depth p95 is {p95_global_depth}, suggesting scheduler contention."
-        )],
+        evidence,
         vec![
             "Check for long polls without yielding and uneven task fan-out.".to_string(),
             "Compare with per-stage timings to isolate overloaded async stages.".to_string(),
@@ -328,6 +355,74 @@ fn runtime_metric_series(
     snapshots.iter().filter_map(selector).collect::<Vec<_>>()
 }
 
+fn dominant_inflight_trend(snapshots: &[InFlightSnapshot]) -> Option<InflightTrend> {
+    let mut by_gauge: BTreeMap<&str, Vec<&InFlightSnapshot>> = BTreeMap::new();
+    for snapshot in snapshots {
+        by_gauge
+            .entry(snapshot.gauge.as_str())
+            .or_default()
+            .push(snapshot);
+    }
+
+    by_gauge
+        .into_iter()
+        .filter_map(|(gauge, samples)| inflight_trend_for_gauge(gauge, samples))
+        .max_by(|left, right| {
+            left.peak_count
+                .cmp(&right.peak_count)
+                .then_with(|| left.p95_count.cmp(&right.p95_count))
+                .then_with(|| left.gauge.cmp(&right.gauge).reverse())
+        })
+}
+
+fn inflight_trend_for_gauge(
+    gauge: &str,
+    mut samples: Vec<&InFlightSnapshot>,
+) -> Option<InflightTrend> {
+    if samples.is_empty() {
+        return None;
+    }
+
+    samples.sort_unstable_by(|left, right| {
+        left.at_unix_ms
+            .cmp(&right.at_unix_ms)
+            .then_with(|| left.count.cmp(&right.count))
+    });
+
+    let counts = samples
+        .iter()
+        .map(|sample| sample.count)
+        .collect::<Vec<_>>();
+    let first = samples.first()?;
+    let last = samples.last()?;
+    let growth_delta = signed_u64_delta(first.count, last.count);
+    let window_ms = last.at_unix_ms.saturating_sub(first.at_unix_ms);
+    let growth_per_sec_milli = if window_ms == 0 {
+        None
+    } else {
+        i64::try_from(window_ms)
+            .ok()
+            .map(|window_ms_i64| growth_delta.saturating_mul(1_000_000) / window_ms_i64)
+    };
+
+    Some(InflightTrend {
+        gauge: gauge.to_owned(),
+        sample_count: counts.len(),
+        peak_count: counts.iter().copied().max().unwrap_or(0),
+        p95_count: percentile(&counts, 95, 100).unwrap_or(0),
+        growth_delta,
+        growth_per_sec_milli,
+    })
+}
+
+fn signed_u64_delta(start: u64, end: u64) -> i64 {
+    if end >= start {
+        i64::try_from(end - start).unwrap_or(i64::MAX)
+    } else {
+        -i64::try_from(start - end).unwrap_or(i64::MAX)
+    }
+}
+
 fn percentile(values: &[u64], numerator: usize, denominator: usize) -> Option<u64> {
     let sorted = sorted_u64(values);
     percentile_sorted_u64(&sorted, numerator, denominator)
@@ -368,6 +463,7 @@ pub fn render_text(report: &Report) -> String {
             "request_time_share_permille p95 queue={:?} service={:?}",
             report.p95_queue_share_permille, report.p95_service_share_permille
         ),
+        format!("inflight_trend {:?}", report.inflight_trend),
         format!(
             "primary: {} (confidence={:?}, score={})",
             report.primary_suspect.kind.as_str(),
@@ -517,5 +613,58 @@ mod tests {
             "expected deterministic stage tie-breaker to choose stage_a, got {:?}",
             report.primary_suspect.evidence
         );
+    }
+
+    #[test]
+    fn inflight_trend_is_none_for_empty_series() {
+        assert!(super::dominant_inflight_trend(&[]).is_none());
+    }
+
+    #[test]
+    fn inflight_trend_handles_constant_series() {
+        let trend = super::dominant_inflight_trend(&[
+            tailscope_core::InFlightSnapshot {
+                gauge: "http".to_owned(),
+                at_unix_ms: 10,
+                count: 3,
+            },
+            tailscope_core::InFlightSnapshot {
+                gauge: "http".to_owned(),
+                at_unix_ms: 20,
+                count: 3,
+            },
+        ])
+        .expect("trend should exist");
+
+        assert_eq!(trend.peak_count, 3);
+        assert_eq!(trend.p95_count, 3);
+        assert_eq!(trend.growth_delta, 0);
+    }
+
+    #[test]
+    fn inflight_trend_handles_monotonic_increase() {
+        let trend = super::dominant_inflight_trend(&[
+            tailscope_core::InFlightSnapshot {
+                gauge: "http".to_owned(),
+                at_unix_ms: 10,
+                count: 1,
+            },
+            tailscope_core::InFlightSnapshot {
+                gauge: "http".to_owned(),
+                at_unix_ms: 20,
+                count: 4,
+            },
+            tailscope_core::InFlightSnapshot {
+                gauge: "http".to_owned(),
+                at_unix_ms: 30,
+                count: 6,
+            },
+        ])
+        .expect("trend should exist");
+
+        assert_eq!(trend.peak_count, 6);
+        assert_eq!(trend.p95_count, 6);
+        assert_eq!(trend.growth_delta, 5);
+        assert_eq!(trend.growth_per_sec_milli, Some(250_000));
     }
 }

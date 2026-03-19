@@ -20,6 +20,10 @@
     {"request_id":"r2","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":75,"depth_at_start":5},
     {"request_id":"r3","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":100,"depth_at_start":6}
   ],
-  "inflight": [],
+  "inflight": [
+    {"gauge":"worker_inflight","at_unix_ms":1,"count":1},
+    {"gauge":"worker_inflight","at_unix_ms":2,"count":3},
+    {"gauge":"worker_inflight","at_unix_ms":3,"count":6}
+  ],
   "runtime_snapshots": []
 }

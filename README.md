@@ -125,6 +125,10 @@ For each suspect, the report includes:
 - supporting evidence
 - recommended next checks
 
+The JSON report also includes request-time-share metrics and, when captured, an `inflight_trend`
+summary (`peak_count`, `p95_count`, `growth_delta`, `growth_per_sec_milli`) for the dominant
+in-flight gauge.
+
 ## Demos
 
 ### Queue/backpressure demo
