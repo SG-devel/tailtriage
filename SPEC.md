@@ -59,28 +59,17 @@ let tailscope = Tailscope::init(config)?;
 ```rust
 use tailscope_core::RequestMeta;
 
-tailscope
-    .request(
-        RequestMeta::new("req-1", "/invoice"),
-        "ok",
-        async { /* request body */ },
-    )
-    .await;
-```
-
-Ergonomic helper path (auto request ID + builder-style kind):
-
-```rust
 let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
 let request_id = meta.request_id.clone();
 
-tailscope.request(meta, "ok", async move {
-    tailscope
-        .queue(request_id.clone(), "invoice_worker")
-        .await_on(semaphore.acquire())
-        .await;
-})
-.await;
+tailscope
+    .request(meta, "ok", async move {
+        tailscope
+            .queue(request_id.clone(), "invoice_worker")
+            .await_on(semaphore.acquire())
+            .await;
+    })
+    .await;
 ```
 
 ### 5.3 In-flight tracking
