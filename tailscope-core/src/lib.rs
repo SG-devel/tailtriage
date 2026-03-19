@@ -278,17 +278,14 @@ impl Tailscope {
         let value = fut.await;
         let finished_at_unix_ms = unix_time_ms();
 
-        let event = RequestEvent {
-            request_id: meta.request_id,
-            route: meta.route,
-            kind: meta.kind,
-            started_at_unix_ms,
-            finished_at_unix_ms,
-            latency_us: duration_to_us(started.elapsed()),
-            outcome: outcome.into(),
-        };
-
-        lock_run(&self.run).requests.push(event);
+        self.record_request_fields(
+            meta.request_id,
+            meta.route,
+            meta.kind,
+            (started_at_unix_ms, finished_at_unix_ms),
+            duration_to_us(started.elapsed()),
+            outcome,
+        );
 
         value
     }
@@ -297,6 +294,28 @@ impl Tailscope {
     #[must_use]
     pub fn snapshot(&self) -> Run {
         lock_run(&self.run).clone()
+    }
+
+    /// Records one request event using pre-computed timing and outcome fields.
+    pub fn record_request_fields(
+        &self,
+        request_id: impl Into<String>,
+        route: impl Into<String>,
+        kind: Option<String>,
+        time_window_unix_ms: (u64, u64),
+        latency_us: u64,
+        outcome: impl Into<String>,
+    ) {
+        let (started_at_unix_ms, finished_at_unix_ms) = time_window_unix_ms;
+        lock_run(&self.run).requests.push(RequestEvent {
+            request_id: request_id.into(),
+            route: route.into(),
+            kind,
+            started_at_unix_ms,
+            finished_at_unix_ms,
+            latency_us,
+            outcome: outcome.into(),
+        });
     }
 
     /// Writes the current run to the configured sink.
