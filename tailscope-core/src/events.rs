@@ -1,0 +1,137 @@
+use serde::{Deserialize, Serialize};
+
+use crate::CaptureMode;
+
+/// A full output artifact for one tailscope capture run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Run {
+    /// Metadata for the capture session.
+    pub metadata: RunMetadata,
+    /// Request timing events.
+    pub requests: Vec<RequestEvent>,
+    /// Stage timing events.
+    pub stages: Vec<StageEvent>,
+    /// Queue wait timing events.
+    pub queues: Vec<QueueEvent>,
+    /// In-flight gauge changes over time.
+    pub inflight: Vec<InFlightSnapshot>,
+    /// Tokio runtime metrics snapshots.
+    pub runtime_snapshots: Vec<RuntimeSnapshot>,
+}
+
+impl Run {
+    /// Creates an empty run with the provided metadata.
+    #[must_use]
+    pub fn new(metadata: RunMetadata) -> Self {
+        Self {
+            metadata,
+            requests: Vec::new(),
+            stages: Vec::new(),
+            queues: Vec::new(),
+            inflight: Vec::new(),
+            runtime_snapshots: Vec::new(),
+        }
+    }
+}
+
+/// Top-level metadata for one capture run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunMetadata {
+    /// A unique identifier for the run.
+    pub run_id: String,
+    /// Service/application name.
+    pub service_name: String,
+    /// Optional service version.
+    pub service_version: Option<String>,
+    /// Timestamp (milliseconds since epoch UTC) when collection started.
+    pub started_at_unix_ms: u64,
+    /// Timestamp (milliseconds since epoch UTC) when collection ended.
+    pub finished_at_unix_ms: u64,
+    /// Capture mode, such as "light" or "investigation".
+    pub mode: CaptureMode,
+    /// Hostname if available.
+    pub host: Option<String>,
+    /// Process identifier if available.
+    pub pid: Option<u32>,
+}
+
+/// Per-request timing and status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestEvent {
+    /// Correlation ID for the request.
+    pub request_id: String,
+    /// Route name, operation, or endpoint.
+    pub route: String,
+    /// Semantic request kind.
+    pub kind: Option<String>,
+    /// Request start timestamp (milliseconds since epoch UTC).
+    pub started_at_unix_ms: u64,
+    /// Request completion timestamp (milliseconds since epoch UTC).
+    pub finished_at_unix_ms: u64,
+    /// Total request latency in microseconds.
+    pub latency_us: u64,
+    /// Logical outcome such as "ok", "error", or "timeout".
+    pub outcome: String,
+}
+
+/// Timing record for one named stage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StageEvent {
+    /// Parent request ID.
+    pub request_id: String,
+    /// Stage identifier.
+    pub stage: String,
+    /// Stage start timestamp (milliseconds since epoch UTC).
+    pub started_at_unix_ms: u64,
+    /// Stage completion timestamp (milliseconds since epoch UTC).
+    pub finished_at_unix_ms: u64,
+    /// Stage latency in microseconds.
+    pub latency_us: u64,
+    /// Whether the stage returned a successful result.
+    pub success: bool,
+}
+
+/// Queue wait measurement for a request waiting on a queue/permit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueEvent {
+    /// Parent request ID.
+    pub request_id: String,
+    /// Queue identifier.
+    pub queue: String,
+    /// Queue wait start timestamp (milliseconds since epoch UTC).
+    pub waited_from_unix_ms: u64,
+    /// Queue wait end timestamp (milliseconds since epoch UTC).
+    pub waited_until_unix_ms: u64,
+    /// Total wait time in microseconds.
+    pub wait_us: u64,
+    /// Queue depth sample captured at wait start, if known.
+    pub depth_at_start: Option<u64>,
+}
+
+/// Point-in-time in-flight gauge reading.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InFlightSnapshot {
+    /// Gauge name.
+    pub gauge: String,
+    /// Timestamp (milliseconds since epoch UTC).
+    pub at_unix_ms: u64,
+    /// Number of in-flight units.
+    pub count: u64,
+}
+
+/// Point-in-time runtime metrics sample.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeSnapshot {
+    /// Timestamp (milliseconds since epoch UTC).
+    pub at_unix_ms: u64,
+    /// Number of alive tasks.
+    pub alive_tasks: Option<u64>,
+    /// Runtime global queue depth.
+    pub global_queue_depth: Option<u64>,
+    /// Aggregated runtime local queue depth across worker threads.
+    pub local_queue_depth: Option<u64>,
+    /// Runtime blocking pool queue depth.
+    pub blocking_queue_depth: Option<u64>,
+    /// Runtime remote schedule count.
+    pub remote_schedule_count: Option<u64>,
+}
