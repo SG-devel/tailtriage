@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use tailscope_core::{Config, Tailscope};
 use tailscope_macros::instrument_request;
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
@@ -58,6 +60,25 @@ async fn err_handler(state: u32) -> Result<u32, &'static str> {
     Err("boom")
 }
 
+#[instrument_request(
+    route = "/macro",
+    kind = "macro_collector",
+    tailscope = tailscope,
+    request_id = request_id.clone(),
+    skip(tailscope)
+)]
+async fn collector_handler(
+    tailscope: &Tailscope,
+    request_id: String,
+    succeed: bool,
+) -> Result<&'static str, &'static str> {
+    if succeed {
+        Ok("ok")
+    } else {
+        Err("boom")
+    }
+}
+
 #[tokio::test]
 async fn records_ok_and_error_outcomes() {
     let recorded = RecordedEvents::default();
@@ -94,4 +115,45 @@ async fn records_ok_and_error_outcomes() {
     assert!(tail_events
         .iter()
         .all(|line| line.contains("kind=\"create_invoice\"")));
+}
+
+#[tokio::test]
+async fn writes_request_events_to_run_json_when_tailscope_is_provided() {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before epoch")
+        .as_nanos();
+    let output_path = std::env::temp_dir().join(format!("tailscope_macro_run_{nanos}.json"));
+
+    let mut config = Config::new("macro-test");
+    config.output_path = output_path.clone();
+
+    let tailscope = Tailscope::init(config).expect("init should succeed");
+
+    let ok = collector_handler(&tailscope, "req-ok".to_string(), true)
+        .await
+        .expect("ok request should succeed");
+    assert_eq!(ok, "ok");
+
+    let err = collector_handler(&tailscope, "req-err".to_string(), false)
+        .await
+        .expect_err("error request should fail");
+    assert_eq!(err, "boom");
+
+    tailscope.flush().expect("flush should succeed");
+
+    let run_json = std::fs::read_to_string(&output_path).expect("run artifact should be readable");
+    let run_value: serde_json::Value =
+        serde_json::from_str(&run_json).expect("run artifact should be valid json");
+    let requests = run_value["requests"]
+        .as_array()
+        .expect("run artifact requests should be an array");
+
+    assert_eq!(requests.len(), 2);
+    assert!(requests.iter().any(|event| event["request_id"] == "req-ok"));
+    assert!(requests
+        .iter()
+        .any(|event| event["request_id"] == "req-err"));
+    assert!(requests.iter().any(|event| event["outcome"] == "ok"));
+    assert!(requests.iter().any(|event| event["outcome"] == "error"));
 }

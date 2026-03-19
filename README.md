@@ -82,6 +82,33 @@ cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
 ```
 
+### 3) Macro-based request entry point
+
+```rust
+use std::sync::Arc;
+use tailscope_core::Tailscope;
+use tailscope_tokio::instrument_request;
+
+#[instrument_request(
+    route = "/invoice",
+    kind = "create_invoice",
+    tailscope = tailscope,
+    request_id = request_id.clone(),
+    skip(tailscope)
+)]
+async fn create_invoice(
+    tailscope: Arc<Tailscope>,
+    request_id: String,
+) -> Result<(), &'static str> {
+    let _inflight = tailscope.inflight("invoice_inflight");
+    Ok(())
+}
+```
+
+```bash
+tailscope analyze tailscope-run.json
+```
+
 ## Diagnosis categories (MVP)
 
 The analyzer ranks suspects from run evidence:
