@@ -2,6 +2,14 @@ name: CI
 
 on:
   pull_request:
+    paths:
+      - '**/*.rs'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/build.rs'
+      - 'rust-toolchain'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/ci.yml'
 
 jobs:
   checks:
