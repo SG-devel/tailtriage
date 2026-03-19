@@ -28,7 +28,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailscope_core::{RuntimeSnapshot, Tailscope};
+use tailscope_core::{unix_time_ms, RuntimeSnapshot, Tailscope};
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -143,17 +143,6 @@ pub fn capture_runtime_snapshot(handle: &Handle) -> RuntimeSnapshot {
         blocking_queue_depth,
         remote_schedule_count,
     }
-}
-
-fn unix_time_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

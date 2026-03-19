@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::Context;
-use tailscope_core::{Config, RequestMeta, RuntimeSnapshot, Tailscope};
+use tailscope_core::{unix_time_ms, Config, RequestMeta, RuntimeSnapshot, Tailscope};
 
 #[derive(Clone, Copy)]
 enum DemoMode {
@@ -157,13 +157,4 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
     println!("wrote {}", output_path.display());
 
     Ok(())
-}
-
-fn unix_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }

@@ -1,7 +1,7 @@
 use std::time::Instant;
 
-use crate::collector::{duration_to_us, lock_map, lock_run, unix_time_ms};
-use crate::{InFlightSnapshot, QueueEvent, StageEvent, Tailscope};
+use crate::collector::{duration_to_us, lock_map, lock_run};
+use crate::{unix_time_ms, InFlightSnapshot, QueueEvent, StageEvent, Tailscope};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
 #[derive(Debug)]
