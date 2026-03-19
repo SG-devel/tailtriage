@@ -51,6 +51,10 @@ When in-flight snapshots are present, the report emits a dominant gauge summary:
 - `inflight_trend.growth_delta`
 - `inflight_trend.growth_per_sec_milli` (count/sec in milli-units)
 
+In text output, this summary is rendered on one explicit line:
+
+- `inflight_trend gauge=<name> samples=<n> peak=<count> p95=<count> growth_delta=<delta> growth_per_sec_milli=<value>`
+
 Interpretation guidance:
 
 - positive `growth_delta` means in-flight work accumulated over the run window
