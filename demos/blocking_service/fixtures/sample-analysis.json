@@ -1,0 +1,33 @@
+{
+  "request_count": 250,
+  "p50_latency_us": 1881608,
+  "p95_latency_us": 3545649,
+  "p99_latency_us": 3695811,
+  "primary_suspect": {
+    "kind": "BlockingPoolPressure",
+    "score": 80,
+    "confidence": "medium",
+    "evidence": [
+      "Blocking queue depth p95 is 244, indicating sustained spawn_blocking backlog."
+    ],
+    "next_checks": [
+      "Audit blocking sections and move avoidable synchronous work out of hot paths.",
+      "Inspect spawn_blocking callsites for long-running CPU or I/O work."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "DownstreamStageDominates",
+      "score": 60,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'spawn_blocking_path' has p95 latency 3544453 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 469122763 us."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'spawn_blocking_path'.",
+        "Collect downstream service timings and retry behavior during tail windows."
+      ]
+    }
+  ]
+}
