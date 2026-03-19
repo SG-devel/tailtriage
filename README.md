@@ -195,7 +195,14 @@ Current repository state:
 - `tailscope-core` includes run schema, local JSON sink, and initial `Config`/`Tailscope::init` plus request, in-flight, stage, and queue timing primitives
 - `tailscope-tokio` exports `#[instrument_request(...)]` and `RuntimeSampler` for periodic Tokio runtime metrics snapshots
 - `tailscope-tokio` records `None` for runtime metrics unavailable without `tokio_unstable` (such as local queue, blocking queue, and remote schedule counters)
-- `tailscope-cli` remains a bootstrap placeholder
+- `tailscope-cli` supports `tailscope analyze <run.json>` with text or JSON diagnosis output
+
+### CLI quick start
+
+```bash
+tailscope analyze tailscope-run.json
+tailscope analyze tailscope-run.json --format json
+```
 
 ## Development philosophy
 - small PRs
