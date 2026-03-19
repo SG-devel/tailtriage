@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 tailscope-core = { path = "../tailscope-core" }
+tailscope-macros = { path = "../tailscope-macros" }
+tracing = "0.1"
 
 [lints]
 workspace = true
