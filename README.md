@@ -192,7 +192,7 @@ Current workspace members:
 Current repository state:
 - Cargo workspace compiles
 - CI runs format, clippy, and tests
-- `tailscope-core` includes run schema, local JSON sink, and initial `Config`/`Tailscope::init` + request timing scope support
+- `tailscope-core` includes run schema, local JSON sink, and initial `Config`/`Tailscope::init` plus request, in-flight, stage, and queue timing primitives
 - `tailscope-tokio` and `tailscope-cli` remain bootstrap placeholders
 
 ## Development philosophy
