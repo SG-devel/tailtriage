@@ -139,6 +139,46 @@ fn request_records_timing_and_outcome() {
 }
 
 #[test]
+fn request_meta_for_route_generates_traceable_unique_ids() {
+    let first = RequestMeta::for_route("/invoice");
+    let second = RequestMeta::for_route("/invoice");
+
+    assert_eq!(first.route, "/invoice");
+    assert_eq!(second.route, "/invoice");
+    assert_ne!(first.request_id, second.request_id);
+    assert!(first.request_id.starts_with("_invoice-"));
+    assert!(second.request_id.starts_with("_invoice-"));
+}
+
+#[test]
+fn request_with_kind_records_helper_fields() {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before epoch")
+        .as_nanos();
+
+    let mut config = Config::new("payments");
+    config.output_path = std::env::temp_dir().join(format!("tailscope_core_helper_{nanos}.json"));
+
+    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let result = futures_executor::block_on(tailscope.request_with_kind(
+        "/invoice",
+        "create_invoice",
+        "ok",
+        ready(9_u32),
+    ));
+    assert_eq!(result, 9);
+
+    let snapshot = tailscope.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    let event = &snapshot.requests[0];
+    assert_eq!(event.route, "/invoice");
+    assert_eq!(event.kind.as_deref(), Some("create_invoice"));
+    assert_eq!(event.outcome, "ok");
+    assert!(event.request_id.starts_with("_invoice-"));
+}
+
+#[test]
 fn flush_writes_current_snapshot() {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
