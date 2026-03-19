@@ -77,6 +77,8 @@ pub struct Report {
     pub p50_latency_us: Option<u64>,
     pub p95_latency_us: Option<u64>,
     pub p99_latency_us: Option<u64>,
+    pub p95_queue_share_permille: Option<u64>,
+    pub p95_service_share_permille: Option<u64>,
     pub primary_suspect: Suspect,
     pub secondary_suspects: Vec<Suspect>,
 }
@@ -92,6 +94,9 @@ pub fn analyze_run(run: &Run) -> Report {
     let p50_latency_us = percentile(&request_latencies, 50, 100);
     let p95_latency_us = percentile(&request_latencies, 95, 100);
     let p99_latency_us = percentile(&request_latencies, 99, 100);
+    let (queue_shares, service_shares) = request_time_shares(run);
+    let p95_queue_share_permille = percentile(&queue_shares, 95, 100);
+    let p95_service_share_permille = percentile(&service_shares, 95, 100);
 
     let mut suspects = Vec::new();
 
@@ -145,13 +150,15 @@ pub fn analyze_run(run: &Run) -> Report {
         p50_latency_us,
         p95_latency_us,
         p99_latency_us,
+        p95_queue_share_permille,
+        p95_service_share_permille,
         primary_suspect,
         secondary_suspects: ranked.collect(),
     }
 }
 
 fn queue_saturation_suspect(run: &Run) -> Option<Suspect> {
-    let queue_shares = request_queue_shares(run);
+    let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
     let max_depth = run
         .queues
@@ -280,7 +287,7 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
     ))
 }
 
-fn request_queue_shares(run: &Run) -> Vec<u64> {
+fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {
     let mut total_queue_wait_by_request = HashMap::<&str, u64>::new();
     for queue in &run.queues {
         *total_queue_wait_by_request
@@ -292,20 +299,26 @@ fn request_queue_shares(run: &Run) -> Vec<u64> {
             .saturating_add(queue.wait_us);
     }
 
-    run.requests
-        .iter()
-        .filter_map(|request| {
-            if request.latency_us == 0 {
-                return None;
-            }
+    let mut queue_shares = Vec::new();
+    let mut service_shares = Vec::new();
 
-            let queue_wait = total_queue_wait_by_request
-                .get(request.request_id.as_str())
-                .copied()
-                .unwrap_or_default();
-            Some(queue_wait.saturating_mul(1_000) / request.latency_us)
-        })
-        .collect()
+    for request in &run.requests {
+        if request.latency_us == 0 {
+            continue;
+        }
+
+        let queue_wait = total_queue_wait_by_request
+            .get(request.request_id.as_str())
+            .copied()
+            .unwrap_or_default()
+            .min(request.latency_us);
+        let service_time = request.latency_us.saturating_sub(queue_wait);
+
+        queue_shares.push(queue_wait.saturating_mul(1_000) / request.latency_us);
+        service_shares.push(service_time.saturating_mul(1_000) / request.latency_us);
+    }
+
+    (queue_shares, service_shares)
 }
 
 fn runtime_metric_series(
@@ -350,6 +363,10 @@ pub fn render_text(report: &Report) -> String {
         format!(
             "latency_us p50={:?} p95={:?} p99={:?}",
             report.p50_latency_us, report.p95_latency_us, report.p99_latency_us
+        ),
+        format!(
+            "request_time_share_permille p95 queue={:?} service={:?}",
+            report.p95_queue_share_permille, report.p95_service_share_permille
         ),
         format!(
             "primary: {} (confidence={:?}, score={})",
