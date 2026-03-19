@@ -1,4 +1,6 @@
-//! Tokio runtime integration for tailscope (placeholder).
+//! Tokio runtime integration for tailscope.
+
+pub use tailscope_macros::instrument_request;
 
 /// Returns the crate name for smoke-testing workspace wiring.
 #[must_use]

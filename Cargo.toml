@@ -3,6 +3,7 @@ members = [
   "tailscope-core",
   "tailscope-tokio",
   "tailscope-cli",
+  "tailscope-macros",
 ]
 resolver = "2"
 
