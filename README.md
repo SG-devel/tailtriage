@@ -33,6 +33,71 @@ This repository is an MVP release candidate with three workspace crates:
 
 ## Quick start
 
+## 5-minute quickstart (end to end)
+
+### 1) Add dependencies
+
+In your `Cargo.toml`:
+
+```toml
+[dependencies]
+tailscope-core = { path = "../tailscope-core" }
+tailscope-tokio = { path = "../tailscope-tokio" }
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+```
+
+### 2) Minimal runnable `main.rs`
+
+```rust
+use std::time::Duration;
+
+use tailscope_core::{Config, RequestMeta, Tailscope};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = Config::new("quickstart-service");
+    config.output_path = "tailscope-run.json".into();
+
+    let tailscope = Tailscope::init(config)?;
+
+    let request = RequestMeta::for_route("/demo").with_kind("quickstart");
+    let request_id = request.request_id.clone();
+
+    tailscope
+        .request(request, "ok", async {
+            tailscope
+                .queue(request_id.clone(), "ingress_queue")
+                .await_on(tokio::time::sleep(Duration::from_millis(5)))
+                .await;
+
+            tailscope
+                .stage(request_id, "db_call")
+                .await_on(tokio::time::sleep(Duration::from_millis(12)))
+                .await;
+        })
+        .await;
+
+    tailscope.flush()?;
+    Ok(())
+}
+```
+
+### 3) Run and analyze
+
+```bash
+cargo run
+cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
+cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
+```
+
+### 4) What to look for
+
+- `Primary suspect`: the top-ranked bottleneck category for this run.
+- `Score`: higher score means stronger evidence for that suspect in this run.
+- `Queue/service share`: request time split (queue time share vs service/stage time share) to tell whether waiting or work dominates p95 latency.
+
+For more diagnosis detail, see [`docs/diagnostics.md`](docs/diagnostics.md).
+
 ### 1) Collect a run artifact
 
 ```rust
