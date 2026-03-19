@@ -1,0 +1,22 @@
+{
+  "request_count": 250,
+  "p50_latency_us": 17043,
+  "p95_latency_us": 24745,
+  "p99_latency_us": 26891,
+  "p95_queue_share_permille": 5,
+  "p95_service_share_permille": 1000,
+  "primary_suspect": {
+    "kind": "DownstreamStageDominates",
+    "score": 60,
+    "confidence": "low",
+    "evidence": [
+      "Stage 'simulated_work' has p95 latency 24066 us across 250 samples.",
+      "Stage 'simulated_work' cumulative latency is 4468249 us."
+    ],
+    "next_checks": [
+      "Inspect downstream dependency behind stage 'simulated_work'.",
+      "Collect downstream service timings and retry behavior during tail windows."
+    ]
+  },
+  "secondary_suspects": []
+}

@@ -118,6 +118,17 @@ Confidence is an internal ranking confidence, not a statistical confidence inter
 4. Validate suspect with one targeted experiment.
 5. Re-run and compare before/after output.
 
+### Queue demo before/after example
+
+`scripts/run_queue_demo.sh` now emits `before` (pathological baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/queue_service/artifacts/before-after-comparison.json`.
+
+In the current checked-in fixtures:
+
+- `before-analysis.json` reports `ApplicationQueueSaturation` with score `90` and p95 latency `1,682,454us`
+- `after-analysis.json` reports p95 latency `24,745us` with queue share reduced from `981` to `5` permille
+
+Use this pattern for diagnosis validation: keep load shape constant, adjust one mitigation lever, and compare suspect ranking plus p95-level shares.
+
 ## Limitations
 
 - No cross-service correlation.

@@ -7,12 +7,32 @@ use anyhow::Context;
 use tailscope_core::{Config, RequestMeta, Tailscope};
 use tokio::sync::Semaphore;
 
+#[derive(Clone, Copy)]
+enum DemoMode {
+    Baseline,
+    Mitigated,
+}
+
+impl DemoMode {
+    fn from_arg(value: Option<String>) -> anyhow::Result<Self> {
+        match value.as_deref() {
+            None | Some("baseline") | Some("before") => Ok(Self::Baseline),
+            Some("mitigated") | Some("after") => Ok(Self::Mitigated),
+            Some(other) => anyhow::bail!(
+                "unsupported mode '{other}', expected one of: baseline, before, mitigated, after"
+            ),
+        }
+    }
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
-    let output_path = std::env::args()
-        .nth(1)
+    let mut args = std::env::args().skip(1);
+    let output_path = args
+        .next()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("demos/queue_service/artifacts/queue-run.json"));
+    let mode = DemoMode::from_arg(args.next())?;
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
@@ -23,9 +43,28 @@ async fn main() -> anyhow::Result<()> {
     config.output_path = output_path.clone();
     let tailscope = Arc::new(Tailscope::init(config)?);
 
-    let service_capacity = 4;
-    let offered_requests = 250_u64;
-    let work_duration = Duration::from_millis(25);
+    let (
+        service_capacity,
+        offered_requests,
+        work_duration,
+        inter_arrival_pause_every,
+        inter_arrival_delay,
+    ) = match mode {
+        DemoMode::Baseline => (
+            4,
+            250_u64,
+            Duration::from_millis(25),
+            5,
+            Duration::from_millis(1),
+        ),
+        DemoMode::Mitigated => (
+            12,
+            250_u64,
+            Duration::from_millis(15),
+            2,
+            Duration::from_millis(2),
+        ),
+    };
 
     let semaphore = Arc::new(Semaphore::new(service_capacity));
     let waiting_depth = Arc::new(AtomicU64::new(0));
@@ -63,8 +102,8 @@ async fn main() -> anyhow::Result<()> {
                 .await;
         }));
 
-        if request_number % 5 == 0 {
-            tokio::time::sleep(Duration::from_millis(1)).await;
+        if request_number % inter_arrival_pause_every == 0 {
+            tokio::time::sleep(inter_arrival_delay).await;
         }
     }
 
