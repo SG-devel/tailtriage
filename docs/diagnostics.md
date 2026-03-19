@@ -151,6 +151,17 @@ In the current checked-in fixtures:
 
 Use this pattern for diagnosis validation: keep load shape constant, adjust one mitigation lever, and compare suspect ranking plus p95-level shares.
 
+### Blocking demo before/after example
+
+`scripts/run_blocking_demo.sh` now emits `before` (blocking-pool-constrained baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/blocking_service/artifacts/before-after-comparison.json`.
+
+In the current checked-in fixtures:
+
+- `before-analysis.json` reports `BlockingPoolPressure` with score `80`, p95 latency `3,524,739us`, and blocking queue depth p95 of `244`
+- `after-analysis.json` reports p95 latency `82,559us` with the same suspect score but lower blocking queue depth p95 (`39`)
+
+This demo validates mitigation by comparing both latency and at least one pressure signal (`blocking_queue_depth_p95`, suspect score, or p95 share) instead of relying on suspect kind changes alone.
+
 ## Limitations
 
 - No cross-service correlation.
