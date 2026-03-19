@@ -174,6 +174,25 @@ async fn create_invoice(
 tailscope analyze tailscope-run.json
 ```
 
+## Integration cost and boilerplate
+
+| Required for useful output | Optional for richer diagnosis |
+| --- | --- |
+| **One-time init**: `Config::new(...)` + `Tailscope::init(config)` | **Runtime sampler (when needed)**: `RuntimeSampler::start(Arc::clone(&tailscope), interval)` to add runtime pressure evidence |
+| **Request wrapper**: `tailscope.request(RequestMeta::for_route(...), outcome, async { ... })` (or `request_for_route` / `request_with_kind`) | **Macro path convenience**: `#[instrument_request(...)]` for request entry points, including optional `tailscope = ...` + `request_id = ...` recording |
+| **Queue/stage wrappers**: `tailscope.queue(request_id.clone(), "...").await_on(...)` + `tailscope.stage(request_id, "...").await_on(...)` around key awaits | **Extra signal**: `tailscope.inflight("...")` guards around bounded shared resources |
+| **Artifact output**: `tailscope.flush()?` before process exit | **More stage coverage**: instrument additional downstream stages/queues as confidence needs grow |
+
+### Minimum viable integration checklist
+
+1. Add `tailscope-core` and call `Tailscope::init(Config::new("service-name"))` at startup.
+2. Wrap each request in `tailscope.request(...)` (or `request_for_route` / `request_with_kind`) with a stable route + outcome.
+3. Around at least one suspected wait point, add `tailscope.queue(...).await_on(...)` and `tailscope.stage(...).await_on(...)`.
+4. Call `tailscope.flush()?` on shutdown to emit `tailscope-run.json`.
+5. (Optional) If the report suggests executor/blocking pressure uncertainty, add `RuntimeSampler::start(...)` and rerun.
+
+Rough app-code cost for useful output is typically **~15–30 lines** (init + request wrapper + one queue/stage pair + flush), with **~5–15 more lines** if you add runtime sampling and/or the `#[instrument_request]` convenience path.
+
 ## Diagnosis categories (MVP)
 
 The analyzer ranks suspects from run evidence:
