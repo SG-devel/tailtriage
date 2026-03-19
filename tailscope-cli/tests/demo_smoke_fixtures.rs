@@ -43,3 +43,20 @@ fn blocking_demo_fixture_reports_blocking_pool_pressure() {
         "blocking demo should strongly prioritize blocking pressure"
     );
 }
+
+#[test]
+fn downstream_demo_fixture_reports_downstream_stage_dominance() {
+    let report = load_demo_analysis("demos/downstream_service/fixtures/sample-analysis.json");
+
+    assert_eq!(
+        report["primary_suspect"]["kind"],
+        Value::String("DownstreamStageDominates".to_string())
+    );
+    assert!(
+        report["primary_suspect"]["score"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 60,
+        "downstream demo should prioritize downstream stage dominance"
+    );
+}

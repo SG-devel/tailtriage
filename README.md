@@ -187,6 +187,31 @@ Artifacts:
 - `demos/blocking_service/artifacts/blocking-run.json`
 - `demos/blocking_service/artifacts/blocking-analysis.json`
 
+### Downstream-stage dominance demo
+
+Canonical (Python-first):
+
+```bash
+python3 scripts/run_downstream_demo.py
+python3 scripts/validate_downstream_demo.py
+```
+
+Compatibility wrappers:
+
+```bash
+scripts/run_downstream_demo.sh
+scripts/validate_downstream_demo.sh
+```
+
+Artifacts:
+
+- `demos/downstream_service/artifacts/downstream-run.json`
+- `demos/downstream_service/artifacts/downstream-analysis.json`
+
+Fixture snapshot:
+
+- `demos/downstream_service/fixtures/sample-analysis.json`
+
 ## Runtime cost measurement
 
 Use the reproducible harness (canonical Python-first invocation):
@@ -229,7 +254,7 @@ This keeps one implementation path while still supporting existing shell-based i
 - `tailscope-core/`: instrumentation and run schema
 - `tailscope-tokio/`: runtime sampler and macro integration
 - `tailscope-cli/`: analyzer and report rendering
-- `demos/`: queue and blocking proof cases
+- `demos/`: queue, blocking, and downstream-stage proof cases
 - `scripts/`: reproducible demo + validation + runtime-cost scripts
 - `docs/`: architecture, diagnostics, and runtime-cost docs
 
