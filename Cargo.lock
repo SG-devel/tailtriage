@@ -245,6 +245,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime_cost"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tailscope-core",
+ "tailscope-tokio",
+ "tokio",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
