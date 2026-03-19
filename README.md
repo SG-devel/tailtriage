@@ -82,7 +82,7 @@ async fn handle_demo(tailscope: &tailscope_core::Tailscope) {
 
 ## Canonical integration path
 
-> Script workflows are Python-first and canonical.
+> Rust API integration (`tailscope-core` + `tailscope-tokio`) is the canonical product path.
 
 1. Initialize one collector: `Tailscope::init(Config::new("service-name"))`.
 2. Manual path: wrap request entry points with `request(RequestMeta::for_route(...).with_kind(...), ...)`.
@@ -92,6 +92,12 @@ async fn handle_demo(tailscope: &tailscope_core::Tailscope) {
 6. Optionally add `inflight(...)` guards and `RuntimeSampler::start(...)` when diagnosis evidence is insufficient.
 7. Flush and analyze: `tailscope.flush()?` then `tailscope analyze <run.json>`.
 
+### Demo and reproducibility workflows
+
+Python scripts are for deterministic demos, fixtures, and reproducibility workflows, not for primary product integration.
+
+Typical user workflow: instrument a Rust service and run the CLI analyzer; maintainer/demo workflow: run `scripts/*.py` to validate scenarios deterministically.
+
 ## MVP limitations
 
 - Tokio-only runtime support.
@@ -100,6 +106,7 @@ async fn handle_demo(tailscope: &tailscope_core::Tailscope) {
 
 ## Docs index
 
+- [User guide](docs/user-guide.md)
 - [Architecture](docs/architecture.md)
 - [Diagnostics guide](docs/diagnostics.md)
 - [Getting started demos](docs/getting-started-demo.md)
