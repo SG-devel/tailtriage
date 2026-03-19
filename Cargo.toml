@@ -4,6 +4,7 @@ members = [
   "tailscope-tokio",
   "tailscope-cli",
   "tailscope-macros",
+  "demos/queue_service",
 ]
 resolver = "2"
 
