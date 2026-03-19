@@ -204,6 +204,12 @@ Important: these are evidence-ranked suspects, **not** proof of root cause.
 
 Validation scripts in `scripts/` must pass for both demos.
 
+### 9.1 Additional runnable proof case
+
+- `demos/downstream_service`: deterministic downstream-stage dominance scenario that should rank `DownstreamStageDominates` as the primary suspect.
+
+This demo is intentionally small and single-purpose; it extends storytelling trust without expanding MVP scope.
+
 ## 10. Runtime-cost measurement
 
 Repro harness:
