@@ -6,11 +6,61 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use tailscope_core::{Config, RequestMeta, RuntimeSnapshot, Tailscope};
 
+#[derive(Clone, Copy)]
+enum DemoMode {
+    Baseline,
+    Mitigated,
+}
+
+impl DemoMode {
+    fn from_arg(value: Option<String>) -> anyhow::Result<Self> {
+        match value.as_deref() {
+            None | Some("baseline") | Some("before") => Ok(Self::Baseline),
+            Some("mitigated") | Some("after") => Ok(Self::Mitigated),
+            Some(other) => anyhow::bail!(
+                "unsupported mode '{other}', expected one of: baseline, before, mitigated, after"
+            ),
+        }
+    }
+}
+
+struct ModeSettings {
+    offered_requests: u64,
+    blocking_work: Duration,
+    inter_arrival_pause_every: u64,
+    inter_arrival_delay: Duration,
+    max_blocking_threads: usize,
+}
+
+impl ModeSettings {
+    fn for_mode(mode: DemoMode) -> Self {
+        match mode {
+            DemoMode::Baseline => Self {
+                offered_requests: 250,
+                blocking_work: Duration::from_millis(30),
+                inter_arrival_pause_every: 8,
+                inter_arrival_delay: Duration::from_millis(1),
+                max_blocking_threads: 2,
+            },
+            DemoMode::Mitigated => Self {
+                offered_requests: 250,
+                blocking_work: Duration::from_millis(15),
+                inter_arrival_pause_every: 2,
+                inter_arrival_delay: Duration::from_millis(2),
+                max_blocking_threads: 8,
+            },
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
-    let output_path = std::env::args()
-        .nth(1)
+    let mut args = std::env::args().skip(1);
+    let output_path = args
+        .next()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("demos/blocking_service/artifacts/blocking-run.json"));
+    let mode = DemoMode::from_arg(args.next())?;
+    let settings = ModeSettings::for_mode(mode);
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
@@ -19,21 +69,18 @@ fn main() -> anyhow::Result<()> {
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
-        .max_blocking_threads(2)
+        .max_blocking_threads(settings.max_blocking_threads)
         .enable_time()
         .build()
         .context("failed to build Tokio runtime")?;
 
-    runtime.block_on(run_demo(output_path))
+    runtime.block_on(run_demo(output_path, settings))
 }
 
-async fn run_demo(output_path: PathBuf) -> anyhow::Result<()> {
+async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
     let mut config = Config::new("blocking_service_demo");
     config.output_path = output_path.clone();
     let tailscope = Arc::new(Tailscope::init(config)?);
-
-    let offered_requests: u64 = 250;
-    let blocking_work = Duration::from_millis(30);
 
     let pending_blocking = Arc::new(AtomicU64::new(0));
 
@@ -58,11 +105,12 @@ async fn run_demo(output_path: PathBuf) -> anyhow::Result<()> {
         })
     };
 
-    let mut tasks = Vec::with_capacity(offered_requests as usize);
+    let mut tasks = Vec::with_capacity(settings.offered_requests as usize);
 
-    for request_number in 0..offered_requests {
+    for request_number in 0..settings.offered_requests {
         let tailscope = Arc::clone(&tailscope);
         let pending_blocking = Arc::clone(&pending_blocking);
+        let blocking_work = settings.blocking_work;
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
@@ -94,8 +142,8 @@ async fn run_demo(output_path: PathBuf) -> anyhow::Result<()> {
                 .await;
         }));
 
-        if request_number % 8 == 0 {
-            tokio::time::sleep(Duration::from_millis(1)).await;
+        if request_number % settings.inter_arrival_pause_every == 0 {
+            tokio::time::sleep(settings.inter_arrival_delay).await;
         }
     }
 
