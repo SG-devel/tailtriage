@@ -78,6 +78,35 @@ impl Tailscope {
         value
     }
 
+    /// Times one request future with an auto-generated request ID for `route`.
+    pub async fn request_for_route<Fut, T>(
+        &self,
+        route: impl Into<String>,
+        outcome: impl Into<String>,
+        fut: Fut,
+    ) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        self.request(RequestMeta::for_route(route), outcome, fut)
+            .await
+    }
+
+    /// Times one request future with an auto-generated request ID and explicit `kind`.
+    pub async fn request_with_kind<Fut, T>(
+        &self,
+        route: impl Into<String>,
+        kind: impl Into<String>,
+        outcome: impl Into<String>,
+        fut: Fut,
+    ) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        self.request(RequestMeta::for_route(route).with_kind(kind), outcome, fut)
+            .await
+    }
+
     /// Returns a clone of the current in-memory run state.
     #[must_use]
     pub fn snapshot(&self) -> Run {
