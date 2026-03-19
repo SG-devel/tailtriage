@@ -31,8 +31,6 @@ This repository is an MVP release candidate with three workspace crates:
 - a GUI observability product
 - a claim of root-cause certainty
 
-## Quick start
-
 ## 5-minute quickstart (end to end)
 
 ### 1) Add dependencies
@@ -43,7 +41,25 @@ In your `Cargo.toml`:
 [dependencies]
 tailscope-core = { path = "../tailscope-core" }
 tailscope-tokio = { path = "../tailscope-tokio" }
-tokio = { version = "1", features = ["macros", "rt", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+```
+
+
+If you want a **copy/paste verification path** from a blank app, run this sequence:
+
+```bash
+export TAILSCOPE_REPO="/path/to/this/repo"
+mkdir -p /tmp/tailscope-quickstart && cd /tmp/tailscope-quickstart
+cargo new quickstart --bin && cd quickstart
+```
+
+Then use this `Cargo.toml` dependency block (replace the placeholder path):
+
+```toml
+[dependencies]
+tailscope-core = { path = "/absolute/path/to/tailscope/tailscope-core" }
+tailscope-tokio = { path = "/absolute/path/to/tailscope/tailscope-tokio" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
 ### 2) Minimal runnable `main.rs`
@@ -55,14 +71,17 @@ use tailscope_core::{Config, RequestMeta, Tailscope};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // tailscope boilerplate: init + output path
     let mut config = Config::new("quickstart-service");
     config.output_path = "tailscope-run.json".into();
 
     let tailscope = Tailscope::init(config)?;
 
+    // tailscope boilerplate: request metadata + id
     let request = RequestMeta::for_route("/demo").with_kind("quickstart");
     let request_id = request.request_id.clone();
 
+    // tailscope boilerplate: request wrapper + queue/stage wrappers
     tailscope
         .request(request, "ok", async {
             tailscope
@@ -77,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await;
 
+    // tailscope boilerplate: ensure run artifact is written
     tailscope.flush()?;
     Ok(())
 }
@@ -90,9 +110,16 @@ cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
 ```
 
+If you used the `/tmp/tailscope-quickstart` verification path above, run analyzer with:
+
+```bash
+cargo run --manifest-path "$TAILSCOPE_REPO/tailscope-cli/Cargo.toml" -- analyze tailscope-run.json
+cargo run --manifest-path "$TAILSCOPE_REPO/tailscope-cli/Cargo.toml" -- analyze tailscope-run.json --format json
+```
+
 ### Example output (text + JSON)
 
-Text-mode snippet (from committed queue-service fixture style):
+Text-mode snippet (sample from a successful local quickstart analysis run):
 
 ```text
 Primary suspect: ApplicationQueueSaturation
@@ -130,6 +157,8 @@ How this guides next action:
 
 For more diagnosis detail, see [`docs/diagnostics.md`](docs/diagnostics.md).
 
+## Full integration example (runtime sampler + macro path)
+
 ### 1) Collect a run artifact
 
 ```rust
@@ -140,7 +169,7 @@ use tailscope_core::{Config, RequestMeta, Tailscope};
 use tailscope_tokio::RuntimeSampler;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::new("invoice-api");
     config.output_path = "tailscope-run.json".into();
 
@@ -150,6 +179,7 @@ async fn main() -> anyhow::Result<()> {
     let request = RequestMeta::for_route("/invoice").with_kind("create_invoice");
     let request_id = request.request_id.clone();
 
+    // tailscope boilerplate: request wrapper + queue/stage wrappers
     tailscope
         .request(request, "ok", async {
             let _inflight = tailscope.inflight("invoice_inflight");
@@ -167,6 +197,7 @@ async fn main() -> anyhow::Result<()> {
         .await;
 
     sampler.shutdown().await;
+    // tailscope boilerplate: ensure run artifact is written
     tailscope.flush()?;
     Ok(())
 }
@@ -203,7 +234,7 @@ async fn create_invoice(
 ```
 
 ```bash
-tailscope analyze tailscope-run.json
+cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 ```
 
 ## Integration cost and boilerplate
