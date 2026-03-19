@@ -38,8 +38,9 @@ python3 scripts/validate_queue_demo.py
 **Interpretation focus:**
 
 - `primary_suspect.kind`
-- `request_latency_us.p95`
 - `p95_queue_share_permille`
+- `p95_service_share_permille`
+- `primary_suspect.evidence[]`
 
 ## Blocking service demo (`demos/blocking_service`)
 
@@ -66,8 +67,9 @@ python3 scripts/validate_blocking_demo.py
 **Interpretation focus:**
 
 - `primary_suspect.kind`
-- `runtime_pressure.blocking_queue_depth.p95`
-- `request_latency_us.p95`
+- `p95_queue_share_permille`
+- `p95_service_share_permille`
+- `primary_suspect.evidence[]`
 
 ## Downstream service demo (`demos/downstream_service`)
 
@@ -92,8 +94,9 @@ python3 scripts/validate_downstream_demo.py
 **Interpretation focus:**
 
 - `primary_suspect.kind`
-- `dominant_stage.name`
-- `dominant_stage.p95_share_permille`
+- `p95_service_share_permille`
+- `p95_queue_share_permille`
+- `primary_suspect.evidence[]`
 
 ## If your local output differs
 
