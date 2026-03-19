@@ -247,6 +247,8 @@ in-flight gauge.
 
 ## Demos
 
+> **Start here:** [`docs/getting-started-demo.md`](docs/getting-started-demo.md) for the quickest path to run each demo and interpret expected analyzer signals.
+
 ### Artifact policy (tracked vs generated)
 
 `tailscope` demo/measurement outputs are split into two classes:
