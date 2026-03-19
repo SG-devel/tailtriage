@@ -1,0 +1,14 @@
+[package]
+name = "runtime_cost"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow = "1"
+tailscope-core = { path = "../../tailscope-core" }
+tailscope-tokio = { path = "../../tailscope-tokio" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -6,6 +6,7 @@ members = [
   "tailscope-macros",
   "demos/queue_service",
   "demos/blocking_service",
+  "demos/runtime_cost",
 ]
 resolver = "2"
 
