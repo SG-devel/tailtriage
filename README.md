@@ -133,6 +133,15 @@ in-flight gauge.
 
 ### Queue/backpressure demo
 
+Canonical (Python-first):
+
+```bash
+python3 scripts/run_queue_demo.py
+python3 scripts/validate_queue_demo.py
+```
+
+Compatibility wrappers:
+
 ```bash
 scripts/run_queue_demo.sh
 scripts/validate_queue_demo.sh
@@ -159,6 +168,15 @@ Observed signal in the checked-in queue demo fixtures:
 
 ### Blocking-pool pressure demo
 
+Canonical (Python-first):
+
+```bash
+python3 scripts/run_blocking_demo.py
+python3 scripts/validate_blocking_demo.py
+```
+
+Compatibility wrappers:
+
 ```bash
 scripts/run_blocking_demo.sh
 scripts/validate_blocking_demo.sh
@@ -171,7 +189,13 @@ Artifacts:
 
 ## Runtime cost measurement
 
-Use the reproducible harness:
+Use the reproducible harness (canonical Python-first invocation):
+
+```bash
+python3 scripts/measure_runtime_cost.py
+```
+
+Compatibility wrapper:
 
 ```bash
 scripts/measure_runtime_cost.sh
@@ -187,6 +211,18 @@ See `docs/runtime-cost.md` for the latest sample output and interpretation notes
 - Runtime metrics such as local queue depth / blocking queue depth may be `None` without `tokio_unstable`.
 - Stage and queue attribution quality depends on explicit `stage(...).await_on(...)` and `queue(...).await_on(...)` coverage.
 - No OpenTelemetry / Prometheus / GUI integrations in MVP.
+
+## Script portability strategy
+
+`tailscope` uses a **Python-first** script strategy for reproducible demo/validation/measurement workflows.
+
+- Canonical workflow scripts live as `scripts/*.py`.
+- `scripts/*.sh` are thin Unix wrappers kept for backward compatibility.
+- Required runtime dependencies for script workflows are:
+  - `python3`
+  - Rust toolchain (`cargo`)
+
+This keeps one implementation path while still supporting existing shell-based invocations.
 
 ## Repository map
 
