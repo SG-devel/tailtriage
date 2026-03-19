@@ -31,6 +31,25 @@ This repository is an MVP release candidate with three workspace crates:
 - a GUI observability product
 - a claim of root-cause certainty
 
+## Why teams would adopt tailscope (MVP value proposition)
+
+`tailscope` is designed for teams that already have logs/metrics/traces, but still lose time deciding
+*which latency lane to investigate first*.
+
+- **Clear first diagnosis lane**: ranked suspects with explicit evidence and confidence.
+- **Low integration friction**: one init call, request wrapper, and a few await wrappers.
+- **Useful with partial coverage**: still emits a report when instrumentation is incomplete.
+- **Action-oriented output**: each suspect includes concrete next checks to run.
+
+If your team does **not** use `tailscope`, common alternatives are:
+
+- ad-hoc log and trace spelunking across many dashboards,
+- custom one-off timing probes per service,
+- runtime-local profiling sessions (e.g., tokio-console) without durable diagnosis artifacts.
+
+Those approaches can work, but are usually slower to repeat and compare across runs than
+`tailscope` JSON artifacts plus analyzer output.
+
 ## 5-minute quickstart (end to end)
 
 ### 1) Add dependencies
@@ -104,15 +123,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### 3) Run and analyze
 
+From the repository root:
+
 ```bash
-cargo run
 cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
 ```
 
-If you used the `/tmp/tailscope-quickstart` verification path above, run analyzer with:
+If you used the `/tmp/tailscope-quickstart` verification path above, run the app and analyzer with:
 
 ```bash
+cargo run
 cargo run --manifest-path "$TAILSCOPE_REPO/tailscope-cli/Cargo.toml" -- analyze tailscope-run.json
 cargo run --manifest-path "$TAILSCOPE_REPO/tailscope-cli/Cargo.toml" -- analyze tailscope-run.json --format json
 ```
@@ -212,8 +233,14 @@ cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 
 ### 3) Macro-based request entry point
 
+When using the `#[instrument_request(...)]` macro, include `tracing` in your app dependencies:
+
+```toml
+[dependencies]
+tracing = "0.1"
+```
+
 ```rust
-use std::sync::Arc;
 use tailscope_core::Tailscope;
 use tailscope_tokio::instrument_request;
 
@@ -225,7 +252,7 @@ use tailscope_tokio::instrument_request;
     skip(tailscope)
 )]
 async fn create_invoice(
-    tailscope: Arc<Tailscope>,
+    tailscope: &Tailscope,
     request_id: String,
 ) -> Result<(), &'static str> {
     let _inflight = tailscope.inflight("invoice_inflight");
