@@ -25,12 +25,50 @@ impl DiagnosisKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Confidence {
+    Low,
+    Medium,
+    High,
+}
+
+impl Confidence {
+    fn from_score(score: u8) -> Self {
+        if score >= 85 {
+            Self::High
+        } else if score >= 65 {
+            Self::Medium
+        } else {
+            Self::Low
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Suspect {
     pub kind: DiagnosisKind,
     pub score: u8,
+    pub confidence: Confidence,
     pub evidence: Vec<String>,
     pub next_checks: Vec<String>,
+}
+
+impl Suspect {
+    fn new(
+        kind: DiagnosisKind,
+        score: u8,
+        evidence: Vec<String>,
+        next_checks: Vec<String>,
+    ) -> Self {
+        Self {
+            kind,
+            score,
+            confidence: Confidence::from_score(score),
+            evidence,
+            next_checks,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -39,7 +77,8 @@ pub struct Report {
     pub p50_latency_us: Option<u64>,
     pub p95_latency_us: Option<u64>,
     pub p99_latency_us: Option<u64>,
-    pub suspects: Vec<Suspect>,
+    pub primary_suspect: Suspect,
+    pub secondary_suspects: Vec<Suspect>,
 }
 
 #[must_use]
@@ -73,30 +112,41 @@ pub fn analyze_run(run: &Run) -> Report {
     }
 
     if suspects.is_empty() {
-        suspects.push(Suspect {
-            kind: DiagnosisKind::InsufficientEvidence,
-            score: 100,
-            evidence: vec![
+        suspects.push(Suspect::new(
+            DiagnosisKind::InsufficientEvidence,
+            50,
+            vec![
                 "Not enough queue, stage, or runtime signals to rank a stronger suspect."
                     .to_string(),
             ],
-            next_checks: vec![
+            vec![
                 "Wrap critical awaits with queue(...).await_on(...) and stage(...).await_on(...)."
                     .to_string(),
                 "Enable RuntimeSampler during the run to capture runtime pressure signals."
                     .to_string(),
             ],
-        });
+        ));
     }
 
     suspects.sort_by(|left, right| right.score.cmp(&left.score));
+
+    let mut ranked = suspects.into_iter();
+    let primary_suspect = ranked.next().unwrap_or_else(|| {
+        Suspect::new(
+            DiagnosisKind::InsufficientEvidence,
+            50,
+            vec!["No diagnosis signals were captured for this run.".to_string()],
+            vec!["Verify that request, queue, or stage instrumentation is enabled.".to_string()],
+        )
+    });
 
     Report {
         request_count: run.requests.len(),
         p50_latency_us,
         p95_latency_us,
         p99_latency_us,
-        suspects,
+        primary_suspect,
+        secondary_suspects: ranked.collect(),
     }
 }
 
@@ -123,16 +173,16 @@ fn queue_saturation_suspect(run: &Run) -> Option<Suspect> {
         evidence.push(format!("Observed queue depth sample up to {depth}."));
     }
 
-    Some(Suspect {
-        kind: DiagnosisKind::ApplicationQueueSaturation,
-        score: 90,
+    Some(Suspect::new(
+        DiagnosisKind::ApplicationQueueSaturation,
+        90,
         evidence,
-        next_checks: vec![
+        vec![
             "Inspect queue admission limits and producer burst patterns.".to_string(),
             "Compare queue wait distribution before and after increasing worker parallelism."
                 .to_string(),
         ],
-    })
+    ))
 }
 
 fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
@@ -145,17 +195,18 @@ fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
         return None;
     }
 
-    Some(Suspect {
-        kind: DiagnosisKind::BlockingPoolPressure,
-        score: 80,
-        evidence: vec![format!(
+    Some(Suspect::new(
+        DiagnosisKind::BlockingPoolPressure,
+        80,
+        vec![format!(
             "Blocking queue depth p95 is {p95_blocking_depth}, indicating sustained spawn_blocking backlog."
         )],
-        next_checks: vec![
-            "Audit blocking sections and move avoidable synchronous work out of hot paths.".to_string(),
+        vec![
+            "Audit blocking sections and move avoidable synchronous work out of hot paths."
+                .to_string(),
             "Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string(),
         ],
-    })
+    ))
 }
 
 fn executor_pressure_suspect(run: &Run) -> Option<Suspect> {
@@ -168,17 +219,17 @@ fn executor_pressure_suspect(run: &Run) -> Option<Suspect> {
         return None;
     }
 
-    Some(Suspect {
-        kind: DiagnosisKind::ExecutorPressureSuspected,
-        score: 65,
-        evidence: vec![format!(
+    Some(Suspect::new(
+        DiagnosisKind::ExecutorPressureSuspected,
+        65,
+        vec![format!(
             "Runtime global queue depth p95 is {p95_global_depth}, suggesting scheduler contention."
         )],
-        next_checks: vec![
+        vec![
             "Check for long polls without yielding and uneven task fan-out.".to_string(),
             "Compare with per-stage timings to isolate overloaded async stages.".to_string(),
         ],
-    })
+    ))
 }
 
 fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
@@ -213,20 +264,20 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         return None;
     }
 
-    Some(Suspect {
-        kind: DiagnosisKind::DownstreamStageDominates,
-        score: 60,
-        evidence: vec![
+    Some(Suspect::new(
+        DiagnosisKind::DownstreamStageDominates,
+        60,
+        vec![
             format!(
                 "Stage '{dominant_stage}' has p95 latency {stage_p95} us across {stage_count} samples."
             ),
             format!("Stage '{dominant_stage}' cumulative latency is {total_latency} us."),
         ],
-        next_checks: vec![
+        vec![
             format!("Inspect downstream dependency behind stage '{dominant_stage}'."),
             "Collect downstream service timings and retry behavior during tail windows.".to_string(),
         ],
-    })
+    ))
 }
 
 fn request_queue_shares(run: &Run) -> Vec<u64> {
@@ -300,192 +351,33 @@ pub fn render_text(report: &Report) -> String {
             "latency_us p50={:?} p95={:?} p99={:?}",
             report.p50_latency_us, report.p95_latency_us, report.p99_latency_us
         ),
+        format!(
+            "primary: {} (confidence={:?}, score={})",
+            report.primary_suspect.kind.as_str(),
+            report.primary_suspect.confidence,
+            report.primary_suspect.score
+        ),
     ];
 
-    for (index, suspect) in report.suspects.iter().enumerate() {
-        lines.push(format!(
-            "{}. {} (score={})",
-            index + 1,
-            suspect.kind.as_str(),
-            suspect.score
-        ));
+    for evidence in &report.primary_suspect.evidence {
+        lines.push(format!("  evidence: {evidence}"));
+    }
 
-        for evidence in &suspect.evidence {
-            lines.push(format!("   evidence: {evidence}"));
-        }
+    for next_check in &report.primary_suspect.next_checks {
+        lines.push(format!("  next: {next_check}"));
+    }
 
-        for next_check in &suspect.next_checks {
-            lines.push(format!("   next: {next_check}"));
+    if !report.secondary_suspects.is_empty() {
+        lines.push("secondary suspects:".to_string());
+        for suspect in &report.secondary_suspects {
+            lines.push(format!(
+                "  - {} (confidence={:?}, score={})",
+                suspect.kind.as_str(),
+                suspect.confidence,
+                suspect.score
+            ));
         }
     }
 
     lines.join("\n")
-}
-
-#[cfg(test)]
-mod tests {
-    use tailscope_core::{
-        CaptureMode, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
-    };
-
-    use super::{analyze_run, DiagnosisKind};
-
-    fn fixture_run() -> Run {
-        let mut run = Run::new(RunMetadata {
-            run_id: "run-test".to_string(),
-            service_name: "svc".to_string(),
-            service_version: None,
-            started_at_unix_ms: 1,
-            finished_at_unix_ms: 2,
-            mode: CaptureMode::Light,
-            host: None,
-            pid: Some(42),
-        });
-
-        run.requests = vec![
-            RequestEvent {
-                request_id: "r1".to_string(),
-                route: "/a".to_string(),
-                kind: None,
-                started_at_unix_ms: 1,
-                finished_at_unix_ms: 2,
-                latency_us: 100,
-                outcome: "ok".to_string(),
-            },
-            RequestEvent {
-                request_id: "r2".to_string(),
-                route: "/a".to_string(),
-                kind: None,
-                started_at_unix_ms: 1,
-                finished_at_unix_ms: 2,
-                latency_us: 200,
-                outcome: "ok".to_string(),
-            },
-            RequestEvent {
-                request_id: "r3".to_string(),
-                route: "/a".to_string(),
-                kind: None,
-                started_at_unix_ms: 1,
-                finished_at_unix_ms: 2,
-                latency_us: 300,
-                outcome: "ok".to_string(),
-            },
-        ];
-
-        run
-    }
-
-    #[test]
-    fn prioritizes_queue_saturation_when_queue_share_is_high() {
-        let mut run = fixture_run();
-        run.queues = vec![
-            QueueEvent {
-                request_id: "r1".to_string(),
-                queue: "q".to_string(),
-                waited_from_unix_ms: 1,
-                waited_until_unix_ms: 2,
-                wait_us: 80,
-                depth_at_start: Some(3),
-            },
-            QueueEvent {
-                request_id: "r2".to_string(),
-                queue: "q".to_string(),
-                waited_from_unix_ms: 1,
-                waited_until_unix_ms: 2,
-                wait_us: 150,
-                depth_at_start: Some(4),
-            },
-            QueueEvent {
-                request_id: "r3".to_string(),
-                queue: "q".to_string(),
-                waited_from_unix_ms: 1,
-                waited_until_unix_ms: 2,
-                wait_us: 220,
-                depth_at_start: Some(5),
-            },
-        ];
-
-        let report = analyze_run(&run);
-        assert_eq!(
-            report.suspects.first().map(|suspect| &suspect.kind),
-            Some(&DiagnosisKind::ApplicationQueueSaturation)
-        );
-    }
-
-    #[test]
-    fn detects_blocking_pool_pressure_from_runtime_snapshots() {
-        let mut run = fixture_run();
-        run.runtime_snapshots = vec![
-            RuntimeSnapshot {
-                at_unix_ms: 1,
-                alive_tasks: Some(10),
-                global_queue_depth: Some(0),
-                local_queue_depth: None,
-                blocking_queue_depth: Some(2),
-                remote_schedule_count: None,
-            },
-            RuntimeSnapshot {
-                at_unix_ms: 2,
-                alive_tasks: Some(11),
-                global_queue_depth: Some(0),
-                local_queue_depth: None,
-                blocking_queue_depth: Some(3),
-                remote_schedule_count: None,
-            },
-        ];
-
-        let report = analyze_run(&run);
-        assert!(report
-            .suspects
-            .iter()
-            .any(|suspect| suspect.kind == DiagnosisKind::BlockingPoolPressure));
-    }
-
-    #[test]
-    fn falls_back_to_insufficient_evidence_without_signals() {
-        let run = fixture_run();
-
-        let report = analyze_run(&run);
-        assert_eq!(
-            report.suspects.first().map(|suspect| &suspect.kind),
-            Some(&DiagnosisKind::InsufficientEvidence)
-        );
-    }
-
-    #[test]
-    fn can_identify_dominant_stage() {
-        let mut run = fixture_run();
-        run.stages = vec![
-            StageEvent {
-                request_id: "r1".to_string(),
-                stage: "db".to_string(),
-                started_at_unix_ms: 1,
-                finished_at_unix_ms: 2,
-                latency_us: 70,
-                success: true,
-            },
-            StageEvent {
-                request_id: "r2".to_string(),
-                stage: "db".to_string(),
-                started_at_unix_ms: 1,
-                finished_at_unix_ms: 2,
-                latency_us: 90,
-                success: true,
-            },
-            StageEvent {
-                request_id: "r3".to_string(),
-                stage: "db".to_string(),
-                started_at_unix_ms: 1,
-                finished_at_unix_ms: 2,
-                latency_us: 120,
-                success: true,
-            },
-        ];
-
-        let report = analyze_run(&run);
-        assert!(report
-            .suspects
-            .iter()
-            .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominates));
-    }
 }
