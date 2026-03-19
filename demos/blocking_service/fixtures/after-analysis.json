@@ -1,24 +1,24 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1874771,
-  "p95_latency_us": 3531941,
-  "p99_latency_us": 3681253,
-  "p95_queue_share_permille": 6,
-  "p95_service_share_permille": 999,
+  "p50_latency_us": 54654,
+  "p95_latency_us": 73409,
+  "p99_latency_us": 76883,
+  "p95_queue_share_permille": 62,
+  "p95_service_share_permille": 986,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
-    "peak_count": 246,
-    "p95_count": 234,
+    "peak_count": 40,
+    "p95_count": 38,
     "growth_delta": -1,
-    "growth_per_sec_milli": -264
+    "growth_per_sec_milli": -2032
   },
   "primary_suspect": {
     "kind": "BlockingPoolPressure",
     "score": 80,
     "confidence": "medium",
     "evidence": [
-      "Blocking queue depth p95 is 244, indicating sustained spawn_blocking backlog."
+      "Blocking queue depth p95 is 38, indicating sustained spawn_blocking backlog."
     ],
     "next_checks": [
       "Audit blocking sections and move avoidable synchronous work out of hot paths.",
@@ -31,8 +31,8 @@
       "score": 60,
       "confidence": "low",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3531772 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 467502659 us."
+        "Stage 'spawn_blocking_path' has p95 latency 72227 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 12298332 us."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'spawn_blocking_path'.",
