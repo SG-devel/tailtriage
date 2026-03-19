@@ -184,8 +184,21 @@ scripts/validate_blocking_demo.sh
 
 Artifacts:
 
-- `demos/blocking_service/artifacts/blocking-run.json`
-- `demos/blocking_service/artifacts/blocking-analysis.json`
+- `demos/blocking_service/artifacts/before-run.json`
+- `demos/blocking_service/artifacts/before-analysis.json`
+- `demos/blocking_service/artifacts/after-run.json`
+- `demos/blocking_service/artifacts/after-analysis.json`
+- `demos/blocking_service/artifacts/before-after-comparison.json`
+
+Fixture snapshots:
+
+- `demos/blocking_service/fixtures/before-analysis.json`
+- `demos/blocking_service/fixtures/after-analysis.json`
+
+Observed signal in the checked-in blocking demo fixtures:
+
+- p95 latency drops from ~3,524,739us (before) to ~82,559us (after)
+- primary suspect remains `BlockingPoolPressure`, while blocking queue-depth p95 drops from 244 to 39
 
 ### Downstream-stage dominance demo
 

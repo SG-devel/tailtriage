@@ -1,0 +1,22 @@
+{
+  "before": {
+    "primary_suspect_kind": "BlockingPoolPressure",
+    "primary_suspect_score": 80,
+    "p95_latency_us": 3531941,
+    "p95_service_share_permille": 999,
+    "blocking_queue_depth_p95": 244
+  },
+  "after": {
+    "primary_suspect_kind": "BlockingPoolPressure",
+    "primary_suspect_score": 80,
+    "p95_latency_us": 73409,
+    "p95_service_share_permille": 986,
+    "blocking_queue_depth_p95": 38
+  },
+  "delta": {
+    "p95_latency_us": -3458532,
+    "primary_suspect_score": 0,
+    "p95_service_share_permille": -13,
+    "blocking_queue_depth_p95": -206
+  }
+}
