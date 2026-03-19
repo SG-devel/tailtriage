@@ -1,5 +1,7 @@
 # tailscope
 
+[**Start here: first-use user guide**](docs/user-guide.md)
+
 `tailscope` is a Rust toolkit for diagnosing **tail latency**, **queueing**, and **backpressure** in Tokio services.
 
 ## What tailscope does
