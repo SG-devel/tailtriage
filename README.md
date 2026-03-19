@@ -50,11 +50,11 @@ async fn main() -> anyhow::Result<()> {
     let tailscope = Arc::new(Tailscope::init(config)?);
     let sampler = RuntimeSampler::start(Arc::clone(&tailscope), Duration::from_millis(200))?;
 
-    let request_id = "req-42".to_string();
-    let meta = RequestMeta::new(request_id.clone(), "/invoice");
+    let request = RequestMeta::for_route("/invoice").with_kind("create_invoice");
+    let request_id = request.request_id.clone();
 
     tailscope
-        .request(meta, "ok", async {
+        .request(request, "ok", async {
             let _inflight = tailscope.inflight("invoice_inflight");
 
             tailscope
