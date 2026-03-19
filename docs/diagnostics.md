@@ -158,7 +158,7 @@ Confidence is an internal ranking confidence, not a statistical confidence inter
 
 ### Queue demo before/after example
 
-`scripts/run_queue_demo.sh` now emits `before` (pathological baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/queue_service/artifacts/before-after-comparison.json`.
+`python3 scripts/run_queue_demo.py` now emits `before` (pathological baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/queue_service/artifacts/before-after-comparison.json`.
 
 In the current checked-in fixtures:
 
@@ -169,7 +169,7 @@ Use this pattern for diagnosis validation: keep load shape constant, adjust one 
 
 ### Blocking demo before/after example
 
-`scripts/run_blocking_demo.sh` now emits `before` (blocking-pool-constrained baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/blocking_service/artifacts/before-after-comparison.json`.
+`python3 scripts/run_blocking_demo.py` now emits `before` (blocking-pool-constrained baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/blocking_service/artifacts/before-after-comparison.json`.
 
 In the current checked-in fixtures:
 
