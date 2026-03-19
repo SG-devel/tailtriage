@@ -56,9 +56,25 @@ fn fixture_reports_render_to_text_and_json() {
 
     let text = render_text(&report);
     assert!(text.contains("primary:"));
+    assert!(text.contains("request_time_share_permille"));
     assert!(text.contains("secondary suspects") || report.secondary_suspects.is_empty());
 
     let json = serde_json::to_string_pretty(&report).expect("json rendering should work");
     assert!(json.contains("primary_suspect"));
     assert!(json.contains("confidence"));
+    assert!(json.contains("p95_queue_share_permille"));
+    assert!(json.contains("p95_service_share_permille"));
+}
+
+#[test]
+fn fixture_reports_include_expected_request_time_shares() {
+    let queue_run = load_fixture("queue_saturation.json");
+    let queue_report = analyze_run(&queue_run);
+    assert_eq!(queue_report.p95_queue_share_permille, Some(666));
+    assert_eq!(queue_report.p95_service_share_permille, Some(500));
+
+    let downstream_run = load_fixture("downstream_stage.json");
+    let downstream_report = analyze_run(&downstream_run);
+    assert_eq!(downstream_report.p95_queue_share_permille, Some(0));
+    assert_eq!(downstream_report.p95_service_share_permille, Some(1000));
 }
