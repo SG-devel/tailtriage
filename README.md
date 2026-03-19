@@ -111,6 +111,7 @@ Typical user workflow: instrument a Rust service and run the CLI analyzer; maint
 - [User guide](docs/user-guide.md)
 - [Architecture](docs/architecture.md)
 - [Diagnostics guide](docs/diagnostics.md)
+- [Mental model for newcomers](docs/mental-model.md)
 - [Getting started demos](docs/getting-started-demo.md)
 - [Runtime cost measurement](docs/runtime-cost.md)
 - [Changelog](docs/changelog.md)
