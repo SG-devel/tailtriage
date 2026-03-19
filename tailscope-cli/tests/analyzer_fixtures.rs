@@ -78,3 +78,19 @@ fn fixture_reports_include_expected_request_time_shares() {
     assert_eq!(downstream_report.p95_queue_share_permille, Some(0));
     assert_eq!(downstream_report.p95_service_share_permille, Some(1000));
 }
+
+#[test]
+fn queue_fixture_includes_inflight_trend_evidence() {
+    let run = load_fixture("queue_saturation.json");
+    let report = analyze_run(&run);
+
+    assert!(report.inflight_trend.is_some());
+    assert!(
+        report
+            .primary_suspect
+            .evidence
+            .iter()
+            .any(|item| item.contains("In-flight gauge")),
+        "queue saturation fixture should include in-flight evidence"
+    );
+}

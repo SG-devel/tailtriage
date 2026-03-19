@@ -10,6 +10,7 @@ This document explains what the analyzer currently reports and how to interpret 
 - request p50/p95/p99 latency
 - p95 request-time share for queue wait (permille)
 - p95 request-time share for service time (permille)
+- optional dominant in-flight trend summary (`inflight_trend`)
 - one primary suspect
 - zero or more secondary suspects
 
@@ -38,6 +39,23 @@ Interpretation guidance:
 - high `p95_queue_share_permille` (for example 300+ = 30%+) points to application-level queueing pressure
 - high `p95_service_share_permille` with a dominant stage points to downstream/service-time bottlenecks
 - queue + service shares are complementary at request level in current MVP heuristics (queue wait is clamped to request latency)
+
+## In-flight trend metrics
+
+When in-flight snapshots are present, the report emits a dominant gauge summary:
+
+- `inflight_trend.gauge`
+- `inflight_trend.sample_count`
+- `inflight_trend.peak_count`
+- `inflight_trend.p95_count`
+- `inflight_trend.growth_delta`
+- `inflight_trend.growth_per_sec_milli` (count/sec in milli-units)
+
+Interpretation guidance:
+
+- positive `growth_delta` means in-flight work accumulated over the run window
+- high `peak_count`/`p95_count` plus high queue share strengthens queue saturation suspicion
+- positive growth plus elevated runtime global queue depth can reinforce executor pressure signals
 
 ## Suspect kinds
 
