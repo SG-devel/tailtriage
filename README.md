@@ -1,60 +1,17 @@
 # tailscope
 
-`tailscope` is a Rust toolkit for diagnosing **tail latency**, **queueing**, and **backpressure** issues in Tokio services.
+`tailscope` is a Rust toolkit for diagnosing **tail latency**, **queueing**, and **backpressure** in Tokio services.
 
-It is the diagnosis layer above raw timings and runtime metrics. The goal is to answer:
+## What tailscope does
 
-> Is this service slow because of application-level queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
+- Produces one local JSON run artifact from lightweight request/queue/stage instrumentation.
+- Analyzes a run and ranks likely bottleneck suspects (queue saturation, blocking pressure, executor pressure, downstream stage dominance).
+- Includes supporting evidence and recommended next checks for each suspect.
+- Works with partial instrumentation and can optionally include Tokio runtime sampling for stronger attribution.
 
-## MVP status
-
-This repository is an MVP release candidate with three workspace crates:
-
-- `tailscope-core`: run schema + instrumentation primitives + JSON sink
-- `tailscope-tokio`: Tokio runtime sampling + `#[instrument_request]` macro re-export
-- `tailscope-cli`: run analyzer (`tailscope analyze <run.json>`)
-
-## What tailscope is (and is not)
-
-### tailscope is
-
-- easy to integrate in one service process
-- useful with partial instrumentation
-- explicit about evidence and uncertainty
-- based on reproducible JSON run artifacts
-
-### tailscope is not
-
-- a tracing backend
-- a metrics backend
-- a distributed tracing platform
-- a GUI observability product
-- a claim of root-cause certainty
-
-## Why teams would adopt tailscope (MVP value proposition)
-
-`tailscope` is designed for teams that already have logs/metrics/traces, but still lose time deciding
-*which latency lane to investigate first*.
-
-- **Clear first diagnosis lane**: ranked suspects with explicit evidence and confidence.
-- **Low integration friction**: one init call, request wrapper, and a few await wrappers.
-- **Useful with partial coverage**: still emits a report when instrumentation is incomplete.
-- **Action-oriented output**: each suspect includes concrete next checks to run.
-
-If your team does **not** use `tailscope`, common alternatives are:
-
-- ad-hoc log and trace spelunking across many dashboards,
-- custom one-off timing probes per service,
-- runtime-local profiling sessions (e.g., tokio-console) without durable diagnosis artifacts.
-
-Those approaches can work, but are usually slower to repeat and compare across runs than
-`tailscope` JSON artifacts plus analyzer output.
-
-## 5-minute quickstart (end to end)
+## 2-minute quickstart
 
 ### 1) Add dependencies
-
-In your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -63,25 +20,7 @@ tailscope-tokio = { path = "../tailscope-tokio" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
-
-If you want a **copy/paste verification path** from a blank app, run this sequence:
-
-```bash
-export TAILSCOPE_REPO="/path/to/this/repo"
-mkdir -p /tmp/tailscope-quickstart && cd /tmp/tailscope-quickstart
-cargo new quickstart --bin && cd quickstart
-```
-
-Then use this `Cargo.toml` dependency block (replace the placeholder path):
-
-```toml
-[dependencies]
-tailscope-core = { path = "/absolute/path/to/tailscope/tailscope-core" }
-tailscope-tokio = { path = "/absolute/path/to/tailscope/tailscope-tokio" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-```
-
-### 2) Minimal runnable `main.rs`
+### 2) Minimal code (`src/main.rs`)
 
 ```rust
 use std::time::Duration;
@@ -90,17 +29,14 @@ use tailscope_core::{Config, RequestMeta, Tailscope};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // tailscope boilerplate: init + output path
     let mut config = Config::new("quickstart-service");
     config.output_path = "tailscope-run.json".into();
 
     let tailscope = Tailscope::init(config)?;
 
-    // tailscope boilerplate: request metadata + id
     let request = RequestMeta::for_route("/demo").with_kind("quickstart");
     let request_id = request.request_id.clone();
 
-    // tailscope boilerplate: request wrapper + queue/stage wrappers
     tailscope
         .request(request, "ok", async {
             tailscope
@@ -115,353 +51,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await;
 
-    // tailscope boilerplate: ensure run artifact is written
     tailscope.flush()?;
     Ok(())
 }
 ```
 
-### 3) Run and analyze
-
-From the repository root:
-
-```bash
-cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
-cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
-```
-
-If you used the `/tmp/tailscope-quickstart` verification path above, run the app and analyzer with:
-
-```bash
-cargo run
-cargo run --manifest-path "$TAILSCOPE_REPO/tailscope-cli/Cargo.toml" -- analyze tailscope-run.json
-cargo run --manifest-path "$TAILSCOPE_REPO/tailscope-cli/Cargo.toml" -- analyze tailscope-run.json --format json
-```
-
-### Example output (text + JSON)
-
-Text-mode snippet (sample from a successful local quickstart analysis run):
-
-```text
-Primary suspect: ApplicationQueueSaturation
-Score/confidence: 90 (high)
-Key evidence: Queue wait at p95 consumes 98.4% of request time.
-```
-
-JSON snippet (from committed blocking-service fixture fields):
-
-```json
-{
-  "primary_suspect": {
-    "kind": "BlockingPoolPressure",
-    "score": 80,
-    "confidence": "medium"
-  },
-  "p95_queue_share_permille": 6,
-  "recommendations": [
-    "Audit blocking sections and move avoidable synchronous work out of hot paths."
-  ]
-}
-```
-
-How this guides next action:
-
-- Start with the top suspect and confidence to choose your first investigation lane (queueing vs blocking vs downstream).
-- Use `p95_queue_share_permille` to decide whether to focus on admission/backpressure mechanics (high queue share) or execution-time work (low queue share).
-- Execute the first recommendation as a concrete next check, then re-run analysis and compare suspect score/confidence movement.
-
-### 4) What to look for
-
-- `Primary suspect`: the top-ranked bottleneck category for this run.
-- `Score`: higher score means stronger evidence for that suspect in this run.
-- `Queue/service share`: request time split (queue time share vs service/stage time share) to tell whether waiting or work dominates p95 latency.
-
-For more diagnosis detail, see [`docs/diagnostics.md`](docs/diagnostics.md).
-
-## Full integration example (runtime sampler + macro path)
-
-### 1) Collect a run artifact
-
-```rust
-use std::sync::Arc;
-use std::time::Duration;
-
-use tailscope_core::{Config, RequestMeta, Tailscope};
-use tailscope_tokio::RuntimeSampler;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("invoice-api");
-    config.output_path = "tailscope-run.json".into();
-
-    let tailscope = Arc::new(Tailscope::init(config)?);
-    let sampler = RuntimeSampler::start(Arc::clone(&tailscope), Duration::from_millis(200))?;
-
-    let request = RequestMeta::for_route("/invoice").with_kind("create_invoice");
-    let request_id = request.request_id.clone();
-
-    // tailscope boilerplate: request wrapper + queue/stage wrappers
-    tailscope
-        .request(request, "ok", async {
-            let _inflight = tailscope.inflight("invoice_inflight");
-
-            tailscope
-                .queue(request_id.clone(), "invoice_worker")
-                .await_on(tokio::time::sleep(Duration::from_millis(2)))
-                .await;
-
-            tailscope
-                .stage(request_id, "persist_invoice")
-                .await_on(tokio::time::sleep(Duration::from_millis(4)))
-                .await;
-        })
-        .await;
-
-    sampler.shutdown().await;
-    // tailscope boilerplate: ensure run artifact is written
-    tailscope.flush()?;
-    Ok(())
-}
-```
-
-### 2) Analyze the run
-
-```bash
-cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
-cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
-```
-
-### 3) Macro-based request entry point
-
-When using the `#[instrument_request(...)]` macro, include `tracing` in your app dependencies:
-
-```toml
-[dependencies]
-tracing = "0.1"
-```
-
-```rust
-use tailscope_core::Tailscope;
-use tailscope_tokio::instrument_request;
-
-#[instrument_request(
-    route = "/invoice",
-    kind = "create_invoice",
-    tailscope = tailscope,
-    request_id = request_id.clone(),
-    skip(tailscope)
-)]
-async fn create_invoice(
-    tailscope: &Tailscope,
-    request_id: String,
-) -> Result<(), &'static str> {
-    let _inflight = tailscope.inflight("invoice_inflight");
-    Ok(())
-}
-```
+### 3) Analyze
 
 ```bash
 cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
 ```
 
-## Integration cost and boilerplate
-
-| Required for useful output | Optional for richer diagnosis |
-| --- | --- |
-| **One-time init**: `Config::new(...)` + `Tailscope::init(config)` | **Runtime sampler (when needed)**: `RuntimeSampler::start(Arc::clone(&tailscope), interval)` to add runtime pressure evidence |
-| **Request wrapper**: `tailscope.request(RequestMeta::for_route(...), outcome, async { ... })` (or `request_for_route` / `request_with_kind`) | **Macro path convenience**: `#[instrument_request(...)]` for request entry points, including optional `tailscope = ...` + `request_id = ...` recording |
-| **Queue/stage wrappers**: `tailscope.queue(request_id.clone(), "...").await_on(...)` + `tailscope.stage(request_id, "...").await_on(...)` around key awaits | **Extra signal**: `tailscope.inflight("...")` guards around bounded shared resources |
-| **Artifact output**: `tailscope.flush()?` before process exit | **More stage coverage**: instrument additional downstream stages/queues as confidence needs grow |
-
-### Minimum viable integration checklist
-
-1. Add `tailscope-core` and call `Tailscope::init(Config::new("service-name"))` at startup.
-2. Wrap each request in `tailscope.request(...)` (or `request_for_route` / `request_with_kind`) with a stable route + outcome.
-3. Around at least one suspected wait point, add `tailscope.queue(...).await_on(...)` and `tailscope.stage(...).await_on(...)`.
-4. Call `tailscope.flush()?` on shutdown to emit `tailscope-run.json`.
-5. (Optional) If the report suggests executor/blocking pressure uncertainty, add `RuntimeSampler::start(...)` and rerun.
-
-Rough app-code cost for useful output is typically **~15–30 lines** (init + request wrapper + one queue/stage pair + flush), with **~5–15 more lines** if you add runtime sampling and/or the `#[instrument_request]` convenience path.
-
-## Diagnosis categories (MVP)
-
-The analyzer ranks suspects from run evidence:
-
-- `ApplicationQueueSaturation`
-- `BlockingPoolPressure`
-- `ExecutorPressureSuspected`
-- `DownstreamStageDominates`
-- `InsufficientEvidence`
-
-For each suspect, the report includes:
-
-- score + confidence
-- supporting evidence
-- recommended next checks
-
-The JSON report also includes request-time-share metrics and, when captured, an `inflight_trend`
-summary (`peak_count`, `p95_count`, `growth_delta`, `growth_per_sec_milli`) for the dominant
-in-flight gauge.
-
-## Demos
-
-> **Start here:** [`docs/getting-started-demo.md`](docs/getting-started-demo.md) for the quickest path to run each demo and interpret expected analyzer signals.
-
-### Artifact policy (tracked vs generated)
-
-`tailscope` demo/measurement outputs are split into two classes:
-
-- **Generated-at-runtime artifacts (intentionally untracked):** files under `demos/*/artifacts/` are regenerated by scripts and are not the source-of-truth for repository assertions.
-- **Committed fixture snapshots (tracked):** files under `demos/*/fixtures/` are checked-in reference snapshots used for deterministic validation and documentation.
-
-When a script prints or writes analysis/run output during local execution, treat it as ephemeral unless it is explicitly copied into a `fixtures/` path and committed.
-
-### Queue/backpressure demo
-
-Canonical (Python-first):
-
-```bash
-python3 scripts/run_queue_demo.py
-python3 scripts/validate_queue_demo.py
-```
-
-Compatibility wrappers:
-
-```bash
-scripts/run_queue_demo.sh
-scripts/validate_queue_demo.sh
-```
-
-Generated-at-runtime artifacts (not committed):
-
-- `demos/queue_service/artifacts/before-run.json`
-- `demos/queue_service/artifacts/before-analysis.json`
-- `demos/queue_service/artifacts/after-run.json`
-- `demos/queue_service/artifacts/after-analysis.json`
-- `demos/queue_service/artifacts/before-after-comparison.json`
-
-Committed fixture snapshots (tracked):
-
-- `demos/queue_service/fixtures/before-analysis.json`
-- `demos/queue_service/fixtures/after-analysis.json`
-
-Observed signal in the checked-in queue demo fixtures:
-
-- p95 latency drops from ~1,682,454us (before) to ~24,745us (after)
-- primary suspect score drops from 90 to 60
-- p95 queue share drops from 981 permille to 5 permille
-
-### Blocking-pool pressure demo
-
-Canonical (Python-first):
-
-```bash
-python3 scripts/run_blocking_demo.py
-python3 scripts/validate_blocking_demo.py
-```
-
-Compatibility wrappers:
-
-```bash
-scripts/run_blocking_demo.sh
-scripts/validate_blocking_demo.sh
-```
-
-Generated-at-runtime artifacts (not committed):
-
-- `demos/blocking_service/artifacts/before-run.json`
-- `demos/blocking_service/artifacts/before-analysis.json`
-- `demos/blocking_service/artifacts/after-run.json`
-- `demos/blocking_service/artifacts/after-analysis.json`
-- `demos/blocking_service/artifacts/before-after-comparison.json`
-
-Committed fixture snapshots (tracked):
-
-- `demos/blocking_service/fixtures/before-analysis.json`
-- `demos/blocking_service/fixtures/after-analysis.json`
-
-Observed signal in the checked-in blocking demo fixtures:
-
-- p95 latency drops from ~3,524,739us (before) to ~82,559us (after)
-- primary suspect remains `BlockingPoolPressure`, while blocking queue-depth p95 drops from 244 to 39
-
-### Downstream-stage dominance demo
-
-Canonical (Python-first):
-
-```bash
-python3 scripts/run_downstream_demo.py
-python3 scripts/validate_downstream_demo.py
-```
-
-Compatibility wrappers:
-
-```bash
-scripts/run_downstream_demo.sh
-scripts/validate_downstream_demo.sh
-```
-
-Generated-at-runtime artifacts (not committed):
-
-- `demos/downstream_service/artifacts/downstream-run.json`
-- `demos/downstream_service/artifacts/downstream-analysis.json`
-
-Committed fixture snapshot (tracked):
-
-- `demos/downstream_service/fixtures/sample-analysis.json`
-
-## Runtime cost measurement
-
-Use the reproducible harness (canonical Python-first invocation):
-
-```bash
-python3 scripts/measure_runtime_cost.py
-```
-
-Compatibility wrapper:
-
-```bash
-scripts/measure_runtime_cost.sh
-```
-
-See `docs/runtime-cost.md` for reproducible regeneration instructions and artifact policy details.
-
-## Known limitations (MVP)
-
-- Tokio-only (no non-Tokio runtime support).
-- Single-process run analysis (no multi-service correlation).
-- Diagnosis is rule-based and evidence-ranked, not a proof engine.
-- Runtime metrics such as local queue depth / blocking queue depth may be `None` without `tokio_unstable`.
-- Stage and queue attribution quality depends on explicit `stage(...).await_on(...)` and `queue(...).await_on(...)` coverage.
-- No OpenTelemetry / Prometheus / GUI integrations in MVP.
-
-## Script portability strategy
-
-`tailscope` uses a **Python-first** script strategy for reproducible demo/validation/measurement workflows.
-
-- Canonical workflow scripts live as `scripts/*.py`.
-- `scripts/*.sh` are thin Unix wrappers kept for backward compatibility.
-- Required runtime dependencies for script workflows are:
-  - `python3`
-  - Rust toolchain (`cargo`)
-
-This keeps one implementation path while still supporting existing shell-based invocations.
-
-## Repository map
-
-- `tailscope-core/`: instrumentation and run schema
-- `tailscope-tokio/`: runtime sampler and macro integration
-- `tailscope-cli/`: analyzer and report rendering
-- `demos/`: queue, blocking, and downstream-stage proof cases
-- `scripts/`: reproducible demo + validation + runtime-cost scripts
-- `docs/`: architecture, diagnostics, and runtime-cost docs
-
-## Development checks
-
-From the repository root:
-
-```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
+## Canonical integration path
+
+1. Initialize one collector: `Tailscope::init(Config::new("service-name"))`.
+2. Wrap request entry points with `request(...)` (or the macro path from `tailscope-tokio`).
+3. Add `queue(...).await_on(...)` around known wait points.
+4. Add `stage(...).await_on(...)` around key downstream awaits.
+5. Optionally add `inflight(...)` guards and `RuntimeSampler::start(...)` when diagnosis evidence is insufficient.
+6. Flush and analyze: `tailscope.flush()?` then `tailscope analyze <run.json>`.
+
+## MVP limitations
+
+- Tokio-only runtime support.
+- Single-process diagnosis (no multi-service correlation).
+- Rule-based, evidence-ranked diagnosis (not proof of root cause).
+
+## Docs index
+
+- [Architecture](docs/architecture.md)
+- [Diagnostics guide](docs/diagnostics.md)
+- [Getting started demos](docs/getting-started-demo.md)
+- [Runtime cost measurement](docs/runtime-cost.md)
