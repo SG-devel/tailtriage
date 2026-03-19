@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Shared helpers for demo runners."""
+"""Shared helpers for demo run scripts.
+
+This module holds common subprocess and artifact-writing utilities used by
+multiple demos. Per-demo scripts should keep only mode selection,
+demo-specific metric extraction, and validation semantics.
+"""
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 
 def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str) -> None:
@@ -43,3 +50,33 @@ def run_cli_analysis_json(cli_manifest_path: Path, artifact_path: Path, analysis
             check=True,
             stdout=analysis_file,
         )
+
+
+def nullable_delta(before_value: Any, after_value: Any) -> Any:
+    """Return ``after - before`` when both values are present, otherwise ``None``."""
+    if before_value is None or after_value is None:
+        return None
+    return after_value - before_value
+
+
+def write_before_after_comparison(
+    artifact_dir: Path,
+    before_snapshot: dict[str, Any],
+    after_snapshot: dict[str, Any],
+) -> Path:
+    """Write a standard before/after comparison file with automatic deltas."""
+    delta = {
+        key: nullable_delta(before_snapshot[key], after_snapshot[key])
+        for key in before_snapshot
+        if key in after_snapshot
+    }
+
+    comparison = {
+        "before": before_snapshot,
+        "after": after_snapshot,
+        "delta": delta,
+    }
+
+    comparison_path = artifact_dir / "before-after-comparison.json"
+    comparison_path.write_text(json.dumps(comparison, indent=2) + "\n", encoding="utf-8")
+    return comparison_path

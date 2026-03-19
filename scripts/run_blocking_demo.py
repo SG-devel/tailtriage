@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from _demo_runner import run_cli_analysis_json, run_demo_binary
+from _demo_runner import run_cli_analysis_json, run_demo_binary, write_before_after_comparison
 
 
 def extract_blocking_queue_depth_p95(report: dict) -> int | None:
@@ -43,49 +43,25 @@ def run_variant(root_dir: Path, artifact_dir: Path, variant: str) -> None:
     print(f"analysis ({variant}): {analysis_path}")
 
 
+def snapshot(report: dict) -> dict[str, int | str | None]:
+    return {
+        "primary_suspect_kind": report["primary_suspect"]["kind"],
+        "primary_suspect_score": report["primary_suspect"]["score"],
+        "p95_latency_us": report["p95_latency_us"],
+        "p95_service_share_permille": report.get("p95_service_share_permille"),
+        "blocking_queue_depth_p95": extract_blocking_queue_depth_p95(report),
+    }
+
+
 def write_comparison(artifact_dir: Path) -> None:
     before = json.loads((artifact_dir / "before-analysis.json").read_text())
     after = json.loads((artifact_dir / "after-analysis.json").read_text())
 
-    comparison = {
-        "before": {
-            "primary_suspect_kind": before["primary_suspect"]["kind"],
-            "primary_suspect_score": before["primary_suspect"]["score"],
-            "p95_latency_us": before["p95_latency_us"],
-            "p95_service_share_permille": before.get("p95_service_share_permille"),
-            "blocking_queue_depth_p95": extract_blocking_queue_depth_p95(before),
-        },
-        "after": {
-            "primary_suspect_kind": after["primary_suspect"]["kind"],
-            "primary_suspect_score": after["primary_suspect"]["score"],
-            "p95_latency_us": after["p95_latency_us"],
-            "p95_service_share_permille": after.get("p95_service_share_permille"),
-            "blocking_queue_depth_p95": extract_blocking_queue_depth_p95(after),
-        },
-    }
-
-    before_snapshot = comparison["before"]
-    after_snapshot = comparison["after"]
-    comparison["delta"] = {
-        "p95_latency_us": after_snapshot["p95_latency_us"] - before_snapshot["p95_latency_us"],
-        "primary_suspect_score": after_snapshot["primary_suspect_score"]
-        - before_snapshot["primary_suspect_score"],
-        "p95_service_share_permille": (
-            None
-            if before_snapshot["p95_service_share_permille"] is None
-            or after_snapshot["p95_service_share_permille"] is None
-            else after_snapshot["p95_service_share_permille"] - before_snapshot["p95_service_share_permille"]
-        ),
-        "blocking_queue_depth_p95": (
-            None
-            if before_snapshot["blocking_queue_depth_p95"] is None
-            or after_snapshot["blocking_queue_depth_p95"] is None
-            else after_snapshot["blocking_queue_depth_p95"] - before_snapshot["blocking_queue_depth_p95"]
-        ),
-    }
-
-    comparison_path = artifact_dir / "before-after-comparison.json"
-    comparison_path.write_text(json.dumps(comparison, indent=2) + "\n", encoding="utf-8")
+    comparison_path = write_before_after_comparison(
+        artifact_dir,
+        snapshot(before),
+        snapshot(after),
+    )
     print(f"comparison: {comparison_path}")
 
 
