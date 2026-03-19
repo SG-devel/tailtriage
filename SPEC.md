@@ -177,6 +177,14 @@ The report includes:
 - secondary suspects
 - per-suspect evidence + next checks
 
+## Script portability strategy
+
+Canonical invocation for demo validation and runtime-cost measurement is **Python-first** (`python3 scripts/*.py`).
+
+- `scripts/*.py` are the source-of-truth implementations.
+- `scripts/*.sh` remain thin compatibility wrappers for Unix workflows.
+- Required runtime dependencies for script workflows: `python3` and `cargo`.
+
 ## 8. Diagnosis categories
 
 MVP categories:
@@ -201,7 +209,8 @@ Validation scripts in `scripts/` must pass for both demos.
 Repro harness:
 
 - binary: `demos/runtime_cost`
-- script: `scripts/measure_runtime_cost.sh`
+- canonical script: `python3 scripts/measure_runtime_cost.py`
+- compatibility wrapper: `scripts/measure_runtime_cost.sh`
 
 Modes measured:
 

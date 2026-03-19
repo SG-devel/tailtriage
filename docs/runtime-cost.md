@@ -16,7 +16,8 @@ The summary also computes relative overhead for `light` and `investigation` vs `
 ## Harness
 
 - Binary: `demos/runtime_cost`
-- Script: `scripts/measure_runtime_cost.sh`
+- Canonical script: `python3 scripts/measure_runtime_cost.py`
+- Compatibility wrapper: `scripts/measure_runtime_cost.sh`
 
 The harness runs a queueing workload with bounded concurrency and fixed simulated work per request.
 
@@ -31,7 +32,7 @@ Mode behavior:
 From repo root:
 
 ```bash
-scripts/measure_runtime_cost.sh
+python3 scripts/measure_runtime_cost.py
 ```
 
 Optional tuning via environment variables:
