@@ -104,3 +104,4 @@ async fn handle_demo(tailscope: &tailscope_core::Tailscope) {
 - [Diagnostics guide](docs/diagnostics.md)
 - [Getting started demos](docs/getting-started-demo.md)
 - [Runtime cost measurement](docs/runtime-cost.md)
+- [Changelog](docs/changelog.md)
