@@ -1,5 +1,6 @@
 //! Core run schema and local JSON sink for tailscope.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Error as IoError};
 use std::path::{Path, PathBuf};
@@ -223,6 +224,7 @@ impl std::error::Error for InitError {}
 #[derive(Debug)]
 pub struct Tailscope {
     run: Mutex<Run>,
+    inflight_counts: Mutex<HashMap<String, u64>>,
     sink: LocalJsonSink,
 }
 
@@ -251,6 +253,7 @@ impl Tailscope {
 
         Ok(Self {
             run: Mutex::new(run),
+            inflight_counts: Mutex::new(HashMap::new()),
             sink: LocalJsonSink::new(config.output_path),
         })
     }
@@ -310,10 +313,64 @@ impl Tailscope {
     pub fn output_path(&self) -> &Path {
         self.sink.path()
     }
+
+    /// Creates an in-flight guard for `gauge`.
+    ///
+    /// The counter is incremented on creation and decremented when the returned
+    /// guard is dropped.
+    #[must_use]
+    pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
+        let gauge = gauge.into();
+        let count = {
+            let mut counts = lock_map(&self.inflight_counts);
+            let entry = counts.entry(gauge.clone()).or_insert(0);
+            *entry += 1;
+            *entry
+        };
+
+        lock_run(&self.run).inflight.push(InFlightSnapshot {
+            gauge: gauge.clone(),
+            at_unix_ms: unix_time_ms(),
+            count,
+        });
+
+        InflightGuard {
+            tailscope: self,
+            gauge,
+        }
+    }
+
+    /// Returns a stage timing wrapper for one awaited operation.
+    #[must_use]
+    pub fn stage(&self, request_id: impl Into<String>, stage: impl Into<String>) -> StageTimer<'_> {
+        StageTimer {
+            tailscope: self,
+            request_id: request_id.into(),
+            stage: stage.into(),
+        }
+    }
+
+    /// Returns a queue timing wrapper for one awaited operation.
+    #[must_use]
+    pub fn queue(&self, request_id: impl Into<String>, queue: impl Into<String>) -> QueueTimer<'_> {
+        QueueTimer {
+            tailscope: self,
+            request_id: request_id.into(),
+            queue: queue.into(),
+            depth_at_start: None,
+        }
+    }
 }
 
 fn lock_run(run: &Mutex<Run>) -> std::sync::MutexGuard<'_, Run> {
     match run.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn lock_map(map: &Mutex<HashMap<String, u64>>) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
+    match map.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
@@ -345,6 +402,106 @@ pub trait RunSink {
     /// Returns [`SinkError`] if the sink cannot write the run output, such as
     /// when file I/O fails or serialization cannot complete.
     fn write(&self, run: &Run) -> Result<(), SinkError>;
+}
+
+/// RAII guard tracking one in-flight unit for a named gauge.
+#[derive(Debug)]
+pub struct InflightGuard<'a> {
+    tailscope: &'a Tailscope,
+    gauge: String,
+}
+
+impl Drop for InflightGuard<'_> {
+    fn drop(&mut self) {
+        let count = {
+            let mut counts = lock_map(&self.tailscope.inflight_counts);
+            let entry = counts.entry(self.gauge.clone()).or_insert(0);
+            if *entry > 0 {
+                *entry -= 1;
+            }
+            *entry
+        };
+
+        lock_run(&self.tailscope.run)
+            .inflight
+            .push(InFlightSnapshot {
+                gauge: self.gauge.clone(),
+                at_unix_ms: unix_time_ms(),
+                count,
+            });
+    }
+}
+
+/// Thin wrapper for recording stage latency around one await point.
+#[derive(Debug)]
+pub struct StageTimer<'a> {
+    tailscope: &'a Tailscope,
+    request_id: String,
+    stage: String,
+}
+
+impl StageTimer<'_> {
+    /// Awaits `fut`, records stage duration, and returns the original output.
+    pub async fn await_on<Fut, T>(self, fut: Fut) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        let started_at_unix_ms = unix_time_ms();
+        let started = Instant::now();
+        let value = fut.await;
+        let finished_at_unix_ms = unix_time_ms();
+
+        lock_run(&self.tailscope.run).stages.push(StageEvent {
+            request_id: self.request_id,
+            stage: self.stage,
+            started_at_unix_ms,
+            finished_at_unix_ms,
+            latency_us: duration_to_us(started.elapsed()),
+            success: true,
+        });
+
+        value
+    }
+}
+
+/// Thin wrapper for recording queue-wait latency around one await point.
+#[derive(Debug)]
+pub struct QueueTimer<'a> {
+    tailscope: &'a Tailscope,
+    request_id: String,
+    queue: String,
+    depth_at_start: Option<u64>,
+}
+
+impl QueueTimer<'_> {
+    /// Sets the queue depth sample captured at wait start.
+    #[must_use]
+    pub fn with_depth_at_start(mut self, depth_at_start: u64) -> Self {
+        self.depth_at_start = Some(depth_at_start);
+        self
+    }
+
+    /// Awaits `fut`, records queue wait duration, and returns the original output.
+    pub async fn await_on<Fut, T>(self, fut: Fut) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        let waited_from_unix_ms = unix_time_ms();
+        let started = Instant::now();
+        let value = fut.await;
+        let waited_until_unix_ms = unix_time_ms();
+
+        lock_run(&self.tailscope.run).queues.push(QueueEvent {
+            request_id: self.request_id,
+            queue: self.queue,
+            waited_from_unix_ms,
+            waited_until_unix_ms,
+            wait_us: duration_to_us(started.elapsed()),
+            depth_at_start: self.depth_at_start,
+        });
+
+        value
+    }
 }
 
 /// Local file sink that writes one JSON document per run.
@@ -569,5 +726,72 @@ mod tests {
         assert!(bytes > 0);
 
         std::fs::remove_file(output_path).expect("temp run file should be removable");
+    }
+
+    #[test]
+    fn inflight_guard_records_increment_and_decrement() {
+        let mut config = Config::new("payments");
+        config.output_path = std::env::temp_dir().join("tailscope_core_inflight_test.json");
+
+        let tailscope = Tailscope::init(config).expect("init should succeed");
+
+        {
+            let _guard = tailscope.inflight("invoice_requests");
+            let snapshot = tailscope.snapshot();
+            assert_eq!(snapshot.inflight.len(), 1);
+            assert_eq!(snapshot.inflight[0].gauge, "invoice_requests");
+            assert_eq!(snapshot.inflight[0].count, 1);
+        }
+
+        let snapshot = tailscope.snapshot();
+        assert_eq!(snapshot.inflight.len(), 2);
+        assert_eq!(snapshot.inflight[1].gauge, "invoice_requests");
+        assert_eq!(snapshot.inflight[1].count, 0);
+    }
+
+    #[test]
+    fn stage_wrapper_records_stage_event() {
+        let mut config = Config::new("payments");
+        config.output_path = std::env::temp_dir().join("tailscope_core_stage_test.json");
+
+        let tailscope = Tailscope::init(config).expect("init should succeed");
+
+        let result = futures_executor::block_on(
+            tailscope
+                .stage("req-22", "fetch_customer")
+                .await_on(ready(11_u32)),
+        );
+        assert_eq!(result, 11);
+
+        let snapshot = tailscope.snapshot();
+        assert_eq!(snapshot.stages.len(), 1);
+        let event = &snapshot.stages[0];
+        assert_eq!(event.request_id, "req-22");
+        assert_eq!(event.stage, "fetch_customer");
+        assert!(event.finished_at_unix_ms >= event.started_at_unix_ms);
+    }
+
+    #[test]
+    fn queue_wrapper_records_wait_event() {
+        let mut config = Config::new("payments");
+        config.output_path = std::env::temp_dir().join("tailscope_core_queue_test.json");
+
+        let tailscope = Tailscope::init(config).expect("init should succeed");
+
+        let result = futures_executor::block_on(
+            tailscope
+                .queue("req-22", "invoice_worker")
+                .with_depth_at_start(3)
+                .await_on(ready(11_u32)),
+        );
+        assert_eq!(result, 11);
+
+        let snapshot = tailscope.snapshot();
+        assert_eq!(snapshot.queues.len(), 1);
+        let event = &snapshot.queues[0];
+        assert_eq!(event.request_id, "req-22");
+        assert_eq!(event.queue, "invoice_worker");
+        assert_eq!(event.depth_at_start, Some(3));
+        assert!(event.waited_until_unix_ms >= event.waited_from_unix_ms);
     }
 }
