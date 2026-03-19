@@ -145,10 +145,12 @@ pub struct RuntimeSnapshot {
     pub alive_tasks: Option<u64>,
     /// Runtime global queue depth.
     pub global_queue_depth: Option<u64>,
+    /// Aggregated runtime local queue depth across worker threads.
+    pub local_queue_depth: Option<u64>,
     /// Runtime blocking pool queue depth.
     pub blocking_queue_depth: Option<u64>,
-    /// Runtime worker thread count.
-    pub worker_threads: Option<u64>,
+    /// Runtime remote schedule count.
+    pub remote_schedule_count: Option<u64>,
 }
 
 /// Configuration used to initialize one tailscope capture run.
@@ -359,6 +361,11 @@ impl Tailscope {
             queue: queue.into(),
             depth_at_start: None,
         }
+    }
+
+    /// Records one Tokio runtime metrics sample.
+    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+        lock_run(&self.run).runtime_snapshots.push(snapshot);
     }
 }
 
@@ -626,8 +633,9 @@ mod tests {
             at_unix_ms: 1_250,
             alive_tasks: Some(130),
             global_queue_depth: Some(18),
+            local_queue_depth: Some(12),
             blocking_queue_depth: Some(4),
-            worker_threads: Some(8),
+            remote_schedule_count: Some(44),
         });
 
         run

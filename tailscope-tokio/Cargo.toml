@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 tailscope-core = { path = "../tailscope-core" }
 tailscope-macros = { path = "../tailscope-macros" }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 tracing = "0.1"
 
 [lints]
