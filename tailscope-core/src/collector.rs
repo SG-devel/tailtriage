@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
-    Config, InFlightSnapshot, InitError, LocalJsonSink, QueueTimer, RequestEvent, RequestMeta, Run,
-    RunMetadata, RuntimeSnapshot, SinkError, StageTimer,
+    unix_time_ms, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueTimer, RequestEvent,
+    RequestMeta, Run, RunMetadata, RuntimeSnapshot, SinkError, StageTimer,
 };
 
 /// Per-run collector that records request events and writes the final artifact.
@@ -223,15 +223,6 @@ pub(crate) fn lock_map(
 
 pub(crate) fn duration_to_us(duration: Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
-}
-
-pub(crate) fn unix_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }
 
 fn generate_run_id() -> String {

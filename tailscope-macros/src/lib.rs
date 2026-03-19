@@ -106,6 +106,7 @@ fn expand_instrument_request(
     };
 
     let body = input_fn.block;
+    let unix_time_ms_expr = unix_time_ms_expr();
     let returns_result = returns_result(&input_fn.sig.output);
     let (outcome_expr, tail_event) = if returns_result {
         (
@@ -173,21 +174,12 @@ fn expand_instrument_request(
     input_fn.block = Box::new(syn::parse_quote!({
         let __tailscope_route = ::std::string::ToString::to_string(&#route_field);
         let __tailscope_kind = ::std::string::ToString::to_string(&#kind_field);
-        let __tailscope_started_at_unix_ms = ::std::time::SystemTime::now()
-            .duration_since(::std::time::UNIX_EPOCH)
-            .expect("system time before UNIX_EPOCH")
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX);
+        let __tailscope_unix_time_ms = #unix_time_ms_expr;
+        let __tailscope_started_at_unix_ms = __tailscope_unix_time_ms();
         let __tailscope_started = ::std::time::Instant::now();
         let __tailscope_result = (async move #body).await;
         #outcome_expr
-        let __tailscope_finished_at_unix_ms = ::std::time::SystemTime::now()
-            .duration_since(::std::time::UNIX_EPOCH)
-            .expect("system time before UNIX_EPOCH")
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX);
+        let __tailscope_finished_at_unix_ms = __tailscope_unix_time_ms();
         let __tailscope_duration_us =
             ::std::convert::TryFrom::try_from(__tailscope_started.elapsed().as_micros())
                 .unwrap_or(u64::MAX);
@@ -234,6 +226,17 @@ fn default_request_id_expr() -> Expr {
         "{}-{}",
         __tailscope_route, __tailscope_started_at_unix_ms
     ))
+}
+
+fn unix_time_ms_expr() -> proc_macro2::TokenStream {
+    quote!(|| -> u64 {
+        match ::std::time::SystemTime::now().duration_since(::std::time::UNIX_EPOCH) {
+            Ok(duration) => {
+                ::std::convert::TryInto::try_into(duration.as_millis()).unwrap_or(u64::MAX)
+            }
+            Err(_) => 0,
+        }
+    })
 }
 
 fn validate_skipped_args(

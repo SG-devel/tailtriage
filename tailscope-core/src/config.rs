@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::unix_time_ms;
 use serde::{Deserialize, Serialize};
 
 /// Capture mode used during a run.
@@ -112,12 +112,3 @@ impl std::fmt::Display for InitError {
 impl std::error::Error for InitError {}
 
 static REQUEST_META_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-fn unix_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
-}
