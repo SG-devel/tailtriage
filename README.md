@@ -240,3 +240,33 @@ Artifacts are written to:
 
 A sample analyzer output fixture is stored at:
 - `demos/queue_service/fixtures/sample-analysis.json`
+
+## Blocking contamination demo
+
+A reproducible blocking-pressure proof case is provided in `demos/blocking_service`.
+
+What it does:
+- launches a Tokio runtime with a small blocking thread pool (`max_blocking_threads = 2`)
+- pushes high request concurrency through a `spawn_blocking` hot path
+- records request and stage timing with `tailscope-core`
+- records blocking backlog samples as runtime snapshots
+- produces a run artifact and analyzer report
+
+Run the demo and produce analysis:
+
+```bash
+scripts/run_blocking_demo.sh
+```
+
+Validate that the analyzer flags blocking-pool pressure as the primary suspect:
+
+```bash
+scripts/validate_blocking_demo.sh
+```
+
+Artifacts are written to:
+- `demos/blocking_service/artifacts/blocking-run.json`
+- `demos/blocking_service/artifacts/blocking-analysis.json`
+
+A sample analyzer output fixture is stored at:
+- `demos/blocking_service/fixtures/sample-analysis.json`
