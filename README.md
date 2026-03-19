@@ -169,6 +169,8 @@ tailscope should support three practical modes:
 
 The repository should measure these costs rather than assert them.
 
+See `docs/runtime-cost.md` and `scripts/measure_runtime_cost.sh` for the reproducible measurement path and the latest local sample output.
+
 ## Non-goals for MVP
 
 We do not aim for:
