@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared helpers for demo run scripts.
+"""Shared helpers for demo run/validation scripts.
 
 This module holds common subprocess and artifact-writing utilities used by
 multiple demos. Per-demo scripts should keep only mode selection,
@@ -12,6 +12,11 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any
+
+
+def repo_root(from_file: str) -> Path:
+    """Return repository root for a script file path under ``scripts/``."""
+    return Path(from_file).resolve().parent.parent
 
 
 def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str) -> None:
@@ -52,11 +57,37 @@ def run_cli_analysis_json(cli_manifest_path: Path, artifact_path: Path, analysis
         )
 
 
+def run_and_analyze(
+    demo_manifest_path: Path,
+    cli_manifest_path: Path,
+    artifact_path: Path,
+    analysis_path: Path,
+    *demo_args: str,
+) -> None:
+    """Run demo and analyze the resulting artifact into ``analysis_path``."""
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    run_demo_binary(demo_manifest_path, artifact_path, *demo_args)
+    run_cli_analysis_json(cli_manifest_path, artifact_path, analysis_path)
+
+
+def variant_paths(artifact_dir: Path, variant: str) -> tuple[Path, Path]:
+    """Return ``(run_path, analysis_path)`` for a before/after variant."""
+    return artifact_dir / f"{variant}-run.json", artifact_dir / f"{variant}-analysis.json"
+
+
+def load_report_json(path: Path) -> dict[str, Any]:
+    """Load a JSON report file into a dictionary."""
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def nullable_delta(before_value: Any, after_value: Any) -> Any:
     """Return ``after - before`` when both values are present, otherwise ``None``."""
     if before_value is None or after_value is None:
         return None
-    return after_value - before_value
+    try:
+        return after_value - before_value
+    except TypeError:
+        return None
 
 
 def write_before_after_comparison(
