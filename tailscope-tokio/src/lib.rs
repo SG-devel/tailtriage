@@ -1,5 +1,13 @@
 //! Tokio runtime integration for tailscope.
 
+use std::sync::Arc;
+use std::time::Duration;
+
+use tailscope_core::{RuntimeSnapshot, Tailscope};
+use tokio::runtime::Handle;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+
 pub use tailscope_macros::instrument_request;
 
 /// Returns the crate name for smoke-testing workspace wiring.
@@ -8,12 +16,185 @@ pub const fn crate_name() -> &'static str {
     "tailscope-tokio"
 }
 
+/// Errors produced while starting runtime sampling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SamplerStartError {
+    /// Sampling interval must be greater than zero.
+    ZeroInterval,
+}
+
+impl std::fmt::Display for SamplerStartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ZeroInterval => write!(f, "runtime sampling interval must be greater than zero"),
+        }
+    }
+}
+
+impl std::error::Error for SamplerStartError {}
+
+/// Periodically samples Tokio runtime metrics and records them into a [`Tailscope`] run.
+#[derive(Debug)]
+pub struct RuntimeSampler {
+    stop_tx: Option<oneshot::Sender<()>>,
+    task: JoinHandle<()>,
+}
+
+impl RuntimeSampler {
+    /// Starts periodic runtime metrics sampling on the current Tokio runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SamplerStartError::ZeroInterval`] when `interval` is zero.
+    pub fn start(tailscope: Arc<Tailscope>, interval: Duration) -> Result<Self, SamplerStartError> {
+        if interval.is_zero() {
+            return Err(SamplerStartError::ZeroInterval);
+        }
+
+        let handle = Handle::current();
+        let (stop_tx, mut stop_rx) = oneshot::channel();
+        let mut ticker = tokio::time::interval(interval);
+
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut stop_rx => break,
+                    _ = ticker.tick() => {
+                        tailscope.record_runtime_snapshot(capture_runtime_snapshot(&handle));
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            stop_tx: Some(stop_tx),
+            task,
+        })
+    }
+
+    /// Requests sampler shutdown and waits for task completion.
+    pub async fn shutdown(mut self) {
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        let _ = self.task.await;
+    }
+}
+
+/// Captures one point-in-time runtime metrics snapshot from `handle`.
+#[must_use]
+pub fn capture_runtime_snapshot(handle: &Handle) -> RuntimeSnapshot {
+    let metrics = handle.metrics();
+
+    #[cfg(tokio_unstable)]
+    let local_queue_depth = {
+        let worker_count: usize = metrics.num_workers();
+        (0..worker_count).try_fold(0_u64, |sum, worker| {
+            let worker_depth: u64 = metrics.worker_local_queue_depth(worker).try_into().ok()?;
+            sum.checked_add(worker_depth)
+        })
+    };
+
+    #[cfg(not(tokio_unstable))]
+    let local_queue_depth = None;
+
+    #[cfg(tokio_unstable)]
+    let blocking_queue_depth = u64::try_from(metrics.blocking_queue_depth()).ok();
+
+    #[cfg(not(tokio_unstable))]
+    let blocking_queue_depth = None;
+
+    #[cfg(tokio_unstable)]
+    let remote_schedule_count = Some(metrics.remote_schedule_count());
+
+    #[cfg(not(tokio_unstable))]
+    let remote_schedule_count = None;
+
+    RuntimeSnapshot {
+        at_unix_ms: unix_time_ms(),
+        alive_tasks: u64::try_from(metrics.num_alive_tasks()).ok(),
+        global_queue_depth: u64::try_from(metrics.global_queue_depth()).ok(),
+        local_queue_depth,
+        blocking_queue_depth,
+        remote_schedule_count,
+    }
+}
+
+fn unix_time_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before UNIX_EPOCH")
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use tailscope_core::{Config, Tailscope};
+
     use super::crate_name;
+    use super::{RuntimeSampler, SamplerStartError};
 
     #[test]
     fn crate_name_is_stable() {
         assert_eq!(crate_name(), "tailscope-tokio");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn runtime_sampler_records_snapshots() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before epoch")
+            .as_nanos();
+
+        let mut config = Config::new("runtime-test");
+        config.output_path =
+            std::env::temp_dir().join(format!("tailscope_tokio_sampler_{nanos}.json"));
+
+        let tailscope = Arc::new(Tailscope::init(config).expect("init should succeed"));
+        let sampler = RuntimeSampler::start(Arc::clone(&tailscope), Duration::from_millis(5))
+            .expect("sampler should start");
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        sampler.shutdown().await;
+
+        let snapshot = tailscope.snapshot();
+        assert!(
+            !snapshot.runtime_snapshots.is_empty(),
+            "sampler should record runtime snapshots"
+        );
+
+        let first = &snapshot.runtime_snapshots[0];
+        assert!(first.alive_tasks.is_some());
+        assert!(first.global_queue_depth.is_some());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn runtime_sampler_rejects_zero_interval() {
+        let mut config = Config::new("runtime-test");
+        config.output_path = std::env::temp_dir().join("tailscope_tokio_zero_interval.json");
+        let tailscope = Arc::new(Tailscope::init(config).expect("init should succeed"));
+
+        let err = RuntimeSampler::start(tailscope, Duration::ZERO)
+            .expect_err("zero interval should fail");
+        assert_eq!(err, SamplerStartError::ZeroInterval);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn unavailable_runtime_metrics_are_recorded_as_none() {
+        let snapshot = super::capture_runtime_snapshot(&tokio::runtime::Handle::current());
+
+        #[cfg(not(tokio_unstable))]
+        {
+            assert_eq!(snapshot.local_queue_depth, None);
+            assert_eq!(snapshot.blocking_queue_depth, None);
+            assert_eq!(snapshot.remote_schedule_count, None);
+        }
     }
 }

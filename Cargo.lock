@@ -216,6 +216,7 @@ version = "0.1.0"
 dependencies = [
  "tailscope-core",
  "tailscope-macros",
+ "tokio",
  "tracing",
 ]
 

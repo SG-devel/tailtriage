@@ -193,7 +193,8 @@ Current repository state:
 - Cargo workspace compiles
 - CI runs format, clippy, and tests
 - `tailscope-core` includes run schema, local JSON sink, and initial `Config`/`Tailscope::init` plus request, in-flight, stage, and queue timing primitives
-- `tailscope-tokio` now exports `#[instrument_request(...)]` for async request entrypoints and still has placeholder runtime sampling
+- `tailscope-tokio` exports `#[instrument_request(...)]` and `RuntimeSampler` for periodic Tokio runtime metrics snapshots
+- `tailscope-tokio` records `None` for runtime metrics unavailable without `tokio_unstable` (such as local queue, blocking queue, and remote schedule counters)
 - `tailscope-cli` remains a bootstrap placeholder
 
 ## Development philosophy
