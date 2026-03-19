@@ -37,12 +37,12 @@ async fn main() -> anyhow::Result<()> {
 
                     tailscope
                         .stage(request_id.clone(), "app_precheck")
-                        .await_on(tokio::time::sleep(Duration::from_millis(1)))
+                        .await_value(tokio::time::sleep(Duration::from_millis(1)))
                         .await;
 
                     tailscope
                         .stage(request_id, "downstream_call")
-                        .await_on(tokio::time::sleep(Duration::from_millis(20)))
+                        .await_value(tokio::time::sleep(Duration::from_millis(20)))
                         .await;
                 })
                 .await;

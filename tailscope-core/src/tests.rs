@@ -255,7 +255,7 @@ fn stage_wrapper_records_stage_event() {
     let result = futures_executor::block_on(
         tailscope
             .stage("req-22", "fetch_customer")
-            .await_on(ready(11_u32)),
+            .await_value(ready(11_u32)),
     );
     assert_eq!(result, 11);
 
@@ -264,7 +264,52 @@ fn stage_wrapper_records_stage_event() {
     let event = &snapshot.stages[0];
     assert_eq!(event.request_id, "req-22");
     assert_eq!(event.stage, "fetch_customer");
+    assert!(event.success);
     assert!(event.finished_at_unix_ms >= event.started_at_unix_ms);
+}
+
+#[test]
+fn stage_wrapper_records_success_for_ok_result() {
+    let mut config = Config::new("payments");
+    config.output_path = std::env::temp_dir().join("tailscope_core_stage_ok_test.json");
+
+    let tailscope = Tailscope::init(config).expect("init should succeed");
+
+    let result = futures_executor::block_on(
+        tailscope
+            .stage("req-33", "persist_invoice")
+            .await_on(ready::<Result<u32, &'static str>>(Ok(17_u32))),
+    );
+    assert_eq!(result, Ok(17));
+
+    let snapshot = tailscope.snapshot();
+    assert_eq!(snapshot.stages.len(), 1);
+    let event = &snapshot.stages[0];
+    assert_eq!(event.request_id, "req-33");
+    assert_eq!(event.stage, "persist_invoice");
+    assert!(event.success);
+}
+
+#[test]
+fn stage_wrapper_records_failure_for_err_result() {
+    let mut config = Config::new("payments");
+    config.output_path = std::env::temp_dir().join("tailscope_core_stage_err_test.json");
+
+    let tailscope = Tailscope::init(config).expect("init should succeed");
+
+    let result = futures_executor::block_on(
+        tailscope
+            .stage("req-34", "persist_invoice")
+            .await_on(ready::<Result<u32, &'static str>>(Err("boom"))),
+    );
+    assert_eq!(result, Err("boom"));
+
+    let snapshot = tailscope.snapshot();
+    assert_eq!(snapshot.stages.len(), 1);
+    let event = &snapshot.stages[0];
+    assert_eq!(event.request_id, "req-34");
+    assert_eq!(event.stage, "persist_invoice");
+    assert!(!event.success);
 }
 
 #[test]

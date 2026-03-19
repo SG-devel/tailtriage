@@ -131,7 +131,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
                     tailscope
                         .stage(request_id, "spawn_blocking_path")
-                        .await_on(async {
+                        .await_value(async {
                             handle
                                 .await
                                 .expect("spawn_blocking workload should complete")

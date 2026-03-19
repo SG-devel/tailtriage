@@ -96,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
                     let _permit = permit;
                     tailscope
                         .stage(request_id, "simulated_work")
-                        .await_on(tokio::time::sleep(work_duration))
+                        .await_value(tokio::time::sleep(work_duration))
                         .await;
                 })
                 .await;
