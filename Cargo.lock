@@ -354,7 +354,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tailscope-core",
- "tailscope-tokio",
 ]
 
 [[package]]
