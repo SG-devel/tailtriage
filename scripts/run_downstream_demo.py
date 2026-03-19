@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 from pathlib import Path
+
+from _demo_runner import run_cli_analysis_json, run_demo_binary
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,6 +20,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    # Canonical cargo run + analysis helpers live in scripts/_demo_runner.py.
     args = parse_args()
     root_dir = Path(__file__).resolve().parent.parent
     artifact_path = (
@@ -30,36 +32,15 @@ def main() -> None:
 
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
 
-    subprocess.run(
-        [
-            "cargo",
-            "run",
-            "--quiet",
-            "--manifest-path",
-            str(root_dir / "demos/downstream_service/Cargo.toml"),
-            "--",
-            str(artifact_path),
-        ],
-        check=True,
+    run_demo_binary(
+        root_dir / "demos/downstream_service/Cargo.toml",
+        artifact_path,
     )
-
-    with analysis_path.open("w", encoding="utf-8") as analysis_file:
-        subprocess.run(
-            [
-                "cargo",
-                "run",
-                "--quiet",
-                "--manifest-path",
-                str(root_dir / "tailscope-cli/Cargo.toml"),
-                "--",
-                "analyze",
-                str(artifact_path),
-                "--format",
-                "json",
-            ],
-            check=True,
-            stdout=analysis_file,
-        )
+    run_cli_analysis_json(
+        root_dir / "tailscope-cli/Cargo.toml",
+        artifact_path,
+        analysis_path,
+    )
 
     print(f"run artifact: {artifact_path}")
     print(f"analysis: {analysis_path}")

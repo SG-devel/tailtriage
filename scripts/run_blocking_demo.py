@@ -6,8 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 from pathlib import Path
+
+from _demo_runner import run_cli_analysis_json, run_demo_binary
 
 
 def extract_blocking_queue_depth_p95(report: dict) -> int | None:
@@ -20,43 +21,23 @@ def extract_blocking_queue_depth_p95(report: dict) -> int | None:
 
 
 def run_variant(root_dir: Path, artifact_dir: Path, variant: str) -> None:
+    # Canonical cargo run + analysis helpers live in scripts/_demo_runner.py.
     run_path = artifact_dir / f"{variant}-run.json"
     analysis_path = artifact_dir / f"{variant}-analysis.json"
     mode_arg = "baseline" if variant == "before" else "mitigated"
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    subprocess.run(
-        [
-            "cargo",
-            "run",
-            "--quiet",
-            "--manifest-path",
-            str(root_dir / "demos/blocking_service/Cargo.toml"),
-            "--",
-            str(run_path),
-            mode_arg,
-        ],
-        check=True,
+    run_demo_binary(
+        root_dir / "demos/blocking_service/Cargo.toml",
+        run_path,
+        mode_arg,
     )
-
-    with analysis_path.open("w", encoding="utf-8") as analysis_file:
-        subprocess.run(
-            [
-                "cargo",
-                "run",
-                "--quiet",
-                "--manifest-path",
-                str(root_dir / "tailscope-cli/Cargo.toml"),
-                "--",
-                "analyze",
-                str(run_path),
-                "--format",
-                "json",
-            ],
-            check=True,
-            stdout=analysis_file,
-        )
+    run_cli_analysis_json(
+        root_dir / "tailscope-cli/Cargo.toml",
+        run_path,
+        analysis_path,
+    )
 
     print(f"run artifact ({variant}): {run_path}")
     print(f"analysis ({variant}): {analysis_path}")
