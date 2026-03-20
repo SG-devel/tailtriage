@@ -21,6 +21,7 @@ Use this page as the single entry point for project documentation.
 
 ## Historical snapshot
 
+- **MVP audit (2026-03-20):** [mvp-audit-2026-03-20.md](mvp-audit-2026-03-20.md)
 - **MVP audit (2026-03-19):** [mvp-audit-2026-03-19.md](mvp-audit-2026-03-19.md)
 
 ## Documentation conventions
