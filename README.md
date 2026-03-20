@@ -1,45 +1,51 @@
 # tailtriage
 
-`tailtriage` is a Rust toolkit for **tail-latency triage** in Tokio services.
+`tailtriage` is a Rust toolkit for **Tokio tail-latency triage**.
 
-It is built for one practical question:
+It is built for ordinary Rust/Tokio developers who need a useful first answer without being expert performance engineers.
+
+Core question:
 
 > Is this request path slow because of **application queueing**, **executor pressure**, **blocking-pool pressure**, or a **slow downstream stage**?
 
 ## What it is
 
-`tailtriage` helps ordinary Rust developers get a useful first diagnosis without having to read raw runtime metrics or think like a performance engineer.
+`tailtriage` is an interpretation-first diagnosis layer:
 
-It does this by:
+- capture one local run artifact from lightweight request, queue, stage, and runtime instrumentation
+- analyze it into evidence-ranked suspects
+- get concrete next checks for the highest-ranked suspect
+- compare before/after runs to keep diagnosis reproducible
 
-- capturing one local run artifact from lightweight request, queue, stage, and runtime instrumentation
-- ranking likely bottleneck suspects
-- showing evidence for that ranking
-- suggesting the next checks to run
-- keeping diagnosis reproducible: capture -> analyze -> compare before/after
+Workflow in one line: **capture -> analyze -> choose next check -> re-run**.
+
+## Who it is for
+
+- developers shipping Tokio services
+- teams with latency/backpressure incidents but limited perf-engineering bandwidth
+- people who want a fast local triage loop before adopting heavier observability workflows
+
+## Why not just use tokio-console or tokio-metrics?
+
+Those tools are valuable and complementary:
+
+- **Live debugger/console tools** (for example `tokio-console`) are great for interactive inspection and runtime/task debugging.
+- **Raw metrics libraries** (for example `tokio-metrics`) are great for exposing runtime/task measurements.
+- **General observability stacks** are great when you need broad telemetry storage, querying, and cross-service operations.
+
+`tailtriage` is different: it focuses on a first useful **triage** answer from a small, local run artifact by ranking suspects and recommending next checks. It is not trying to replace those tools.
 
 ## What it is not
 
-`tailtriage` is **not** a live debugger, metrics backend, or general observability stack.
+`tailtriage` is intentionally **not**:
 
-If you want raw runtime/task data or an interactive debugging UI, tools like `tokio-console`, `tokio-metrics`, and `dial9-tokio-telemetry` already cover those areas well. `tailtriage` is the interpretation layer on top: a focused tool for turning a small amount of instrumentation into an actionable bottleneck hypothesis. :contentReference[oaicite:0]{index=0}
+- a live debugging console
+- a generalized telemetry/export platform
+- an observability backend
+- a distributed tracing system
+- an automated root-cause proof engine
 
-## Why it is useful
-
-- **Focused on triage:** ranks likely suspects instead of just surfacing telemetry
-- **Usable with partial instrumentation:** start with a few key waits/stages and improve coverage over time
-- **Low-friction workflow:** one run artifact, one CLI analysis step
-- **Honest output:** suspects are evidence-ranked leads, not proof of root cause
-- **Made for non-experts:** useful hints first, deeper investigation second
-
-## Best fit
-
-`tailtriage` is a good fit when:
-
-- you run a Tokio service
-- you have a tail-latency or backpressure problem
-- you want a fast, local, reproducible answer
-- you do **not** want to start with a full observability platform
+Outputs are evidence-ranked leads, not proof of causality.
 
 ## Current scope
 
@@ -108,6 +114,7 @@ Start with:
 
 - `primary_suspect.kind`
 - `primary_suspect.evidence[]`
+- `primary_suspect.next_checks[]`
 - `p95_queue_share_permille`
 - `p95_service_share_permille`
 
@@ -123,7 +130,7 @@ Start with:
 ## Scope and limitations (MVP)
 
 - Tokio-only runtime support.
-- Single-process diagnosis (no distributed correlation).
+- Single-process triage (no distributed correlation).
 - Rule-based suspect ranking with evidence (not proof of root cause).
 
 ## Documentation

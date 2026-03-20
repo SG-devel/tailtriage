@@ -1,6 +1,6 @@
 # Diagnostics guide
 
-This document explains what `tailtriage analyze` reports and how to use it.
+This document explains how `tailtriage analyze` produces a triage report and how to use it.
 
 ## Report contents
 
@@ -68,12 +68,13 @@ When present:
 
 Positive growth means in-flight work accumulated during the run.
 
-## Practical workflow
+## Practical triage workflow
 
 1. Capture one run.
 2. Analyze and inspect primary suspect evidence.
-3. Change one thing.
-4. Re-run under comparable load.
-5. Compare p95 shares and suspect evidence.
+3. Run the suggested next check for that suspect.
+4. Change one thing.
+5. Re-run under comparable load.
+6. Compare p95 shares and suspect evidence.
 
 For reproducible before/after demo workflows, see [getting-started-demo.md](getting-started-demo.md).

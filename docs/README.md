@@ -5,13 +5,13 @@ Use this page as the single entry point for project documentation.
 ## Start here
 
 - **First use / integration:** [user-guide.md](user-guide.md)
-- **How diagnosis works:** [diagnostics.md](diagnostics.md)
+- **How triage analysis works:** [diagnostics.md](diagnostics.md)
 
 ## Core references
 
 - **Architecture and crate responsibilities:** [architecture.md](architecture.md)
-- **MVP product contract:** [../SPEC.md](../SPEC.md)
-- **Implementation roadmap:** [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md)
+- **MVP product contract (Tokio tail-latency triage):** [../SPEC.md](../SPEC.md)
+- **Release/polish plan:** [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md)
 
 ## Reproducibility and operations
 
@@ -29,3 +29,4 @@ Use this page as the single entry point for project documentation.
 - `demos/*/artifacts/` = generated, untracked outputs.
 - `demos/*/fixtures/` = committed reference snapshots used for deterministic validation.
 - Suspects are evidence-ranked leads, not causal proof.
+- Prefer triage language for product/category descriptions.
