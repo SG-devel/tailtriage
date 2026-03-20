@@ -319,6 +319,16 @@ def validate_mixed(root_dir: Path) -> None:
         "baseline score={} mitigated score={}".format(
             baseline_primary,
             after_primary,
+            before_score,
+            after_score,
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
+
+
 def _contains_blocking_depth_evidence(report: dict) -> bool:
     suspect = report.get("primary_suspect") or {}
     evidence = suspect.get("evidence") or []
@@ -401,7 +411,7 @@ def main(argv: list[str] | None = None) -> None:
         elif args.scenario == "blocking":
             run_scenario_blocking(root_dir, args.mode)
         elif args.scenario == "downstream":
-          if args.mode != "both":
+            if args.mode != "both":
                 raise SystemExit("downstream scenario does not accept mode; use --artifact-path if needed")
             run_scenario_downstream(root_dir, args.artifact_path)
         elif args.scenario == "executor":
@@ -415,9 +425,9 @@ def main(argv: list[str] | None = None) -> None:
     elif args.scenario == "blocking":
         validate_blocking(root_dir)
     elif args.scenario == "downstream":
-        validate_downstream(root_dir)  
+        validate_downstream(root_dir)
     elif args.scenario == "executor":
-        validate_executor(root_dir)        
+        validate_executor(root_dir)
     else:
         validate_mixed(root_dir)
 
