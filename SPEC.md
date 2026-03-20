@@ -1,30 +1,36 @@
 # SPEC.md
 
-Implementation contract for the `tailtriage` MVP.
+Product contract for the `tailtriage` triage MVP.
 
 ## 1. Product summary
 
-`tailtriage` is a Rust toolkit for diagnosing tail-latency, queueing, and backpressure problems in Tokio services.
+`tailtriage` is a Rust toolkit for **Tokio tail-latency triage**.
 
 Primary question:
 
-> Given one instrumented run, what is the strongest suspect: application queueing, executor pressure, blocking-pool pressure, or downstream stage latency?
+> Given one instrumented run, what is the strongest evidence-ranked bottleneck suspect (application queueing, executor pressure, blocking-pool pressure, or downstream stage latency), and what should we check next?
 
-## 2. Goals
+This product is interpretation-first: provide a useful first answer for ordinary developers, then guide deeper investigation.
+
+## 2. Product goals
 
 The MVP must:
 
-1. be easy to integrate
-2. remain useful with partial instrumentation
-3. produce a clear diagnosis report
-4. be honest about uncertainty
-5. measure runtime cost with reproducible scripts
+1. be easy to integrate into existing Tokio services
+2. produce useful output for non-experts with partial instrumentation
+3. emit ranked suspects with supporting evidence and actionable next checks
+4. stay explicit that suspects are leads, not root-cause proof
+5. support reproducible before/after diagnosis from comparable runs
+6. measure runtime cost with reproducible scripts
 
 ## 3. Non-goals
 
 MVP does **not** include:
 
-- distributed tracing backend
+- live debugging console
+- generalized telemetry/export platform
+- observability backend
+- distributed tracing system
 - metrics backend/exporter
 - GUI/web UI
 - OpenTelemetry exporter
@@ -32,6 +38,7 @@ MVP does **not** include:
 - eBPF integration
 - non-Tokio runtime support
 - auto-remediation or ML root-cause engine
+- automated proof claims of causality
 
 ## 4. Workspace layout
 
@@ -154,7 +161,7 @@ Supported arguments:
 - `inflight`
 - `runtime_snapshots`
 
-Each section captures timestamped events/snapshots used by the CLI diagnosis rules.
+Each section captures timestamped events/snapshots used by the CLI triage rules.
 
 ## 7. Analyzer CLI (`tailtriage-cli`)
 
@@ -184,7 +191,7 @@ Canonical invocation for demo validation and runtime-cost measurement is **Pytho
 - `scripts/*.py` are the source-of-truth implementations.
 - Required runtime dependencies for script workflows: `python3` and `cargo`.
 
-## 8. Diagnosis categories
+## 8. Suspect categories
 
 MVP categories:
 
