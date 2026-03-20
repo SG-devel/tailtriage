@@ -29,6 +29,10 @@ python3 scripts/demo_tool.py validate mixed
 
 python3 scripts/demo_tool.py run cold-start
 python3 scripts/demo_tool.py validate cold-start
+
+python3 scripts/demo_tool.py run db-pool
+python3 scripts/demo_tool.py validate db-pool
+
 ```
 
 ## What each demo demonstrates
@@ -41,6 +45,7 @@ python3 scripts/demo_tool.py validate cold-start
 | `downstream_service` | downstream-stage dominance | `primary_suspect.kind`, `p95_service_share_permille`, suspect evidence |
 | `mixed_contention_service` | queue + downstream contention together | baseline includes both suspects; mitigation should shift rank and/or score |
 | `cold_start_burst_service` | cold-start cohort causes warmup drag and burst queueing | baseline evidence references `cold_start_stage` and/or queue pressure; mitigation lowers p95 and primary suspect score |
+| `db_pool_saturation_service` | DB pool admission + slow DB stage contention | baseline suspect includes queue saturation and/or downstream dominance; mitigation improves p95 and/or score |
 
 ## Mixed-contention expected rank behavior
 

@@ -22,8 +22,8 @@ EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected", "ExecutorPressureSuspec
 EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates", "DownstreamStageDominates"}
 EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
+EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
-
 
 def extract_blocking_queue_depth_p95(report: dict) -> int | None:
     suspect = report.get("primary_suspect") or {}
@@ -33,14 +33,12 @@ def extract_blocking_queue_depth_p95(report: dict) -> int | None:
             return int(match.group(1))
     return None
 
-
 def normalize_mode(mode: str) -> str:
     if mode in {"baseline", "before"}:
         return "before"
     if mode in {"mitigated", "after"}:
         return "after"
     return mode
-
 
 def snapshot_queue(report: dict) -> dict[str, int | str | None]:
     return {
@@ -50,7 +48,6 @@ def snapshot_queue(report: dict) -> dict[str, int | str | None]:
         "p95_queue_share_permille": report.get("p95_queue_share_permille"),
     }
 
-
 def snapshot_blocking(report: dict) -> dict[str, int | str | None]:
     return {
         "primary_suspect_kind": report["primary_suspect"]["kind"],
@@ -59,7 +56,6 @@ def snapshot_blocking(report: dict) -> dict[str, int | str | None]:
         "p95_service_share_permille": report.get("p95_service_share_permille"),
         "blocking_queue_depth_p95": extract_blocking_queue_depth_p95(report),
     }
-
 
 def run_before_after_scenario(
     root_dir: Path,
@@ -93,7 +89,6 @@ def run_before_after_scenario(
     )
     print(f"comparison: {comparison_path}")
 
-
 def run_scenario_queue(root_dir: Path, mode: str) -> None:
     run_before_after_scenario(
         root_dir,
@@ -102,7 +97,6 @@ def run_scenario_queue(root_dir: Path, mode: str) -> None:
         mode,
         snapshot_queue,
     )
-
 
 def run_scenario_blocking(root_dir: Path, mode: str) -> None:
     run_before_after_scenario(
@@ -113,7 +107,6 @@ def run_scenario_blocking(root_dir: Path, mode: str) -> None:
         snapshot_blocking,
     )
 
-
 def run_scenario_executor(root_dir: Path, mode: str) -> None:
     run_before_after_scenario(
         root_dir,
@@ -122,7 +115,6 @@ def run_scenario_executor(root_dir: Path, mode: str) -> None:
         mode,
         snapshot_queue,
     )
-
 
 def run_scenario_downstream(root_dir: Path, artifact_path: str | None) -> None:
     run_path = (
@@ -140,7 +132,6 @@ def run_scenario_downstream(root_dir: Path, artifact_path: str | None) -> None:
     print(f"run artifact: {run_path}")
     print(f"analysis: {analysis_path}")
 
-
 def run_scenario_mixed(root_dir: Path, mode: str) -> None:
     run_before_after_scenario(
         root_dir,
@@ -149,7 +140,6 @@ def run_scenario_mixed(root_dir: Path, mode: str) -> None:
         mode,
         snapshot_queue,
     )
-
 
 def run_scenario_cold_start(root_dir: Path, mode: str) -> None:
     run_before_after_scenario(
@@ -160,12 +150,19 @@ def run_scenario_cold_start(root_dir: Path, mode: str) -> None:
         snapshot_queue,
     )
 
+def run_scenario_db_pool(root_dir: Path, mode: str) -> None:
+    run_before_after_scenario(
+        root_dir,
+        root_dir / "demos/db_pool_saturation_service/Cargo.toml",
+        root_dir / "demos/db_pool_saturation_service/artifacts",
+        mode,
+        snapshot_queue,
+    )
 
 def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
     primary = report.get("primary_suspect") or {}
     all_suspects = [primary, *(report.get("secondary_suspects") or [])]
     return any((suspect or {}).get("kind") in expected_kinds for suspect in all_suspects)
-
 
 def validate_queue(root_dir: Path) -> None:
     run_scenario_queue(root_dir, "both")
@@ -205,7 +202,6 @@ def validate_queue(root_dir: Path) -> None:
         "validated analysis files: "
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
-
 
 def validate_blocking(root_dir: Path) -> None:
     run_scenario_blocking(root_dir, "both")
@@ -276,7 +272,6 @@ def validate_blocking(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-
 def validate_downstream(root_dir: Path) -> None:
     run_scenario_downstream(root_dir, None)
     analysis_path = root_dir / "demos/downstream_service/artifacts/downstream-analysis.json"
@@ -288,7 +283,6 @@ def validate_downstream(root_dir: Path) -> None:
 
     print(f"validation passed: primary suspect is {kind}")
     print(f"validated analysis file: {analysis_path}")
-
 
 def validate_mixed(root_dir: Path) -> None:
     run_scenario_mixed(root_dir, "both")
@@ -339,12 +333,10 @@ def validate_mixed(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-
 def _contains_blocking_depth_evidence(report: dict) -> bool:
     suspect = report.get("primary_suspect") or {}
     evidence = suspect.get("evidence") or []
     return any("blocking queue depth" in str(item).lower() for item in evidence)
-
 
 def validate_executor(root_dir: Path) -> None:
     run_scenario_executor(root_dir, "both")
@@ -387,7 +379,6 @@ def validate_executor(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-
 def _report_mentions_cold_start_or_queue(report: dict) -> bool:
     suspects = [report.get("primary_suspect") or {}, *(report.get("secondary_suspects") or [])]
     evidence_items = [
@@ -401,7 +392,6 @@ def _report_mentions_cold_start_or_queue(report: dict) -> bool:
         or "queue depth sample" in item
         for item in evidence_items
     )
-
 
 def validate_cold_start(root_dir: Path) -> None:
     run_scenario_cold_start(root_dir, "both")
@@ -449,6 +439,43 @@ def validate_cold_start(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
+def validate_db_pool(root_dir: Path) -> None:
+    run_scenario_db_pool(root_dir, "both")
+    artifact_dir = root_dir / "demos/db_pool_saturation_service/artifacts"
+    before = load_report_json(artifact_dir / "before-analysis.json")
+    after = load_report_json(artifact_dir / "after-analysis.json")
+
+    before_kind = before["primary_suspect"]["kind"]
+    if before_kind not in EXPECTED_DB_POOL_PRIMARY_KINDS:
+        raise SystemExit(
+            "expected baseline primary suspect to indicate queue or downstream pressure, "
+            f"got {before_kind}"
+        )
+
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+
+    if after_p95 >= before_p95 and after_score >= before_score:
+        raise SystemExit(
+            "expected mitigation to improve p95 and/or primary suspect score, "
+            f"got p95 {before_p95}->{after_p95} and score {before_score}->{after_score}"
+        )
+
+    print(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
+            before_kind,
+            before_p95,
+            after_p95,
+            before_score,
+            after_score,
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
@@ -457,7 +484,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
     run_parser.add_argument(
         "scenario",
-        choices=["queue", "blocking", "executor", "downstream", "mixed", "cold-start"],
+        choices=["queue", "blocking", "executor", "downstream", "mixed", "cold-start", "db-pool"],
     )
     run_parser.add_argument(
         "mode",
@@ -474,11 +501,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
     validate_parser.add_argument(
         "scenario",
-        choices=["queue", "blocking", "executor", "downstream", "mixed", "cold-start"],
+        choices=["queue", "blocking", "executor", "downstream", "mixed", "cold-start", "db-pool"],
     )
 
     return parser.parse_args(argv)
-
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
@@ -497,6 +523,8 @@ def main(argv: list[str] | None = None) -> None:
             run_scenario_executor(root_dir, args.mode)
         elif args.scenario == "cold-start":
             run_scenario_cold_start(root_dir, args.mode)
+        elif args.scenario == "db-pool":
+            run_scenario_db_pool(root_dir, args.mode)
         else:
             run_scenario_mixed(root_dir, args.mode)
         return
@@ -511,9 +539,10 @@ def main(argv: list[str] | None = None) -> None:
         validate_executor(root_dir)
     elif args.scenario == "cold-start":
         validate_cold_start(root_dir)
+    elif args.scenario == "db-pool":
+        validate_db_pool(root_dir)
     else:
         validate_mixed(root_dir)
-
 
 if __name__ == "__main__":
     main()
