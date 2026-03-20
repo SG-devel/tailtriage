@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - '**/*.py'
+      - 'demos/**'
+      - 'tailtriage-cli/**'
+      - 'tailtriage-core/**'
+      - 'tailtriage-tokio/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/python-demos.yml'
 
 jobs:
