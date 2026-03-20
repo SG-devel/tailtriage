@@ -1,0 +1,44 @@
+{
+  "request_count": 220,
+  "p50_latency_us": 572910,
+  "p95_latency_us": 1000477,
+  "p99_latency_us": 1064713,
+  "p95_queue_share_permille": 977,
+  "p95_service_share_permille": 377,
+  "inflight_trend": {
+    "gauge": "db_pool_saturation_inflight",
+    "sample_count": 440,
+    "peak_count": 195,
+    "p95_count": 185,
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
+  },
+  "primary_suspect": {
+    "kind": "ApplicationQueueSaturation",
+    "score": 90,
+    "confidence": "high",
+    "evidence": [
+      "Queue wait at p95 consumes 97.7% of request time.",
+      "Observed queue depth sample up to 190."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "DownstreamStageDominates",
+      "score": 60,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'db_query' has p95 latency 22329 us across 220 samples.",
+        "Stage 'db_query' cumulative latency is 4665893 us."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'db_query'.",
+        "Collect downstream service timings and retry behavior during tail windows."
+      ]
+    }
+  ]
+}
