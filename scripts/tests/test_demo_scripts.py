@@ -55,6 +55,14 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.scenario, "mixed")
         self.assertEqual(args.mode, "baseline")
 
+    def test_has_suspect_kind_handles_missing_primary(self) -> None:
+        report = {
+            "secondary_suspects": [{"kind": "downstream_stage_dominates"}],
+        }
+
+        self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
+        self.assertFalse(has_suspect_kind(report, {"application_queue_saturation"}))
+
     def test_has_suspect_kind_checks_primary_and_secondary(self) -> None:
         report = {
             "primary_suspect": {"kind": "application_queue_saturation"},

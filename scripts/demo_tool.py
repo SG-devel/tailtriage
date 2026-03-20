@@ -140,8 +140,9 @@ def run_scenario_mixed(root_dir: Path, mode: str) -> None:
 
 
 def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
-    all_suspects = [report["primary_suspect"], *(report.get("secondary_suspects") or [])]
-    return any(suspect.get("kind") in expected_kinds for suspect in all_suspects)
+    primary = report.get("primary_suspect") or {}
+    all_suspects = [primary, *(report.get("secondary_suspects") or [])]
+    return any((suspect or {}).get("kind") in expected_kinds for suspect in all_suspects)
 
 
 def validate_queue(root_dir: Path) -> None:
