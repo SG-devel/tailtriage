@@ -1,0 +1,9 @@
+[package]
+name = "demo-support"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+tailtriage-core = { path = "../../tailtriage-core" }
