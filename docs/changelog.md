@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Added a fresh dated MVP audit snapshot (`docs/mvp-audit-2026-03-20.md`) with current acceptance/milestone/scope verification results.
 - Consolidated documentation structure around `docs/README.md` as the canonical docs index.
 - Reduced duplication across README/user guide/diagnostics/demo docs while keeping MVP integration and diagnosis guidance intact.
 - Simplified the historical MVP audit doc and removed stale cross-document references.
