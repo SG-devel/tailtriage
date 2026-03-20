@@ -1,98 +1,68 @@
 # User guide (first use)
 
-This page is intentionally scoped to the **first-use flow**: get one run artifact, analyze it, and interpret the top diagnosis fields.
+This guide covers the shortest path to a useful diagnosis.
 
-## When to use tailscope
-
-Use `tailscope` when you need to quickly determine whether tail latency in a Tokio service is most likely caused by:
-
-- **Application-level queueing** (work sitting in queues before execution).
-- **Executor or blocking-pool pressure** (runtime contention that inflates wait/dispatch time).
-- **A slow downstream stage** (for example a DB/cache/RPC call dominating request time).
-
-## Minimal integration
-
-Start with one collector and only a few wrappers.
-
-1. **Initialize once** near service startup.
+## 1) Instrument one request flow
 
 ```rust
-use tailscope_core::{Config, Tailscope};
+use tailscope_core::{Config, RequestMeta, Tailscope};
 
 let tailscope = Tailscope::init(Config::new("my-service"))?;
-```
 
-2. **Wrap one request entry point**.
-
-```rust
-use tailscope_core::RequestMeta;
+let meta = RequestMeta::for_route("/checkout").with_kind("http");
+let request_id = meta.request_id.clone();
 
 tailscope
-    .request(
-        RequestMeta::for_route("/checkout").with_kind("http"),
-        "ok",
-        async {
-            // request body
-        },
-    )
-    .await;
-```
+    .request(meta, "ok", async {
+        tailscope
+            .queue(request_id.clone(), "ingress_queue")
+            .await_on(async_work_that_waits())
+            .await;
 
-3. **Wrap one queue wait and one stage await** inside that request flow.
-
-```rust
-// queue wait
-let request_id = RequestMeta::for_route("/checkout").with_kind("http").request_id;
-tailscope
-    .queue(request_id.clone(), "ingress_queue")
-    .await_on(async_work_that_waits())
+        tailscope
+            .stage(request_id, "db_call")
+            .await_value(async_downstream_call())
+            .await;
+    })
     .await;
 
-// downstream stage
-tailscope
-    .stage(request_id, "db_call")
-    .await_value(async_downstream_call())
-    .await;
-```
-
-After collecting data, flush once before process exit:
-
-```rust
 tailscope.flush()?;
 ```
 
-## Analyze one run
-
-Use the CLI analysis command:
+## 2) Analyze the run
 
 ```bash
 tailscope analyze <run.json> --format json
 ```
 
-## Read the key output fields
+Read these fields first:
 
-Focus on these fields first:
+- `primary_suspect.kind`
+- `primary_suspect.evidence[]`
+- `primary_suspect.next_checks[]`
+- `p95_queue_share_permille`
+- `p95_service_share_permille`
 
-- **`primary_suspect`**: the top-ranked diagnosis candidate.
-  - Start with `primary_suspect.kind` to see the likely bottleneck category.
-- **`p95_queue_share_permille`**: how much of p95 latency is attributable to queue time, in permille (per-thousand).
-  - Example: `420` means ~42.0% of p95 latency.
-- **`evidence`** (under the suspect): concrete signals that supported ranking.
-  - Treat this as the “why” behind the suspect selection and as guidance for where to inspect next.
+## 3) If result is `InsufficientEvidence`
 
-## If result is `InsufficientEvidence`
+Add one more queue wrapper and one more stage wrapper around the most likely missing wait points, then rerun with comparable load.
 
-Take two concrete instrumentation actions next:
+## 4) Optional stronger attribution
 
-1. **Add one more `queue(...).await_on(...)` wrapper** around the most likely uninstrumented wait point in the request path.
-2. **Add one more `stage(...).await_on(...)` or `stage(...).await_value(...)` wrapper** around the slowest suspected downstream await.
+Enable runtime snapshots when queue/stage instrumentation is still ambiguous:
 
-Then run again and re-analyze.
+```rust
+use std::sync::Arc;
+use std::time::Duration;
+use tailscope_tokio::RuntimeSampler;
+
+let sampler = RuntimeSampler::start(Arc::clone(&tailscope), Duration::from_millis(200))?;
+// run workload
+sampler.shutdown().await;
+```
 
 ## Next docs
 
-For details beyond first use, see:
-
-- [Architecture](architecture.md)
 - [Diagnostics guide](diagnostics.md)
-- [Getting started demos](getting-started-demo.md)
+- [Architecture](architecture.md)
+- [Demo workflow](getting-started-demo.md)

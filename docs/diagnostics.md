@@ -1,186 +1,79 @@
-# tailscope diagnostics guide (MVP)
+# Diagnostics guide
 
-This document explains what the analyzer currently reports and how to interpret it.
+This document explains what `tailscope analyze` reports and how to use it.
 
-## Report shape
+## Report contents
 
-`tailscope analyze <run.json>` returns:
+`tailscope analyze <run.json>` outputs:
 
 - request count
-- request p50/p95/p99 latency
-- p95 request-time share for queue wait (permille)
-- p95 request-time share for service time (permille)
-- optional dominant in-flight trend summary (`inflight_trend`)
-- one primary suspect
-- zero or more secondary suspects
+- request latency percentiles (p50/p95/p99)
+- p95 request-time shares:
+  - `p95_queue_share_permille`
+  - `p95_service_share_permille`
+- optional in-flight trend summary
+- ranked suspects (one primary, zero or more secondary)
 
 Each suspect includes:
 
-- kind
-- score
-- confidence
-- evidence (human-readable)
-- recommended next checks
+- `kind`
+- `score`
+- `confidence`
+- `evidence[]`
+- `next_checks[]`
 
-## JSON report schema (MVP)
+## JSON fields (stable MVP shape)
 
-Top-level JSON object fields currently emitted by `tailscope-cli`:
-
-| Field | Type | Notes |
+| Field | Type | Meaning |
 | --- | --- | --- |
-| `request_count` | `number` (`usize`) | Total requests seen in the run. |
-| `p50_latency_us` | `number \| null` (`Option<u64>`) | Request p50 latency in microseconds. |
-| `p95_latency_us` | `number \| null` (`Option<u64>`) | Request p95 latency in microseconds. |
-| `p99_latency_us` | `number \| null` (`Option<u64>`) | Request p99 latency in microseconds. |
-| `p95_queue_share_permille` | `number \| null` (`Option<u64>`) | p95 queue-time share of request latency, permille (0-1000). |
-| `p95_service_share_permille` | `number \| null` (`Option<u64>`) | p95 service-time share of request latency, permille (0-1000). |
-| `inflight_trend` | `object \| null` (`Option<InflightTrend>`) | Dominant in-flight gauge trend summary when snapshots are available. |
-| `primary_suspect` | `object` (`Suspect`) | Highest-ranked suspect; includes `kind`, `score`, `confidence`, `evidence`, `next_checks`. |
-| `secondary_suspects` | `array` of `Suspect` | Remaining ranked suspects, possibly empty. |
+| `request_count` | `usize` | Requests observed in the run. |
+| `p50_latency_us` / `p95_latency_us` / `p99_latency_us` | `Option<u64>` | Request latency percentiles (microseconds). |
+| `p95_queue_share_permille` | `Option<u64>` | Queue-time share of p95 request latency (0-1000). |
+| `p95_service_share_permille` | `Option<u64>` | Service/stage share of p95 request latency (0-1000). |
+| `inflight_trend` | `Option<InflightTrend>` | Dominant in-flight gauge trend when snapshots exist. |
+| `primary_suspect` | `Suspect` | Highest-ranked suspect. |
+| `secondary_suspects` | `Vec<Suspect>` | Remaining ranked suspects. |
 
-## Request-time share metrics
+## Interpreting shares quickly
 
-The report includes two explicit request-time share fields:
+- `1000` permille = 100%
+- `500` permille = 50%
 
-- `p95_queue_share_permille`
-- `p95_service_share_permille`
+Rules of thumb:
 
-Both are measured in permille (0-1000) across requests, where:
-
-- `1000` = 100.0% of request time
-- `500` = 50.0% of request time
-
-Interpretation guidance:
-
-- high `p95_queue_share_permille` (for example 300+ = 30%+) points to application-level queueing pressure
-- high `p95_service_share_permille` with a dominant stage points to downstream/service-time bottlenecks
-- queue + service shares are complementary at request level in current MVP heuristics (queue wait is clamped to request latency)
-
-## In-flight trend metrics
-
-When in-flight snapshots are present, the report emits a dominant gauge summary:
-
-- `inflight_trend.gauge`
-- `inflight_trend.sample_count`
-- `inflight_trend.peak_count`
-- `inflight_trend.p95_count`
-- `inflight_trend.growth_delta`
-- `inflight_trend.growth_per_sec_milli` (count/sec in milli-units)
-
-In text output, this summary is rendered on one explicit line:
-
-- `inflight_trend gauge=<name> samples=<n> peak=<count> p95=<count> growth_delta=<delta> growth_per_sec_milli=<value>`
-
-Interpretation guidance:
-
-- positive `growth_delta` means in-flight work accumulated over the run window
-- high `peak_count`/`p95_count` plus high queue share strengthens queue saturation suspicion
-- positive growth plus elevated runtime global queue depth can reinforce executor pressure signals
+- high queue share suggests queue saturation
+- high service share plus dominant stage suggests downstream latency dominance
+- use suspect evidence and next checks to choose one follow-up experiment
 
 ## Suspect kinds
 
-## `ApplicationQueueSaturation`
+- `ApplicationQueueSaturation`
+- `BlockingPoolPressure`
+- `ExecutorPressureSuspected`
+- `DownstreamStageDominates`
+- `InsufficientEvidence`
 
-Typical evidence:
+These are **evidence-ranked leads**, not causal proof.
 
-- queue wait consumes large request share (p95 queue share high)
-- queue depth samples rise
+## In-flight trend fields
 
-What to check next:
+When present:
 
-- admission limits, producer burstiness
-- worker parallelism and queue policies
+- `gauge`
+- `sample_count`
+- `peak_count`
+- `p95_count`
+- `growth_delta`
+- `growth_per_sec_milli`
 
-## `BlockingPoolPressure`
-
-Typical evidence:
-
-- blocking queue depth p95 above zero/sustained
-- tails align with `spawn_blocking` backlog
-
-What to check next:
-
-- blocking callsites and workload duration
-- synchronous CPU or blocking I/O in hot paths
-
-## `ExecutorPressureSuspected`
-
-Typical evidence:
-
-- runtime global queue depth p95 elevated
-- broad scheduler pressure signal
-
-What to check next:
-
-- long-running polls and missing yields
-- uneven fan-out / task scheduling behavior
-
-## `DownstreamStageDominates`
-
-Typical evidence:
-
-- one stage dominates p95 and cumulative latency
-
-What to check next:
-
-- dependency behind that stage
-- retries/timeouts/circuit behavior under load
-
-## `InsufficientEvidence`
-
-Typical evidence:
-
-- sparse queue/stage/runtime signals
-- weak or conflicting attribution data
-
-What to check next:
-
-- add targeted queue/stage instrumentation
-- capture runtime snapshots during the workload window
-
-## Confidence model
-
-Current confidence mapping is score-based:
-
-- `high` for strong scores
-- `medium` for moderate scores
-- `low` otherwise
-
-Confidence is an internal ranking confidence, not a statistical confidence interval.
+Positive growth means in-flight work accumulated during the run.
 
 ## Practical workflow
 
-1. Run workload and capture one run JSON.
-2. Analyze with CLI (`text` and `json` when needed).
-3. Start from the primary suspect evidence.
-4. Validate suspect with one targeted experiment.
-5. Re-run and compare before/after output.
+1. Capture one run.
+2. Analyze and inspect primary suspect evidence.
+3. Change one thing.
+4. Re-run under comparable load.
+5. Compare p95 shares and suspect evidence.
 
-### Queue demo before/after example
-
-`python3 scripts/demo_tool.py run queue` now emits `before` (pathological baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/queue_service/artifacts/before-after-comparison.json`.
-
-In the current checked-in fixtures:
-
-- `before-analysis.json` reports `ApplicationQueueSaturation` with score `90` and p95 latency `1,682,454us`
-- `after-analysis.json` reports p95 latency `24,745us` with queue share reduced from `981` to `5` permille
-
-Use this pattern for diagnosis validation: keep load shape constant, adjust one mitigation lever, and compare suspect ranking plus p95-level shares.
-
-### Blocking demo before/after example
-
-`python3 scripts/demo_tool.py run blocking` now emits `before` (blocking-pool-constrained baseline) and `after` (mitigated) analyses, plus a machine-readable comparison JSON at `demos/blocking_service/artifacts/before-after-comparison.json`.
-
-In the current checked-in fixtures:
-
-- `before-analysis.json` reports `BlockingPoolPressure` with score `80`, p95 latency `3,524,739us`, and blocking queue depth p95 of `244`
-- `after-analysis.json` reports p95 latency `82,559us` with the same suspect score but lower blocking queue depth p95 (`39`)
-
-This demo validates mitigation by comparing both latency and at least one pressure signal (`blocking_queue_depth_p95`, suspect score, or p95 share) instead of relying on suspect kind changes alone.
-
-## Limitations
-
-- No cross-service correlation.
-- Rule-based heuristics may miss mixed-cause incidents.
-- Quality depends on instrumentation coverage.
-- Runtime metrics are partially constrained on stable Tokio without `tokio_unstable`.
+For reproducible before/after demo workflows, see [getting-started-demo.md](getting-started-demo.md).
