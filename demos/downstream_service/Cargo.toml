@@ -8,3 +8,4 @@ publish = false
 anyhow = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 tailtriage-core = { path = "../../tailtriage-core" }
+demo-support = { path = "../demo_support" }

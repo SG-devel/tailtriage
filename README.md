@@ -136,3 +136,5 @@ Start with:
 ## Documentation
 
 For concise docs by audience, start at **[docs/README.md](docs/README.md)**.
+
+For demo-specific behavior and triage expectations, see **[demos/README.md](demos/README.md)**.
