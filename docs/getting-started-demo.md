@@ -46,6 +46,19 @@ python3 scripts/demo_tool.py validate db-pool
 | `mixed_contention_service` | queue + downstream contention together | baseline includes both suspects; mitigation should shift rank and/or score |
 | `cold_start_burst_service` | cold-start cohort causes warmup drag and burst queueing | baseline evidence references `cold_start_stage` and/or queue pressure; mitigation lowers p95 and primary suspect score |
 | `db_pool_saturation_service` | DB pool admission + slow DB stage contention | baseline suspect includes queue saturation and/or downstream dominance; mitigation improves p95 and/or score |
+| `runtime_cost` | instrumentation overhead measurement (not suspect-ranking triage) | run via `python3 scripts/measure_runtime_cost.py`; writes `demos/runtime_cost/artifacts/` |
+
+## Runtime-cost demo path (separate from triage scenarios)
+
+`runtime_cost` is a measurement demo that uses a separate script entrypoint rather than `scripts/demo_tool.py`.
+
+Use:
+
+```bash
+python3 scripts/measure_runtime_cost.py
+```
+
+For mode definitions, metrics, and interpretation details, see **[`docs/runtime-cost.md`](./runtime-cost.md)**.
 
 ## Mixed-contention expected rank behavior
 
