@@ -1,0 +1,32 @@
+{
+  "request_count": 180,
+  "p50_latency_us": 10181,
+  "p95_latency_us": 42044,
+  "p99_latency_us": 43178,
+  "p95_queue_share_permille": 0,
+  "p95_service_share_permille": 1000,
+  "inflight_trend": {
+    "gauge": "retry_storm_inflight",
+    "sample_count": 360,
+    "peak_count": 55,
+    "p95_count": 52,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -8849
+  },
+  "primary_suspect": {
+    "kind": "DownstreamStageDominates",
+    "score": 81,
+    "confidence": "medium",
+    "evidence": [
+      "Stage 'downstream_total' has p95 latency 39730 us across 180 samples.",
+      "Stage 'downstream_total' cumulative latency is 3061084 us.",
+      "Stage 'downstream_total' contributes 877 permille of cumulative request latency."
+    ],
+    "next_checks": [
+      "Inspect downstream dependency behind stage 'downstream_total'.",
+      "Collect downstream service timings and retry behavior during tail windows.",
+      "Review downstream SLO/error budget and align retry budget/backoff with it."
+    ]
+  },
+  "secondary_suspects": []
+}

@@ -305,6 +305,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "retry-storm-service-demo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "demo-support",
+ "tailtriage-core",
+ "tokio",
+]
+
+[[package]]
 name = "runtime_cost"
 version = "0.1.0"
 dependencies = [

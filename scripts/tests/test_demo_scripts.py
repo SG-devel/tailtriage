@@ -56,6 +56,11 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.scenario, "downstream")
         self.assertEqual(args.artifact_path, "custom-run.json")
 
+    def test_parse_args_accepts_retry_storm_scenario(self) -> None:
+        args = parse_args(["validate", "retry-storm"])
+        self.assertEqual(args.command, "validate")
+        self.assertEqual(args.scenario, "retry-storm")
+
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
             "secondary_suspects": [{"kind": "downstream_stage_dominates"}],

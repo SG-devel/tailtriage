@@ -1,0 +1,20 @@
+{
+  "before": {
+    "primary_suspect_kind": "DownstreamStageDominates",
+    "primary_suspect_score": 81,
+    "p95_latency_us": 42044,
+    "p95_queue_share_permille": 0
+  },
+  "after": {
+    "primary_suspect_kind": "DownstreamStageDominates",
+    "primary_suspect_score": 80,
+    "p95_latency_us": 30027,
+    "p95_queue_share_permille": 0
+  },
+  "delta": {
+    "primary_suspect_kind": null,
+    "primary_suspect_score": -1,
+    "p95_latency_us": -12017,
+    "p95_queue_share_permille": 0
+  }
+}
