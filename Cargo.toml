@@ -13,6 +13,7 @@ members = [
   "demos/cold_start_burst_service",
   "demos/db_pool_saturation_service",
   "demos/shared_state_lock_service",
+  "demos/retry_storm_service",
   "demos/runtime_cost",
 ]
 resolver = "2"

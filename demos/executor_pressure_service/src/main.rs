@@ -118,7 +118,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
                                 if spin == 0 {
                                     tokio::task::yield_now().await;
                                 }
-                                if turn % 20 == 0 {
+                                if turn.is_multiple_of(20) {
                                     tokio::task::yield_now().await;
                                 }
                                 local_depth.fetch_sub(1, Ordering::SeqCst);

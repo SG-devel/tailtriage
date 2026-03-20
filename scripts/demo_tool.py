@@ -24,6 +24,7 @@ EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
+EXPECTED_RETRY_STORM_PRIMARY_KINDS = EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
 
 def extract_blocking_queue_depth_p95(report: dict) -> int | None:
@@ -165,6 +166,15 @@ def run_scenario_shared_lock(root_dir: Path, mode: str) -> None:
         root_dir,
         root_dir / "demos/shared_state_lock_service/Cargo.toml",
         root_dir / "demos/shared_state_lock_service/artifacts",
+        mode,
+        snapshot_queue,
+    )
+
+def run_scenario_retry_storm(root_dir: Path, mode: str) -> None:
+    run_before_after_scenario(
+        root_dir,
+        root_dir / "demos/retry_storm_service/Cargo.toml",
+        root_dir / "demos/retry_storm_service/artifacts",
         mode,
         snapshot_queue,
     )
@@ -533,6 +543,57 @@ def validate_shared_lock(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
+def validate_retry_storm(root_dir: Path) -> None:
+    run_scenario_retry_storm(root_dir, "both")
+    artifact_dir = root_dir / "demos/retry_storm_service/artifacts"
+    before = load_report_json(artifact_dir / "before-analysis.json")
+    after = load_report_json(artifact_dir / "after-analysis.json")
+
+    before_kind = before["primary_suspect"]["kind"]
+    if before_kind not in EXPECTED_RETRY_STORM_PRIMARY_KINDS:
+        raise SystemExit(
+            "expected baseline primary suspect to indicate downstream stage dominance, "
+            f"got {before_kind}"
+        )
+
+    before_share = before.get("p95_service_share_permille")
+    if before_share is None or before_share < 900:
+        raise SystemExit(
+            "expected baseline to have elevated service share from retry-heavy downstream time, "
+            f"got p95_service_share_permille={before_share}"
+        )
+
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    if after_p95 >= before_p95:
+        raise SystemExit(
+            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
+        )
+
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+    if after_score >= before_score:
+        raise SystemExit(
+            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+        )
+
+    print(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, "
+        "service-share {} -> {}, score {} -> {}".format(
+            before_kind,
+            before_p95,
+            after_p95,
+            before_share,
+            after.get("p95_service_share_permille"),
+            before_score,
+            after_score,
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -549,6 +610,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "cold-start",
             "db-pool",
             "shared-lock",
+            "retry-storm",
         ],
     )
     run_parser.add_argument(
@@ -575,6 +637,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "cold-start",
             "db-pool",
             "shared-lock",
+            "retry-storm",
         ],
     )
 
@@ -601,6 +664,8 @@ def main(argv: list[str] | None = None) -> None:
             run_scenario_db_pool(root_dir, args.mode)
         elif args.scenario == "shared-lock":
             run_scenario_shared_lock(root_dir, args.mode)
+        elif args.scenario == "retry-storm":
+            run_scenario_retry_storm(root_dir, args.mode)
         else:
             run_scenario_mixed(root_dir, args.mode)
         return
@@ -619,6 +684,8 @@ def main(argv: list[str] | None = None) -> None:
         validate_db_pool(root_dir)
     elif args.scenario == "shared-lock":
         validate_shared_lock(root_dir)
+    elif args.scenario == "retry-storm":
+        validate_retry_storm(root_dir)
     else:
         validate_mixed(root_dir)
 
