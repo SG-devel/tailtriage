@@ -10,71 +10,143 @@ fn load_demo_analysis(path: &str) -> Value {
         .unwrap_or_else(|err| panic!("failed parsing fixture {}: {err}", path.display()))
 }
 
+fn assert_primary_kind_in_allowed_set(report: &Value, allowed_kinds: &[&str], fixture: &str) {
+    let kind = report["primary_suspect"]["kind"].as_str().unwrap_or("");
+    assert!(
+        allowed_kinds.contains(&kind),
+        "fixture {fixture} expected primary suspect kind in {allowed_kinds:?}, got {kind}"
+    );
+}
+
+fn assert_primary_score_floor(report: &Value, min_score: u64, fixture: &str) {
+    let score = report["primary_suspect"]["score"]
+        .as_u64()
+        .unwrap_or_default();
+    assert!(
+        score >= min_score,
+        "fixture {fixture} expected primary suspect score >= {min_score}, got {score}"
+    );
+}
+
+fn assert_primary_evidence_contains_any(report: &Value, cues: &[&str], fixture: &str) {
+    let evidence = report["primary_suspect"]["evidence"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let evidence_text: Vec<&str> = evidence.iter().filter_map(|item| item.as_str()).collect();
+    assert!(
+        evidence_text
+            .iter()
+            .any(|line| cues.iter().any(|cue| line.contains(cue))),
+        "fixture {fixture} expected evidence to contain one of {cues:?}, got {evidence_text:?}"
+    );
+}
+
 #[test]
 fn queue_demo_fixture_reports_application_queue_saturation() {
-    let report = load_demo_analysis("demos/queue_service/fixtures/sample-analysis.json");
+    let fixture = "demos/queue_service/fixtures/sample-analysis.json";
+    let report = load_demo_analysis(fixture);
 
-    assert_eq!(
-        report["primary_suspect"]["kind"],
-        Value::String("ApplicationQueueSaturation".to_string())
-    );
-    assert!(
-        report["primary_suspect"]["score"]
-            .as_u64()
-            .unwrap_or_default()
-            >= 70,
-        "queue demo should strongly prioritize queue saturation"
-    );
+    assert_primary_kind_in_allowed_set(&report, &["ApplicationQueueSaturation"], fixture);
+    assert_primary_score_floor(&report, 70, fixture);
 }
 
 #[test]
 fn blocking_demo_fixture_reports_blocking_pool_pressure() {
-    let report = load_demo_analysis("demos/blocking_service/fixtures/sample-analysis.json");
+    let fixture = "demos/blocking_service/fixtures/sample-analysis.json";
+    let report = load_demo_analysis(fixture);
 
-    assert_eq!(
-        report["primary_suspect"]["kind"],
-        Value::String("BlockingPoolPressure".to_string())
-    );
-    assert!(
-        report["primary_suspect"]["score"]
-            .as_u64()
-            .unwrap_or_default()
-            >= 70,
-        "blocking demo should strongly prioritize blocking pressure"
-    );
+    assert_primary_kind_in_allowed_set(&report, &["BlockingPoolPressure"], fixture);
+    assert_primary_score_floor(&report, 70, fixture);
 }
 
 #[test]
 fn downstream_demo_fixture_reports_downstream_stage_dominance() {
-    let report = load_demo_analysis("demos/downstream_service/fixtures/sample-analysis.json");
+    let fixture = "demos/downstream_service/fixtures/sample-analysis.json";
+    let report = load_demo_analysis(fixture);
 
-    assert_eq!(
-        report["primary_suspect"]["kind"],
-        Value::String("DownstreamStageDominates".to_string())
-    );
-    assert!(
-        report["primary_suspect"]["score"]
-            .as_u64()
-            .unwrap_or_default()
-            >= 60,
-        "downstream demo should prioritize downstream stage dominance"
-    );
+    assert_primary_kind_in_allowed_set(&report, &["DownstreamStageDominates"], fixture);
+    assert_primary_score_floor(&report, 60, fixture);
 }
 
 #[test]
 fn executor_demo_fixture_reports_executor_pressure() {
-    let report =
-        load_demo_analysis("demos/executor_pressure_service/fixtures/sample-analysis.json");
+    let fixture = "demos/executor_pressure_service/fixtures/sample-analysis.json";
+    let report = load_demo_analysis(fixture);
 
-    assert_eq!(
-        report["primary_suspect"]["kind"],
-        Value::String("ExecutorPressureSuspected".to_string())
+    assert_primary_kind_in_allowed_set(&report, &["ExecutorPressureSuspected"], fixture);
+    assert_primary_score_floor(&report, 60, fixture);
+}
+
+#[test]
+fn mixed_contention_baseline_fixture_has_queue_primary_with_secondary_contention_cues() {
+    let fixture = "demos/mixed_contention_service/fixtures/baseline-analysis.json";
+    let report = load_demo_analysis(fixture);
+
+    assert_primary_kind_in_allowed_set(
+        &report,
+        &["ApplicationQueueSaturation", "ExecutorPressureSuspected"],
+        fixture,
     );
-    assert!(
-        report["primary_suspect"]["score"]
-            .as_u64()
-            .unwrap_or_default()
-            >= 60,
-        "executor demo should prioritize executor pressure"
+    assert_primary_evidence_contains_any(
+        &report,
+        &["Queue wait", "queue depth", "In-flight gauge"],
+        fixture,
     );
+    assert_primary_score_floor(&report, 70, fixture);
+}
+
+#[test]
+fn cold_start_burst_before_fixture_has_cold_start_queue_evidence() {
+    let fixture = "demos/cold_start_burst_service/fixtures/before-analysis.json";
+    let report = load_demo_analysis(fixture);
+
+    assert_primary_kind_in_allowed_set(
+        &report,
+        &["ApplicationQueueSaturation", "ExecutorPressureSuspected"],
+        fixture,
+    );
+    assert_primary_evidence_contains_any(
+        &report,
+        &[
+            "Queue wait",
+            "queue depth",
+            "In-flight gauge",
+            "cold_start_burst_inflight",
+        ],
+        fixture,
+    );
+    assert_primary_score_floor(&report, 70, fixture);
+}
+
+#[test]
+fn db_pool_saturation_before_fixture_preserves_queue_signal_floor() {
+    let fixture = "demos/db_pool_saturation_service/fixtures/before-analysis.json";
+    let report = load_demo_analysis(fixture);
+
+    assert_primary_kind_in_allowed_set(
+        &report,
+        &["ApplicationQueueSaturation", "DownstreamStageDominates"],
+        fixture,
+    );
+    assert_primary_evidence_contains_any(&report, &["Queue wait", "queue depth"], fixture);
+    assert_primary_score_floor(&report, 65, fixture);
+}
+
+#[test]
+fn retry_storm_before_fixture_preserves_downstream_retry_cues() {
+    let fixture = "demos/retry_storm_service/fixtures/before-analysis.json";
+    let report = load_demo_analysis(fixture);
+
+    assert_primary_kind_in_allowed_set(
+        &report,
+        &["DownstreamStageDominates", "ApplicationQueueSaturation"],
+        fixture,
+    );
+    assert_primary_evidence_contains_any(
+        &report,
+        &["downstream_total", "downstream", "retry"],
+        fixture,
+    );
+    assert_primary_score_floor(&report, 60, fixture);
 }
