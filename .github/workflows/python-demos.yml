@@ -17,14 +17,14 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify Python demo wrapper tests
+      - name: Verify Python demo tool tests
         run: python3 -m unittest -v scripts/tests/test_demo_scripts.py
 
       - name: Validate queue demo
-        run: python3 scripts/validate_queue_demo.py
+        run: python3 scripts/demo_tool.py validate queue
 
       - name: Validate blocking demo
-        run: python3 scripts/validate_blocking_demo.py
+        run: python3 scripts/demo_tool.py validate blocking
 
       - name: Validate downstream demo
-        run: python3 scripts/validate_downstream_demo.py
+        run: python3 scripts/demo_tool.py validate downstream
