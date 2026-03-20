@@ -247,6 +247,7 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
     let mut evidence = vec![format!(
         "Runtime global queue depth p95 is {p95_global_depth}, suggesting scheduler contention."
     )];
+    let positive_growth = inflight_trend.is_some_and(|trend| trend.growth_delta > 0);
     if let Some(trend) = inflight_trend.filter(|trend| trend.growth_delta > 0) {
         evidence.push(format!(
             "In-flight gauge '{}' growth is positive (delta={}, peak={}), consistent with accumulating executor pressure.",
@@ -254,9 +255,21 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
         ));
     }
 
+    let depth_bonus = if p95_global_depth >= 300 {
+        20
+    } else if p95_global_depth >= 200 {
+        12
+    } else if p95_global_depth >= 100 {
+        6
+    } else {
+        0
+    };
+    let trend_bonus = if positive_growth { 5 } else { 0 };
+    let score = (65 + depth_bonus + trend_bonus).min(90);
+
     Some(Suspect::new(
         DiagnosisKind::ExecutorPressureSuspected,
-        65,
+        score,
         evidence,
         vec![
             "Check for long polls without yielding and uneven task fan-out.".to_string(),

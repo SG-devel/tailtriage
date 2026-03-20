@@ -207,8 +207,9 @@ Important: these are evidence-ranked suspects, **not** proof of root cause.
 
 - `demos/queue_service`: should rank queue saturation as primary suspect
 - `demos/blocking_service`: should rank blocking-pool pressure as primary suspect
+- `demos/executor_pressure_service`: should rank executor pressure as primary suspect without relying on blocking-depth evidence
 
-Validation scripts in `scripts/` must pass for both demos.
+Validation scripts in `scripts/` must pass for these demos.
 
 ### 9.1 Additional runnable proof case
 
