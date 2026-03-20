@@ -67,15 +67,15 @@ fn deterministic_jitter(request_number: u64, attempt: u8, divisor: u64) -> Durat
 }
 
 fn downstream_outcome(request_number: u64, attempt: u8) -> (Duration, DownstreamResult) {
-    if request_number % 5 == 0 && attempt < 2 {
+    if request_number.is_multiple_of(5) && attempt < 2 {
         return (Duration::from_millis(12), DownstreamResult::Err);
     }
 
-    if request_number % 7 == 0 && attempt == 0 {
+    if request_number.is_multiple_of(7) && attempt == 0 {
         return (Duration::from_millis(26), DownstreamResult::Ok);
     }
 
-    if request_number % 11 == 0 && attempt == 0 {
+    if request_number.is_multiple_of(11) && attempt == 0 {
         return (Duration::from_millis(16), DownstreamResult::Err);
     }
 
