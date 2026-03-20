@@ -115,3 +115,13 @@ Typical user workflow: instrument a Rust service and run the CLI analyzer; maint
 - [Getting started demos](docs/getting-started-demo.md)
 - [Runtime cost measurement](docs/runtime-cost.md)
 - [Changelog](docs/changelog.md)
+
+## Repository planning and instruction docs
+
+These files intentionally serve different audiences and levels of detail:
+
+- `AGENTS.md`: contribution and coding-agent operating instructions (scope guardrails, workflow, required checks, and definition of done for implementation tasks).
+- `SPEC.md`: MVP product contract (goals/non-goals, public API surface, run artifact model, CLI/report requirements, and required demos).
+- `IMPLEMENTATION_PLAN.md`: consolidated roadmap + execution detail (milestones, phase tasks, estimates, risks, and success criteria).
+- `README.md` (this file): onboarding and practical integration path for users and maintainers.
+

@@ -193,7 +193,7 @@ If behavior changes, update:
 
 When given a task:
 1. read the issue/task carefully
-2. inspect `README.md`, `SPEC.md`, `PLANS.md`, and this file
+2. inspect `README.md`, `SPEC.md`, `IMPLEMENTATION_PLAN.md`, and this file
 3. make the smallest reasonable change
 4. add tests
 5. run format/lint/test
