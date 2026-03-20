@@ -1,0 +1,44 @@
+{
+  "request_count": 220,
+  "p50_latency_us": 944016,
+  "p95_latency_us": 1820403,
+  "p99_latency_us": 1879203,
+  "p95_queue_share_permille": 993,
+  "p95_service_share_permille": 153,
+  "inflight_trend": {
+    "gauge": "shared_state_lock_inflight",
+    "sample_count": 440,
+    "peak_count": 199,
+    "p95_count": 189,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -481
+  },
+  "primary_suspect": {
+    "kind": "ApplicationQueueSaturation",
+    "score": 90,
+    "confidence": "high",
+    "evidence": [
+      "Queue wait at p95 consumes 99.3% of request time.",
+      "Observed queue depth sample up to 198."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "DownstreamStageDominates",
+      "score": 60,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'shared_state_critical_section' has p95 latency 9650 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 2038815 us."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
+        "Collect downstream service timings and retry behavior during tail windows."
+      ]
+    }
+  ]
+}
