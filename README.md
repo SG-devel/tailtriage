@@ -1,17 +1,19 @@
 # tailscope
 
-[**Start here: first-use user guide**](docs/user-guide.md)
-
 `tailscope` is a Rust toolkit for diagnosing **tail latency**, **queueing**, and **backpressure** in Tokio services.
 
-## What tailscope does
+It answers one practical question:
 
-- Produces one local JSON run artifact from lightweight request/queue/stage instrumentation.
-- Analyzes a run and ranks likely bottleneck suspects (queue saturation, blocking pressure, executor pressure, downstream stage dominance).
-- Includes supporting evidence and recommended next checks for each suspect.
-- Works with partial instrumentation and can optionally include Tokio runtime sampling for stronger attribution.
+> Is this service slow because of application queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
 
-## 2-minute quickstart
+## Why it is useful
+
+- Produces one local JSON run artifact from lightweight instrumentation.
+- Ranks likely bottleneck suspects with evidence and recommended next checks.
+- Works with partial instrumentation (you can start small and improve coverage over time).
+- Keeps diagnosis reproducible: capture run -> analyze with CLI -> compare before/after.
+
+## Quickstart
 
 ### 1) Add dependencies
 
@@ -22,25 +24,23 @@ tailscope-tokio = { path = "../tailscope-tokio" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
-### 2) Minimal code (`src/main.rs`)
+### 2) Instrument one request path
 
 ```rust
 use std::time::Duration;
-
 use tailscope_core::{Config, RequestMeta, Tailscope};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("quickstart-service");
+    let mut config = Config::new("checkout-service");
     config.output_path = "tailscope-run.json".into();
-
     let tailscope = Tailscope::init(config)?;
 
-    let request = RequestMeta::for_route("/demo").with_kind("quickstart");
-    let request_id = request.request_id.clone();
+    let meta = RequestMeta::for_route("/checkout").with_kind("http");
+    let request_id = meta.request_id.clone();
 
     tailscope
-        .request(request, "ok", async {
+        .request(meta, "ok", async {
             tailscope
                 .queue(request_id.clone(), "ingress_queue")
                 .await_on(tokio::time::sleep(Duration::from_millis(5)))
@@ -61,67 +61,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 3) Analyze
 
 ```bash
-cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json
+cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
 ```
 
-JSON output fields to start with:
+Start with:
 
 - `primary_suspect.kind`
+- `primary_suspect.evidence[]`
 - `p95_queue_share_permille`
 - `p95_service_share_permille`
-- `primary_suspect.evidence[]`
-
-### Optional macro path (`tailscope-tokio`)
-
-```rust
-use tailscope_tokio::instrument_request;
-
-#[instrument_request(route = "/demo", kind = "quickstart", tailscope = tailscope)]
-async fn handle_demo(tailscope: &tailscope_core::Tailscope) {
-    // handler logic...
-}
-```
 
 ## Canonical integration path
 
-> Rust API integration (`tailscope-core` + `tailscope-tokio`) is the canonical product path.
+1. Initialize one collector (`Tailscope::init`).
+2. Wrap request entry points (`request(...)` or `#[instrument_request(...)]`).
+3. Add a few high-impact `queue(...).await_on(...)` wrappers.
+4. Add key downstream `stage(...).await_on(...)` / `await_value(...)` wrappers.
+5. Optionally enable `RuntimeSampler::start(...)` for stronger runtime attribution.
+6. Flush and analyze.
 
-1. Initialize one collector: `Tailscope::init(Config::new("service-name"))`.
-2. Manual path: wrap request entry points with `request(RequestMeta::for_route(...).with_kind(...), ...)`.
-3. Macro path: use `#[instrument_request(...)]` from `tailscope-tokio` when you want attribute-based request instrumentation.
-4. Add `queue(...).await_on(...)` around known wait points.
-5. Add `stage(...).await_on(...)` around key downstream awaits that return `Result`, or `stage(...).await_value(...)` for infallible futures.
-6. Optionally add `inflight(...)` guards and `RuntimeSampler::start(...)` when diagnosis evidence is insufficient.
-7. Flush and analyze: `tailscope.flush()?` then `tailscope analyze <run.json>`.
-
-### Demo and reproducibility workflows
-
-Python scripts are for deterministic demos, fixtures, and reproducibility workflows, not for primary product integration.
-
-Typical user workflow: instrument a Rust service and run the CLI analyzer; maintainer/demo workflow: run `scripts/*.py` to validate scenarios deterministically.
-
-## MVP limitations
+## Scope and limitations (MVP)
 
 - Tokio-only runtime support.
-- Single-process diagnosis (no multi-service correlation).
-- Rule-based, evidence-ranked diagnosis (not proof of root cause).
+- Single-process diagnosis (no distributed correlation).
+- Rule-based suspect ranking with evidence (not proof of root cause).
 
-## Docs index
+## Documentation
 
-- [User guide](docs/user-guide.md)
-- [Architecture](docs/architecture.md)
-- [Diagnostics guide](docs/diagnostics.md)
-- [Mental model for newcomers](docs/mental-model.md)
-- [Getting started demos](docs/getting-started-demo.md)
-- [Runtime cost measurement](docs/runtime-cost.md)
-- [Changelog](docs/changelog.md)
-
-## Repository planning and instruction docs
-
-These files intentionally serve different audiences and levels of detail:
-
-- `AGENTS.md`: contribution and coding-agent operating instructions (scope guardrails, workflow, required checks, and definition of done for implementation tasks).
-- `SPEC.md`: MVP product contract (goals/non-goals, public API surface, run artifact model, CLI/report requirements, and required demos).
-- `IMPLEMENTATION_PLAN.md`: consolidated roadmap + execution detail (milestones, phase tasks, estimates, risks, and success criteria).
-- `README.md` (this file): onboarding and practical integration path for users and maintainers.
-
+For concise docs by audience, start at **[docs/README.md](docs/README.md)**.
