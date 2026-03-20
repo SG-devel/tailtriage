@@ -2,6 +2,8 @@
 
 Use this checklist before switching repository visibility from private to public.
 
+For exact GitHub operations (branch rules, required checks, labels, topics, owner checklist, and verification), use the companion runbook: [`docs/github-repo-ops.md`](github-repo-ops.md).
+
 ## 1) Repository metadata and settings
 
 - [ ] Repository description clearly says: "Rust toolkit for Tokio tail-latency triage".
