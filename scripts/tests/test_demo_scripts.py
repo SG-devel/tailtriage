@@ -43,6 +43,13 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "validate")
         self.assertEqual(args.scenario, "cold-start")
 
+
+    def test_parse_args_accepts_db_pool_scenario(self) -> None:
+        args = parse_args(["run", "db-pool", "mitigated"])
+        self.assertEqual(args.command, "run")
+        self.assertEqual(args.scenario, "db-pool")
+        self.assertEqual(args.mode, "mitigated")
+
     def test_parse_args_accepts_downstream_artifact_flag(self) -> None:
         args = parse_args(["run", "downstream", "--artifact-path", "custom-run.json"])
         self.assertEqual(args.command, "run")
