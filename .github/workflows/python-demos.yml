@@ -1,0 +1,30 @@
+name: Python Demo Checks
+
+on:
+  pull_request:
+    paths:
+      - '**/*.py'
+      - '.github/workflows/python-demos.yml'
+
+jobs:
+  demo-python-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Python demo wrapper tests
+        run: python3 -m unittest -v scripts/tests/test_demo_scripts.py
+
+      - name: Validate queue demo
+        run: python3 scripts/validate_queue_demo.py
+
+      - name: Validate blocking demo
+        run: python3 scripts/validate_blocking_demo.py
+
+      - name: Validate downstream demo
+        run: python3 scripts/validate_downstream_demo.py
