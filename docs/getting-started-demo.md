@@ -2,6 +2,8 @@
 
 Use demos to validate diagnosis behavior with deterministic fixtures.
 
+For a scenario-by-scenario explanation of what each demo simulates, what triage it is intended to exercise, and what setup is shared, see **[`demos/README.md`](../demos/README.md)**.
+
 ## Artifact policy
 
 - `demos/*/artifacts/`: generated, untracked local outputs.

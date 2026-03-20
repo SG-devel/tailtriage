@@ -1,29 +1,11 @@
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
+use demo_support::{init_collector, parse_demo_args, DemoMode};
+use tailtriage_core::RequestMeta;
 use tokio::sync::Semaphore;
-
-#[derive(Clone, Copy)]
-enum DemoMode {
-    Baseline,
-    Mitigated,
-}
-
-impl DemoMode {
-    fn from_arg(value: Option<String>) -> anyhow::Result<Self> {
-        match value.as_deref() {
-            None | Some("baseline") | Some("before") => Ok(Self::Baseline),
-            Some("mitigated") | Some("after") => Ok(Self::Mitigated),
-            Some(other) => anyhow::bail!(
-                "unsupported mode '{other}', expected one of: baseline, before, mitigated, after"
-            ),
-        }
-    }
-}
 
 struct ModeSettings {
     service_capacity: usize,
@@ -70,21 +52,11 @@ impl ModeSettings {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
-    let mut args = std::env::args().skip(1);
-    let output_path = args.next().map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from("demos/cold_start_burst_service/artifacts/cold-start-burst-run.json")
-    });
-    let mode = DemoMode::from_arg(args.next())?;
-    let settings = ModeSettings::for_mode(mode);
+    let args =
+        parse_demo_args("demos/cold_start_burst_service/artifacts/cold-start-burst-run.json")?;
+    let settings = ModeSettings::for_mode(args.mode);
 
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create artifact directory {}", parent.display()))?;
-    }
-
-    let mut config = Config::new("cold_start_burst_service_demo");
-    config.output_path = output_path.clone();
-    let tailtriage = Arc::new(Tailtriage::init(config)?);
+    let tailtriage = init_collector("cold_start_burst_service_demo", &args.output_path)?;
 
     let semaphore = Arc::new(Semaphore::new(settings.service_capacity));
     let waiting_depth = Arc::new(AtomicU64::new(0));
@@ -134,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tailtriage.flush()?;
-    println!("wrote {}", output_path.display());
+    println!("wrote {}", args.output_path.display());
 
     Ok(())
 }
