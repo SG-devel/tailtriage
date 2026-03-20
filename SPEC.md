@@ -213,6 +213,7 @@ Validation scripts in `scripts/` must pass for both demos.
 ### 9.1 Additional runnable proof case
 
 - `demos/downstream_service`: deterministic downstream-stage dominance scenario that should rank `DownstreamStageDominates` as the primary suspect.
+- `demos/mixed_contention_service`: deterministic mixed queue + downstream contention scenario where both suspects should be present in ranked evidence and mitigation should shift rank and/or score when one bottleneck is reduced.
 
 This demo is intentionally small and single-purpose; it extends storytelling trust without expanding MVP scope.
 

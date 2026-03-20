@@ -19,6 +19,7 @@ from _demo_runner import (
 EXPECTED_QUEUE_KIND = {"application_queue_saturation", "ApplicationQueueSaturation"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure", "BlockingPoolPressure"}
 EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates", "DownstreamStageDominates"}
+EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
 
 
@@ -126,6 +127,21 @@ def run_scenario_downstream(root_dir: Path, artifact_path: str | None) -> None:
     )
     print(f"run artifact: {run_path}")
     print(f"analysis: {analysis_path}")
+
+
+def run_scenario_mixed(root_dir: Path, mode: str) -> None:
+    run_before_after_scenario(
+        root_dir,
+        root_dir / "demos/mixed_contention_service/Cargo.toml",
+        root_dir / "demos/mixed_contention_service/artifacts",
+        mode,
+        snapshot_queue,
+    )
+
+
+def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
+    all_suspects = [report["primary_suspect"], *(report.get("secondary_suspects") or [])]
+    return any(suspect.get("kind") in expected_kinds for suspect in all_suspects)
 
 
 def validate_queue(root_dir: Path) -> None:
@@ -251,12 +267,62 @@ def validate_downstream(root_dir: Path) -> None:
     print(f"validated analysis file: {analysis_path}")
 
 
+def validate_mixed(root_dir: Path) -> None:
+    run_scenario_mixed(root_dir, "both")
+    artifact_dir = root_dir / "demos/mixed_contention_service/artifacts"
+    before = load_report_json(artifact_dir / "before-analysis.json")
+    after = load_report_json(artifact_dir / "after-analysis.json")
+
+    baseline_primary = before["primary_suspect"]["kind"]
+    if baseline_primary not in EXPECTED_MIXED_PRIMARY_KINDS:
+        raise SystemExit(
+            "expected baseline primary suspect to be queue or downstream, "
+            f"got {baseline_primary}"
+        )
+
+    if baseline_primary in EXPECTED_QUEUE_KIND:
+        expected_secondary = EXPECTED_DOWNSTREAM_KIND
+    else:
+        expected_secondary = EXPECTED_QUEUE_KIND
+
+    if not has_suspect_kind(before, expected_secondary):
+        raise SystemExit(
+            "expected baseline report to include secondary contention source, "
+            f"missing one of {sorted(expected_secondary)}"
+        )
+
+    after_primary = after["primary_suspect"]["kind"]
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+    rank_shifted = after_primary != baseline_primary
+    score_shifted = after_score != before_score
+    if not (rank_shifted or score_shifted):
+        raise SystemExit(
+            "expected mitigation to shift rank or score for the primary suspect, "
+            f"got kind {baseline_primary}->{after_primary}, score {before_score}->{after_score}"
+        )
+
+    print(
+        "validation passed: baseline primary={}, mitigated primary={}, "
+        "baseline score={} mitigated score={}".format(
+            baseline_primary,
+            after_primary,
+            before_score,
+            after_score,
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
-    run_parser.add_argument("scenario", choices=["queue", "blocking", "downstream"])
+    run_parser.add_argument("scenario", choices=["queue", "blocking", "downstream", "mixed"])
     run_parser.add_argument(
         "mode",
         nargs="?",
@@ -270,7 +336,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
-    validate_parser.add_argument("scenario", choices=["queue", "blocking", "downstream"])
+    validate_parser.add_argument("scenario", choices=["queue", "blocking", "downstream", "mixed"])
 
     return parser.parse_args(argv)
 
@@ -284,18 +350,22 @@ def main(argv: list[str] | None = None) -> None:
             run_scenario_queue(root_dir, args.mode)
         elif args.scenario == "blocking":
             run_scenario_blocking(root_dir, args.mode)
-        else:
+        elif args.scenario == "downstream":
             if args.mode != "both":
                 raise SystemExit("downstream scenario does not accept mode; use --artifact-path if needed")
             run_scenario_downstream(root_dir, args.artifact_path)
+        else:
+            run_scenario_mixed(root_dir, args.mode)
         return
 
     if args.scenario == "queue":
         validate_queue(root_dir)
     elif args.scenario == "blocking":
         validate_blocking(root_dir)
-    else:
+    elif args.scenario == "downstream":
         validate_downstream(root_dir)
+    else:
+        validate_mixed(root_dir)
 
 
 if __name__ == "__main__":
