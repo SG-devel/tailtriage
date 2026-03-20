@@ -1,0 +1,20 @@
+{
+  "before": {
+    "primary_suspect_kind": "ApplicationQueueSaturation",
+    "primary_suspect_score": 90,
+    "p95_latency_us": 1191110,
+    "p95_queue_share_permille": 993
+  },
+  "after": {
+    "primary_suspect_kind": "DownstreamStageDominates",
+    "primary_suspect_score": 60,
+    "p95_latency_us": 8780,
+    "p95_queue_share_permille": 0
+  },
+  "delta": {
+    "primary_suspect_kind": null,
+    "primary_suspect_score": -30,
+    "p95_latency_us": -1182330,
+    "p95_queue_share_permille": -993
+  }
+}
