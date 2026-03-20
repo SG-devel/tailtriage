@@ -163,3 +163,22 @@ python3 scripts/demo_tool.py validate blocking
 ```
 
 Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`, `db-pool`, `shared-lock`, `retry-storm`).
+
+For runtime-cost overhead measurement (separate from suspect-ranking triage), run `python3 scripts/measure_runtime_cost.py` and see `docs/runtime-cost.md` for usage details and interpretation guidance.
+
+## `runtime_cost`
+
+**Purpose**
+
+- Measures instrumentation overhead across `baseline`, `light`, and `investigation` modes.
+- This is a runtime-cost measurement path, not a suspect-ranking triage scenario.
+
+**Canonical command**
+
+```bash
+python3 scripts/measure_runtime_cost.py
+```
+
+**Output artifacts**
+
+- `demos/runtime_cost/artifacts/`
