@@ -65,10 +65,12 @@ MVP scope is intentionally narrow:
 
 ```toml
 [dependencies]
-tailtriage-core = { path = "../tailtriage-core" }
-tailtriage-tokio = { path = "../tailtriage-tokio" }
+tailtriage-core = "0.1"
+tailtriage-tokio = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
+
+For local workspace development, swap the version entries for path dependencies in your own repository checkout.
 
 ### 2) Instrument one request path
 
@@ -118,6 +120,18 @@ Start with:
 - `p95_queue_share_permille`
 - `p95_service_share_permille`
 
+## Minimal runnable example
+
+A minimal end-to-end example is available at:
+
+- [`tailtriage-tokio/examples/minimal_checkout.rs`](tailtriage-tokio/examples/minimal_checkout.rs)
+
+Run it with:
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+```
+
 ## Canonical integration path
 
 1. Initialize one collector (`Tailtriage::init`).
@@ -138,3 +152,5 @@ Start with:
 For concise docs by audience, start at **[docs/README.md](docs/README.md)**.
 
 For demo-specific behavior and triage expectations, see **[demos/README.md](demos/README.md)**.
+
+For a concrete before/after workflow, see **[demos/retry_storm_service/fixtures/before-after-comparison.json](demos/retry_storm_service/fixtures/before-after-comparison.json)**.
