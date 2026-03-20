@@ -56,6 +56,11 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.scenario, "mixed")
         self.assertEqual(args.mode, "baseline")
 
+    def test_parse_args_accepts_cold_start_scenario(self) -> None:
+        args = parse_args(["validate", "cold-start"])
+        self.assertEqual(args.command, "validate")
+        self.assertEqual(args.scenario, "cold-start")
+
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
             "secondary_suspects": [{"kind": "downstream_stage_dominates"}],

@@ -1,0 +1,30 @@
+{
+  "request_count": 220,
+  "p50_latency_us": 8463,
+  "p95_latency_us": 8780,
+  "p99_latency_us": 18231,
+  "p95_queue_share_permille": 0,
+  "p95_service_share_permille": 999,
+  "inflight_trend": {
+    "gauge": "cold_start_burst_inflight",
+    "sample_count": 440,
+    "peak_count": 4,
+    "p95_count": 2,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -1049
+  },
+  "primary_suspect": {
+    "kind": "DownstreamStageDominates",
+    "score": 60,
+    "confidence": "low",
+    "evidence": [
+      "Stage 'cold_start_stage' has p95 latency 8752 us across 220 samples.",
+      "Stage 'cold_start_stage' cumulative latency is 1833446 us."
+    ],
+    "next_checks": [
+      "Inspect downstream dependency behind stage 'cold_start_stage'.",
+      "Collect downstream service timings and retry behavior during tail windows."
+    ]
+  },
+  "secondary_suspects": []
+}
