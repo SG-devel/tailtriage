@@ -1,85 +1,49 @@
-# tailscope architecture (MVP)
+# Architecture (MVP)
 
-This document describes how the current MVP implementation is structured.
+`tailscope` is a file-based diagnosis pipeline over one instrumented run.
 
-## High-level flow
+## Flow
 
-1. Application code records request/queue/stage/in-flight signals through `tailscope-core`.
-2. Optional Tokio runtime sampling records runtime snapshots through `tailscope-tokio`.
-3. `tailscope-core` writes one run artifact (`Run`) as JSON.
-4. `tailscope-cli` reads the artifact and ranks diagnosis suspects.
+1. Service code records request/queue/stage/in-flight signals via `tailscope-core`.
+2. Optional runtime snapshots are collected by `tailscope-tokio`.
+3. `tailscope-core` writes one JSON run artifact (`Run`).
+4. `tailscope-cli` ranks suspects from that artifact.
 
 ## Crate responsibilities
 
-## `tailscope-core`
+### `tailscope-core`
 
-Responsibilities:
-
-- run schema (`Run`, metadata, event/snapshot structs)
+- run schema (`Run`, metadata, events, snapshots)
 - collection lifecycle (`Tailscope::init`, `flush`, `snapshot`)
-- request wrapper (`request`)
-- queue/stage wrappers (`queue(...).await_on(...)`, `stage(...).await_on(...)` for `Result`, `stage(...).await_value(...)` for infallible futures)
-- in-flight RAII tracking (`inflight`)
+- instrumentation wrappers (`request`, `queue`, `stage`, `inflight`)
 - local JSON sink (`LocalJsonSink`)
 
-Design intent:
+### `tailscope-tokio`
 
-- explicit instrumentation boundaries
-- low implementation complexity
-- deterministic local artifact output
+- runtime sampling (`RuntimeSampler`)
+- runtime snapshot capture (`capture_runtime_snapshot`)
+- macro re-export: `#[instrument_request]`
 
-## `tailscope-tokio`
+Note: some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
 
-Responsibilities:
-
-- runtime sampling loop (`RuntimeSampler`)
-- runtime metric snapshot extraction (`capture_runtime_snapshot`)
-- `#[instrument_request]` macro re-export
-
-Notes:
-
-- Some runtime metrics are unavailable without `tokio_unstable` and are recorded as `None`.
-- Sampling is periodic and intentionally lightweight in normal use.
-
-## `tailscope-cli`
-
-Responsibilities:
+### `tailscope-cli`
 
 - parse run JSON
 - compute request percentiles
-- apply diagnosis rules
-- output text or JSON report
+- apply rule-based diagnosis ranking
+- render text or JSON report
 
-The analyzer is intentionally rule-based for clarity and debuggability.
+## Contract boundary
 
-## Data contract
+- Input: one local `Run` JSON artifact.
+- Output: ranked suspects with evidence and next checks.
+- Non-claim: proven root cause.
 
-All analysis is derived from one `Run` artifact containing:
+## Recommended integration sequence
 
-- metadata
-- request events
-- stage events
-- queue events
-- in-flight snapshots
-- runtime snapshots
-
-This keeps the diagnosis pipeline reproducible and file-based.
-
-## Diagnostics boundary
-
-`tailscope` diagnoses based on captured evidence; it does not claim causal certainty.
-
-It answers “most likely suspects with supporting signals,” not “proven root cause.”
-
-## Integration pattern
-
-Recommended integration order:
-
-1. initialize one `Tailscope` collector
-2. wrap request handlers with `request(...)` (or macro path)
-3. instrument high-impact queue waits
-4. instrument critical downstream stages
-5. optionally start runtime sampling
-6. flush run output and analyze with CLI
-
-This keeps instrumentation incremental and practical for existing services.
+1. init one collector
+2. wrap request handlers
+3. instrument key queue waits
+4. instrument key downstream stages
+5. optionally enable runtime sampler
+6. flush and analyze
