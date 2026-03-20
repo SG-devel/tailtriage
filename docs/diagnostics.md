@@ -55,6 +55,12 @@ Rules of thumb:
 
 These are **evidence-ranked leads**, not causal proof.
 
+### Executor pressure vs blocking-pool pressure
+
+- `ExecutorPressureSuspected` emphasizes runtime scheduler backlog signals (for example, elevated global/local runtime queue depth with in-flight growth).
+- `BlockingPoolPressure` emphasizes `spawn_blocking` backlog signals (for example, elevated blocking queue depth evidence).
+- If blocking queue depth remains low/absent while runtime queue depth rises, prefer executor-pressure next checks before blocking-pool tuning.
+
 ## In-flight trend fields
 
 When present:
