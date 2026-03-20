@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
                 .await;
         }));
 
-        if request_number % 8 == 0 {
+        if request_number.is_multiple_of(8) {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
     }

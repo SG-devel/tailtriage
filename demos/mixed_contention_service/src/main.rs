@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
                         .await_value(tokio::time::sleep(settings.app_stage_delay))
                         .await;
 
-                    let extra_downstream = if request_number % 4 == 0 {
+                    let extra_downstream = if request_number.is_multiple_of(4) {
                         settings.downstream_slow_delay
                     } else {
                         Duration::ZERO
