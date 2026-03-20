@@ -49,6 +49,12 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.scenario, "downstream")
         self.assertEqual(args.artifact_path, "custom-run.json")
 
+    def test_cold_start_scenario_accepts_mode_aliases(self) -> None:
+        args = parse_args(["run", "cold-start", "baseline"])
+        self.assertEqual(args.command, "run")
+        self.assertEqual(args.scenario, "cold-start")
+        self.assertEqual(args.mode, "baseline")
+
 
 if __name__ == "__main__":
     unittest.main()

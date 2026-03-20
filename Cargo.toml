@@ -7,6 +7,7 @@ members = [
   "demos/queue_service",
   "demos/blocking_service",
   "demos/downstream_service",
+  "demos/cold_start_burst_service",
   "demos/runtime_cost",
 ]
 resolver = "2"

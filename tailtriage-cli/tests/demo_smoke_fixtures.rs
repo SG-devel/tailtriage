@@ -60,3 +60,23 @@ fn downstream_demo_fixture_reports_downstream_stage_dominance() {
         "downstream demo should prioritize downstream stage dominance"
     );
 }
+
+#[test]
+fn cold_start_demo_fixture_reports_warmup_or_queue_pressure() {
+    let report = load_demo_analysis("demos/cold_start_burst_service/fixtures/sample-analysis.json");
+    let kind = report["primary_suspect"]["kind"]
+        .as_str()
+        .unwrap_or_default();
+
+    assert!(
+        kind == "ApplicationQueueSaturation" || kind == "DownstreamStageDominates",
+        "cold-start demo should prioritize queue saturation or downstream stage dominance, got {kind}"
+    );
+    assert!(
+        report["primary_suspect"]["score"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 60,
+        "cold-start demo should surface a meaningful suspect score"
+    );
+}

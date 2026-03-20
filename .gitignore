@@ -23,5 +23,6 @@ target
 # Demo run artifacts
 demos/queue_service/artifacts/*.json
 demos/blocking_service/artifacts/*.json
+demos/cold_start_burst_service/artifacts/*.json
 demos/runtime_cost/artifacts/*.json
 demos/runtime_cost/artifacts/*.jsonl

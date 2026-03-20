@@ -19,6 +19,12 @@ from _demo_runner import (
 EXPECTED_QUEUE_KIND = {"application_queue_saturation", "ApplicationQueueSaturation"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure", "BlockingPoolPressure"}
 EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates", "DownstreamStageDominates"}
+EXPECTED_COLD_START_KIND = {
+    "application_queue_saturation",
+    "ApplicationQueueSaturation",
+    "downstream_stage_dominates",
+    "DownstreamStageDominates",
+}
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
 
 
@@ -55,6 +61,16 @@ def snapshot_blocking(report: dict) -> dict[str, int | str | None]:
         "p95_latency_us": report["p95_latency_us"],
         "p95_service_share_permille": report.get("p95_service_share_permille"),
         "blocking_queue_depth_p95": extract_blocking_queue_depth_p95(report),
+    }
+
+
+def snapshot_cold_start(report: dict) -> dict[str, int | str | None]:
+    return {
+        "primary_suspect_kind": report["primary_suspect"]["kind"],
+        "primary_suspect_score": report["primary_suspect"]["score"],
+        "p95_latency_us": report["p95_latency_us"],
+        "p95_queue_share_permille": report.get("p95_queue_share_permille"),
+        "p95_service_share_permille": report.get("p95_service_share_permille"),
     }
 
 
@@ -126,6 +142,16 @@ def run_scenario_downstream(root_dir: Path, artifact_path: str | None) -> None:
     )
     print(f"run artifact: {run_path}")
     print(f"analysis: {analysis_path}")
+
+
+def run_scenario_cold_start(root_dir: Path, mode: str) -> None:
+    run_before_after_scenario(
+        root_dir,
+        root_dir / "demos/cold_start_burst_service/Cargo.toml",
+        root_dir / "demos/cold_start_burst_service/artifacts",
+        mode,
+        snapshot_cold_start,
+    )
 
 
 def validate_queue(root_dir: Path) -> None:
@@ -251,12 +277,74 @@ def validate_downstream(root_dir: Path) -> None:
     print(f"validated analysis file: {analysis_path}")
 
 
+def validate_cold_start(root_dir: Path) -> None:
+    run_scenario_cold_start(root_dir, "both")
+    artifact_dir = root_dir / "demos/cold_start_burst_service/artifacts"
+    before = load_report_json(artifact_dir / "before-analysis.json")
+    after = load_report_json(artifact_dir / "after-analysis.json")
+
+    kind = before["primary_suspect"]["kind"]
+    if kind not in EXPECTED_COLD_START_KIND:
+        raise SystemExit(f"expected queue/downstream suspect in baseline, got {kind}")
+
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+
+    if after_p95 >= before_p95:
+        raise SystemExit(
+            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
+        )
+
+    if after_score >= before_score:
+        raise SystemExit(
+            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+        )
+
+    before_evidence = " ".join(before["primary_suspect"].get("evidence") or []).lower()
+    queue_share = before.get("p95_queue_share_permille") or 0
+    service_share = before.get("p95_service_share_permille") or 0
+    has_warmup_stage_signal = "dependency_call" in before_evidence
+    has_queue_signal = queue_share >= 200
+    has_service_signal = service_share >= 700
+
+    if not (has_warmup_stage_signal or has_queue_signal or has_service_signal):
+        raise SystemExit(
+            "expected baseline warmup-driven service/queue signal, got evidence={!r}, "
+            "p95_queue_share_permille={}, p95_service_share_permille={}".format(
+                before["primary_suspect"].get("evidence") or [],
+                before.get("p95_queue_share_permille"),
+                before.get("p95_service_share_permille"),
+            )
+        )
+
+    print(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}, "
+        "queue-share {} -> {}, service-share {} -> {}".format(
+            kind,
+            before_p95,
+            after_p95,
+            before_score,
+            after_score,
+            before.get("p95_queue_share_permille"),
+            after.get("p95_queue_share_permille"),
+            before.get("p95_service_share_permille"),
+            after.get("p95_service_share_permille"),
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
-    run_parser.add_argument("scenario", choices=["queue", "blocking", "downstream"])
+    run_parser.add_argument("scenario", choices=["queue", "blocking", "downstream", "cold-start"])
     run_parser.add_argument(
         "mode",
         nargs="?",
@@ -270,7 +358,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
-    validate_parser.add_argument("scenario", choices=["queue", "blocking", "downstream"])
+    validate_parser.add_argument("scenario", choices=["queue", "blocking", "downstream", "cold-start"])
 
     return parser.parse_args(argv)
 
@@ -284,6 +372,8 @@ def main(argv: list[str] | None = None) -> None:
             run_scenario_queue(root_dir, args.mode)
         elif args.scenario == "blocking":
             run_scenario_blocking(root_dir, args.mode)
+        elif args.scenario == "cold-start":
+            run_scenario_cold_start(root_dir, args.mode)
         else:
             if args.mode != "both":
                 raise SystemExit("downstream scenario does not accept mode; use --artifact-path if needed")
@@ -294,6 +384,8 @@ def main(argv: list[str] | None = None) -> None:
         validate_queue(root_dir)
     elif args.scenario == "blocking":
         validate_blocking(root_dir)
+    elif args.scenario == "cold-start":
+        validate_cold_start(root_dir)
     else:
         validate_downstream(root_dir)
 

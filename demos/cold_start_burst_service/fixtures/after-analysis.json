@@ -1,0 +1,30 @@
+{
+  "request_count": 220,
+  "p50_latency_us": 9319,
+  "p95_latency_us": 10009,
+  "p99_latency_us": 10431,
+  "p95_queue_share_permille": 0,
+  "p95_service_share_permille": 999,
+  "inflight_trend": {
+    "gauge": "cold_start_inflight",
+    "sample_count": 440,
+    "peak_count": 8,
+    "p95_count": 6,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -2481
+  },
+  "primary_suspect": {
+    "kind": "DownstreamStageDominates",
+    "score": 60,
+    "confidence": "low",
+    "evidence": [
+      "Stage 'dependency_call' has p95 latency 9983 us across 220 samples.",
+      "Stage 'dependency_call' cumulative latency is 2043309 us."
+    ],
+    "next_checks": [
+      "Inspect downstream dependency behind stage 'dependency_call'.",
+      "Collect downstream service timings and retry behavior during tail windows."
+    ]
+  },
+  "secondary_suspects": []
+}
