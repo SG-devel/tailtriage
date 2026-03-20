@@ -6,6 +6,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -13,6 +14,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import demo_tool  # noqa: E402
 from demo_tool import has_suspect_kind, parse_args  # noqa: E402
 
 
@@ -78,6 +80,45 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertTrue(has_suspect_kind(report, {"application_queue_saturation"}))
         self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
         self.assertFalse(has_suspect_kind(report, {"blocking_pool_pressure"}))
+
+
+class DemoMainRoutingTests(unittest.TestCase):
+    @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
+    @patch("demo_tool.run_scenario_queue")
+    def test_main_run_queue_baseline_dispatches_queue_scenario(
+        self,
+        run_scenario_queue_mock,
+        _repo_root_mock,
+    ) -> None:
+        demo_tool.main(["run", "queue", "baseline"])
+
+        run_scenario_queue_mock.assert_called_once_with(Path("/tmp/tailscope"), "baseline")
+
+    @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
+    @patch("demo_tool.validate_mixed")
+    def test_main_validate_mixed_dispatches_validate_mixed(
+        self,
+        validate_mixed_mock,
+        _repo_root_mock,
+    ) -> None:
+        demo_tool.main(["validate", "mixed"])
+
+        validate_mixed_mock.assert_called_once_with(Path("/tmp/tailscope"))
+
+    @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
+    @patch("demo_tool.run_scenario_downstream")
+    def test_main_run_downstream_rejects_non_default_mode(
+        self,
+        run_scenario_downstream_mock,
+        _repo_root_mock,
+    ) -> None:
+        with self.assertRaisesRegex(
+            SystemExit,
+            "downstream scenario does not accept mode; use --artifact-path if needed",
+        ):
+            demo_tool.main(["run", "downstream", "baseline"])
+
+        run_scenario_downstream_mock.assert_not_called()
 
 
 if __name__ == "__main__":
