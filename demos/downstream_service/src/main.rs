@@ -1,25 +1,15 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
+use demo_support::{init_collector, parse_output_arg};
+use tailtriage_core::RequestMeta;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
-    let output_path = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("demos/downstream_service/artifacts/downstream-run.json"));
+    let output_path = parse_output_arg("demos/downstream_service/artifacts/downstream-run.json")?;
 
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create artifact directory {}", parent.display()))?;
-    }
-
-    let mut config = Config::new("downstream_service_demo");
-    config.output_path = output_path.clone();
-    let tailtriage = Arc::new(Tailtriage::init(config)?);
+    let tailtriage = init_collector("downstream_service_demo", &output_path)?;
 
     let offered_requests = 80_u64;
     let mut tasks = Vec::with_capacity(offered_requests as usize);

@@ -4,25 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::{unix_time_ms, Config, RequestMeta, RuntimeSnapshot, Tailtriage};
-
-#[derive(Clone, Copy)]
-enum DemoMode {
-    Baseline,
-    Mitigated,
-}
-
-impl DemoMode {
-    fn from_arg(value: Option<String>) -> anyhow::Result<Self> {
-        match value.as_deref() {
-            None | Some("baseline") | Some("before") => Ok(Self::Baseline),
-            Some("mitigated") | Some("after") => Ok(Self::Mitigated),
-            Some(other) => anyhow::bail!(
-                "unsupported mode '{other}', expected one of: baseline, before, mitigated, after"
-            ),
-        }
-    }
-}
+use demo_support::{init_collector, parse_demo_args, DemoMode};
+use tailtriage_core::{unix_time_ms, RequestMeta, RuntimeSnapshot};
 
 struct ModeSettings {
     worker_threads: usize,
@@ -57,17 +40,9 @@ impl ModeSettings {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut args = std::env::args().skip(1);
-    let output_path = args.next().map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from("demos/executor_pressure_service/artifacts/executor-pressure-run.json")
-    });
-    let mode = DemoMode::from_arg(args.next())?;
-    let settings = ModeSettings::for_mode(mode);
-
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create artifact directory {}", parent.display()))?;
-    }
+    let args =
+        parse_demo_args("demos/executor_pressure_service/artifacts/executor-pressure-run.json")?;
+    let settings = ModeSettings::for_mode(args.mode);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(settings.worker_threads)
@@ -76,13 +51,11 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("failed to build Tokio runtime")?;
 
-    runtime.block_on(run_demo(output_path, settings))
+    runtime.block_on(run_demo(args.output_path, settings))
 }
 
 async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
-    let mut config = Config::new("executor_pressure_demo");
-    config.output_path = output_path.clone();
-    let tailtriage = Arc::new(Tailtriage::init(config)?);
+    let tailtriage = init_collector("executor_pressure_demo", &output_path)?;
 
     let runnable_backlog = Arc::new(AtomicU64::new(0));
     let hot_slice_local_depth = Arc::new(AtomicU64::new(0));
