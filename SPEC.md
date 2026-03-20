@@ -1,10 +1,10 @@
 # SPEC.md
 
-Implementation contract for the `tailscope` MVP.
+Implementation contract for the `tailtriage` MVP.
 
 ## 1. Product summary
 
-`tailscope` is a Rust toolkit for diagnosing tail-latency, queueing, and backpressure problems in Tokio services.
+`tailtriage` is a Rust toolkit for diagnosing tail-latency, queueing, and backpressure problems in Tokio services.
 
 Primary question:
 
@@ -35,36 +35,36 @@ MVP does **not** include:
 
 ## 4. Workspace layout
 
-- `tailscope-core`
-- `tailscope-tokio`
-- `tailscope-cli`
+- `tailtriage-core`
+- `tailtriage-tokio`
+- `tailtriage-cli`
 - `demos/`
 - `scripts/`
 - `docs/`
 
 ## 5. Public API (current MVP)
 
-### 5.1 Initialization (`tailscope-core`)
+### 5.1 Initialization (`tailtriage-core`)
 
 ```rust
-use tailscope_core::{Config, Tailscope};
+use tailtriage_core::{Config, Tailtriage};
 
 let mut config = Config::new("invoice-api");
-config.output_path = "tailscope-run.json".into();
-let tailscope = Tailscope::init(config)?;
+config.output_path = "tailtriage-run.json".into();
+let tailtriage = Tailtriage::init(config)?;
 ```
 
 ### 5.2 Request timing wrapper
 
 ```rust
-use tailscope_core::RequestMeta;
+use tailtriage_core::RequestMeta;
 
 let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
 let request_id = meta.request_id.clone();
 
-tailscope
+tailtriage
     .request(meta, "ok", async move {
-        tailscope
+        tailtriage
             .queue(request_id.clone(), "invoice_worker")
             .await_on(semaphore.acquire())
             .await;
@@ -75,13 +75,13 @@ tailscope
 ### 5.3 In-flight tracking
 
 ```rust
-let _inflight = tailscope.inflight("invoice_requests");
+let _inflight = tailtriage.inflight("invoice_requests");
 ```
 
 ### 5.4 Queue wait timing wrapper
 
 ```rust
-tailscope
+tailtriage
     .queue(request_id.clone(), "invoice_worker")
     .await_on(semaphore.acquire())
     .await;
@@ -90,7 +90,7 @@ tailscope
 Optional queue depth sample:
 
 ```rust
-tailscope
+tailtriage
     .queue(request_id.clone(), "invoice_worker")
     .with_depth_at_start(depth)
     .await_on(semaphore.acquire())
@@ -102,7 +102,7 @@ tailscope
 For fallible stages (`Result` output):
 
 ```rust
-tailscope
+tailtriage
     .stage(request_id.clone(), "fetch_customer")
     .await_on(customer_api.fetch())
     .await;
@@ -111,41 +111,41 @@ tailscope
 For infallible stages:
 
 ```rust
-tailscope
+tailtriage
     .stage(request_id, "cache_lookup")
     .await_value(cache.refresh())
     .await;
 ```
 
-### 5.6 Runtime sampling (`tailscope-tokio`)
+### 5.6 Runtime sampling (`tailtriage-tokio`)
 
 ```rust
 use std::sync::Arc;
 use std::time::Duration;
-use tailscope_tokio::RuntimeSampler;
+use tailtriage_tokio::RuntimeSampler;
 
-let sampler = RuntimeSampler::start(Arc::clone(&tailscope), Duration::from_millis(200))?;
+let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
 // ... run workload ...
 sampler.shutdown().await;
 ```
 
-### 5.7 Request attribute macro (`tailscope-tokio`)
+### 5.7 Request attribute macro (`tailtriage-tokio`)
 
-`tailscope-tokio` re-exports `#[instrument_request]` from `tailscope-macros` for request entry-point ergonomics.
+`tailtriage-tokio` re-exports `#[instrument_request]` from `tailtriage-macros` for request entry-point ergonomics.
 
-The macro always emits tracing request events. When `tailscope = <expr>` is provided,
+The macro always emits tracing request events. When `tailtriage = <expr>` is provided,
 it also records `RequestEvent` entries directly into the active run artifact.
 
 Supported arguments:
 - `route = <expr>` (optional; defaults to `module_path!()::fn_name`)
 - `kind = <expr>` (optional; defaults to `fn_name`)
-- `tailscope = <expr>` (optional; enables run-artifact request recording)
-- `request_id = <expr>` (optional; defaults to a route+timestamp id when `tailscope` is set)
+- `tailtriage = <expr>` (optional; enables run-artifact request recording)
+- `request_id = <expr>` (optional; defaults to a route+timestamp id when `tailtriage` is set)
 - `skip(...)` (optional; passed through to `tracing::instrument`)
 
 ## 6. Run data model
 
-`tailscope-core` emits one JSON run artifact with:
+`tailtriage-core` emits one JSON run artifact with:
 
 - `metadata`
 - `requests`
@@ -156,12 +156,12 @@ Supported arguments:
 
 Each section captures timestamped events/snapshots used by the CLI diagnosis rules.
 
-## 7. Analyzer CLI (`tailscope-cli`)
+## 7. Analyzer CLI (`tailtriage-cli`)
 
 Command:
 
 ```text
-tailscope analyze <run.json>
+tailtriage analyze <run.json>
 ```
 
 Output formats:

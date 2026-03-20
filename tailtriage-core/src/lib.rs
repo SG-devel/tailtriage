@@ -1,4 +1,4 @@
-//! Core run schema and local JSON sink for tailscope.
+//! Core run schema and local JSON sink for tailtriage.
 
 mod collector;
 mod config;
@@ -7,7 +7,7 @@ mod sink;
 mod time;
 mod timers;
 
-pub use collector::Tailscope;
+pub use collector::Tailtriage;
 pub use config::{CaptureMode, Config, InitError, RequestMeta};
 pub use events::{
     InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,

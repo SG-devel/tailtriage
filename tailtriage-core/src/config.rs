@@ -14,7 +14,7 @@ pub enum CaptureMode {
     Investigation,
 }
 
-/// Configuration used to initialize one tailscope capture run.
+/// Configuration used to initialize one tailtriage capture run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Service/application name.
@@ -38,12 +38,12 @@ impl Config {
             service_version: None,
             run_id: None,
             mode: CaptureMode::Light,
-            output_path: PathBuf::from("tailscope-run.json"),
+            output_path: PathBuf::from("tailtriage-run.json"),
         }
     }
 }
 
-/// Runtime request metadata captured by [`crate::Tailscope::request`].
+/// Runtime request metadata captured by [`crate::Tailtriage::request`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestMeta {
     /// Correlation ID for the request.
@@ -94,7 +94,7 @@ impl RequestMeta {
     }
 }
 
-/// Errors emitted while initializing tailscope capture.
+/// Errors emitted while initializing tailtriage capture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InitError {
     /// Service name was empty.

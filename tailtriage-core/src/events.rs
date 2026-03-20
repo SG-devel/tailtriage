@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::CaptureMode;
 
-/// A full output artifact for one tailscope capture run.
+/// A full output artifact for one tailtriage capture run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {
     /// Metadata for the capture session.

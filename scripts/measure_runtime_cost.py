@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure and summarize runtime overhead for tailscope modes."""
+"""Measure and summarize runtime overhead for tailtriage modes."""
 
 from __future__ import annotations
 

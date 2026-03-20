@@ -1,10 +1,10 @@
 # Diagnostics guide
 
-This document explains what `tailscope analyze` reports and how to use it.
+This document explains what `tailtriage analyze` reports and how to use it.
 
 ## Report contents
 
-`tailscope analyze <run.json>` outputs:
+`tailtriage analyze <run.json>` outputs:
 
 - request count
 - request latency percentiles (p50/p95/p99)

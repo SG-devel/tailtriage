@@ -11,7 +11,7 @@ use syn::{
 struct InstrumentArgs {
     route: Option<Expr>,
     kind: Option<Expr>,
-    tailscope: Option<Expr>,
+    tailtriage: Option<Expr>,
     request_id: Option<Expr>,
     skip: Option<Punctuated<syn::Ident, Token![,]>>,
 }
@@ -30,9 +30,9 @@ impl Parse for InstrumentArgs {
                     args.kind = Some(value);
                 }
                 Meta::NameValue(MetaNameValue { path, value, .. })
-                    if path.is_ident("tailscope") =>
+                    if path.is_ident("tailtriage") =>
                 {
-                    args.tailscope = Some(value);
+                    args.tailtriage = Some(value);
                 }
                 Meta::NameValue(MetaNameValue { path, value, .. })
                     if path.is_ident("request_id") =>
@@ -51,7 +51,7 @@ impl Parse for InstrumentArgs {
                 _ => {
                     return Err(Error::new_spanned(
                         meta,
-                        "unsupported argument; expected route = <expr>, kind = <expr>, tailscope = <expr>, request_id = <expr>, or skip(...)",
+                        "unsupported argument; expected route = <expr>, kind = <expr>, tailtriage = <expr>, request_id = <expr>, or skip(...)",
                     ));
                 }
             }
@@ -93,7 +93,7 @@ fn expand_instrument_request(
     let kind_expr = args
         .kind
         .unwrap_or_else(|| default_kind_expr(&input_fn.sig.ident));
-    let tailscope_expr = args.tailscope;
+    let tailtriage_expr = args.tailtriage;
     let request_id_expr = args.request_id;
 
     let route_field = make_field_expr("route", route_expr);
@@ -111,28 +111,28 @@ fn expand_instrument_request(
     let (outcome_expr, tail_event) = if returns_result {
         (
             quote! {
-                let __tailscope_outcome = match &__tailscope_result {
+                let __tailtriage_outcome = match &__tailtriage_result {
                     Ok(_) => "ok",
                     Err(_) => "error",
                 };
             },
             quote! {
-                if __tailscope_outcome == "ok" {
+                if __tailtriage_outcome == "ok" {
                     ::tracing::info!(
-                        target: "tailscope::request",
-                        route = __tailscope_route,
-                        kind = __tailscope_kind,
-                        outcome = __tailscope_outcome,
-                        duration_us = __tailscope_duration_us,
+                        target: "tailtriage::request",
+                        route = __tailtriage_route,
+                        kind = __tailtriage_kind,
+                        outcome = __tailtriage_outcome,
+                        duration_us = __tailtriage_duration_us,
                         "request completed"
                     );
                 } else {
                     ::tracing::warn!(
-                        target: "tailscope::request",
-                        route = __tailscope_route,
-                        kind = __tailscope_kind,
-                        outcome = __tailscope_outcome,
-                        duration_us = __tailscope_duration_us,
+                        target: "tailtriage::request",
+                        route = __tailtriage_route,
+                        kind = __tailtriage_kind,
+                        outcome = __tailtriage_outcome,
+                        duration_us = __tailtriage_duration_us,
                         "request completed"
                     );
                 }
@@ -141,30 +141,30 @@ fn expand_instrument_request(
     } else {
         (
             quote! {
-                let __tailscope_outcome = "ok";
+                let __tailtriage_outcome = "ok";
             },
             quote! {
                 ::tracing::info!(
-                    target: "tailscope::request",
-                    route = __tailscope_route,
-                    kind = __tailscope_kind,
-                    outcome = __tailscope_outcome,
-                    duration_us = __tailscope_duration_us,
+                    target: "tailtriage::request",
+                    route = __tailtriage_route,
+                    kind = __tailtriage_kind,
+                    outcome = __tailtriage_outcome,
+                    duration_us = __tailtriage_duration_us,
                     "request completed"
                 );
             },
         )
     };
-    let record_request = if let Some(tailscope) = tailscope_expr {
+    let record_request = if let Some(tailtriage) = tailtriage_expr {
         let request_id = request_id_expr.unwrap_or_else(default_request_id_expr);
         quote! {
-            (#tailscope).record_request_fields(
+            (#tailtriage).record_request_fields(
                 #request_id,
-                __tailscope_route.clone(),
-                Some(__tailscope_kind.clone()),
-                (__tailscope_started_at_unix_ms, __tailscope_finished_at_unix_ms),
-                __tailscope_duration_us,
-                __tailscope_outcome,
+                __tailtriage_route.clone(),
+                Some(__tailtriage_kind.clone()),
+                (__tailtriage_started_at_unix_ms, __tailtriage_finished_at_unix_ms),
+                __tailtriage_duration_us,
+                __tailtriage_outcome,
             );
         }
     } else {
@@ -172,26 +172,26 @@ fn expand_instrument_request(
     };
 
     input_fn.block = Box::new(syn::parse_quote!({
-        let __tailscope_route = ::std::string::ToString::to_string(&#route_field);
-        let __tailscope_kind = ::std::string::ToString::to_string(&#kind_field);
-        let __tailscope_unix_time_ms = #unix_time_ms_expr;
-        let __tailscope_started_at_unix_ms = __tailscope_unix_time_ms();
-        let __tailscope_started = ::std::time::Instant::now();
-        let __tailscope_result = (async move #body).await;
+        let __tailtriage_route = ::std::string::ToString::to_string(&#route_field);
+        let __tailtriage_kind = ::std::string::ToString::to_string(&#kind_field);
+        let __tailtriage_unix_time_ms = #unix_time_ms_expr;
+        let __tailtriage_started_at_unix_ms = __tailtriage_unix_time_ms();
+        let __tailtriage_started = ::std::time::Instant::now();
+        let __tailtriage_result = (async move #body).await;
         #outcome_expr
-        let __tailscope_finished_at_unix_ms = __tailscope_unix_time_ms();
-        let __tailscope_duration_us =
-            ::std::convert::TryFrom::try_from(__tailscope_started.elapsed().as_micros())
+        let __tailtriage_finished_at_unix_ms = __tailtriage_unix_time_ms();
+        let __tailtriage_duration_us =
+            ::std::convert::TryFrom::try_from(__tailtriage_started.elapsed().as_micros())
                 .unwrap_or(u64::MAX);
         #record_request
         #tail_event
-        __tailscope_result
+        __tailtriage_result
     }));
 
     input_fn.attrs.push(syn::parse_quote!(
         #[::tracing::instrument(
-            name = "tailscope.request",
-            target = "tailscope::request",
+            name = "tailtriage.request",
+            target = "tailtriage::request",
             #skip_attr
             fields(
                 route = ::tracing::field::display(&#route_field),
@@ -224,7 +224,7 @@ fn default_kind_expr(name: &syn::Ident) -> Expr {
 fn default_request_id_expr() -> Expr {
     syn::parse_quote!(format!(
         "{}-{}",
-        __tailscope_route, __tailscope_started_at_unix_ms
+        __tailtriage_route, __tailtriage_started_at_unix_ms
     ))
 }
 

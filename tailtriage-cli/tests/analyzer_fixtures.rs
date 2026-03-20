@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use tailscope_cli::analyze::{analyze_run, render_text, DiagnosisKind};
-use tailscope_core::Run;
+use tailtriage_cli::analyze::{analyze_run, render_text, DiagnosisKind};
+use tailtriage_core::Run;
 
 fn load_fixture(name: &str) -> Run {
     let path = Path::new("tests/fixtures").join(name);

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use serde_json::Value;
-use tailscope_cli::analyze::analyze_run;
-use tailscope_core::Run;
+use tailtriage_cli::analyze::analyze_run;
+use tailtriage_core::Run;
 
 fn load_fixture(name: &str) -> Run {
     let path = Path::new("tests/fixtures").join(name);

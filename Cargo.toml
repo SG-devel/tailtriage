@@ -1,9 +1,9 @@
 [workspace]
 members = [
-  "tailscope-core",
-  "tailscope-tokio",
-  "tailscope-cli",
-  "tailscope-macros",
+  "tailtriage-core",
+  "tailtriage-tokio",
+  "tailtriage-cli",
+  "tailtriage-macros",
   "demos/queue_service",
   "demos/blocking_service",
   "demos/downstream_service",

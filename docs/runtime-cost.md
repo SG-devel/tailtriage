@@ -4,7 +4,7 @@ This is the reproducible overhead measurement path for MVP modes.
 
 ## Modes
 
-- `baseline`: no `tailscope` instrumentation
+- `baseline`: no `tailtriage` instrumentation
 - `light`: request + queue + stage + inflight instrumentation
 - `investigation`: light mode + extra stage marker + dense runtime sampling
 

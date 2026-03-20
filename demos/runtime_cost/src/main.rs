@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 use serde::Serialize;
-use tailscope_core::{CaptureMode, Config, RequestMeta, Tailscope};
-use tailscope_tokio::RuntimeSampler;
+use tailtriage_core::{CaptureMode, Config, RequestMeta, Tailtriage};
+use tailtriage_tokio::RuntimeSampler;
 use tokio::sync::{Mutex, Semaphore};
 
 const DEFAULT_REQUESTS: usize = 800;
@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&cli.output_dir)
         .with_context(|| format!("failed to create {}", cli.output_dir.display()))?;
 
-    let mut tailscope = None;
+    let mut tailtriage = None;
     let mut sampler = None;
 
     if cli.mode != Mode::Baseline {
@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
             .output_dir
             .join(format!("run-{:?}.json", cli.mode).to_lowercase());
 
-        let instance = Arc::new(Tailscope::init(config)?);
+        let instance = Arc::new(Tailtriage::init(config)?);
 
         if cli.mode == Mode::Investigation {
             sampler = Some(RuntimeSampler::start(
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
             )?);
         }
 
-        tailscope = Some(instance);
+        tailtriage = Some(instance);
     }
 
     let latencies_us = Arc::new(Mutex::new(Vec::<u64>::with_capacity(cli.requests)));
@@ -95,12 +95,12 @@ async fn main() -> anyhow::Result<()> {
         let latencies = Arc::clone(&latencies_us);
         let mode = cli.mode;
         let work_duration = Duration::from_millis(cli.work_ms);
-        let tailscope = tailscope.as_ref().map(Arc::clone);
+        let tailtriage = tailtriage.as_ref().map(Arc::clone);
 
         tasks.push(tokio::spawn(async move {
             let start = Instant::now();
 
-            match (mode, tailscope) {
+            match (mode, tailtriage) {
                 (Mode::Baseline, _) => {
                     let permit = sem.acquire().await.expect("semaphore closed");
                     tokio::time::sleep(work_duration).await;
@@ -150,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
         sampler.shutdown().await;
     }
 
-    if let Some(ts) = tailscope {
+    if let Some(ts) = tailtriage {
         ts.flush()?;
     }
 
