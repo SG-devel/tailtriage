@@ -21,9 +21,13 @@ class DemoWrapperTests(unittest.TestCase):
     def test_help_runs_for_all_demo_wrappers(self) -> None:
         wrappers = [
             "run_queue_demo.py",
+            "validate_queue_demo.py",
             "run_blocking_demo.py",
+            "validate_blocking_demo.py",
             "run_downstream_demo.py",
+            "validate_downstream_demo.py",
             "run_cold_start_demo.py",
+            "validate_cold_start_demo.py",
         ]
 
         for wrapper in wrappers:

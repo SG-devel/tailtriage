@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import sys
+
 from demo_tool import main
 
 
 if __name__ == "__main__":
-    main(["validate", "downstream"])
+    main(["validate", "downstream", *sys.argv[1:]])
