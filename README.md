@@ -1,6 +1,6 @@
-# tailscope
+# tailtriage
 
-`tailscope` is a Rust toolkit for diagnosing **tail latency**, **queueing**, and **backpressure** in Tokio services.
+`tailtriage` is a Rust toolkit for diagnosing **tail latency**, **queueing**, and **backpressure** in Tokio services.
 
 It answers one practical question:
 
@@ -19,8 +19,8 @@ It answers one practical question:
 
 ```toml
 [dependencies]
-tailscope-core = { path = "../tailscope-core" }
-tailscope-tokio = { path = "../tailscope-tokio" }
+tailtriage-core = { path = "../tailtriage-core" }
+tailtriage-tokio = { path = "../tailtriage-tokio" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
@@ -28,32 +28,32 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 ```rust
 use std::time::Duration;
-use tailscope_core::{Config, RequestMeta, Tailscope};
+use tailtriage_core::{Config, RequestMeta, Tailtriage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::new("checkout-service");
-    config.output_path = "tailscope-run.json".into();
-    let tailscope = Tailscope::init(config)?;
+    config.output_path = "tailtriage-run.json".into();
+    let tailtriage = Tailtriage::init(config)?;
 
     let meta = RequestMeta::for_route("/checkout").with_kind("http");
     let request_id = meta.request_id.clone();
 
-    tailscope
+    tailtriage
         .request(meta, "ok", async {
-            tailscope
+            tailtriage
                 .queue(request_id.clone(), "ingress_queue")
                 .await_on(tokio::time::sleep(Duration::from_millis(5)))
                 .await;
 
-            tailscope
+            tailtriage
                 .stage(request_id, "db_call")
                 .await_value(tokio::time::sleep(Duration::from_millis(12)))
                 .await;
         })
         .await;
 
-    tailscope.flush()?;
+    tailtriage.flush()?;
     Ok(())
 }
 ```
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 3) Analyze
 
 ```bash
-cargo run --manifest-path tailscope-cli/Cargo.toml -- analyze tailscope-run.json --format json
+cargo run --manifest-path tailtriage-cli/Cargo.toml -- analyze tailtriage-run.json --format json
 ```
 
 Start with:
@@ -73,7 +73,7 @@ Start with:
 
 ## Canonical integration path
 
-1. Initialize one collector (`Tailscope::init`).
+1. Initialize one collector (`Tailtriage::init`).
 2. Wrap request entry points (`request(...)` or `#[instrument_request(...)]`).
 3. Add a few high-impact `queue(...).await_on(...)` wrappers.
 4. Add key downstream `stage(...).await_on(...)` / `await_value(...)` wrappers.

@@ -7,4 +7,4 @@ publish = false
 [dependencies]
 anyhow = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-tailscope-core = { path = "../../tailscope-core" }
+tailtriage-core = { path = "../../tailtriage-core" }

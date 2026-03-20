@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     CaptureMode, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent, RequestEvent,
-    RequestMeta, Run, RunMetadata, RunSink, RuntimeSnapshot, StageEvent, Tailscope,
+    RequestMeta, Run, RunMetadata, RunSink, RuntimeSnapshot, StageEvent, Tailtriage,
 };
 
 fn sample_run() -> Run {
@@ -83,7 +83,7 @@ fn local_json_sink_writes_pretty_json_file() {
         .expect("system time before epoch")
         .as_nanos();
 
-    let path = std::env::temp_dir().join(format!("tailscope_core_run_{nanos}.json"));
+    let path = std::env::temp_dir().join(format!("tailtriage_core_run_{nanos}.json"));
     let sink = LocalJsonSink::new(&path);
 
     let run = sample_run();
@@ -106,7 +106,7 @@ fn init_rejects_blank_service_name() {
     let mut config = Config::new("payments");
     config.service_name = "   ".to_owned();
 
-    let err = Tailscope::init(config).expect_err("blank service_name should fail");
+    let err = Tailtriage::init(config).expect_err("blank service_name should fail");
     assert_eq!(err, InitError::EmptyServiceName);
 }
 
@@ -118,16 +118,16 @@ fn request_records_timing_and_outcome() {
         .as_nanos();
 
     let mut config = Config::new("payments");
-    config.output_path = std::env::temp_dir().join(format!("tailscope_core_scope_{nanos}.json"));
+    config.output_path = std::env::temp_dir().join(format!("tailtriage_core_scope_{nanos}.json"));
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
     let mut request = RequestMeta::new("req-42", "/invoice");
     request.kind = Some("create_invoice".to_owned());
 
-    let result = futures_executor::block_on(tailscope.request(request, "ok", ready(7_u32)));
+    let result = futures_executor::block_on(tailtriage.request(request, "ok", ready(7_u32)));
     assert_eq!(result, 7);
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
 
     let event = &snapshot.requests[0];
@@ -158,14 +158,14 @@ fn request_with_for_route_and_kind_records_expected_fields() {
         .as_nanos();
 
     let mut config = Config::new("payments");
-    config.output_path = std::env::temp_dir().join(format!("tailscope_core_helper_{nanos}.json"));
+    config.output_path = std::env::temp_dir().join(format!("tailtriage_core_helper_{nanos}.json"));
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
     let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
-    let result = futures_executor::block_on(tailscope.request(meta, "ok", ready(9_u32)));
+    let result = futures_executor::block_on(tailtriage.request(meta, "ok", ready(9_u32)));
     assert_eq!(result, 9);
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
     let event = &snapshot.requests[0];
     assert_eq!(event.route, "/invoice");
@@ -183,17 +183,17 @@ fn request_with_for_route_records_route_and_outcome_without_kind() {
 
     let mut config = Config::new("payments");
     config.output_path =
-        std::env::temp_dir().join(format!("tailscope_core_route_only_{nanos}.json"));
+        std::env::temp_dir().join(format!("tailtriage_core_route_only_{nanos}.json"));
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
-    let result = futures_executor::block_on(tailscope.request(
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
+    let result = futures_executor::block_on(tailtriage.request(
         RequestMeta::for_route("/invoice"),
         "error",
         ready(13_u32),
     ));
     assert_eq!(result, 13);
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
     let event = &snapshot.requests[0];
     assert_eq!(event.route, "/invoice");
@@ -209,12 +209,12 @@ fn flush_writes_current_snapshot() {
         .expect("system time before epoch")
         .as_nanos();
 
-    let output_path = std::env::temp_dir().join(format!("tailscope_core_flush_{nanos}.json"));
+    let output_path = std::env::temp_dir().join(format!("tailtriage_core_flush_{nanos}.json"));
     let mut config = Config::new("payments");
     config.output_path = output_path.clone();
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
-    tailscope.flush().expect("flush should write run file");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
+    tailtriage.flush().expect("flush should write run file");
 
     let bytes = std::fs::metadata(&output_path)
         .expect("flush output should exist")
@@ -227,19 +227,19 @@ fn flush_writes_current_snapshot() {
 #[test]
 fn inflight_guard_records_increment_and_decrement() {
     let mut config = Config::new("payments");
-    config.output_path = std::env::temp_dir().join("tailscope_core_inflight_test.json");
+    config.output_path = std::env::temp_dir().join("tailtriage_core_inflight_test.json");
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
 
     {
-        let _guard = tailscope.inflight("invoice_requests");
-        let snapshot = tailscope.snapshot();
+        let _guard = tailtriage.inflight("invoice_requests");
+        let snapshot = tailtriage.snapshot();
         assert_eq!(snapshot.inflight.len(), 1);
         assert_eq!(snapshot.inflight[0].gauge, "invoice_requests");
         assert_eq!(snapshot.inflight[0].count, 1);
     }
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.inflight.len(), 2);
     assert_eq!(snapshot.inflight[1].gauge, "invoice_requests");
     assert_eq!(snapshot.inflight[1].count, 0);
@@ -248,18 +248,18 @@ fn inflight_guard_records_increment_and_decrement() {
 #[test]
 fn stage_wrapper_records_stage_event() {
     let mut config = Config::new("payments");
-    config.output_path = std::env::temp_dir().join("tailscope_core_stage_test.json");
+    config.output_path = std::env::temp_dir().join("tailtriage_core_stage_test.json");
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
 
     let result = futures_executor::block_on(
-        tailscope
+        tailtriage
             .stage("req-22", "fetch_customer")
             .await_value(ready(11_u32)),
     );
     assert_eq!(result, 11);
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.stages.len(), 1);
     let event = &snapshot.stages[0];
     assert_eq!(event.request_id, "req-22");
@@ -271,18 +271,18 @@ fn stage_wrapper_records_stage_event() {
 #[test]
 fn stage_wrapper_records_success_for_ok_result() {
     let mut config = Config::new("payments");
-    config.output_path = std::env::temp_dir().join("tailscope_core_stage_ok_test.json");
+    config.output_path = std::env::temp_dir().join("tailtriage_core_stage_ok_test.json");
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
 
     let result = futures_executor::block_on(
-        tailscope
+        tailtriage
             .stage("req-33", "persist_invoice")
             .await_on(ready::<Result<u32, &'static str>>(Ok(17_u32))),
     );
     assert_eq!(result, Ok(17));
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.stages.len(), 1);
     let event = &snapshot.stages[0];
     assert_eq!(event.request_id, "req-33");
@@ -293,18 +293,18 @@ fn stage_wrapper_records_success_for_ok_result() {
 #[test]
 fn stage_wrapper_records_failure_for_err_result() {
     let mut config = Config::new("payments");
-    config.output_path = std::env::temp_dir().join("tailscope_core_stage_err_test.json");
+    config.output_path = std::env::temp_dir().join("tailtriage_core_stage_err_test.json");
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
 
     let result = futures_executor::block_on(
-        tailscope
+        tailtriage
             .stage("req-34", "persist_invoice")
             .await_on(ready::<Result<u32, &'static str>>(Err("boom"))),
     );
     assert_eq!(result, Err("boom"));
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.stages.len(), 1);
     let event = &snapshot.stages[0];
     assert_eq!(event.request_id, "req-34");
@@ -315,19 +315,19 @@ fn stage_wrapper_records_failure_for_err_result() {
 #[test]
 fn queue_wrapper_records_wait_event() {
     let mut config = Config::new("payments");
-    config.output_path = std::env::temp_dir().join("tailscope_core_queue_test.json");
+    config.output_path = std::env::temp_dir().join("tailtriage_core_queue_test.json");
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
 
     let result = futures_executor::block_on(
-        tailscope
+        tailtriage
             .queue("req-22", "invoice_worker")
             .with_depth_at_start(3)
             .await_on(ready(11_u32)),
     );
     assert_eq!(result, 11);
 
-    let snapshot = tailscope.snapshot();
+    let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.queues.len(), 1);
     let event = &snapshot.queues[0];
     assert_eq!(event.request_id, "req-22");

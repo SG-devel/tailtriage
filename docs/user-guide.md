@@ -5,34 +5,34 @@ This guide covers the shortest path to a useful diagnosis.
 ## 1) Instrument one request flow
 
 ```rust
-use tailscope_core::{Config, RequestMeta, Tailscope};
+use tailtriage_core::{Config, RequestMeta, Tailtriage};
 
-let tailscope = Tailscope::init(Config::new("my-service"))?;
+let tailtriage = Tailtriage::init(Config::new("my-service"))?;
 
 let meta = RequestMeta::for_route("/checkout").with_kind("http");
 let request_id = meta.request_id.clone();
 
-tailscope
+tailtriage
     .request(meta, "ok", async {
-        tailscope
+        tailtriage
             .queue(request_id.clone(), "ingress_queue")
             .await_on(async_work_that_waits())
             .await;
 
-        tailscope
+        tailtriage
             .stage(request_id, "db_call")
             .await_value(async_downstream_call())
             .await;
     })
     .await;
 
-tailscope.flush()?;
+tailtriage.flush()?;
 ```
 
 ## 2) Analyze the run
 
 ```bash
-tailscope analyze <run.json> --format json
+tailtriage analyze <run.json> --format json
 ```
 
 Read these fields first:
@@ -54,9 +54,9 @@ Enable runtime snapshots when queue/stage instrumentation is still ambiguous:
 ```rust
 use std::sync::Arc;
 use std::time::Duration;
-use tailscope_tokio::RuntimeSampler;
+use tailtriage_tokio::RuntimeSampler;
 
-let sampler = RuntimeSampler::start(Arc::clone(&tailscope), Duration::from_millis(200))?;
+let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
 // run workload
 sampler.shutdown().await;
 ```

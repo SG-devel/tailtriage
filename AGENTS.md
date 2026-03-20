@@ -4,13 +4,13 @@ This file tells coding agents how to work in this repository.
 
 ## Mission
 
-Build `tailscope`, a small, useful Rust toolkit for diagnosing tail-latency, queueing, and backpressure problems in Tokio services.
+Build `tailtriage`, a small, useful Rust toolkit for diagnosing tail-latency, queueing, and backpressure problems in Tokio services.
 
 The repository exists to produce a **real developer tool**, not a toy lab and not a generic observability platform.
 
 ## Product definition
 
-`tailscope` should answer:
+`tailtriage` should answer:
 
 > Is this async Rust service slow because of application-level queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
 
@@ -62,9 +62,9 @@ Avoid:
 ## Workspace structure
 
 Expected workspace members:
-- `tailscope-core`
-- `tailscope-tokio`
-- `tailscope-cli`
+- `tailtriage-core`
+- `tailtriage-tokio`
+- `tailtriage-cli`
 
 Possible directories:
 - `demos/`
@@ -120,7 +120,7 @@ Do not design an API that forces developers to:
 
 ## Diagnostics philosophy
 
-`tailscope` should produce:
+`tailtriage` should produce:
 - ranked suspects
 - supporting evidence
 - recommended next checks
@@ -139,7 +139,7 @@ Assume the following are existing building blocks:
 - tokio-console is a local debugging/profiling tool
 - tokio-metrics is a runtime/task metrics source
 
-`tailscope` is the diagnosis layer above these, not a replacement for them.
+`tailtriage` is the diagnosis layer above these, not a replacement for them.
 
 ## File hygiene
 
@@ -206,9 +206,9 @@ For larger tasks:
 
 ## Preferred implementation order
 
-1. `tailscope-core`
-2. `tailscope-tokio`
-3. `tailscope-cli`
+1. `tailtriage-core`
+2. `tailtriage-tokio`
+3. `tailtriage-cli`
 4. demos
 5. benchmarks
 6. docs polish

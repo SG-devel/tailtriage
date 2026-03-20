@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified runner/validator for tailscope demo scenarios."""
+"""Unified runner/validator for tailtriage demo scenarios."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def run_before_after_scenario(
     mode: str,
     snapshot_fn: Callable[[dict], dict[str, int | str | None]],
 ) -> None:
-    cli_manifest = root_dir / "tailscope-cli/Cargo.toml"
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
 
     def run_variant(variant: str) -> None:
         run_path, analysis_path = variant_paths(artifact_dir, variant)
@@ -120,7 +120,7 @@ def run_scenario_downstream(root_dir: Path, artifact_path: str | None) -> None:
     analysis_path = root_dir / "demos/downstream_service/artifacts/downstream-analysis.json"
     run_and_analyze(
         root_dir / "demos/downstream_service/Cargo.toml",
-        root_dir / "tailscope-cli/Cargo.toml",
+        root_dir / "tailtriage-cli/Cargo.toml",
         run_path,
         analysis_path,
     )
@@ -252,7 +252,7 @@ def validate_downstream(root_dir: Path) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Unified tailscope demo run/validate tool.")
+    parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
