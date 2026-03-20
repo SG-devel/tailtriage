@@ -1,5 +1,5 @@
 [package]
-name = "tailscope-macros"
+name = "tailtriage-macros"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -17,7 +17,7 @@ workspace = true
 
 [dev-dependencies]
 serde_json = "1"
-tailscope-core = { path = "../tailscope-core" }
+tailtriage-core = { path = "../tailtriage-core" }
 tokio = { version = "1", features = ["macros", "rt"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"

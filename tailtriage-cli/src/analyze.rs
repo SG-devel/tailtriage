@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
-use tailscope_core::{InFlightSnapshot, Run, RuntimeSnapshot};
+use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum DiagnosisKind {
@@ -465,7 +465,7 @@ pub fn render_text(report: &Report) -> String {
     };
 
     let mut lines = vec![
-        "tailscope diagnosis".to_string(),
+        "tailtriage diagnosis".to_string(),
         format!("requests: {}", report.request_count),
         format!(
             "latency_us p50={:?} p95={:?} p99={:?}",
@@ -509,7 +509,7 @@ pub fn render_text(report: &Report) -> String {
 
 #[cfg(test)]
 mod tests {
-    use tailscope_core::{CaptureMode, RequestEvent, Run, RunMetadata, StageEvent};
+    use tailtriage_core::{CaptureMode, RequestEvent, Run, RunMetadata, StageEvent};
 
     use crate::analyze::{
         analyze_run, render_text, Confidence, DiagnosisKind, InflightTrend, Report, Suspect,
@@ -637,12 +637,12 @@ mod tests {
     #[test]
     fn inflight_trend_handles_constant_series() {
         let trend = super::dominant_inflight_trend(&[
-            tailscope_core::InFlightSnapshot {
+            tailtriage_core::InFlightSnapshot {
                 gauge: "http".to_owned(),
                 at_unix_ms: 10,
                 count: 3,
             },
-            tailscope_core::InFlightSnapshot {
+            tailtriage_core::InFlightSnapshot {
                 gauge: "http".to_owned(),
                 at_unix_ms: 20,
                 count: 3,
@@ -658,17 +658,17 @@ mod tests {
     #[test]
     fn inflight_trend_handles_monotonic_increase() {
         let trend = super::dominant_inflight_trend(&[
-            tailscope_core::InFlightSnapshot {
+            tailtriage_core::InFlightSnapshot {
                 gauge: "http".to_owned(),
                 at_unix_ms: 10,
                 count: 1,
             },
-            tailscope_core::InFlightSnapshot {
+            tailtriage_core::InFlightSnapshot {
                 gauge: "http".to_owned(),
                 at_unix_ms: 20,
                 count: 4,
             },
-            tailscope_core::InFlightSnapshot {
+            tailtriage_core::InFlightSnapshot {
                 gauge: "http".to_owned(),
                 at_unix_ms: 30,
                 count: 6,

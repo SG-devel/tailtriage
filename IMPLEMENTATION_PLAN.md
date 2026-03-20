@@ -1,6 +1,6 @@
 # IMPLEMENTATION_PLAN.md
 
-This file is the consolidated execution and implementation plan for the `tailscope` MVP.
+This file is the consolidated execution and implementation plan for the `tailtriage` MVP.
 
 ## Summary
 
@@ -21,9 +21,9 @@ The project should be built as a sequence of small, reviewable milestones.
 ### Tasks
 1. create Cargo workspace
 2. add crates:
-   - `tailscope-core`
-   - `tailscope-tokio`
-   - `tailscope-cli`
+   - `tailtriage-core`
+   - `tailtriage-tokio`
+   - `tailtriage-cli`
 3. add GitHub Actions:
    - fmt
    - clippy
@@ -78,13 +78,13 @@ Avoid:
 
 ---
 
-## Phase 2 — `tailscope-core`
+## Phase 2 — `tailtriage-core`
 
 ### Goals
 Implement the user-facing instrumentation primitives.
 
 ### Public API to implement
-- `Tailscope::init`
+- `Tailtriage::init`
 - `Config`
 - `request(...)`
 - `inflight(...)`
@@ -166,7 +166,7 @@ If proc-macro complexity becomes a time sink, consider a first version built on 
 
 ---
 
-## Phase 4 — `tailscope-tokio`
+## Phase 4 — `tailtriage-tokio`
 
 ### Goals
 Add runtime-level context.
@@ -207,17 +207,17 @@ Target the stable, useful subset first:
 
 ---
 
-## Phase 5 — `tailscope-cli`
+## Phase 5 — `tailtriage-cli`
 
 ### Goals
 Turn one run into a diagnosis report.
 
 ### Commands for MVP
-- `tailscope analyze <run.json>`
+- `tailtriage analyze <run.json>`
 
 Optional later:
-- `tailscope summarize`
-- `tailscope explain`
+- `tailtriage summarize`
+- `tailtriage explain`
 
 ### Core report calculations
 - per-stage count
@@ -450,11 +450,11 @@ This section preserves the milestone-oriented roadmap that previously lived in `
 
 # PLANS.md
 
-This file defines the execution plan for the `tailscope` MVP.
+This file defines the execution plan for the `tailtriage` MVP.
 
 ## Objective
 
-Deliver a working MVP of `tailscope` that can:
+Deliver a working MVP of `tailtriage` that can:
 1. instrument a Tokio service with low effort
 2. collect request/stage/queue timings
 3. sample Tokio runtime metrics
@@ -511,12 +511,12 @@ Exit criteria:
 - CI passes
 - docs are coherent
 
-## M1 — `tailscope-core`
+## M1 — `tailtriage-core`
 Goal:
 - core instrumentation primitives exist
 
 Deliverables:
-- `Tailscope::init`
+- `Tailtriage::init`
 - `Config`
 - `request(...)`
 - `inflight(...)`
@@ -543,7 +543,7 @@ Exit criteria:
 - one handler can be instrumented with macro only
 - request timing appears in output
 
-## M3 — `tailscope-tokio`
+## M3 — `tailtriage-tokio`
 Goal:
 - runtime context is available
 
@@ -557,12 +557,12 @@ Exit criteria:
 - runtime snapshots collected during a run
 - tests validate snapshot serialization and shape
 
-## M4 — `tailscope-cli`
+## M4 — `tailtriage-cli`
 Goal:
 - turn collected data into a diagnosis report
 
 Deliverables:
-- `tailscope analyze`
+- `tailtriage analyze`
 - p50/p95/p99 computation
 - queue/service share computation
 - initial diagnosis rules

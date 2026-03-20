@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tailscope_core::{Config, Tailscope};
-use tailscope_macros::instrument_request;
+use tailtriage_core::{Config, Tailtriage};
+use tailtriage_macros::instrument_request;
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::prelude::*;
@@ -63,12 +63,12 @@ async fn err_handler(state: u32) -> Result<u32, &'static str> {
 #[instrument_request(
     route = "/macro",
     kind = "macro_collector",
-    tailscope = tailscope,
+    tailtriage = tailtriage,
     request_id = request_id.clone(),
-    skip(tailscope)
+    skip(tailtriage)
 )]
 async fn collector_handler(
-    tailscope: &Tailscope,
+    tailtriage: &Tailtriage,
     request_id: String,
     succeed: bool,
 ) -> Result<&'static str, &'static str> {
@@ -118,29 +118,29 @@ async fn records_ok_and_error_outcomes() {
 }
 
 #[tokio::test]
-async fn writes_request_events_to_run_json_when_tailscope_is_provided() {
+async fn writes_request_events_to_run_json_when_tailtriage_is_provided() {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before epoch")
         .as_nanos();
-    let output_path = std::env::temp_dir().join(format!("tailscope_macro_run_{nanos}.json"));
+    let output_path = std::env::temp_dir().join(format!("tailtriage_macro_run_{nanos}.json"));
 
     let mut config = Config::new("macro-test");
     config.output_path = output_path.clone();
 
-    let tailscope = Tailscope::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
 
-    let ok = collector_handler(&tailscope, "req-ok".to_string(), true)
+    let ok = collector_handler(&tailtriage, "req-ok".to_string(), true)
         .await
         .expect("ok request should succeed");
     assert_eq!(ok, "ok");
 
-    let err = collector_handler(&tailscope, "req-err".to_string(), false)
+    let err = collector_handler(&tailtriage, "req-err".to_string(), false)
         .await
         .expect_err("error request should fail");
     assert_eq!(err, "boom");
 
-    tailscope.flush().expect("flush should succeed");
+    tailtriage.flush().expect("flush should succeed");
 
     let run_json = std::fs::read_to_string(&output_path).expect("run artifact should be readable");
     let run_value: serde_json::Value =

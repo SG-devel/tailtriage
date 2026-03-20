@@ -12,14 +12,14 @@ use crate::{
 
 /// Per-run collector that records request events and writes the final artifact.
 #[derive(Debug)]
-pub struct Tailscope {
+pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
     pub(crate) sink: LocalJsonSink,
 }
 
-impl Tailscope {
-    /// Initializes tailscope collection for one service run.
+impl Tailtriage {
+    /// Initializes tailtriage collection for one service run.
     ///
     /// # Errors
     ///
@@ -144,7 +144,7 @@ impl Tailscope {
         });
 
         InflightGuard {
-            tailscope: self,
+            tailtriage: self,
             gauge,
         }
     }
@@ -153,7 +153,7 @@ impl Tailscope {
     #[must_use]
     pub fn stage(&self, request_id: impl Into<String>, stage: impl Into<String>) -> StageTimer<'_> {
         StageTimer {
-            tailscope: self,
+            tailtriage: self,
             request_id: request_id.into(),
             stage: stage.into(),
         }
@@ -163,7 +163,7 @@ impl Tailscope {
     #[must_use]
     pub fn queue(&self, request_id: impl Into<String>, queue: impl Into<String>) -> QueueTimer<'_> {
         QueueTimer {
-            tailscope: self,
+            tailtriage: self,
             request_id: request_id.into(),
             queue: queue.into(),
             depth_at_start: None,
