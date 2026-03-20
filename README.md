@@ -1,17 +1,57 @@
 # tailtriage
 
-`tailtriage` is a Rust toolkit for diagnosing **tail latency**, **queueing**, and **backpressure** in Tokio services.
+`tailtriage` is a Rust toolkit for **tail-latency triage** in Tokio services.
 
-It answers one practical question:
+It is built for one practical question:
 
-> Is this service slow because of application queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
+> Is this request path slow because of **application queueing**, **executor pressure**, **blocking-pool pressure**, or a **slow downstream stage**?
+
+## What it is
+
+`tailtriage` helps ordinary Rust developers get a useful first diagnosis without having to read raw runtime metrics or think like a performance engineer.
+
+It does this by:
+
+- capturing one local run artifact from lightweight request, queue, stage, and runtime instrumentation
+- ranking likely bottleneck suspects
+- showing evidence for that ranking
+- suggesting the next checks to run
+- keeping diagnosis reproducible: capture -> analyze -> compare before/after
+
+## What it is not
+
+`tailtriage` is **not** a live debugger, metrics backend, or general observability stack.
+
+If you want raw runtime/task data or an interactive debugging UI, tools like `tokio-console`, `tokio-metrics`, and `dial9-tokio-telemetry` already cover those areas well. `tailtriage` is the interpretation layer on top: a focused tool for turning a small amount of instrumentation into an actionable bottleneck hypothesis. :contentReference[oaicite:0]{index=0}
 
 ## Why it is useful
 
-- Produces one local JSON run artifact from lightweight instrumentation.
-- Ranks likely bottleneck suspects with evidence and recommended next checks.
-- Works with partial instrumentation (you can start small and improve coverage over time).
-- Keeps diagnosis reproducible: capture run -> analyze with CLI -> compare before/after.
+- **Focused on triage:** ranks likely suspects instead of just surfacing telemetry
+- **Usable with partial instrumentation:** start with a few key waits/stages and improve coverage over time
+- **Low-friction workflow:** one run artifact, one CLI analysis step
+- **Honest output:** suspects are evidence-ranked leads, not proof of root cause
+- **Made for non-experts:** useful hints first, deeper investigation second
+
+## Best fit
+
+`tailtriage` is a good fit when:
+
+- you run a Tokio service
+- you have a tail-latency or backpressure problem
+- you want a fast, local, reproducible answer
+- you do **not** want to start with a full observability platform
+
+## Current scope
+
+MVP scope is intentionally narrow:
+
+- Tokio-only
+- single-process diagnosis
+- local run artifact + CLI analysis
+- rule-based suspect ranking
+- no distributed tracing backend
+- no live UI
+- no exporter/backend requirement
 
 ## Quickstart
 
