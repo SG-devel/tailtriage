@@ -9,6 +9,7 @@ members = [
   "demos/executor_pressure_service",
   "demos/downstream_service",
   "demos/mixed_contention_service",
+  "demos/cold_start_burst_service",
   "demos/runtime_cost",
 ]
 resolver = "2"
