@@ -4,7 +4,7 @@ This file tells coding agents how to work in this repository.
 
 ## Mission
 
-Build `tailtriage`, a small, useful Rust toolkit for diagnosing tail-latency, queueing, and backpressure problems in Tokio services.
+Build `tailtriage`, a small, useful Rust toolkit for **Tokio tail-latency triage** in real services.
 
 The repository exists to produce a **real developer tool**, not a toy lab and not a generic observability platform.
 
@@ -18,7 +18,31 @@ The tool should:
 - be easy to integrate
 - be useful with partial instrumentation
 - be low-overhead in light mode
-- produce a clear diagnosis report
+- produce a clear triage report with evidence-ranked suspects and next checks
+
+## Product language and positioning guardrails
+
+When editing docs, prefer language that reinforces the MVP category:
+- use **triage** for product/category language
+- use **diagnosis** for analyzer/report actions where natural
+- describe output as **evidence-ranked suspects** and **next checks**
+
+Always preserve the distinction:
+- suspects are leads
+- suspects are **not** proof of root cause
+
+Avoid wording drift toward:
+- vague “observability platform” framing
+- broad automated-causality claims
+- comparisons that imply `tailtriage` replaces tokio-console, tokio-metrics, or telemetry stacks
+
+Optimize docs for:
+- first-time users
+- non-expert readers
+- concrete workflows
+- short examples
+- direct statements of fit and non-fit
+- narrow, honest claims over ambitious language
 
 ## What this repository is NOT building
 
@@ -139,7 +163,7 @@ Assume the following are existing building blocks:
 - tokio-console is a local debugging/profiling tool
 - tokio-metrics is a runtime/task metrics source
 
-`tailtriage` is the diagnosis layer above these, not a replacement for them.
+`tailtriage` is the triage/diagnosis layer above these, not a replacement for them.
 
 ## File hygiene
 
