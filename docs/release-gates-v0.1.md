@@ -33,6 +33,8 @@ Turn the GitHub repository public only when all items are true:
 - CI is green on the branch that will become public.
 - Secrets, Actions logs/artifacts, and repository settings were reviewed for public exposure.
 
+For exact repository operations behind this gate (branch protection, required checks, labels, topics, and verification steps), follow [`docs/github-repo-ops.md`](github-repo-ops.md).
+
 ### If the repo becomes public in a noisy/misleading state
 
 Mitigate immediately:
