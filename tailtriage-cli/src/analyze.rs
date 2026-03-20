@@ -316,7 +316,7 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         total_latency.saturating_mul(1_000) / total_request_latency
     };
     let share_bonus = (stage_share_permille / 40).min(25) as u8;
-    let score = (60 + share_bonus).min(90);
+    let score = (55 + share_bonus).min(79);
 
     if stage_count < 3 {
         return None;
