@@ -94,6 +94,21 @@ This keeps demo binaries focused on the triage scenario rather than boilerplate.
 - Primary suspect can vary by machine, but evidence should justify the rank.
 - Mitigation should shift score/rank toward the remaining bottleneck.
 
+
+### `db_pool_saturation_service`
+
+**What happens**
+
+- Requests do a tiny `app_precheck` and then queue for a bounded semaphore that represents DB connections.
+- Baseline uses a smaller DB pool and slower `db_query` stage.
+- Mitigated mode increases pool capacity and shortens the `db_query` stage.
+
+**Triage being exercised**
+
+- Ranked suspects should include application queue saturation and/or downstream stage dominance.
+- Evidence should reference `queue(..., "db_pool")` wait behavior and `stage(..., "db_query")` service share.
+- Mitigation should improve p95 latency and/or primary suspect score.
+
 ### `cold_start_burst_service`
 
 **What happens**
@@ -117,4 +132,4 @@ python3 scripts/demo_tool.py run blocking
 python3 scripts/demo_tool.py validate blocking
 ```
 
-Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`).
+Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`, `db-pool`).
