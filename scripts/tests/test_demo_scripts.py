@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lightweight tests for Python demo wrappers and argument parsing."""
+"""Lightweight tests for Python demo tooling and argument parsing."""
 
 from __future__ import annotations
 
@@ -14,41 +14,23 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from demo_tool import has_suspect_kind, parse_args  # noqa: E402
-from run_downstream_demo import build_argv  # noqa: E402
 
 
 class DemoWrapperTests(unittest.TestCase):
-    def test_help_runs_for_all_demo_wrappers(self) -> None:
-        wrappers = [
-            "run_queue_demo.py",
-            "run_blocking_demo.py",
-            "run_executor_demo.py",
-            "run_downstream_demo.py",
-        ]
-
-        for wrapper in wrappers:
-            with self.subTest(wrapper=wrapper):
-                completed = subprocess.run(
-                    [sys.executable, str(SCRIPTS_DIR / wrapper), "--help"],
-                    cwd=REPO_ROOT,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                self.assertEqual(
-                    completed.returncode,
-                    0,
-                    msg=f"{wrapper} help failed: {completed.stderr}",
-                )
-                self.assertIn("usage:", completed.stdout)
-
-    def test_downstream_positional_artifact_path_is_mapped_to_flag(self) -> None:
-        argv = build_argv(["custom-run.json"])
-        args = parse_args(argv)
-
-        self.assertEqual(args.command, "run")
-        self.assertEqual(args.scenario, "downstream")
-        self.assertEqual(args.artifact_path, "custom-run.json")
+    def test_demo_tool_help_runs(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / "demo_tool.py"), "--help"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            completed.returncode,
+            0,
+            msg=f"demo_tool.py help failed: {completed.stderr}",
+        )
+        self.assertIn("usage:", completed.stdout)
 
     def test_parse_args_accepts_mixed_scenario(self) -> None:
         args = parse_args(["run", "mixed", "baseline"])
@@ -60,6 +42,12 @@ class DemoWrapperTests(unittest.TestCase):
         args = parse_args(["validate", "cold-start"])
         self.assertEqual(args.command, "validate")
         self.assertEqual(args.scenario, "cold-start")
+
+    def test_parse_args_accepts_downstream_artifact_flag(self) -> None:
+        args = parse_args(["run", "downstream", "--artifact-path", "custom-run.json"])
+        self.assertEqual(args.command, "run")
+        self.assertEqual(args.scenario, "downstream")
+        self.assertEqual(args.artifact_path, "custom-run.json")
 
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
