@@ -1,12 +1,12 @@
 [package]
-name = "tailscope-tokio"
+name = "tailtriage-tokio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-tailscope-core = { path = "../tailscope-core" }
-tailscope-macros = { path = "../tailscope-macros" }
+tailtriage-core = { path = "../tailtriage-core" }
+tailtriage-macros = { path = "../tailtriage-macros" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 tracing = "0.1"
 

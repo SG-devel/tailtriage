@@ -1,24 +1,24 @@
 # Architecture (MVP)
 
-`tailscope` is a file-based diagnosis pipeline over one instrumented run.
+`tailtriage` is a file-based diagnosis pipeline over one instrumented run.
 
 ## Flow
 
-1. Service code records request/queue/stage/in-flight signals via `tailscope-core`.
-2. Optional runtime snapshots are collected by `tailscope-tokio`.
-3. `tailscope-core` writes one JSON run artifact (`Run`).
-4. `tailscope-cli` ranks suspects from that artifact.
+1. Service code records request/queue/stage/in-flight signals via `tailtriage-core`.
+2. Optional runtime snapshots are collected by `tailtriage-tokio`.
+3. `tailtriage-core` writes one JSON run artifact (`Run`).
+4. `tailtriage-cli` ranks suspects from that artifact.
 
 ## Crate responsibilities
 
-### `tailscope-core`
+### `tailtriage-core`
 
 - run schema (`Run`, metadata, events, snapshots)
-- collection lifecycle (`Tailscope::init`, `flush`, `snapshot`)
+- collection lifecycle (`Tailtriage::init`, `flush`, `snapshot`)
 - instrumentation wrappers (`request`, `queue`, `stage`, `inflight`)
 - local JSON sink (`LocalJsonSink`)
 
-### `tailscope-tokio`
+### `tailtriage-tokio`
 
 - runtime sampling (`RuntimeSampler`)
 - runtime snapshot capture (`capture_runtime_snapshot`)
@@ -26,7 +26,7 @@
 
 Note: some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
 
-### `tailscope-cli`
+### `tailtriage-cli`
 
 - parse run JSON
 - compute request percentiles

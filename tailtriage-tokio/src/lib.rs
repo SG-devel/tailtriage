@@ -1,24 +1,24 @@
-//! Tokio runtime integration for tailscope.
+//! Tokio runtime integration for tailtriage.
 //!
 //! This crate provides:
 //! - [`RuntimeSampler`] for periodic Tokio runtime metrics snapshots.
 //! - [`instrument_request`] for request entry-point tracing and optional
-//!   request-event recording into a [`tailscope_core::Tailscope`] collector.
+//!   request-event recording into a [`tailtriage_core::Tailtriage`] collector.
 //!
 //! Macro example:
 //! ```ignore
-//! use tailscope_core::Tailscope;
-//! use tailscope_tokio::instrument_request;
+//! use tailtriage_core::Tailtriage;
+//! use tailtriage_tokio::instrument_request;
 //!
 //! #[instrument_request(
 //!     route = "/invoice",
 //!     kind = "create_invoice",
-//!     tailscope = tailscope,
+//!     tailtriage = tailtriage,
 //!     request_id = request_id.clone(),
-//!     skip(tailscope)
+//!     skip(tailtriage)
 //! )]
 //! async fn handle_invoice(
-//!     tailscope: &Tailscope,
+//!     tailtriage: &Tailtriage,
 //!     request_id: String,
 //! ) -> Result<(), &'static str> {
 //!     Ok(())
@@ -28,17 +28,17 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailscope_core::{unix_time_ms, RuntimeSnapshot, Tailscope};
+use tailtriage_core::{unix_time_ms, RuntimeSnapshot, Tailtriage};
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-pub use tailscope_macros::instrument_request;
+pub use tailtriage_macros::instrument_request;
 
 /// Returns the crate name for smoke-testing workspace wiring.
 #[must_use]
 pub const fn crate_name() -> &'static str {
-    "tailscope-tokio"
+    "tailtriage-tokio"
 }
 
 /// Errors produced while starting runtime sampling.
@@ -58,7 +58,7 @@ impl std::fmt::Display for SamplerStartError {
 
 impl std::error::Error for SamplerStartError {}
 
-/// Periodically samples Tokio runtime metrics and records them into a [`Tailscope`] run.
+/// Periodically samples Tokio runtime metrics and records them into a [`Tailtriage`] run.
 #[derive(Debug)]
 pub struct RuntimeSampler {
     stop_tx: Option<oneshot::Sender<()>>,
@@ -71,7 +71,10 @@ impl RuntimeSampler {
     /// # Errors
     ///
     /// Returns [`SamplerStartError::ZeroInterval`] when `interval` is zero.
-    pub fn start(tailscope: Arc<Tailscope>, interval: Duration) -> Result<Self, SamplerStartError> {
+    pub fn start(
+        tailtriage: Arc<Tailtriage>,
+        interval: Duration,
+    ) -> Result<Self, SamplerStartError> {
         if interval.is_zero() {
             return Err(SamplerStartError::ZeroInterval);
         }
@@ -85,7 +88,7 @@ impl RuntimeSampler {
                 tokio::select! {
                     _ = &mut stop_rx => break,
                     _ = ticker.tick() => {
-                        tailscope.record_runtime_snapshot(capture_runtime_snapshot(&handle));
+                        tailtriage.record_runtime_snapshot(capture_runtime_snapshot(&handle));
                     }
                 }
             }
@@ -150,14 +153,14 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use tailscope_core::{Config, Tailscope};
+    use tailtriage_core::{Config, Tailtriage};
 
     use super::crate_name;
     use super::{RuntimeSampler, SamplerStartError};
 
     #[test]
     fn crate_name_is_stable() {
-        assert_eq!(crate_name(), "tailscope-tokio");
+        assert_eq!(crate_name(), "tailtriage-tokio");
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -169,16 +172,16 @@ mod tests {
 
         let mut config = Config::new("runtime-test");
         config.output_path =
-            std::env::temp_dir().join(format!("tailscope_tokio_sampler_{nanos}.json"));
+            std::env::temp_dir().join(format!("tailtriage_tokio_sampler_{nanos}.json"));
 
-        let tailscope = Arc::new(Tailscope::init(config).expect("init should succeed"));
-        let sampler = RuntimeSampler::start(Arc::clone(&tailscope), Duration::from_millis(5))
+        let tailtriage = Arc::new(Tailtriage::init(config).expect("init should succeed"));
+        let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))
             .expect("sampler should start");
 
         tokio::time::sleep(Duration::from_millis(20)).await;
         sampler.shutdown().await;
 
-        let snapshot = tailscope.snapshot();
+        let snapshot = tailtriage.snapshot();
         assert!(
             !snapshot.runtime_snapshots.is_empty(),
             "sampler should record runtime snapshots"
@@ -192,10 +195,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn runtime_sampler_rejects_zero_interval() {
         let mut config = Config::new("runtime-test");
-        config.output_path = std::env::temp_dir().join("tailscope_tokio_zero_interval.json");
-        let tailscope = Arc::new(Tailscope::init(config).expect("init should succeed"));
+        config.output_path = std::env::temp_dir().join("tailtriage_tokio_zero_interval.json");
+        let tailtriage = Arc::new(Tailtriage::init(config).expect("init should succeed"));
 
-        let err = RuntimeSampler::start(tailscope, Duration::ZERO)
+        let err = RuntimeSampler::start(tailtriage, Duration::ZERO)
             .expect_err("zero interval should fail");
         assert_eq!(err, SamplerStartError::ZeroInterval);
     }

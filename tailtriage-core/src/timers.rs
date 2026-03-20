@@ -1,19 +1,19 @@
 use std::time::Instant;
 
 use crate::collector::{duration_to_us, lock_map, lock_run};
-use crate::{unix_time_ms, InFlightSnapshot, QueueEvent, StageEvent, Tailscope};
+use crate::{unix_time_ms, InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
 #[derive(Debug)]
 pub struct InflightGuard<'a> {
-    pub(crate) tailscope: &'a Tailscope,
+    pub(crate) tailtriage: &'a Tailtriage,
     pub(crate) gauge: String,
 }
 
 impl Drop for InflightGuard<'_> {
     fn drop(&mut self) {
         let count = {
-            let mut counts = lock_map(&self.tailscope.inflight_counts);
+            let mut counts = lock_map(&self.tailtriage.inflight_counts);
             let entry = counts.entry(self.gauge.clone()).or_insert(0);
             if *entry > 0 {
                 *entry -= 1;
@@ -21,7 +21,7 @@ impl Drop for InflightGuard<'_> {
             *entry
         };
 
-        lock_run(&self.tailscope.run)
+        lock_run(&self.tailtriage.run)
             .inflight
             .push(InFlightSnapshot {
                 gauge: self.gauge.clone(),
@@ -34,7 +34,7 @@ impl Drop for InflightGuard<'_> {
 /// Thin wrapper for recording stage latency around one await point.
 #[derive(Debug)]
 pub struct StageTimer<'a> {
-    pub(crate) tailscope: &'a Tailscope,
+    pub(crate) tailtriage: &'a Tailtriage,
     pub(crate) request_id: String,
     pub(crate) stage: String,
 }
@@ -59,7 +59,7 @@ impl StageTimer<'_> {
         let finished_at_unix_ms = unix_time_ms();
         let success = value.is_ok();
 
-        lock_run(&self.tailscope.run).stages.push(StageEvent {
+        lock_run(&self.tailtriage.run).stages.push(StageEvent {
             request_id: self.request_id,
             stage: self.stage,
             started_at_unix_ms,
@@ -81,7 +81,7 @@ impl StageTimer<'_> {
         let value = fut.await;
         let finished_at_unix_ms = unix_time_ms();
 
-        lock_run(&self.tailscope.run).stages.push(StageEvent {
+        lock_run(&self.tailtriage.run).stages.push(StageEvent {
             request_id: self.request_id,
             stage: self.stage,
             started_at_unix_ms,
@@ -97,7 +97,7 @@ impl StageTimer<'_> {
 /// Thin wrapper for recording queue-wait latency around one await point.
 #[derive(Debug)]
 pub struct QueueTimer<'a> {
-    pub(crate) tailscope: &'a Tailscope,
+    pub(crate) tailtriage: &'a Tailtriage,
     pub(crate) request_id: String,
     pub(crate) queue: String,
     pub(crate) depth_at_start: Option<u64>,
@@ -121,7 +121,7 @@ impl QueueTimer<'_> {
         let value = fut.await;
         let waited_until_unix_ms = unix_time_ms();
 
-        lock_run(&self.tailscope.run).queues.push(QueueEvent {
+        lock_run(&self.tailtriage.run).queues.push(QueueEvent {
             request_id: self.request_id,
             queue: self.queue,
             waited_from_unix_ms,

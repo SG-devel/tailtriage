@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailscope_core::{Config, RequestMeta, Tailscope};
+use tailtriage_core::{Config, RequestMeta, Tailtriage};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
@@ -19,28 +19,28 @@ async fn main() -> anyhow::Result<()> {
 
     let mut config = Config::new("downstream_service_demo");
     config.output_path = output_path.clone();
-    let tailscope = Arc::new(Tailscope::init(config)?);
+    let tailtriage = Arc::new(Tailtriage::init(config)?);
 
     let offered_requests = 80_u64;
     let mut tasks = Vec::with_capacity(offered_requests as usize);
 
     for request_number in 0..offered_requests {
-        let tailscope = Arc::clone(&tailscope);
+        let tailtriage = Arc::clone(&tailtriage);
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
             let meta = RequestMeta::new(request_id.clone(), "/downstream-demo");
 
-            tailscope
+            tailtriage
                 .request(meta, "ok", async {
-                    let _inflight = tailscope.inflight("downstream_service_inflight");
+                    let _inflight = tailtriage.inflight("downstream_service_inflight");
 
-                    tailscope
+                    tailtriage
                         .stage(request_id.clone(), "app_precheck")
                         .await_value(tokio::time::sleep(Duration::from_millis(1)))
                         .await;
 
-                    tailscope
+                    tailtriage
                         .stage(request_id, "downstream_call")
                         .await_value(tokio::time::sleep(Duration::from_millis(20)))
                         .await;
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailscope.flush()?;
+    tailtriage.flush()?;
     println!("wrote {}", output_path.display());
 
     Ok(())

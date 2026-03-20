@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailscope_core::{Config, RequestMeta, Tailscope};
+use tailtriage_core::{Config, RequestMeta, Tailtriage};
 use tokio::sync::Semaphore;
 
 #[derive(Clone, Copy)]
@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut config = Config::new("queue_service_demo");
     config.output_path = output_path.clone();
-    let tailscope = Arc::new(Tailscope::init(config)?);
+    let tailtriage = Arc::new(Tailtriage::init(config)?);
 
     let (
         service_capacity,
@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
     let mut tasks = Vec::with_capacity(offered_requests as usize);
 
     for request_number in 0..offered_requests {
-        let tailscope = Arc::clone(&tailscope);
+        let tailtriage = Arc::clone(&tailtriage);
         let semaphore = Arc::clone(&semaphore);
         let waiting_depth = Arc::clone(&waiting_depth);
 
@@ -80,12 +80,12 @@ async fn main() -> anyhow::Result<()> {
             let request_id = format!("request-{request_number}");
             let meta = RequestMeta::new(request_id.clone(), "/queue-demo");
 
-            tailscope
+            tailtriage
                 .request(meta, "ok", async {
-                    let _inflight = tailscope.inflight("queue_service_inflight");
+                    let _inflight = tailtriage.inflight("queue_service_inflight");
 
                     let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                    let permit = tailscope
+                    let permit = tailtriage
                         .queue(request_id.clone(), "worker_permit")
                         .with_depth_at_start(depth)
                         .await_on(semaphore.acquire())
@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
                     waiting_depth.fetch_sub(1, Ordering::SeqCst);
 
                     let _permit = permit;
-                    tailscope
+                    tailtriage
                         .stage(request_id, "simulated_work")
                         .await_value(tokio::time::sleep(work_duration))
                         .await;
@@ -111,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailscope.flush()?;
+    tailtriage.flush()?;
     println!("wrote {}", output_path.display());
 
     Ok(())

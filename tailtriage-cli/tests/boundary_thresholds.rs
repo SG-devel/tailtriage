@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use tailscope_cli::analyze::{analyze_run, DiagnosisKind};
-use tailscope_core::{
+use tailtriage_cli::analyze::{analyze_run, DiagnosisKind};
+use tailtriage_core::{
     CaptureMode, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
 };
 

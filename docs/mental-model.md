@@ -1,6 +1,6 @@
 # Mental model
 
-`tailscope` gives a ranked answer to: *what most likely drives tail latency in this run?*
+`tailtriage` gives a ranked answer to: *what most likely drives tail latency in this run?*
 
 ## Four bottleneck families
 
