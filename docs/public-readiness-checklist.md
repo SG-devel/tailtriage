@@ -8,7 +8,9 @@ Use this checklist before switching repository visibility from private to public
 - [ ] Topics are intentional (for example: `rust`, `tokio`, `performance`, `latency`, `diagnostics`).
 - [ ] Default branch is correct and protected.
 - [ ] Branch protection requires passing CI and blocks force-pushes/deletions.
-- [ ] Required status checks reference current workflow names (`CI`, `Python Demo Checks`).
+- [ ] Required status checks reference current workflow names (`CI`, `Python Demo Checks`) and avoid transient job-level names.
+- [ ] Required checks include Rust quality gates (`cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`) and deterministic triage validations for: `queue`, `blocking`, `executor`, `downstream`, `mixed`, `cold-start`, and `db-pool`.
+- [ ] Runtime-cost measurement remains informational/non-blocking (it should not gate merges).
 - [ ] Tag and release policy is intentional (no accidental internal tags).
 
 ## 2) CI log and artifact hygiene
@@ -40,6 +42,19 @@ Run locally before the visibility flip:
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+python3 scripts/demo_tool.py validate queue
+python3 scripts/demo_tool.py validate blocking
+python3 scripts/demo_tool.py validate executor
+python3 scripts/demo_tool.py validate downstream
+python3 scripts/demo_tool.py validate mixed
+python3 scripts/demo_tool.py validate cold-start
+python3 scripts/demo_tool.py validate db-pool
+```
+
+Optional/non-blocking measurement:
+
+```bash
+python3 scripts/measure_runtime_cost.py
 ```
 
 Definition of ready:

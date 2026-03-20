@@ -32,5 +32,21 @@ jobs:
       - name: Validate blocking demo
         run: python3 scripts/demo_tool.py validate blocking
 
+      - name: Validate executor demo
+        run: python3 scripts/demo_tool.py validate executor
+
       - name: Validate downstream demo
         run: python3 scripts/demo_tool.py validate downstream
+
+      - name: Validate mixed demo
+        run: python3 scripts/demo_tool.py validate mixed
+
+      - name: Validate cold-start demo
+        run: python3 scripts/demo_tool.py validate cold-start
+
+      - name: Validate db-pool demo
+        run: python3 scripts/demo_tool.py validate db-pool
+
+      - name: Measure runtime cost (non-blocking)
+        continue-on-error: true
+        run: python3 scripts/measure_runtime_cost.py
