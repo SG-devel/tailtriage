@@ -23,6 +23,7 @@ class DemoWrapperTests(unittest.TestCase):
             "run_queue_demo.py",
             "run_blocking_demo.py",
             "run_downstream_demo.py",
+            "run_cold_start_demo.py",
         ]
 
         for wrapper in wrappers:
