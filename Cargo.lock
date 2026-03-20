@@ -129,6 +129,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "executor-pressure-service-demo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tailtriage-core",
+ "tokio",
+]
+
+[[package]]
 name = "futures-core"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
