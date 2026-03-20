@@ -16,6 +16,9 @@ python3 scripts/demo_tool.py validate queue
 python3 scripts/demo_tool.py run blocking
 python3 scripts/demo_tool.py validate blocking
 
+python3 scripts/demo_tool.py run executor
+python3 scripts/demo_tool.py validate executor
+
 python3 scripts/demo_tool.py run downstream
 python3 scripts/demo_tool.py validate downstream
 ```
@@ -26,6 +29,7 @@ python3 scripts/demo_tool.py validate downstream
 | --- | --- | --- |
 | `queue_service` | application queueing pressure | `primary_suspect.kind`, `p95_queue_share_permille`, suspect evidence |
 | `blocking_service` | blocking-pool pressure | `primary_suspect.kind`, blocking-related evidence, p95 shares |
+| `executor_pressure_service` | executor pressure / runnable backlog | `primary_suspect.kind`, runtime queue-depth evidence, low blocking-depth evidence |
 | `downstream_service` | downstream-stage dominance | `primary_suspect.kind`, `p95_service_share_permille`, suspect evidence |
 
 ## If local results differ from fixtures

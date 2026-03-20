@@ -18,6 +18,7 @@ from _demo_runner import (
 
 EXPECTED_QUEUE_KIND = {"application_queue_saturation", "ApplicationQueueSaturation"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure", "BlockingPoolPressure"}
+EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected", "ExecutorPressureSuspected"}
 EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates", "DownstreamStageDominates"}
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
 
@@ -108,6 +109,16 @@ def run_scenario_blocking(root_dir: Path, mode: str) -> None:
         root_dir / "demos/blocking_service/artifacts",
         mode,
         snapshot_blocking,
+    )
+
+
+def run_scenario_executor(root_dir: Path, mode: str) -> None:
+    run_before_after_scenario(
+        root_dir,
+        root_dir / "demos/executor_pressure_service/Cargo.toml",
+        root_dir / "demos/executor_pressure_service/artifacts",
+        mode,
+        snapshot_queue,
     )
 
 
@@ -251,12 +262,60 @@ def validate_downstream(root_dir: Path) -> None:
     print(f"validated analysis file: {analysis_path}")
 
 
+def _contains_blocking_depth_evidence(report: dict) -> bool:
+    suspect = report.get("primary_suspect") or {}
+    evidence = suspect.get("evidence") or []
+    return any("blocking queue depth" in str(item).lower() for item in evidence)
+
+
+def validate_executor(root_dir: Path) -> None:
+    run_scenario_executor(root_dir, "both")
+    artifact_dir = root_dir / "demos/executor_pressure_service/artifacts"
+    before = load_report_json(artifact_dir / "before-analysis.json")
+    after = load_report_json(artifact_dir / "after-analysis.json")
+
+    kind = before["primary_suspect"]["kind"]
+    if kind not in EXPECTED_EXECUTOR_KIND:
+        raise SystemExit(f"expected executor pressure suspect in baseline, got {kind}")
+
+    if _contains_blocking_depth_evidence(before):
+        raise SystemExit("executor baseline evidence unexpectedly referenced blocking queue depth")
+
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+    if after_score >= before_score:
+        raise SystemExit(
+            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+        )
+
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    if after_p95 >= before_p95:
+        raise SystemExit(
+            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
+        )
+
+    print(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
+            kind,
+            before_p95,
+            after_p95,
+            before_score,
+            after_score,
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
-    run_parser.add_argument("scenario", choices=["queue", "blocking", "downstream"])
+    run_parser.add_argument("scenario", choices=["queue", "blocking", "executor", "downstream"])
     run_parser.add_argument(
         "mode",
         nargs="?",
@@ -270,7 +329,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
-    validate_parser.add_argument("scenario", choices=["queue", "blocking", "downstream"])
+    validate_parser.add_argument("scenario", choices=["queue", "blocking", "executor", "downstream"])
 
     return parser.parse_args(argv)
 
@@ -284,6 +343,8 @@ def main(argv: list[str] | None = None) -> None:
             run_scenario_queue(root_dir, args.mode)
         elif args.scenario == "blocking":
             run_scenario_blocking(root_dir, args.mode)
+        elif args.scenario == "executor":
+            run_scenario_executor(root_dir, args.mode)
         else:
             if args.mode != "both":
                 raise SystemExit("downstream scenario does not accept mode; use --artifact-path if needed")
@@ -294,6 +355,8 @@ def main(argv: list[str] | None = None) -> None:
         validate_queue(root_dir)
     elif args.scenario == "blocking":
         validate_blocking(root_dir)
+    elif args.scenario == "executor":
+        validate_executor(root_dir)
     else:
         validate_downstream(root_dir)
 

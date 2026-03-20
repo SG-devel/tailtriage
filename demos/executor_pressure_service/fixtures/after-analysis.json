@@ -1,0 +1,43 @@
+{
+  "request_count": 220,
+  "p50_latency_us": 1083569,
+  "p95_latency_us": 1175696,
+  "p99_latency_us": 1194281,
+  "p95_queue_share_permille": 167,
+  "p95_service_share_permille": 999,
+  "inflight_trend": {
+    "gauge": "executor_pressure_inflight",
+    "sample_count": 440,
+    "peak_count": 219,
+    "p95_count": 209,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -790
+  },
+  "primary_suspect": {
+    "kind": "ExecutorPressureSuspected",
+    "score": 77,
+    "confidence": "medium",
+    "evidence": [
+      "Runtime global queue depth p95 is 216, suggesting scheduler contention."
+    ],
+    "next_checks": [
+      "Check for long polls without yielding and uneven task fan-out.",
+      "Compare with per-stage timings to isolate overloaded async stages."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "DownstreamStageDominates",
+      "score": 60,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'executor_hot_path' has p95 latency 1108231 us across 220 samples.",
+        "Stage 'executor_hot_path' cumulative latency is 203785081 us."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'executor_hot_path'.",
+        "Collect downstream service timings and retry behavior during tail windows."
+      ]
+    }
+  ]
+}
