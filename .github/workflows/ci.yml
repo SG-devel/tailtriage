@@ -32,3 +32,30 @@ jobs:
 
       - name: Cargo test
         run: cargo test --workspace
+
+  demo-validation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-
+
+      - name: Validate queue demo
+        run: python3 scripts/demo_tool.py validate queue
+
+      - name: Validate blocking demo
+        run: python3 scripts/demo_tool.py validate blocking
+
+      - name: Validate downstream demo
+        run: python3 scripts/demo_tool.py validate downstream
