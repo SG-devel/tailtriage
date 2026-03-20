@@ -3,10 +3,16 @@ name = "tailtriage-tokio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Tokio runtime sampling and request instrumentation helpers for tail-latency triage"
+repository = "https://github.com/tailtriage/tailtriage"
+documentation = "https://docs.rs/tailtriage-tokio"
+readme = "../README.md"
+keywords = ["tokio", "latency", "instrumentation", "async", "triage"]
+categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
 
 [dependencies]
-tailtriage-core = { path = "../tailtriage-core" }
-tailtriage-macros = { path = "../tailtriage-macros" }
+tailtriage-core = { version = "0.1.0", path = "../tailtriage-core" }
+tailtriage-macros = { version = "0.1.0", path = "../tailtriage-macros" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 tracing = "0.1"
 
