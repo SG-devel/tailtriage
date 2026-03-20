@@ -136,6 +136,22 @@ This keeps demo binaries focused on the triage scenario rather than boilerplate.
 - Analyzer should surface queueing and/or downstream-stage warmup leads with explicit evidence.
 - Mitigation should lower p95 and reduce primary suspect score.
 
+### `retry_storm_service`
+
+**What happens**
+
+- Requests call an intermittently failing/slow downstream stage.
+- Each retry attempt is instrumented as its own stage timing (`downstream_attempt_N`).
+- A `downstream_total` stage wraps the full retry loop so per-request downstream share stays explicit.
+- Baseline uses aggressive retries with short backoff.
+- Mitigated mode uses capped retries, deterministic jitter, and a circuit-break style cooldown stage.
+
+**Triage being exercised**
+
+- Baseline should rank downstream stage dominance as a primary suspect with elevated service share.
+- Mitigated mode should improve p95 and lower primary suspect score.
+- Recommended next checks should include retry-policy tuning and downstream SLO alignment.
+
 ## Typical local workflow
 
 ```bash
@@ -146,4 +162,4 @@ python3 scripts/demo_tool.py run blocking
 python3 scripts/demo_tool.py validate blocking
 ```
 
-Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`, `db-pool`, `shared-lock`).
+Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`, `db-pool`, `shared-lock`, `retry-storm`).
