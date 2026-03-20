@@ -109,6 +109,20 @@ This keeps demo binaries focused on the triage scenario rather than boilerplate.
 - Evidence should reference `queue(..., "db_pool")` wait behavior and `stage(..., "db_query")` service share.
 - Mitigation should improve p95 latency and/or primary suspect score.
 
+### `shared_state_lock_service`
+
+**What happens**
+
+- Requests do small pre-lock work, then contend on a shared `tokio::sync::RwLock` write lock.
+- Baseline keeps a long lock-protected critical section, which serializes many requests.
+- Mitigated mode shortens critical section hold time to reduce lock wait buildup.
+
+**Triage being exercised**
+
+- Lock wait is instrumented as a queue-like wait (`queue(..., "shared_state_write_lock")`), so lock contention can appear as application queueing pressure.
+- Critical section execution is instrumented as a service stage (`stage(..., "shared_state_critical_section")`).
+- Mitigation should lower p95 latency and/or reduce primary suspect score.
+
 ### `cold_start_burst_service`
 
 **What happens**
@@ -132,4 +146,4 @@ python3 scripts/demo_tool.py run blocking
 python3 scripts/demo_tool.py validate blocking
 ```
 
-Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`, `db-pool`).
+Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`, `db-pool`, `shared-lock`).
