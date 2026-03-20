@@ -12,6 +12,7 @@ Use this page as the single entry point for project documentation.
 - **Architecture and crate responsibilities:** [architecture.md](architecture.md)
 - **MVP product contract (Tokio tail-latency triage):** [../SPEC.md](../SPEC.md)
 - **Release/polish plan:** [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md)
+- **v0.1 release decision gates and launch order:** [release-gates-v0.1.md](release-gates-v0.1.md)
 
 ## Reproducibility and operations
 
