@@ -305,6 +305,18 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .map(|stage| stage.latency_us)
         .collect::<Vec<_>>();
     let stage_p95 = percentile(&stage_latencies, 95, 100)?;
+    let total_request_latency = run
+        .requests
+        .iter()
+        .map(|request| request.latency_us)
+        .fold(0_u64, u64::saturating_add);
+    let stage_share_permille = if total_request_latency == 0 {
+        0
+    } else {
+        total_latency.saturating_mul(1_000) / total_request_latency
+    };
+    let share_bonus = (stage_share_permille / 40).min(25) as u8;
+    let score = (55 + share_bonus).min(79);
 
     if stage_count < 3 {
         return None;
@@ -312,16 +324,20 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
 
     Some(Suspect::new(
         DiagnosisKind::DownstreamStageDominates,
-        60,
+        score,
         vec![
             format!(
                 "Stage '{dominant_stage}' has p95 latency {stage_p95} us across {stage_count} samples."
             ),
             format!("Stage '{dominant_stage}' cumulative latency is {total_latency} us."),
+            format!(
+                "Stage '{dominant_stage}' contributes {stage_share_permille} permille of cumulative request latency."
+            ),
         ],
         vec![
             format!("Inspect downstream dependency behind stage '{dominant_stage}'."),
             "Collect downstream service timings and retry behavior during tail windows.".to_string(),
+            "Review downstream SLO/error budget and align retry budget/backoff with it.".to_string(),
         ],
     ))
 }
