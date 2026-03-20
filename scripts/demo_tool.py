@@ -21,6 +21,7 @@ EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure", "BlockingPoolPressure"}
 EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected", "ExecutorPressureSuspected"}
 EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates", "DownstreamStageDominates"}
 EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
+EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
 
 
@@ -145,6 +146,16 @@ def run_scenario_mixed(root_dir: Path, mode: str) -> None:
         root_dir,
         root_dir / "demos/mixed_contention_service/Cargo.toml",
         root_dir / "demos/mixed_contention_service/artifacts",
+        mode,
+        snapshot_queue,
+    )
+
+
+def run_scenario_cold_start(root_dir: Path, mode: str) -> None:
+    run_before_after_scenario(
+        root_dir,
+        root_dir / "demos/cold_start_burst_service/Cargo.toml",
+        root_dir / "demos/cold_start_burst_service/artifacts",
         mode,
         snapshot_queue,
     )
@@ -377,12 +388,77 @@ def validate_executor(root_dir: Path) -> None:
     )
 
 
+def _report_mentions_cold_start_or_queue(report: dict) -> bool:
+    suspects = [report.get("primary_suspect") or {}, *(report.get("secondary_suspects") or [])]
+    evidence_items = [
+        str(item).lower()
+        for suspect in suspects
+        for item in (suspect.get("evidence") or [])
+    ]
+    return any(
+        "cold_start_stage" in item
+        or "queue wait at p95" in item
+        or "queue depth sample" in item
+        for item in evidence_items
+    )
+
+
+def validate_cold_start(root_dir: Path) -> None:
+    run_scenario_cold_start(root_dir, "both")
+    artifact_dir = root_dir / "demos/cold_start_burst_service/artifacts"
+    before = load_report_json(artifact_dir / "before-analysis.json")
+    after = load_report_json(artifact_dir / "after-analysis.json")
+
+    before_kind = before["primary_suspect"]["kind"]
+    if before_kind not in EXPECTED_COLD_START_PRIMARY_KINDS:
+        raise SystemExit(
+            "expected baseline primary suspect to indicate queue or downstream pressure, "
+            f"got {before_kind}"
+        )
+
+    if not _report_mentions_cold_start_or_queue(before):
+        raise SystemExit(
+            "expected baseline evidence to reference warmup-driven service stage or queue impact"
+        )
+
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    if after_p95 >= before_p95:
+        raise SystemExit(
+            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
+        )
+
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+    if after_score >= before_score:
+        raise SystemExit(
+            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+        )
+
+    print(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
+            before_kind,
+            before_p95,
+            after_p95,
+            before_score,
+            after_score,
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
-    run_parser.add_argument("scenario", choices=["queue", "blocking", "executor", "downstream", "mixed"])
+    run_parser.add_argument(
+        "scenario",
+        choices=["queue", "blocking", "executor", "downstream", "mixed", "cold-start"],
+    )
     run_parser.add_argument(
         "mode",
         nargs="?",
@@ -396,7 +472,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
-    validate_parser.add_argument("scenario", choices=["queue", "blocking", "executor", "downstream", "mixed"])
+    validate_parser.add_argument(
+        "scenario",
+        choices=["queue", "blocking", "executor", "downstream", "mixed", "cold-start"],
+    )
 
     return parser.parse_args(argv)
 
@@ -416,6 +495,8 @@ def main(argv: list[str] | None = None) -> None:
             run_scenario_downstream(root_dir, args.artifact_path)
         elif args.scenario == "executor":
             run_scenario_executor(root_dir, args.mode)
+        elif args.scenario == "cold-start":
+            run_scenario_cold_start(root_dir, args.mode)
         else:
             run_scenario_mixed(root_dir, args.mode)
         return
@@ -428,6 +509,8 @@ def main(argv: list[str] | None = None) -> None:
         validate_downstream(root_dir)
     elif args.scenario == "executor":
         validate_executor(root_dir)
+    elif args.scenario == "cold-start":
+        validate_cold_start(root_dir)
     else:
         validate_mixed(root_dir)
 
