@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use tailtriage_cli::analyze::{analyze_run, render_text};
-use tailtriage_core::Run;
+use tailtriage_cli::artifact::load_run_artifact;
 
 #[derive(Debug, Parser)]
 #[command(name = "tailtriage")]
@@ -36,9 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Command::Analyze { run_json, format } => {
-            let input = std::fs::read_to_string(&run_json)?;
-            let run: Run = serde_json::from_str(&input)?;
-            let report = analyze_run(&run);
+            let loaded = load_run_artifact(&run_json)?;
+            for warning in &loaded.warnings {
+                eprintln!("warning: {warning}");
+            }
+            let report = analyze_run(&loaded.run);
 
             match format {
                 OutputFormat::Text => {
