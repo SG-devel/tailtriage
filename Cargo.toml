@@ -3,7 +3,6 @@ members = [
   "tailtriage-core",
   "tailtriage-tokio",
   "tailtriage-cli",
-  "tailtriage-macros",
   "demos/demo_support",
   "demos/queue_service",
   "demos/blocking_service",
