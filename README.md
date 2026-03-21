@@ -80,9 +80,10 @@ use tailtriage_core::{Config, RequestMeta, Tailtriage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("checkout-service");
-    config.output_path = "tailtriage-run.json".into();
-    let tailtriage = Tailtriage::init(config)?;
+let mut config = Config::new("checkout-service");
+config.output_path = "tailtriage-run.json".into();
+config.capture_limits.max_requests = 50_000;
+let tailtriage = Tailtriage::init(config)?;
 
     let meta = RequestMeta::for_route("/checkout").with_kind("http");
     let request_id = meta.request_id.clone();
@@ -119,6 +120,20 @@ Start with:
 - `primary_suspect.next_checks[]`
 - `p95_queue_share_permille`
 - `p95_service_share_permille`
+
+If the run artifact includes truncation counters (`truncation.*`), treat the diagnosis as lower-confidence and re-run with higher limits for the saturated sections.
+
+## Bounded capture and truncation
+
+`tailtriage` keeps run data in memory until flush. To keep this bounded in production-like runs, configure per-section capture limits:
+
+- `max_requests`
+- `max_stages`
+- `max_queues`
+- `max_inflight_snapshots`
+- `max_runtime_snapshots`
+
+When a section reaches its configured max, `tailtriage` drops additional entries of that type and increments `truncation` counters in the output artifact. The analyzer also emits warnings when truncation is present so suspects are interpreted as leads from partial data.
 
 ## Minimal runnable example
 

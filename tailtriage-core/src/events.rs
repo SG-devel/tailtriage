@@ -17,6 +17,9 @@ pub struct Run {
     pub inflight: Vec<InFlightSnapshot>,
     /// Tokio runtime metrics snapshots.
     pub runtime_snapshots: Vec<RuntimeSnapshot>,
+    /// Capture truncation summary for bounded collection.
+    #[serde(default)]
+    pub truncation: TruncationSummary,
 }
 
 impl Run {
@@ -30,7 +33,35 @@ impl Run {
             queues: Vec::new(),
             inflight: Vec::new(),
             runtime_snapshots: Vec::new(),
+            truncation: TruncationSummary::default(),
         }
+    }
+}
+
+/// Per-section counters indicating dropped samples due to capture limits.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct TruncationSummary {
+    /// Number of request events dropped after `max_requests` was reached.
+    pub dropped_requests: u64,
+    /// Number of stage events dropped after `max_stages` was reached.
+    pub dropped_stages: u64,
+    /// Number of queue events dropped after `max_queues` was reached.
+    pub dropped_queues: u64,
+    /// Number of in-flight snapshots dropped after `max_inflight_snapshots` was reached.
+    pub dropped_inflight_snapshots: u64,
+    /// Number of runtime snapshots dropped after `max_runtime_snapshots` was reached.
+    pub dropped_runtime_snapshots: u64,
+}
+
+impl TruncationSummary {
+    /// Returns true when any capture section was truncated.
+    #[must_use]
+    pub const fn is_truncated(&self) -> bool {
+        self.dropped_requests > 0
+            || self.dropped_stages > 0
+            || self.dropped_queues > 0
+            || self.dropped_inflight_snapshots > 0
+            || self.dropped_runtime_snapshots > 0
     }
 }
 

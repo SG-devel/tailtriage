@@ -90,6 +90,7 @@ pub struct Report {
     pub p95_queue_share_permille: Option<u64>,
     pub p95_service_share_permille: Option<u64>,
     pub inflight_trend: Option<InflightTrend>,
+    pub warnings: Vec<String>,
     pub primary_suspect: Suspect,
     pub secondary_suspects: Vec<Suspect>,
 }
@@ -164,9 +165,45 @@ pub fn analyze_run(run: &Run) -> Report {
         p95_queue_share_permille,
         p95_service_share_permille,
         inflight_trend,
+        warnings: truncation_warnings(run),
         primary_suspect,
         secondary_suspects: ranked.collect(),
     }
+}
+
+fn truncation_warnings(run: &Run) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if run.truncation.dropped_requests > 0 {
+        warnings.push(format!(
+            "Capture truncated requests: dropped {} request events after reaching the configured max_requests limit.",
+            run.truncation.dropped_requests
+        ));
+    }
+    if run.truncation.dropped_stages > 0 {
+        warnings.push(format!(
+            "Capture truncated stages: dropped {} stage events after reaching the configured max_stages limit.",
+            run.truncation.dropped_stages
+        ));
+    }
+    if run.truncation.dropped_queues > 0 {
+        warnings.push(format!(
+            "Capture truncated queues: dropped {} queue events after reaching the configured max_queues limit.",
+            run.truncation.dropped_queues
+        ));
+    }
+    if run.truncation.dropped_inflight_snapshots > 0 {
+        warnings.push(format!(
+            "Capture truncated in-flight snapshots: dropped {} entries after reaching max_inflight_snapshots.",
+            run.truncation.dropped_inflight_snapshots
+        ));
+    }
+    if run.truncation.dropped_runtime_snapshots > 0 {
+        warnings.push(format!(
+            "Capture truncated runtime snapshots: dropped {} entries after reaching max_runtime_snapshots.",
+            run.truncation.dropped_runtime_snapshots
+        ));
+    }
+    warnings
 }
 
 fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
@@ -512,6 +549,9 @@ pub fn render_text(report: &Report) -> String {
             report.primary_suspect.score
         ),
     ];
+    for warning in &report.warnings {
+        lines.push(format!("warning {warning}"));
+    }
 
     for evidence in &report.primary_suspect.evidence {
         lines.push(format!("  evidence: {evidence}"));
@@ -589,6 +629,7 @@ mod tests {
             queues: Vec::new(),
             inflight: Vec::new(),
             runtime_snapshots: Vec::new(),
+            truncation: tailtriage_core::TruncationSummary::default(),
         }
     }
 
@@ -728,6 +769,7 @@ mod tests {
                 growth_delta: 5,
                 growth_per_sec_milli: Some(2_500),
             }),
+            warnings: Vec::new(),
             primary_suspect: Suspect {
                 kind: DiagnosisKind::ApplicationQueueSaturation,
                 score: 90,
@@ -754,6 +796,7 @@ mod tests {
             p95_queue_share_permille: None,
             p95_service_share_permille: None,
             inflight_trend: None,
+            warnings: vec!["Capture truncated requests.".to_owned()],
             primary_suspect: Suspect {
                 kind: DiagnosisKind::InsufficientEvidence,
                 score: 50,
@@ -766,5 +809,24 @@ mod tests {
 
         let text = render_text(&report);
         assert!(text.contains("inflight_trend none"));
+        assert!(text.contains("warning Capture truncated requests."));
+    }
+
+    #[test]
+    fn analyze_run_emits_truncation_warnings() {
+        let mut run = test_run();
+        run.truncation.dropped_requests = 2;
+        run.truncation.dropped_runtime_snapshots = 1;
+
+        let report = analyze_run(&run);
+        assert_eq!(report.warnings.len(), 2);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dropped 2 request events")));
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("dropped 1 entries")));
     }
 }
