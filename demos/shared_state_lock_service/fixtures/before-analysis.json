@@ -1,25 +1,26 @@
 {
   "request_count": 220,
-  "p50_latency_us": 2739217,
-  "p95_latency_us": 5270251,
-  "p99_latency_us": 5459301,
-  "p95_queue_share_permille": 995,
-  "p95_service_share_permille": 119,
+  "p50_latency_us": 2540778,
+  "p95_latency_us": 4802998,
+  "p99_latency_us": 4984628,
+  "p95_queue_share_permille": 994,
+  "p95_service_share_permille": 100,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
     "peak_count": 217,
     "p95_count": 206,
     "growth_delta": -1,
-    "growth_per_sec_milli": -178
+    "growth_per_sec_milli": -195
   },
+  "warnings": [],
   "primary_suspect": {
     "kind": "ApplicationQueueSaturation",
     "score": 90,
     "confidence": "high",
     "evidence": [
-      "Queue wait at p95 consumes 99.5% of request time.",
-      "Observed queue depth sample up to 215."
+      "Queue wait at p95 consumes 99.4% of request time.",
+      "Observed queue depth sample up to 216."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -29,15 +30,17 @@
   "secondary_suspects": [
     {
       "kind": "DownstreamStageDominates",
-      "score": 60,
+      "score": 55,
       "confidence": "low",
       "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 24765 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 5530991 us."
+        "Stage 'shared_state_critical_section' has p95 latency 23389 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 5099697 us.",
+        "Stage 'shared_state_critical_section' contributes 9 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
-        "Collect downstream service timings and retry behavior during tail windows."
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
       ]
     }
   ]

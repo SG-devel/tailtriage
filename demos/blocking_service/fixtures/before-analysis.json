@@ -1,18 +1,19 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1874771,
-  "p95_latency_us": 3531941,
-  "p99_latency_us": 3681253,
-  "p95_queue_share_permille": 6,
+  "p50_latency_us": 1868837,
+  "p95_latency_us": 3528432,
+  "p99_latency_us": 3676994,
+  "p95_queue_share_permille": 5,
   "p95_service_share_permille": 999,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
     "peak_count": 246,
     "p95_count": 234,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -264
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
   },
+  "warnings": [],
   "primary_suspect": {
     "kind": "BlockingPoolPressure",
     "score": 80,
@@ -28,15 +29,17 @@
   "secondary_suspects": [
     {
       "kind": "DownstreamStageDominates",
-      "score": 60,
-      "confidence": "low",
+      "score": 79,
+      "confidence": "medium",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3531772 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 467502659 us."
+        "Stage 'spawn_blocking_path' has p95 latency 3527249 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 466827768 us.",
+        "Stage 'spawn_blocking_path' contributes 999 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'spawn_blocking_path'.",
-        "Collect downstream service timings and retry behavior during tail windows."
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
       ]
     }
   ]

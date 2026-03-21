@@ -1,24 +1,26 @@
 {
   "request_count": 220,
-  "p50_latency_us": 1083569,
-  "p95_latency_us": 1175696,
-  "p99_latency_us": 1194281,
-  "p95_queue_share_permille": 167,
-  "p95_service_share_permille": 999,
+  "p50_latency_us": 1042256,
+  "p95_latency_us": 1129448,
+  "p99_latency_us": 1143294,
+  "p95_queue_share_permille": 95,
+  "p95_service_share_permille": 997,
   "inflight_trend": {
     "gauge": "executor_pressure_inflight",
     "sample_count": 440,
-    "peak_count": 219,
-    "p95_count": 209,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -790
+    "peak_count": 215,
+    "p95_count": 206,
+    "growth_delta": 5,
+    "growth_per_sec_milli": 4152
   },
+  "warnings": [],
   "primary_suspect": {
     "kind": "ExecutorPressureSuspected",
-    "score": 77,
+    "score": 82,
     "confidence": "medium",
     "evidence": [
-      "Runtime global queue depth p95 is 216, suggesting scheduler contention."
+      "Runtime global queue depth p95 is 214, suggesting scheduler contention.",
+      "In-flight gauge 'executor_pressure_inflight' growth is positive (delta=5, peak=215), consistent with accumulating executor pressure."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
@@ -28,15 +30,17 @@
   "secondary_suspects": [
     {
       "kind": "DownstreamStageDominates",
-      "score": 60,
-      "confidence": "low",
+      "score": 78,
+      "confidence": "medium",
       "evidence": [
-        "Stage 'executor_hot_path' has p95 latency 1108231 us across 220 samples.",
-        "Stage 'executor_hot_path' cumulative latency is 203785081 us."
+        "Stage 'executor_hot_path' has p95 latency 1086211 us across 220 samples.",
+        "Stage 'executor_hot_path' cumulative latency is 201838141 us.",
+        "Stage 'executor_hot_path' contributes 951 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'executor_hot_path'.",
-        "Collect downstream service timings and retry behavior during tail windows."
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
       ]
     }
   ]
