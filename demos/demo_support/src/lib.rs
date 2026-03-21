@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
-use tailtriage_core::{Config, Tailtriage};
+use tailtriage_core::Tailtriage;
 
 /// Demo profile selector used by before/after style demo binaries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,10 +66,10 @@ fn ensure_parent_dir(output_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Build a Tailtriage collector for a demo service name and output artifact path.
+/// Build a Tailtriage instance for a demo service name and output artifact path.
 pub fn init_collector(service_name: &str, output_path: &Path) -> anyhow::Result<Arc<Tailtriage>> {
-    let mut config = Config::new(service_name);
-    config.output_path = output_path.to_path_buf();
-    let collector = Tailtriage::init(config)?;
+    let collector = Tailtriage::builder(service_name)
+        .output(output_path)
+        .build()?;
     Ok(Arc::new(collector))
 }
