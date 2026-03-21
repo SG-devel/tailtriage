@@ -335,19 +335,19 @@ These remain useful and should stay documented, but docs should treat them as mo
 
 ## CI validation coverage
 
-The demo docs intentionally cover a broader surface than CI currently validates continuously.
+The demo docs and CI validation surface are aligned.
 
-In `.github/workflows/ci.yml`, continuous validation currently runs:
+In `.github/workflows/ci.yml`, the `CI` workflow continuously validates:
 
 - `queue`
 - `downstream`
 - `db-pool`
+- `shared-lock`
+- `retry-storm`
 - `mixed`
 - `cold-start`
 - `blocking`
 - `executor`
-
-`shared-lock` and `retry-storm` remain documented and fixture-backed, but currently have weaker continuous validation coverage than the list above.
 
 ## Typical local workflow
 
