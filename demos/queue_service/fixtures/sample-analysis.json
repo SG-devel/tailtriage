@@ -1,14 +1,25 @@
 {
   "request_count": 250,
-  "p50_latency_us": 913603,
-  "p95_latency_us": 1729997,
-  "p99_latency_us": 1807406,
+  "p50_latency_us": 788171,
+  "p95_latency_us": 1476281,
+  "p99_latency_us": 1527061,
+  "p95_queue_share_permille": 982,
+  "p95_service_share_permille": 268,
+  "inflight_trend": {
+    "gauge": "queue_service_inflight",
+    "sample_count": 500,
+    "peak_count": 234,
+    "p95_count": 223,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -601
+  },
+  "warnings": [],
   "primary_suspect": {
     "kind": "ApplicationQueueSaturation",
     "score": 90,
     "confidence": "high",
     "evidence": [
-      "Queue wait at p95 consumes 98.4% of request time.",
+      "Queue wait at p95 consumes 98.2% of request time.",
       "Observed queue depth sample up to 230."
     ],
     "next_checks": [
@@ -19,15 +30,17 @@
   "secondary_suspects": [
     {
       "kind": "DownstreamStageDominates",
-      "score": 60,
+      "score": 55,
       "confidence": "low",
       "evidence": [
-        "Stage 'simulated_work' has p95 latency 39564 us across 250 samples.",
-        "Stage 'simulated_work' cumulative latency is 7664590 us."
+        "Stage 'simulated_work' has p95 latency 26757 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 6569871 us.",
+        "Stage 'simulated_work' contributes 33 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'simulated_work'.",
-        "Collect downstream service timings and retry behavior during tail windows."
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
       ]
     }
   ]

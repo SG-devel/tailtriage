@@ -1,25 +1,27 @@
 {
   "request_count": 220,
-  "p50_latency_us": 572910,
-  "p95_latency_us": 1000477,
-  "p99_latency_us": 1064713,
-  "p95_queue_share_permille": 977,
-  "p95_service_share_permille": 377,
+  "p50_latency_us": 493037,
+  "p95_latency_us": 926156,
+  "p99_latency_us": 960192,
+  "p95_queue_share_permille": 976,
+  "p95_service_share_permille": 360,
   "inflight_trend": {
     "gauge": "db_pool_saturation_inflight",
     "sample_count": 440,
-    "peak_count": 195,
-    "p95_count": 185,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "peak_count": 203,
+    "p95_count": 193,
+    "growth_delta": 2,
+    "growth_per_sec_milli": 1888
   },
+  "warnings": [],
   "primary_suspect": {
     "kind": "ApplicationQueueSaturation",
     "score": 90,
     "confidence": "high",
     "evidence": [
-      "Queue wait at p95 consumes 97.7% of request time.",
-      "Observed queue depth sample up to 190."
+      "Queue wait at p95 consumes 97.6% of request time.",
+      "Observed queue depth sample up to 196.",
+      "In-flight gauge 'db_pool_saturation_inflight' grew by 2 over the run window (p95=193, peak=203)."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -29,15 +31,17 @@
   "secondary_suspects": [
     {
       "kind": "DownstreamStageDominates",
-      "score": 60,
+      "score": 55,
       "confidence": "low",
       "evidence": [
-        "Stage 'db_query' has p95 latency 22329 us across 220 samples.",
-        "Stage 'db_query' cumulative latency is 4665893 us."
+        "Stage 'db_query' has p95 latency 19607 us across 220 samples.",
+        "Stage 'db_query' cumulative latency is 4212930 us.",
+        "Stage 'db_query' contributes 38 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'db_query'.",
-        "Collect downstream service timings and retry behavior during tail windows."
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
       ]
     }
   ]
