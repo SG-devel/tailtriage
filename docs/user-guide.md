@@ -1,8 +1,40 @@
-# User guide (canonical first run)
+# User guide
 
-This is the shortest capture -> analyze -> interpret path.
+Use this page for the shortest path to a first useful triage answer.
 
-## 1) Add dependencies
+## Path A — Try from this repo (source/workspace)
+
+Use this path when you are evaluating `tailtriage` from a local clone of this repository.
+
+### 1) Capture one artifact from the repo example
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+```
+
+Expected output includes `wrote tailtriage-run.json`.
+
+### 2) Analyze with the workspace CLI crate
+
+```bash
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+### 3) Interpret the diagnosis
+
+Inspect these fields first:
+
+- `primary_suspect.kind`
+- `primary_suspect.evidence[]`
+- `primary_suspect.next_checks[]`
+- `p95_queue_share_permille`
+- `p95_service_share_permille`
+
+## Path B — Adopt in your app (crates.io)
+
+Use this path when you want to integrate `tailtriage` into your own Tokio application without workspace context.
+
+### 1) Add dependencies to your app
 
 ```toml
 [dependencies]
@@ -11,23 +43,27 @@ tailtriage-tokio = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
-## 2) Capture one artifact
-
-Use the minimal runnable example:
+### 2) Install the published CLI
 
 ```bash
-cargo run -p tailtriage-tokio --example minimal_checkout
+cargo install tailtriage-cli
 ```
 
-Expected output includes `wrote tailtriage-run.json`.
+The installed binary name is `tailtriage`.
 
-## 3) Analyze
+### 3) Capture one artifact in your app
+
+Create a `TailTriage` instance, wrap request/queue/stage boundaries, and flush the artifact to disk at shutdown.
+
+For a concrete instrumentation shape, mirror the minimal example in [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
+
+### 4) Analyze your artifact with the installed binary
 
 ```bash
-cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+tailtriage analyze tailtriage-run.json --format json
 ```
 
-## 4) Interpret the diagnosis
+### 5) Interpret the first useful answer
 
 Inspect these fields first:
 
@@ -57,11 +93,11 @@ Representative diagnosis shape:
 
 Suspects are evidence-ranked leads, not proof of root cause.
 
-## 5) If result is `InsufficientEvidence`
+## If result is `InsufficientEvidence`
 
 Add one more queue wrapper and one more stage wrapper around the most likely missing wait points, then rerun with comparable load.
 
-## 6) Optional stronger attribution
+## Optional stronger attribution
 
 Enable runtime snapshots when queue/stage instrumentation is still ambiguous:
 
@@ -83,6 +119,7 @@ After first run, validate one mitigation workflow:
 
 ## Next docs
 
+- [Documentation index](README.md)
 - [Diagnostics guide](diagnostics.md)
 - [Architecture](architecture.md)
 - [Demo workflow](getting-started-demo.md)
