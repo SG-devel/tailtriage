@@ -54,26 +54,25 @@ MVP does **not** include:
 ### 5.1 Initialization (`tailtriage-core`)
 
 ```rust
-use tailtriage_core::{Config, Tailtriage};
+use tailtriage_core::Tailtriage;
 
-let mut config = Config::new("invoice-api");
-config.output_path = "tailtriage-run.json".into();
-config.capture_limits.max_requests = 50_000;
-let tailtriage = Tailtriage::init(config)?;
+let tailtriage = Tailtriage::builder("invoice-api")
+    .light()
+    .output("tailtriage-run.json")
+    .build()?;
 ```
 
 ### 5.2 Request timing wrapper
 
 ```rust
-use tailtriage_core::RequestMeta;
+let request = tailtriage
+    .request("/invoice")
+    .kind("create_invoice")
+    .start();
 
-let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
-let request_id = meta.request_id.clone();
-
-tailtriage
-    .request(meta, "ok", async move {
-        tailtriage
-            .queue(request_id.clone(), "invoice_worker")
+request.run("ok", async move {
+        request
+            .queue("invoice_worker")
             .await_on(semaphore.acquire())
             .await;
     })
@@ -83,14 +82,14 @@ tailtriage
 ### 5.3 In-flight tracking
 
 ```rust
-let _inflight = tailtriage.inflight("invoice_requests");
+let _inflight = request.inflight("invoice_requests");
 ```
 
 ### 5.4 Queue wait timing wrapper
 
 ```rust
 tailtriage
-    .queue(request_id.clone(), "invoice_worker")
+    .queue("invoice_worker")
     .await_on(semaphore.acquire())
     .await;
 ```
@@ -99,7 +98,7 @@ Optional queue depth sample:
 
 ```rust
 tailtriage
-    .queue(request_id.clone(), "invoice_worker")
+    .queue("invoice_worker")
     .with_depth_at_start(depth)
     .await_on(semaphore.acquire())
     .await;
@@ -111,7 +110,7 @@ For fallible stages (`Result` output):
 
 ```rust
 tailtriage
-    .stage(request_id.clone(), "fetch_customer")
+    .stage("fetch_customer")
     .await_on(customer_api.fetch())
     .await;
 ```
@@ -120,7 +119,7 @@ For infallible stages:
 
 ```rust
 tailtriage
-    .stage(request_id, "cache_lookup")
+    .stage("cache_lookup")
     .await_value(cache.refresh())
     .await;
 ```
@@ -139,7 +138,7 @@ sampler.shutdown().await;
 
 ### 5.7 Request attribute macro (`tailtriage-tokio`)
 
-`tailtriage-tokio` re-exports `#[instrument_request]` from `tailtriage-macros` for request entry-point ergonomics.
+`tailtriage-tokio` provides runtime sampling helpers that plug into the same builder/request-context integration flow.
 
 The macro always emits tracing request events. When `tailtriage = <expr>` is provided,
 it also records `RequestEvent` entries directly into the active run artifact.

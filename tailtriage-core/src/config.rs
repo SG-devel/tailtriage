@@ -1,7 +1,6 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
-use crate::unix_time_ms;
 use serde::{Deserialize, Serialize};
 
 /// Capture mode used during a run.
@@ -12,54 +11,6 @@ pub enum CaptureMode {
     Light,
     /// Higher-detail mode for incident investigation.
     Investigation,
-}
-
-/// Configuration used to initialize one tailtriage capture run.
-///
-/// This is the main integration entry point for setup: create a config, tune
-/// capture limits when needed, then call [`crate::Tailtriage::init`].
-///
-/// # Example
-/// ```
-/// use tailtriage_core::{Config, Tailtriage};
-///
-/// let mut config = Config::new("checkout-service");
-/// config.service_version = Some("1.4.2".to_string());
-/// config.output_path = std::env::temp_dir().join("tailtriage-run.json");
-///
-/// let tailtriage = Tailtriage::init(config)?;
-/// assert_eq!(tailtriage.output_path().file_name().unwrap(), "tailtriage-run.json");
-/// # Ok::<(), tailtriage_core::InitError>(())
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Config {
-    /// Service/application name.
-    pub service_name: String,
-    /// Optional service version.
-    pub service_version: Option<String>,
-    /// Optional caller-provided run ID.
-    pub run_id: Option<String>,
-    /// Capture mode for this run.
-    pub mode: CaptureMode,
-    /// JSON artifact path for this run.
-    pub output_path: PathBuf,
-    /// Bounded capture limits for each event/sample section.
-    pub capture_limits: CaptureLimits,
-}
-
-impl Config {
-    /// Returns a baseline configuration for `service_name`.
-    #[must_use]
-    pub fn new(service_name: impl Into<String>) -> Self {
-        Self {
-            service_name: service_name.into(),
-            service_version: None,
-            run_id: None,
-            mode: CaptureMode::Light,
-            output_path: PathBuf::from("tailtriage-run.json"),
-            capture_limits: CaptureLimits::default(),
-        }
-    }
 }
 
 /// Limits that bound in-memory capture growth for each run section.
@@ -84,67 +35,115 @@ impl Default for CaptureLimits {
     }
 }
 
-/// Runtime request metadata captured by [`crate::Tailtriage::request`].
-///
-/// Use [`RequestMeta::new`] when you already have a stable request ID from your
-/// framework or gateway. Use [`RequestMeta::for_route`] when you need a local,
-/// readable ID for light-touch instrumentation.
-///
-/// # Example
-/// ```
-/// use tailtriage_core::RequestMeta;
-///
-/// let meta = RequestMeta::for_route("/checkout").with_kind("http");
-/// assert_eq!(meta.route, "/checkout");
-/// assert_eq!(meta.kind.as_deref(), Some("http"));
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RequestMeta {
-    /// Correlation ID for the request.
-    pub request_id: String,
-    /// Route name, operation, or endpoint.
-    pub route: String,
-    /// Optional semantic request kind.
-    pub kind: Option<String>,
+pub(crate) struct Config {
+    pub service_name: String,
+    pub service_version: Option<String>,
+    pub run_id: Option<String>,
+    pub mode: CaptureMode,
+    pub output_path: PathBuf,
+    pub capture_limits: CaptureLimits,
+    pub runtime_sampling_interval: Option<Duration>,
 }
 
-impl RequestMeta {
-    /// Creates metadata for a request scope.
+impl Config {
     #[must_use]
-    pub fn new(request_id: impl Into<String>, route: impl Into<String>) -> Self {
+    pub(crate) fn from_builder(builder: TailtriageBuilder) -> Self {
         Self {
-            request_id: request_id.into(),
-            route: route.into(),
-            kind: None,
+            service_name: builder.service_name,
+            service_version: builder.service_version,
+            run_id: builder.run_id,
+            mode: builder.mode,
+            output_path: builder.output_path,
+            capture_limits: builder.capture_limits,
+            runtime_sampling_interval: builder.runtime_sampling_interval,
+        }
+    }
+}
+
+/// Builder for [`crate::Tailtriage`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TailtriageBuilder {
+    pub(crate) service_name: String,
+    pub(crate) service_version: Option<String>,
+    pub(crate) run_id: Option<String>,
+    pub(crate) mode: CaptureMode,
+    pub(crate) output_path: PathBuf,
+    pub(crate) capture_limits: CaptureLimits,
+    pub(crate) runtime_sampling_interval: Option<Duration>,
+}
+
+impl TailtriageBuilder {
+    /// Creates a builder for `service_name`.
+    #[must_use]
+    pub fn new(service_name: impl Into<String>) -> Self {
+        Self {
+            service_name: service_name.into(),
+            service_version: None,
+            run_id: None,
+            mode: CaptureMode::Light,
+            output_path: PathBuf::from("tailtriage-run.json"),
+            capture_limits: CaptureLimits::default(),
+            runtime_sampling_interval: None,
         }
     }
 
-    /// Creates metadata with an auto-generated request ID for `route`.
-    ///
-    /// The generated ID keeps a readable route prefix and appends the current
-    /// unix timestamp with a process-local sequence number.
+    /// Configures low-overhead capture.
     #[must_use]
-    pub fn for_route(route: impl Into<String>) -> Self {
-        let route = route.into();
-        let route_prefix = route
-            .chars()
-            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-            .collect::<String>();
-        let sequence = REQUEST_META_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let request_id = format!("{route_prefix}-{}-{sequence}", unix_time_ms());
-
-        Self {
-            request_id,
-            route,
-            kind: None,
-        }
-    }
-
-    /// Sets a semantic request kind for this request metadata.
-    #[must_use]
-    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
-        self.kind = Some(kind.into());
+    pub fn light(mut self) -> Self {
+        self.mode = CaptureMode::Light;
         self
+    }
+
+    /// Configures higher-detail capture.
+    #[must_use]
+    pub fn investigation(mut self) -> Self {
+        self.mode = CaptureMode::Investigation;
+        self
+    }
+
+    /// Sets the JSON output path.
+    #[must_use]
+    pub fn output(mut self, output_path: impl Into<PathBuf>) -> Self {
+        self.output_path = output_path.into();
+        self
+    }
+
+    /// Sets the service version.
+    #[must_use]
+    pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
+        self.service_version = Some(service_version.into());
+        self
+    }
+
+    /// Sets a caller-provided run ID.
+    #[must_use]
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = Some(run_id.into());
+        self
+    }
+
+    /// Overrides bounded capture limits.
+    #[must_use]
+    pub fn capture_limits(mut self, capture_limits: CaptureLimits) -> Self {
+        self.capture_limits = capture_limits;
+        self
+    }
+
+    /// Enables periodic Tokio runtime sampling when used with `tailtriage-tokio`.
+    #[must_use]
+    pub fn runtime_sampling_interval(mut self, interval: Duration) -> Self {
+        self.runtime_sampling_interval = Some(interval);
+        self
+    }
+
+    /// Builds a [`crate::Tailtriage`] collector.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InitError::EmptyServiceName`] if `service_name` is blank.
+    pub fn build(self) -> Result<crate::Tailtriage, InitError> {
+        crate::Tailtriage::from_config(Config::from_builder(self))
     }
 }
 
@@ -164,5 +163,3 @@ impl std::fmt::Display for InitError {
 }
 
 impl std::error::Error for InitError {}
-
-static REQUEST_META_SEQUENCE: AtomicU64 = AtomicU64::new(0);

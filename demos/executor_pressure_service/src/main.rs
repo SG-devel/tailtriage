@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::{unix_time_ms, RequestMeta, RuntimeSnapshot};
+use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
 struct ModeSettings {
     worker_threads: usize,
@@ -93,51 +93,51 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
         requests.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/executor-pressure");
+            let request = tailtriage
+                .request("/executor-pressure")
+                .request_id(request_id)
+                .start();
+            let _inflight = request.inflight("executor_pressure_inflight");
+            request
+                .queue("admission")
+                .with_depth_at_start(runnable_backlog.fetch_add(1, Ordering::SeqCst) + 1)
+                .await_on(tokio::task::yield_now())
+                .await;
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("executor_pressure_inflight");
-                    tailtriage
-                        .queue(request_id.clone(), "admission")
-                        .with_depth_at_start(runnable_backlog.fetch_add(1, Ordering::SeqCst) + 1)
-                        .await_on(tokio::task::yield_now())
-                        .await;
-
-                    let mut subtasks = Vec::with_capacity(settings.fanout_tasks);
-                    for _ in 0..settings.fanout_tasks {
-                        let local_depth = Arc::clone(&hot_slice_local_depth);
-                        let cpu_turns = settings.cpu_turns;
-                        subtasks.push(tokio::spawn(async move {
-                            for turn in 0..cpu_turns {
-                                local_depth.fetch_add(1, Ordering::SeqCst);
-                                let mut spin = 0_u64;
-                                for _ in 0..1_200 {
-                                    spin = spin.wrapping_add(1);
-                                }
-                                if spin == 0 {
-                                    tokio::task::yield_now().await;
-                                }
-                                if turn.is_multiple_of(20) {
-                                    tokio::task::yield_now().await;
-                                }
-                                local_depth.fetch_sub(1, Ordering::SeqCst);
-                            }
-                        }));
+            let mut subtasks = Vec::with_capacity(settings.fanout_tasks);
+            for _ in 0..settings.fanout_tasks {
+                let local_depth = Arc::clone(&hot_slice_local_depth);
+                let cpu_turns = settings.cpu_turns;
+                subtasks.push(tokio::spawn(async move {
+                    for turn in 0..cpu_turns {
+                        local_depth.fetch_add(1, Ordering::SeqCst);
+                        let mut spin = 0_u64;
+                        for _ in 0..1_200 {
+                            spin = spin.wrapping_add(1);
+                        }
+                        if spin == 0 {
+                            tokio::task::yield_now().await;
+                        }
+                        if turn.is_multiple_of(20) {
+                            tokio::task::yield_now().await;
+                        }
+                        local_depth.fetch_sub(1, Ordering::SeqCst);
                     }
+                }));
+            }
 
-                    tailtriage
-                        .stage(request_id, "executor_hot_path")
-                        .await_value(async {
-                            for subtask in subtasks {
-                                subtask.await.expect("subtask should finish");
-                            }
-                        })
-                        .await;
-
-                    runnable_backlog.fetch_sub(1, Ordering::SeqCst);
+            request
+                .stage("executor_hot_path")
+                .await_value(async {
+                    for subtask in subtasks {
+                        subtask.await.expect("subtask should finish");
+                    }
                 })
                 .await;
+
+            runnable_backlog.fetch_sub(1, Ordering::SeqCst);
+            drop(_inflight);
+            request.finish("ok");
         }));
 
         if request_number % settings.burst_pause_every == 0 {
@@ -151,7 +151,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
     sampler.await.context("sampler task panicked")?;
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", output_path.display());
     Ok(())
 }
