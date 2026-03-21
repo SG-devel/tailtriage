@@ -25,6 +25,73 @@ Workflow in one line: **capture -> analyze -> choose next check -> re-run**.
 - teams with latency/backpressure incidents but limited perf-engineering bandwidth
 - people who want a fast local triage loop before adopting heavier observability workflows
 
+## Canonical first run (recommended)
+
+Use this as the shortest path from repo landing page to first useful diagnosis.
+
+### 1) Add dependencies
+
+```toml
+[dependencies]
+tailtriage-core = "0.1"
+tailtriage-tokio = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+```
+
+For local workspace development, swap version entries for path dependencies.
+
+### 2) Capture one run artifact
+
+Run the minimal end-to-end example:
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+```
+
+This writes `tailtriage-run.json` in the current directory.
+
+### 3) Analyze the artifact
+
+```bash
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+### 4) Interpret the first useful answer
+
+Inspect these fields first:
+
+- `primary_suspect.kind`
+- `primary_suspect.evidence[]`
+- `primary_suspect.next_checks[]`
+- `p95_queue_share_permille`
+- `p95_service_share_permille`
+
+Representative diagnosis shape:
+
+```json
+{
+  "primary_suspect": {
+    "kind": "ApplicationQueueSaturation",
+    "evidence": [
+      "Queue wait at p95 consumes 98.4% of request time.",
+      "Observed queue depth sample up to 230."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  }
+}
+```
+
+Suspects are evidence-ranked leads, not proof of root cause.
+
+## Before/after proof path (secondary)
+
+After first run, use one fixture-backed before/after workflow to validate changes:
+
+- [`demos/retry_storm_service/fixtures/before-after-comparison.json`](demos/retry_storm_service/fixtures/before-after-comparison.json)
+
 ## Why not just use tokio-console or tokio-metrics?
 
 Those tools are valuable and complementary:
@@ -59,70 +126,6 @@ MVP scope is intentionally narrow:
 - no live UI
 - no exporter/backend requirement
 
-## Quickstart
-
-### 1) Add dependencies
-
-```toml
-[dependencies]
-tailtriage-core = "0.1"
-tailtriage-tokio = "0.1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-```
-
-For local workspace development, swap the version entries for path dependencies in your own repository checkout.
-
-### 2) Instrument one request path
-
-```rust
-use std::time::Duration;
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut config = Config::new("checkout-service");
-config.output_path = "tailtriage-run.json".into();
-config.capture_limits.max_requests = 50_000;
-let tailtriage = Tailtriage::init(config)?;
-
-    let meta = RequestMeta::for_route("/checkout").with_kind("http");
-    let request_id = meta.request_id.clone();
-
-    tailtriage
-        .request(meta, "ok", async {
-            tailtriage
-                .queue(request_id.clone(), "ingress_queue")
-                .await_on(tokio::time::sleep(Duration::from_millis(5)))
-                .await;
-
-            tailtriage
-                .stage(request_id, "db_call")
-                .await_value(tokio::time::sleep(Duration::from_millis(12)))
-                .await;
-        })
-        .await;
-
-    tailtriage.flush()?;
-    Ok(())
-}
-```
-
-### 3) Analyze
-
-```bash
-cargo run --manifest-path tailtriage-cli/Cargo.toml -- analyze tailtriage-run.json --format json
-```
-
-Start with:
-
-- `primary_suspect.kind`
-- `primary_suspect.evidence[]`
-- `primary_suspect.next_checks[]`
-- `p95_queue_share_permille`
-- `p95_service_share_permille`
-
-If the run artifact includes truncation counters (`truncation.*`), treat the diagnosis as lower-confidence and re-run with higher limits for the saturated sections.
-
 ## Bounded capture and truncation
 
 `tailtriage` keeps run data in memory until flush. To keep this bounded in production-like runs, configure per-section capture limits:
@@ -135,37 +138,10 @@ If the run artifact includes truncation counters (`truncation.*`), treat the dia
 
 When a section reaches its configured max, `tailtriage` drops additional entries of that type and increments `truncation` counters in the output artifact. The analyzer also emits warnings when truncation is present so suspects are interpreted as leads from partial data.
 
-## Minimal runnable example
-
-A minimal end-to-end example is available at:
-
-- [`tailtriage-tokio/examples/minimal_checkout.rs`](tailtriage-tokio/examples/minimal_checkout.rs)
-
-Run it with:
-
-```bash
-cargo run -p tailtriage-tokio --example minimal_checkout
-```
-
-## Canonical integration path
-
-1. Initialize one collector (`Tailtriage::init`).
-2. Wrap request entry points (`request(...)` or `#[instrument_request(...)]`).
-3. Add a few high-impact `queue(...).await_on(...)` wrappers.
-4. Add key downstream `stage(...).await_on(...)` / `await_value(...)` wrappers.
-5. Optionally enable `RuntimeSampler::start(...)` for stronger runtime attribution.
-6. Flush and analyze.
-
-## Scope and limitations (MVP)
-
-- Tokio-only runtime support.
-- Single-process triage (no distributed correlation).
-- Rule-based suspect ranking with evidence (not proof of root cause).
-
 ## Documentation
 
 For concise docs by audience, start at **[docs/README.md](docs/README.md)**.
 
-For demo-specific behavior and triage expectations, see **[demos/README.md](demos/README.md)**.
+For the same canonical first-run workflow in walkthrough form, see **[docs/user-guide.md](docs/user-guide.md)**.
 
-For a concrete before/after workflow, see **[demos/retry_storm_service/fixtures/before-after-comparison.json](demos/retry_storm_service/fixtures/before-after-comparison.json)**.
+For demo-specific behavior and triage expectations, see **[demos/README.md](demos/README.md)**.
