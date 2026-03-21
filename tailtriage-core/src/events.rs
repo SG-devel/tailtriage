@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::CaptureMode;
+use crate::{CaptureMode, Outcome};
 
 /// A full output artifact for one tailtriage capture run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,7 +102,7 @@ pub struct RequestEvent {
     /// Total request latency in microseconds.
     pub latency_us: u64,
     /// Logical outcome such as "ok", "error", or "timeout".
-    pub outcome: String,
+    pub outcome: Outcome,
 }
 
 /// Timing record for one named stage.

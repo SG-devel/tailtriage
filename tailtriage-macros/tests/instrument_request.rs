@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tailtriage_core::{Config, Tailtriage};
+use tailtriage_core::Tailtriage;
 use tailtriage_macros::instrument_request;
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
@@ -125,10 +125,10 @@ async fn writes_request_events_to_run_json_when_tailtriage_is_provided() {
         .as_nanos();
     let output_path = std::env::temp_dir().join(format!("tailtriage_macro_run_{nanos}.json"));
 
-    let mut config = Config::new("macro-test");
-    config.output_path = output_path.clone();
-
-    let tailtriage = Tailtriage::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::builder("macro-test")
+        .output(&output_path)
+        .build()
+        .expect("build should succeed");
 
     let ok = collector_handler(&tailtriage, "req-ok".to_string(), true)
         .await
@@ -140,7 +140,7 @@ async fn writes_request_events_to_run_json_when_tailtriage_is_provided() {
         .expect_err("error request should fail");
     assert_eq!(err, "boom");
 
-    tailtriage.flush().expect("flush should succeed");
+    tailtriage.shutdown().expect("shutdown should succeed");
 
     let run_json = std::fs::read_to_string(&output_path).expect("run artifact should be readable");
     let run_value: serde_json::Value =

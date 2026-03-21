@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use crate::unix_time_ms;
 use serde::{Deserialize, Serialize};
@@ -12,54 +13,6 @@ pub enum CaptureMode {
     Light,
     /// Higher-detail mode for incident investigation.
     Investigation,
-}
-
-/// Configuration used to initialize one tailtriage capture run.
-///
-/// This is the main integration entry point for setup: create a config, tune
-/// capture limits when needed, then call [`crate::Tailtriage::init`].
-///
-/// # Example
-/// ```
-/// use tailtriage_core::{Config, Tailtriage};
-///
-/// let mut config = Config::new("checkout-service");
-/// config.service_version = Some("1.4.2".to_string());
-/// config.output_path = std::env::temp_dir().join("tailtriage-run.json");
-///
-/// let tailtriage = Tailtriage::init(config)?;
-/// assert_eq!(tailtriage.output_path().file_name().unwrap(), "tailtriage-run.json");
-/// # Ok::<(), tailtriage_core::InitError>(())
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Config {
-    /// Service/application name.
-    pub service_name: String,
-    /// Optional service version.
-    pub service_version: Option<String>,
-    /// Optional caller-provided run ID.
-    pub run_id: Option<String>,
-    /// Capture mode for this run.
-    pub mode: CaptureMode,
-    /// JSON artifact path for this run.
-    pub output_path: PathBuf,
-    /// Bounded capture limits for each event/sample section.
-    pub capture_limits: CaptureLimits,
-}
-
-impl Config {
-    /// Returns a baseline configuration for `service_name`.
-    #[must_use]
-    pub fn new(service_name: impl Into<String>) -> Self {
-        Self {
-            service_name: service_name.into(),
-            service_version: None,
-            run_id: None,
-            mode: CaptureMode::Light,
-            output_path: PathBuf::from("tailtriage-run.json"),
-            capture_limits: CaptureLimits::default(),
-        }
-    }
 }
 
 /// Limits that bound in-memory capture growth for each run section.
@@ -84,85 +37,145 @@ impl Default for CaptureLimits {
     }
 }
 
-/// Runtime request metadata captured by [`crate::Tailtriage::request`].
-///
-/// Use [`RequestMeta::new`] when you already have a stable request ID from your
-/// framework or gateway. Use [`RequestMeta::for_route`] when you need a local,
-/// readable ID for light-touch instrumentation.
-///
-/// # Example
-/// ```
-/// use tailtriage_core::RequestMeta;
-///
-/// let meta = RequestMeta::for_route("/checkout").with_kind("http");
-/// assert_eq!(meta.route, "/checkout");
-/// assert_eq!(meta.kind.as_deref(), Some("http"));
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RequestMeta {
-    /// Correlation ID for the request.
-    pub request_id: String,
-    /// Route name, operation, or endpoint.
-    pub route: String,
-    /// Optional semantic request kind.
-    pub kind: Option<String>,
+/// Optional request-level options accepted by [`crate::Tailtriage::request_with`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RequestOptions {
+    pub request_id: Option<String>,
 }
 
-impl RequestMeta {
-    /// Creates metadata for a request scope.
+impl RequestOptions {
+    /// Creates default request options.
     #[must_use]
-    pub fn new(request_id: impl Into<String>, route: impl Into<String>) -> Self {
-        Self {
-            request_id: request_id.into(),
-            route: route.into(),
-            kind: None,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Creates metadata with an auto-generated request ID for `route`.
-    ///
-    /// The generated ID keeps a readable route prefix and appends the current
-    /// unix timestamp with a process-local sequence number.
+    /// Sets a caller-provided request identifier.
     #[must_use]
-    pub fn for_route(route: impl Into<String>) -> Self {
-        let route = route.into();
-        let route_prefix = route
-            .chars()
-            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-            .collect::<String>();
-        let sequence = REQUEST_META_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let request_id = format!("{route_prefix}-{}-{sequence}", unix_time_ms());
-
-        Self {
-            request_id,
-            route,
-            kind: None,
-        }
-    }
-
-    /// Sets a semantic request kind for this request metadata.
-    #[must_use]
-    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
-        self.kind = Some(kind.into());
+    pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
+        self.request_id = Some(request_id.into());
         self
     }
 }
 
-/// Errors emitted while initializing tailtriage capture.
+/// Runtime sampling configuration stored in [`crate::Tailtriage`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InitError {
-    /// Service name was empty.
-    EmptyServiceName,
+pub struct SamplingConfig {
+    pub(crate) runtime_interval: Option<Duration>,
 }
 
-impl std::fmt::Display for InitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl SamplingConfig {
+    /// Disables runtime sampling.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self {
+            runtime_interval: None,
+        }
+    }
+
+    /// Enables runtime sampling with `interval`.
+    #[must_use]
+    pub fn runtime(interval: Duration) -> Self {
+        Self {
+            runtime_interval: Some(interval),
+        }
+    }
+
+    /// Returns the configured runtime sampling interval.
+    #[must_use]
+    pub fn runtime_interval(&self) -> Option<Duration> {
+        self.runtime_interval
+    }
+}
+
+impl Default for SamplingConfig {
+    fn default() -> Self {
+        Self::disabled()
+    }
+}
+
+/// Logical request outcome persisted in run artifacts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    Ok,
+    Error,
+    Timeout,
+    Cancelled,
+    Rejected,
+    Other(String),
+}
+
+impl Outcome {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
         match self {
-            Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::Ok => "ok",
+            Self::Error => "error",
+            Self::Timeout => "timeout",
+            Self::Cancelled => "cancelled",
+            Self::Rejected => "rejected",
+            Self::Other(value) => value.as_str(),
         }
     }
 }
 
-impl std::error::Error for InitError {}
+impl Serialize for Outcome {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
 
-static REQUEST_META_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+impl<'de> Deserialize<'de> for Outcome {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "ok" => Self::Ok,
+            "error" => Self::Error,
+            "timeout" => Self::Timeout,
+            "cancelled" => Self::Cancelled,
+            "rejected" => Self::Rejected,
+            _ => Self::Other(value),
+        })
+    }
+}
+
+/// Errors emitted while building one tailtriage instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildError {
+    EmptyServiceName,
+    InvalidRuntimeSamplingInterval,
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::InvalidRuntimeSamplingInterval => {
+                write!(f, "runtime sampling interval must be greater than zero")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BuildError {}
+
+pub(crate) fn default_output_path() -> PathBuf {
+    PathBuf::from("tailtriage-run.json")
+}
+
+pub(crate) fn generate_request_id(route: &str) -> String {
+    let route_prefix = route
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    let sequence = REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{route_prefix}-{}-{sequence}", unix_time_ms())
+}
+
+static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);

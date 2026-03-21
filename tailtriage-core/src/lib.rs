@@ -7,8 +7,8 @@ mod sink;
 mod time;
 mod timers;
 
-pub use collector::Tailtriage;
-pub use config::{CaptureLimits, CaptureMode, Config, InitError, RequestMeta};
+pub use collector::{RequestContext, Tailtriage, TailtriageBuilder};
+pub use config::{BuildError, CaptureLimits, CaptureMode, Outcome, RequestOptions, SamplingConfig};
 pub use events::{
     InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
     TruncationSummary,

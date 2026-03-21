@@ -54,43 +54,41 @@ MVP does **not** include:
 ### 5.1 Initialization (`tailtriage-core`)
 
 ```rust
-use tailtriage_core::{Config, Tailtriage};
+use tailtriage_core::{CaptureLimits, Tailtriage};
 
-let mut config = Config::new("invoice-api");
-config.output_path = "tailtriage-run.json".into();
-config.capture_limits.max_requests = 50_000;
-let tailtriage = Tailtriage::init(config)?;
+let tailtriage = Tailtriage::builder("invoice-api")
+    .output("tailtriage-run.json")
+    .capture_limits(CaptureLimits {
+        max_requests: 50_000,
+        ..CaptureLimits::default()
+    })
+    .build()?;
 ```
 
 ### 5.2 Request timing wrapper
 
 ```rust
-use tailtriage_core::RequestMeta;
+use tailtriage_core::Outcome;
 
-let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
-let request_id = meta.request_id.clone();
-
-tailtriage
-    .request(meta, "ok", async move {
-        tailtriage
-            .queue(request_id.clone(), "invoice_worker")
-            .await_on(semaphore.acquire())
-            .await;
-    })
+let req = tailtriage.request("/invoice").with_kind("create_invoice");
+req.queue("invoice_worker")
+    .await_on(semaphore.acquire())
     .await;
+req.complete(Outcome::Ok);
 ```
 
 ### 5.3 In-flight tracking
 
 ```rust
-let _inflight = tailtriage.inflight("invoice_requests");
+let req = tailtriage.request("/invoice");
+let _inflight = req.inflight("invoice_requests");
 ```
 
 ### 5.4 Queue wait timing wrapper
 
 ```rust
-tailtriage
-    .queue(request_id.clone(), "invoice_worker")
+req
+    .queue("invoice_worker")
     .await_on(semaphore.acquire())
     .await;
 ```
@@ -98,8 +96,8 @@ tailtriage
 Optional queue depth sample:
 
 ```rust
-tailtriage
-    .queue(request_id.clone(), "invoice_worker")
+req
+    .queue("invoice_worker")
     .with_depth_at_start(depth)
     .await_on(semaphore.acquire())
     .await;

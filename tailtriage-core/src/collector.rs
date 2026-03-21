@@ -1,169 +1,98 @@
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Mutex;
+use std::future::Future;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::config::{default_output_path, generate_request_id};
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
-    unix_time_ms, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent, QueueTimer,
-    RequestEvent, RequestMeta, Run, RunMetadata, RuntimeSnapshot, SinkError, StageEvent,
-    StageTimer,
+    unix_time_ms, BuildError, CaptureLimits, CaptureMode, InFlightSnapshot, LocalJsonSink, Outcome,
+    QueueEvent, QueueTimer, RequestEvent, RequestOptions, Run, RunMetadata, RuntimeSnapshot,
+    SamplingConfig, SinkError, StageEvent, StageTimer,
 };
 
-/// Per-run collector that records request events and writes the final artifact.
-///
-/// [`Tailtriage`] is intentionally small: initialize once per process/run,
-/// wrap request futures with [`Self::request`], wrap critical await points with
-/// stage/queue helpers, then flush one JSON artifact for CLI triage.
-///
-/// # Example
-/// ```
-/// use futures_executor::block_on;
-/// use tailtriage_core::{Config, RequestMeta, Tailtriage};
-///
-/// let mut config = Config::new("api");
-/// config.output_path = std::env::temp_dir().join("tailtriage-api.json");
-/// let tailtriage = Tailtriage::init(config)?;
-///
-/// let request_id = "req-1".to_string();
-/// let meta = RequestMeta::new(request_id.clone(), "/checkout").with_kind("http");
-///
-/// block_on(tailtriage.request(meta, "ok", async {
-///     tailtriage
-///         .queue(request_id.clone(), "ingress")
-///         .await_on(async {})
-///         .await;
-///     tailtriage
-///         .stage(request_id, "db")
-///         .await_value(async {})
-///         .await;
-/// }));
-///
-/// tailtriage.flush()?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-#[derive(Debug)]
 pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
-    pub(crate) sink: LocalJsonSink,
-    pub(crate) limits: crate::CaptureLimits,
+    pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
+    pub(crate) limits: CaptureLimits,
+    pub(crate) sampling: SamplingConfig,
+}
+
+impl std::fmt::Debug for Tailtriage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tailtriage").finish_non_exhaustive()
+    }
+}
+
+/// Builder for creating one [`Tailtriage`] run collector.
+pub struct TailtriageBuilder {
+    service_name: String,
+    service_version: Option<String>,
+    run_id: Option<String>,
+    mode: CaptureMode,
+    capture_limits: CaptureLimits,
+    sampling: SamplingConfig,
+    sink: Arc<dyn RunSink + Send + Sync>,
 }
 
 impl Tailtriage {
-    /// Initializes tailtriage collection for one service run.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InitError::EmptyServiceName`] if `config.service_name` is blank.
-    pub fn init(config: Config) -> Result<Self, InitError> {
-        if config.service_name.trim().is_empty() {
-            return Err(InitError::EmptyServiceName);
-        }
-
-        let now = unix_time_ms();
-        let run = Run::new(RunMetadata {
-            run_id: config.run_id.unwrap_or_else(generate_run_id),
-            service_name: config.service_name,
-            service_version: config.service_version,
-            started_at_unix_ms: now,
-            finished_at_unix_ms: now,
-            mode: config.mode,
-            host: None,
-            pid: Some(std::process::id()),
-        });
-
-        Ok(Self {
-            run: Mutex::new(run),
-            inflight_counts: Mutex::new(HashMap::new()),
-            sink: LocalJsonSink::new(config.output_path),
-            limits: config.capture_limits,
-        })
-    }
-
-    /// Times one request future and records its completion as a [`RequestEvent`].
-    ///
-    /// `outcome` should represent your application-level request result (for example:
-    /// `"ok"`, `"error"`, or `"timeout"`).
-    pub async fn request<Fut, T>(
-        &self,
-        meta: RequestMeta,
-        outcome: impl Into<String>,
-        fut: Fut,
-    ) -> T
-    where
-        Fut: std::future::Future<Output = T>,
-    {
-        let started_at_unix_ms = unix_time_ms();
-        let started = Instant::now();
-        let value = fut.await;
-        let finished_at_unix_ms = unix_time_ms();
-
-        self.record_request_fields(
-            meta.request_id,
-            meta.route,
-            meta.kind,
-            (started_at_unix_ms, finished_at_unix_ms),
-            duration_to_us(started.elapsed()),
-            outcome,
-        );
-
-        value
-    }
-
-    /// Returns a clone of the current in-memory run state.
     #[must_use]
-    pub fn snapshot(&self) -> Run {
-        lock_run(&self.run).clone()
+    pub fn builder(service_name: impl Into<String>) -> TailtriageBuilder {
+        TailtriageBuilder {
+            service_name: service_name.into(),
+            service_version: None,
+            run_id: None,
+            mode: CaptureMode::Light,
+            capture_limits: CaptureLimits::default(),
+            sampling: SamplingConfig::disabled(),
+            sink: Arc::new(LocalJsonSink::new(default_output_path())),
+        }
     }
 
-    /// Records one request event using pre-computed timing and outcome fields.
-    pub fn record_request_fields(
+    #[must_use]
+    pub fn request(&self, route: impl Into<String>) -> RequestContext<'_> {
+        self.request_with(route, RequestOptions::new())
+    }
+
+    #[must_use]
+    pub fn request_with(
         &self,
-        request_id: impl Into<String>,
         route: impl Into<String>,
-        kind: Option<String>,
-        time_window_unix_ms: (u64, u64),
-        latency_us: u64,
-        outcome: impl Into<String>,
-    ) {
-        let (started_at_unix_ms, finished_at_unix_ms) = time_window_unix_ms;
-        let event = RequestEvent {
-            request_id: request_id.into(),
-            route: route.into(),
-            kind,
-            started_at_unix_ms,
-            finished_at_unix_ms,
-            latency_us,
-            outcome: outcome.into(),
-        };
-        self.record_request_event(event);
+        options: RequestOptions,
+    ) -> RequestContext<'_> {
+        let route = route.into();
+        let request_id = options
+            .request_id
+            .unwrap_or_else(|| generate_request_id(route.as_str()));
+        RequestContext {
+            tailtriage: self,
+            request_id,
+            route,
+            kind: None,
+            started_at_unix_ms: unix_time_ms(),
+            started: Instant::now(),
+        }
     }
 
-    /// Writes the current run to the configured sink.
+    /// Flushes the current run to the configured sink.
     ///
     /// # Errors
     ///
-    /// Returns [`SinkError`] if writing or serialization fails.
-    pub fn flush(&self) -> Result<(), SinkError> {
+    /// Returns [`SinkError`] if serialization or sink I/O fails.
+    pub fn shutdown(&self) -> Result<(), SinkError> {
         let mut guard = lock_run(&self.run);
         guard.metadata.finished_at_unix_ms = unix_time_ms();
         self.sink.write(&guard)
     }
 
-    /// Returns the output file path used by the configured sink.
     #[must_use]
-    pub fn output_path(&self) -> &Path {
-        self.sink.path()
+    pub fn snapshot(&self) -> Run {
+        lock_run(&self.run).clone()
     }
 
-    /// Creates an in-flight guard for `gauge`.
-    ///
-    /// The counter is incremented on creation and decremented when the returned
-    /// guard is dropped.
-    #[must_use]
-    pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
+    pub(crate) fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         let gauge = gauge.into();
         let count = {
             let mut counts = lock_map(&self.inflight_counts);
@@ -184,14 +113,11 @@ impl Tailtriage {
         }
     }
 
-    /// Returns a stage timing wrapper for one awaited operation.
-    ///
-    /// Use stage wrappers for downstream work such as DB/HTTP/cache calls.
-    /// Pick [`crate::StageTimer::await_on`] when the stage naturally returns
-    /// `Result<T, E>`, or [`crate::StageTimer::await_value`] for infallible
-    /// futures where success should always be recorded as `true`.
-    #[must_use]
-    pub fn stage(&self, request_id: impl Into<String>, stage: impl Into<String>) -> StageTimer<'_> {
+    pub(crate) fn stage(
+        &self,
+        request_id: impl Into<String>,
+        stage: impl Into<String>,
+    ) -> StageTimer<'_> {
         StageTimer {
             tailtriage: self,
             request_id: request_id.into(),
@@ -199,12 +125,11 @@ impl Tailtriage {
         }
     }
 
-    /// Returns a queue timing wrapper for one awaited operation.
-    ///
-    /// Use this around waits caused by application queueing/backpressure
-    /// (for example a semaphore permit wait or bounded channel receive).
-    #[must_use]
-    pub fn queue(&self, request_id: impl Into<String>, queue: impl Into<String>) -> QueueTimer<'_> {
+    pub(crate) fn queue(
+        &self,
+        request_id: impl Into<String>,
+        queue: impl Into<String>,
+    ) -> QueueTimer<'_> {
         QueueTimer {
             tailtriage: self,
             request_id: request_id.into(),
@@ -213,7 +138,6 @@ impl Tailtriage {
         }
     }
 
-    /// Records one Tokio runtime metrics sample.
     pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
         let mut run = lock_run(&self.run);
         if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
@@ -222,6 +146,32 @@ impl Tailtriage {
         } else {
             run.runtime_snapshots.push(snapshot);
         }
+    }
+
+    #[doc(hidden)]
+    pub fn sampling(&self) -> &SamplingConfig {
+        &self.sampling
+    }
+
+    pub(crate) fn record_request_fields(
+        &self,
+        request_id: impl Into<String>,
+        route: impl Into<String>,
+        kind: Option<String>,
+        time_window_unix_ms: (u64, u64),
+        latency_us: u64,
+        outcome: Outcome,
+    ) {
+        let (started_at_unix_ms, finished_at_unix_ms) = time_window_unix_ms;
+        self.record_request_event(RequestEvent {
+            request_id: request_id.into(),
+            route: route.into(),
+            kind,
+            started_at_unix_ms,
+            finished_at_unix_ms,
+            latency_us,
+            outcome,
+        });
     }
 
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
@@ -259,6 +209,161 @@ impl Tailtriage {
         } else {
             run.requests.push(event);
         }
+    }
+}
+
+impl TailtriageBuilder {
+    #[must_use]
+    pub fn light(mut self) -> Self {
+        self.mode = CaptureMode::Light;
+        self
+    }
+
+    #[must_use]
+    pub fn investigation(mut self) -> Self {
+        self.mode = CaptureMode::Investigation;
+        self
+    }
+
+    #[must_use]
+    pub fn service_version(mut self, version: impl Into<String>) -> Self {
+        self.service_version = Some(version.into());
+        self
+    }
+
+    #[must_use]
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = Some(run_id.into());
+        self
+    }
+
+    #[must_use]
+    pub fn output(mut self, path: impl AsRef<std::path::Path>) -> Self {
+        self.sink = Arc::new(LocalJsonSink::new(path));
+        self
+    }
+
+    #[must_use]
+    pub fn sink<S>(mut self, sink: S) -> Self
+    where
+        S: RunSink + Send + Sync + 'static,
+    {
+        self.sink = Arc::new(sink);
+        self
+    }
+
+    #[must_use]
+    pub fn capture_limits(mut self, limits: CaptureLimits) -> Self {
+        self.capture_limits = limits;
+        self
+    }
+
+    #[must_use]
+    pub fn sampling(mut self, sampling: SamplingConfig) -> Self {
+        self.sampling = sampling;
+        self
+    }
+
+    /// Builds a [`Tailtriage`] collector with the current builder settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BuildError::EmptyServiceName`] for blank service names and
+    /// [`BuildError::InvalidRuntimeSamplingInterval`] for zero runtime intervals.
+    pub fn build(self) -> Result<Tailtriage, BuildError> {
+        if self.service_name.trim().is_empty() {
+            return Err(BuildError::EmptyServiceName);
+        }
+        if matches!(self.sampling.runtime_interval(), Some(interval) if interval.is_zero()) {
+            return Err(BuildError::InvalidRuntimeSamplingInterval);
+        }
+
+        let now = unix_time_ms();
+        let run = Run::new(RunMetadata {
+            run_id: self.run_id.unwrap_or_else(generate_run_id),
+            service_name: self.service_name,
+            service_version: self.service_version,
+            started_at_unix_ms: now,
+            finished_at_unix_ms: now,
+            mode: self.mode,
+            host: None,
+            pid: Some(std::process::id()),
+        });
+
+        Ok(Tailtriage {
+            run: Mutex::new(run),
+            inflight_counts: Mutex::new(HashMap::new()),
+            sink: self.sink,
+            limits: self.capture_limits,
+            sampling: self.sampling,
+        })
+    }
+}
+
+pub struct RequestContext<'a> {
+    pub(crate) tailtriage: &'a Tailtriage,
+    pub(crate) request_id: String,
+    pub(crate) route: String,
+    pub(crate) kind: Option<String>,
+    pub(crate) started_at_unix_ms: u64,
+    pub(crate) started: Instant,
+}
+
+impl RequestContext<'_> {
+    #[must_use]
+    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
+    }
+
+    #[must_use]
+    pub fn request_id(&self) -> &str {
+        self.request_id.as_str()
+    }
+
+    #[must_use]
+    pub fn route(&self) -> &str {
+        self.route.as_str()
+    }
+
+    #[must_use]
+    pub fn kind(&self) -> Option<&str> {
+        self.kind.as_deref()
+    }
+
+    #[must_use]
+    pub fn queue(&self, queue: impl Into<String>) -> QueueTimer<'_> {
+        self.tailtriage.queue(self.request_id.clone(), queue)
+    }
+
+    #[must_use]
+    pub fn stage(&self, stage: impl Into<String>) -> StageTimer<'_> {
+        self.tailtriage.stage(self.request_id.clone(), stage)
+    }
+
+    #[must_use]
+    pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
+        self.tailtriage.inflight(gauge)
+    }
+
+    pub fn complete(self, outcome: Outcome) {
+        self.tailtriage.record_request_fields(
+            self.request_id,
+            self.route,
+            self.kind,
+            (self.started_at_unix_ms, unix_time_ms()),
+            duration_to_us(self.started.elapsed()),
+            outcome,
+        );
+    }
+
+    pub async fn run<Fut, T>(self, outcome: Outcome, fut: Fut) -> T
+    where
+        Fut: Future<Output = T>,
+    {
+        let value = fut.await;
+        self.complete(outcome);
+        value
     }
 }
 

@@ -604,7 +604,7 @@ mod tests {
                     started_at_unix_ms: 1,
                     finished_at_unix_ms: 2,
                     latency_us: 1_000,
-                    outcome: "ok".to_owned(),
+                    outcome: tailtriage_core::Outcome::Ok,
                 },
                 RequestEvent {
                     request_id: "req-2".to_owned(),
@@ -613,7 +613,7 @@ mod tests {
                     started_at_unix_ms: 2,
                     finished_at_unix_ms: 3,
                     latency_us: 1_000,
-                    outcome: "ok".to_owned(),
+                    outcome: tailtriage_core::Outcome::Ok,
                 },
                 RequestEvent {
                     request_id: "req-3".to_owned(),
@@ -622,7 +622,7 @@ mod tests {
                     started_at_unix_ms: 3,
                     finished_at_unix_ms: 4,
                     latency_us: 1_000,
-                    outcome: "ok".to_owned(),
+                    outcome: tailtriage_core::Outcome::Ok,
                 },
             ],
             stages: Vec::new(),

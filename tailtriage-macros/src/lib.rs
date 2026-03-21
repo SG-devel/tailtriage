@@ -158,14 +158,21 @@ fn expand_instrument_request(
     let record_request = if let Some(tailtriage) = tailtriage_expr {
         let request_id = request_id_expr.unwrap_or_else(default_request_id_expr);
         quote! {
-            (#tailtriage).record_request_fields(
-                #request_id,
-                __tailtriage_route.clone(),
-                Some(__tailtriage_kind.clone()),
-                (__tailtriage_started_at_unix_ms, __tailtriage_finished_at_unix_ms),
-                __tailtriage_duration_us,
-                __tailtriage_outcome,
-            );
+            let __tailtriage_outcome_value = match __tailtriage_outcome {
+                "ok" => ::tailtriage_core::Outcome::Ok,
+                "error" => ::tailtriage_core::Outcome::Error,
+                "timeout" => ::tailtriage_core::Outcome::Timeout,
+                "cancelled" => ::tailtriage_core::Outcome::Cancelled,
+                "rejected" => ::tailtriage_core::Outcome::Rejected,
+                other => ::tailtriage_core::Outcome::Other(other.to_string()),
+            };
+            (#tailtriage)
+                .request_with(
+                    __tailtriage_route.clone(),
+                    ::tailtriage_core::RequestOptions::new().request_id(#request_id),
+                )
+                .with_kind(__tailtriage_kind.clone())
+                .complete(__tailtriage_outcome_value);
         }
     } else {
         quote! {}

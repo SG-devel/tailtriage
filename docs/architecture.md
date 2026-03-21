@@ -14,7 +14,7 @@
 ### `tailtriage-core`
 
 - run schema (`Run`, metadata, events, snapshots)
-- collection lifecycle (`Tailtriage::init`, `flush`, `snapshot`)
+- collection lifecycle (`Tailtriage::builder(...).build()`, `shutdown`, `snapshot`)
 - instrumentation wrappers (`request`, `queue`, `stage`, `inflight`)
 - local JSON sink (`LocalJsonSink`)
 
