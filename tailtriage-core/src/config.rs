@@ -1,8 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
 
 use crate::{LocalJsonSink, RunSink};
 
@@ -46,7 +44,6 @@ pub(crate) struct Config {
     pub mode: CaptureMode,
     pub sink: Arc<dyn RunSink + Send + Sync>,
     pub capture_limits: CaptureLimits,
-    pub sampling: SamplingConfig,
 }
 
 impl Config {
@@ -58,7 +55,6 @@ impl Config {
             mode: builder.mode,
             sink: Arc::clone(&builder.sink),
             capture_limits: builder.capture_limits,
-            sampling: builder.sampling,
         }
     }
 }
@@ -68,17 +64,12 @@ impl Config {
 pub enum BuildError {
     /// Service name was empty.
     EmptyServiceName,
-    /// Runtime sampling interval was zero.
-    InvalidRuntimeSamplingInterval,
 }
 
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
-            Self::InvalidRuntimeSamplingInterval => {
-                write!(f, "runtime sampling interval must be greater than zero")
-            }
         }
     }
 }
@@ -94,7 +85,6 @@ pub struct TailtriageBuilder {
     pub(crate) mode: CaptureMode,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) capture_limits: CaptureLimits,
-    pub(crate) sampling: SamplingConfig,
 }
 
 impl TailtriageBuilder {
@@ -106,7 +96,6 @@ impl TailtriageBuilder {
             mode: CaptureMode::Light,
             sink: Arc::new(LocalJsonSink::new("tailtriage-run.json")),
             capture_limits: CaptureLimits::default(),
-            sampling: SamplingConfig::disabled(),
         }
     }
 
@@ -155,25 +144,12 @@ impl TailtriageBuilder {
         self
     }
 
-    #[must_use]
-    pub fn sampling(mut self, sampling: SamplingConfig) -> Self {
-        self.sampling = sampling;
-        self
-    }
-
     /// Builds one [`crate::Tailtriage`] collector for the configured service.
     ///
     /// # Errors
     ///
     /// Returns [`BuildError::EmptyServiceName`] when the configured service name is blank.
     pub fn build(self) -> Result<crate::Tailtriage, BuildError> {
-        if self
-            .sampling
-            .runtime_interval()
-            .is_some_and(|interval| interval.is_zero())
-        {
-            return Err(BuildError::InvalidRuntimeSamplingInterval);
-        }
         crate::Tailtriage::from_config(Config::from_builder(&self))
     }
 }
@@ -193,31 +169,5 @@ impl RequestOptions {
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());
         self
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SamplingConfig {
-    runtime_interval: Option<Duration>,
-}
-
-impl SamplingConfig {
-    #[must_use]
-    pub const fn disabled() -> Self {
-        Self {
-            runtime_interval: None,
-        }
-    }
-
-    #[must_use]
-    pub const fn runtime(interval: Duration) -> Self {
-        Self {
-            runtime_interval: Some(interval),
-        }
-    }
-
-    #[must_use]
-    pub const fn runtime_interval(&self) -> Option<Duration> {
-        self.runtime_interval
     }
 }

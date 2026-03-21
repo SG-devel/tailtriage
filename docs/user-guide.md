@@ -135,16 +135,17 @@ Enable runtime snapshots when queue/stage instrumentation is still ambiguous:
 ```rust
 use std::time::Duration;
 use std::sync::Arc;
-use tailtriage_core::{SamplingConfig, Tailtriage};
+use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
 
 let tailtriage = Arc::new(
     Tailtriage::builder("checkout-service")
-        .sampling(SamplingConfig::runtime(Duration::from_millis(200)))
         .build()?,
 );
-let sampler = RuntimeSampler::start_configured(Arc::clone(&tailtriage))?
-    .expect("sampling is enabled");
+let sampler = RuntimeSampler::start(
+    Arc::clone(&tailtriage),
+    Duration::from_millis(200),
+)?;
 // run workload
 sampler.shutdown().await;
 ```

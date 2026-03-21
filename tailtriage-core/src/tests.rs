@@ -1,8 +1,7 @@
 use std::future::ready;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use crate::{BuildError, CaptureLimits, Outcome, RequestOptions, SamplingConfig, Tailtriage};
+use crate::{BuildError, CaptureLimits, Outcome, RequestOptions, Tailtriage};
 
 #[derive(Debug, Default)]
 struct RecordingSink {
@@ -30,15 +29,6 @@ fn rejects_blank_service_name() {
         .build()
         .expect_err("blank service_name should fail");
     assert_eq!(err, BuildError::EmptyServiceName);
-}
-
-#[test]
-fn rejects_zero_runtime_sampling_interval() {
-    let err = Tailtriage::builder("payments")
-        .sampling(SamplingConfig::runtime(Duration::ZERO))
-        .build()
-        .expect_err("zero sampling interval should fail");
-    assert_eq!(err, BuildError::InvalidRuntimeSamplingInterval);
 }
 
 #[test]
