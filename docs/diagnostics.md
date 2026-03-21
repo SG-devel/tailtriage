@@ -12,6 +12,7 @@ This document explains how `tailtriage analyze` produces a triage report and how
   - `p95_queue_share_permille`
   - `p95_service_share_permille`
 - optional in-flight trend summary
+- optional truncation warnings when capture limits were hit
 - ranked suspects (one primary, zero or more secondary)
 
 Each suspect includes:
@@ -31,6 +32,7 @@ Each suspect includes:
 | `p95_queue_share_permille` | `Option<u64>` | Queue-time share of p95 request latency (0-1000). |
 | `p95_service_share_permille` | `Option<u64>` | Service/stage share of p95 request latency (0-1000). |
 | `inflight_trend` | `Option<InflightTrend>` | Dominant in-flight gauge trend when snapshots exist. |
+| `warnings` | `Vec<String>` | Analyzer warnings, including capture truncation context from run artifacts. |
 | `primary_suspect` | `Suspect` | Highest-ranked suspect. |
 | `secondary_suspects` | `Vec<Suspect>` | Remaining ranked suspects. |
 
@@ -73,6 +75,10 @@ When present:
 - `growth_per_sec_milli`
 
 Positive growth means in-flight work accumulated during the run.
+
+## Truncation interpretation
+
+If the run artifact has non-zero `truncation` counters, treat the report as diagnosis from partial data. Prioritize re-running with higher capture limits for truncated sections before ruling suspects in or out.
 
 ## Practical triage workflow
 

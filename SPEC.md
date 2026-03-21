@@ -58,6 +58,7 @@ use tailtriage_core::{Config, Tailtriage};
 
 let mut config = Config::new("invoice-api");
 config.output_path = "tailtriage-run.json".into();
+config.capture_limits.max_requests = 50_000;
 let tailtriage = Tailtriage::init(config)?;
 ```
 
@@ -160,8 +161,11 @@ Supported arguments:
 - `queues`
 - `inflight`
 - `runtime_snapshots`
+- `truncation` (per-section dropped counters when capture limits are hit)
 
 Each section captures timestamped events/snapshots used by the CLI triage rules.
+
+Capture limits are configurable through `Config.capture_limits` (`max_requests`, `max_stages`, `max_queues`, `max_inflight_snapshots`, `max_runtime_snapshots`). When limits are hit, capture is deterministically truncated for that section and analyzer output should be interpreted as evidence-ranked suspects from partial data.
 
 ## 7. Analyzer CLI (`tailtriage-cli`)
 
@@ -183,6 +187,7 @@ The report includes:
 - primary suspect
 - secondary suspects
 - per-suspect evidence + next checks
+- warnings when run capture was truncated
 
 ## Script portability strategy
 

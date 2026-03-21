@@ -8,9 +8,10 @@ mod time;
 mod timers;
 
 pub use collector::Tailtriage;
-pub use config::{CaptureMode, Config, InitError, RequestMeta};
+pub use config::{CaptureLimits, CaptureMode, Config, InitError, RequestMeta};
 pub use events::{
     InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
+    TruncationSummary,
 };
 pub use sink::{LocalJsonSink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};

@@ -6,8 +6,9 @@ use std::time::{Duration, Instant};
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
-    unix_time_ms, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueTimer, RequestEvent,
-    RequestMeta, Run, RunMetadata, RuntimeSnapshot, SinkError, StageTimer,
+    unix_time_ms, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent, QueueTimer,
+    RequestEvent, RequestMeta, Run, RunMetadata, RuntimeSnapshot, SinkError, StageEvent,
+    StageTimer,
 };
 
 /// Per-run collector that records request events and writes the final artifact.
@@ -16,6 +17,7 @@ pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
     pub(crate) sink: LocalJsonSink,
+    pub(crate) limits: crate::CaptureLimits,
 }
 
 impl Tailtriage {
@@ -45,6 +47,7 @@ impl Tailtriage {
             run: Mutex::new(run),
             inflight_counts: Mutex::new(HashMap::new()),
             sink: LocalJsonSink::new(config.output_path),
+            limits: config.capture_limits,
         })
     }
 
@@ -95,7 +98,7 @@ impl Tailtriage {
         outcome: impl Into<String>,
     ) {
         let (started_at_unix_ms, finished_at_unix_ms) = time_window_unix_ms;
-        lock_run(&self.run).requests.push(RequestEvent {
+        let event = RequestEvent {
             request_id: request_id.into(),
             route: route.into(),
             kind,
@@ -103,7 +106,8 @@ impl Tailtriage {
             finished_at_unix_ms,
             latency_us,
             outcome: outcome.into(),
-        });
+        };
+        self.record_request_event(event);
     }
 
     /// Writes the current run to the configured sink.
@@ -137,7 +141,7 @@ impl Tailtriage {
             *entry
         };
 
-        lock_run(&self.run).inflight.push(InFlightSnapshot {
+        self.record_inflight_snapshot(InFlightSnapshot {
             gauge: gauge.clone(),
             at_unix_ms: unix_time_ms(),
             count,
@@ -172,7 +176,50 @@ impl Tailtriage {
 
     /// Records one Tokio runtime metrics sample.
     pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
-        lock_run(&self.run).runtime_snapshots.push(snapshot);
+        let mut run = lock_run(&self.run);
+        if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
+            run.truncation.dropped_runtime_snapshots =
+                run.truncation.dropped_runtime_snapshots.saturating_add(1);
+        } else {
+            run.runtime_snapshots.push(snapshot);
+        }
+    }
+
+    pub(crate) fn record_stage_event(&self, event: StageEvent) {
+        let mut run = lock_run(&self.run);
+        if run.stages.len() >= self.limits.max_stages {
+            run.truncation.dropped_stages = run.truncation.dropped_stages.saturating_add(1);
+        } else {
+            run.stages.push(event);
+        }
+    }
+
+    pub(crate) fn record_queue_event(&self, event: QueueEvent) {
+        let mut run = lock_run(&self.run);
+        if run.queues.len() >= self.limits.max_queues {
+            run.truncation.dropped_queues = run.truncation.dropped_queues.saturating_add(1);
+        } else {
+            run.queues.push(event);
+        }
+    }
+
+    pub(crate) fn record_inflight_snapshot(&self, snapshot: InFlightSnapshot) {
+        let mut run = lock_run(&self.run);
+        if run.inflight.len() >= self.limits.max_inflight_snapshots {
+            run.truncation.dropped_inflight_snapshots =
+                run.truncation.dropped_inflight_snapshots.saturating_add(1);
+        } else {
+            run.inflight.push(snapshot);
+        }
+    }
+
+    fn record_request_event(&self, event: RequestEvent) {
+        let mut run = lock_run(&self.run);
+        if run.requests.len() >= self.limits.max_requests {
+            run.truncation.dropped_requests = run.truncation.dropped_requests.saturating_add(1);
+        } else {
+            run.requests.push(event);
+        }
     }
 }
 
