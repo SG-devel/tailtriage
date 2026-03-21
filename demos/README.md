@@ -25,132 +25,329 @@ Shared helper code for this setup lives in `demos/demo_support`:
 
 This keeps demo binaries focused on the triage scenario rather than boilerplate.
 
-## Demo catalog
+## Recommended public progression
+
+Use this progression when introducing `tailtriage` publicly:
+
+1. `queue_service`
+2. `downstream_service`
+3. `db_pool_saturation_service`
+4. `shared_state_lock_service`
+5. `retry_storm_service`
+6. `mixed_contention_service`
+7. `cold_start_burst_service`
+8. `blocking_service`
+9. `executor_pressure_service`
+
+This is an explanatory-value order, not an implementation-completeness order.
+
+## Core public proof demos
+
+These are the strongest public proof cases and should usually be run first.
 
 ### `queue_service`
 
-**What happens**
+**What it simulates**
 
 - Requests compete for a limited semaphore (`worker_permit`).
 - Baseline has tighter capacity and slower work; mitigated raises capacity and shortens work.
 
-**Triage being exercised**
+**What it proves well**
 
-- Primary suspect should emphasize application queueing.
-- Evidence should reference queue depth and queue share.
-- Mitigation should reduce queue-dominant evidence and suspect score.
+- One of the strongest demos.
+- Clear and convincing proof of queue-dominant latency.
+- Good flagship public demo for first-time readers.
 
-### `blocking_service`
+**What it does not prove**
 
-**What happens**
+- It is not proof of every production queue topology or all burst regimes.
 
-- Requests dispatch to `spawn_blocking` workloads.
-- Baseline constrains `max_blocking_threads` and uses longer blocking work.
-- Runtime snapshots include a synthetic `blocking_queue_depth` signal.
+**Realistic vs synthetic**
 
-**Triage being exercised**
+- Realistic service shape, intentionally simplified and deterministic.
 
-- Primary suspect should emphasize blocking-pool pressure.
-- Evidence should point at elevated blocking queue depth alongside request timing impact.
-- Mitigation should reduce blocking pressure evidence.
+**Why it belongs**
 
-### `executor_pressure_service`
+- It is the cleanest entry point for understanding queue-saturation diagnosis.
 
-**What happens**
+**Inspect first in report**
 
-- Each request fans out many hot subtasks and does repeated CPU turns with frequent scheduling.
-- Baseline uses fewer worker threads and heavier fanout.
-- Runtime snapshots capture global/local runnable depth signals.
-
-**Triage being exercised**
-
-- Primary suspect should emphasize executor pressure/runnable backlog.
-- Evidence should reference runtime queue depth and scheduling saturation patterns.
-- Mitigation should reduce runnable backlog evidence and score.
+- `primary_suspect.kind`
+- `p95_queue_share_permille`
+- queue-depth and queue-share suspect evidence
 
 ### `downstream_service`
 
-**What happens**
+**What it simulates**
 
-- Request flow has a tiny local precheck and a consistently slower downstream stage.
-- No intentional queue bottleneck is introduced.
+- Request flow with a tiny local precheck and a consistently slower downstream stage.
+- No intentional queue bottleneck.
 
-**Triage being exercised**
+**What it proves well**
 
-- Primary suspect should emphasize downstream stage dominance.
-- Evidence should highlight stage service share (`downstream_call`) rather than admission queueing.
+- One of the strongest demos.
+- Very clean stage-dominance story.
+- Strong public proof case for downstream-led latency.
 
-### `mixed_contention_service`
+**What it does not prove**
 
-**What happens**
+- It does not model all real downstream stack complexity (fanout, retries, connection behavior).
 
-- Requests first queue for worker admission and then call a downstream stage with periodic slow outliers.
-- Baseline keeps both contention sources visible.
-- Mitigated mode reduces admission queueing while keeping downstream behavior comparable.
+**Realistic vs synthetic**
 
-**Triage being exercised**
+- Realistic diagnosis shape with deliberately simple mechanics.
 
-- Ranked suspects should keep both queueing and downstream leads visible.
-- Primary suspect can vary by machine, but evidence should justify the rank.
-- Mitigation should shift score/rank toward the remaining bottleneck.
+**Why it belongs**
 
+- Complements `queue_service` with an equally clean non-queue dominant case.
+
+**Inspect first in report**
+
+- `primary_suspect.kind`
+- `p95_service_share_permille`
+- downstream-stage suspect evidence
 
 ### `db_pool_saturation_service`
 
-**What happens**
+**What it simulates**
 
-- Requests do a tiny `app_precheck` and then queue for a bounded semaphore that represents DB connections.
-- Baseline uses a smaller DB pool and slower `db_query` stage.
-- Mitigated mode increases pool capacity and shortens the `db_query` stage.
+- Bounded DB-pool admission using a semaphore (`db_pool`).
+- Separate `db_query` stage timing.
+- Baseline shrinks pool and slows query stage; mitigated does the reverse.
 
-**Triage being exercised**
+**What it proves well**
 
-- Ranked suspects should include application queue saturation and/or downstream stage dominance.
-- Evidence should reference `queue(..., "db_pool")` wait behavior and `stage(..., "db_query")` service share.
-- Mitigation should improve p95 latency and/or primary suspect score.
+- One of the best additional demos.
+- Shows queue-like admission bottleneck and downstream stage time in one common service shape.
+- Demonstrates mixed attribution within a single request path.
+
+**What it does not prove**
+
+- Still a synthetic model of DB pool saturation.
+- Not proof of behavior under a real DB client/driver stack.
+
+**Realistic vs synthetic**
+
+- Realistic enough to be highly credible, but intentionally modeled.
+
+**Why it belongs**
+
+- Strong bridge between pure queue and pure downstream stories.
+
+**Inspect first in report**
+
+- queue evidence for `queue(..., "db_pool")`
+- stage-share evidence for `stage(..., "db_query")`
+- before/after p95 and primary suspect score
+
+## Supporting pattern demos
+
+These are valuable and should remain first-class docs, but are best after the core three demos.
 
 ### `shared_state_lock_service`
 
-**What happens**
+**What it simulates**
 
-- Requests do small pre-lock work, then contend on a shared `tokio::sync::RwLock` write lock.
-- Baseline keeps a long lock-protected critical section, which serializes many requests.
-- Mitigated mode shortens critical section hold time to reduce lock wait buildup.
+- Contention on a shared `tokio::sync::RwLock` write lock.
+- Lock wait recorded as queue-like time on `shared_state_write_lock`.
+- Critical-section work recorded separately as `shared_state_critical_section`.
 
-**Triage being exercised**
+**What it proves well**
 
-- Lock wait is instrumented as a queue-like wait (`queue(..., "shared_state_write_lock")`), so lock contention can appear as application queueing pressure.
-- Critical section execution is instrumented as a service stage (`stage(..., "shared_state_critical_section")`).
-- Mitigation should lower p95 latency and/or reduce primary suspect score.
+- Conceptually strong example of non-obvious queue-like waits.
+- Demonstrates that queue here includes lock admission waits, not only channels/semaphores.
+- Preserves critical-section stage attribution while surfacing lock admission pressure.
 
-### `cold_start_burst_service`
+**What it does not prove**
 
-**What happens**
+- Not proof that all lock-contention patterns map identically in every production design.
 
-- Early requests pay extra warmup delay in `cold_start_stage` while a burst competes for admission.
-- Baseline has larger cold-start cohort and tighter capacity.
-- Mitigated mode reduces warmup cohort and increases admission capacity.
+**Realistic vs synthetic**
 
-**Triage being exercised**
+- Realistic contention pattern with explicit instrumentation choices.
 
-- Analyzer should surface queueing and/or downstream-stage warmup leads with explicit evidence.
-- Mitigation should lower p95 and reduce primary suspect score.
+**Why it belongs**
+
+- Teaches how to instrument and triage lock-heavy paths without semantic ambiguity.
+
+**Inspect first in report**
+
+- queue evidence for `shared_state_write_lock`
+- stage evidence for `shared_state_critical_section`
+- primary suspect kind and score changes in mitigation
 
 ### `retry_storm_service`
 
-**What happens**
+**What it simulates**
 
-- Requests call an intermittently failing/slow downstream stage.
-- Each retry attempt is instrumented as its own stage timing (`downstream_attempt_N`).
-- A `downstream_total` stage wraps the full retry loop so per-request downstream share stays explicit.
-- Baseline uses aggressive retries with short backoff.
-- Mitigated mode uses capped retries, deterministic jitter, and a circuit-break style cooldown stage.
+- Intermittently failing/slow downstream with explicit retries.
+- Per-attempt stages (`downstream_attempt_N`) plus full-loop `downstream_total`.
+- Mitigation changes retry count, backoff, jitter, and circuit-break-like cooldown behavior.
 
-**Triage being exercised**
+**What it proves well**
 
-- Baseline should rank downstream stage dominance as a primary suspect with elevated service share.
-- Mitigated mode should improve p95 and lower primary suspect score.
-- Recommended next checks should include retry-policy tuning and downstream SLO alignment.
+- One of the most product-interesting demos.
+- Shows downstream dominance can come from retry policy, not just one slow call.
+- Strong diagnosis-pattern demo for advanced readers.
+
+**What it does not prove**
+
+- More conceptually advanced and more instrumentation-shaped than core proof demos.
+
+**Realistic vs synthetic**
+
+- Plausible service behavior, but intentionally structured to isolate retry-policy effects.
+
+**Why it belongs**
+
+- Helps prevent misleading latency interpretation when retries dominate service share.
+
+**Inspect first in report**
+
+- `primary_suspect.kind`
+- service-share evidence for `downstream_total`
+- retry-policy-oriented `next_checks`
+
+### `mixed_contention_service`
+
+**What it simulates**
+
+- Combined queue pressure (semaphore admission) and downstream slowness (periodic slow stage).
+- Mitigation mainly reduces admission contention so rank/score can shift.
+
+**What it proves well**
+
+- Multiple suspects can coexist in one diagnosis.
+- Useful supporting demo showing the analyzer is not single-cause-only.
+
+**What it does not prove**
+
+- Less crisp than queue-only or downstream-only stories, so not ideal as first public proof.
+
+**Realistic vs synthetic**
+
+- Realistic mixed-bottleneck shape with controlled deterministic contours.
+
+**Why it belongs**
+
+- Important second-wave demo for multi-factor triage interpretation.
+
+**Inspect first in report**
+
+- top two suspects and their evidence
+- whether both queue and downstream leads remain visible
+- before/after suspect-rank or score shift
+
+### `cold_start_burst_service`
+
+**What it simulates**
+
+- Early cohort pays extra `cold_start_stage` delay while burst traffic competes for admission.
+- Mitigation reduces cold cohort and increases admission capacity.
+
+**What it proves well**
+
+- Useful warmup-plus-burst explanation.
+- Shows how stage-level pathology can induce queue effects.
+
+**What it does not prove**
+
+- Less universal than queue/downstream/DB-pool scenarios.
+- Models cold start with explicit stage instrumentation, not full platform/framework startup behavior.
+
+**Realistic vs synthetic**
+
+- Plausible but scenario-specific.
+
+**Why it belongs**
+
+- Broadens triage examples beyond steady-state bottlenecks.
+
+**Inspect first in report**
+
+- evidence tied to `cold_start_stage`
+- queue-share impact and p95 changes
+- primary suspect score reduction after mitigation
+
+## More synthetic analyzer-contract demos
+
+These remain useful and should stay documented, but docs should treat them as more synthetic proofs.
+
+### `blocking_service`
+
+**What it simulates**
+
+- Requests dispatch to `spawn_blocking` workloads.
+- Baseline constrains `max_blocking_threads` and uses longer blocking work.
+- Runtime snapshots include synthetic `blocking_queue_depth` signals.
+
+**What it proves well**
+
+- Directionally useful for exercising blocking-pool-pressure diagnosis behavior.
+
+**What it does not prove**
+
+- More synthetic than a strongest real-world proof case.
+
+**Realistic vs synthetic**
+
+- Intentionally synthetic analyzer-contract demo.
+
+**Why it belongs**
+
+- Keeps blocking-pressure diagnosis pathways directly testable.
+
+**Inspect first in report**
+
+- `primary_suspect.kind`
+- blocking-related evidence and runtime depth signals
+- mitigation impact on suspect score
+
+### `executor_pressure_service`
+
+**What it simulates**
+
+- Fanout-heavy request handling with repeated CPU turns and frequent scheduling.
+- Baseline uses fewer worker threads and heavier fanout.
+- Runtime snapshots include runnable-depth signals.
+
+**What it proves well**
+
+- Useful for exercising executor-pressure diagnosis and rank behavior.
+
+**What it does not prove**
+
+- Also more synthetic, because runtime backlog signals are modeled more explicitly than production services naturally expose.
+
+**Realistic vs synthetic**
+
+- Intentionally synthetic analyzer-contract demo.
+
+**Why it belongs**
+
+- Preserves explicit coverage of executor-pressure diagnosis behavior.
+
+**Inspect first in report**
+
+- executor-pressure suspect evidence
+- runnable queue-depth signals
+- contrast with blocking-depth evidence
+
+## CI validation coverage
+
+The demo docs intentionally cover a broader surface than CI currently validates continuously.
+
+In `.github/workflows/ci.yml`, continuous validation currently runs:
+
+- `queue`
+- `downstream`
+- `db-pool`
+- `mixed`
+- `cold-start`
+- `blocking`
+- `executor`
+
+`shared-lock` and `retry-storm` remain documented and fixture-backed, but currently have weaker continuous validation coverage than the list above.
 
 ## Typical local workflow
 
@@ -158,11 +355,14 @@ This keeps demo binaries focused on the triage scenario rather than boilerplate.
 python3 scripts/demo_tool.py run queue
 python3 scripts/demo_tool.py validate queue
 
-python3 scripts/demo_tool.py run blocking
-python3 scripts/demo_tool.py validate blocking
+python3 scripts/demo_tool.py run downstream
+python3 scripts/demo_tool.py validate downstream
+
+python3 scripts/demo_tool.py run db-pool
+python3 scripts/demo_tool.py validate db-pool
 ```
 
-Repeat for the remaining demos (`executor`, `downstream`, `mixed`, `cold-start`, `db-pool`, `shared-lock`, `retry-storm`).
+Then continue through `shared-lock`, `retry-storm`, `mixed`, `cold-start`, `blocking`, and `executor`.
 
 For runtime-cost overhead measurement (separate from suspect-ranking triage), run `python3 scripts/measure_runtime_cost.py` and see `docs/runtime-cost.md` for usage details and interpretation guidance.
 

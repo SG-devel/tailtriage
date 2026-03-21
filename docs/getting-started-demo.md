@@ -4,6 +4,48 @@ Use demos to validate diagnosis behavior with deterministic fixtures.
 
 For a scenario-by-scenario explanation of what each demo simulates, what triage it is intended to exercise, and what setup is shared, see **[`demos/README.md`](../demos/README.md)**.
 
+## Recommended public progression
+
+To evaluate `tailtriage` quickly and honestly, run demos in this order:
+
+1. `queue_service`
+2. `downstream_service`
+3. `db_pool_saturation_service`
+4. `shared_state_lock_service`
+5. `retry_storm_service`
+6. `mixed_contention_service`
+7. `cold_start_burst_service`
+8. `blocking_service`
+9. `executor_pressure_service`
+
+This order reflects explanatory clarity and public credibility, not implementation completeness.
+
+## Demo tiers and what they are for
+
+### Core public proof demos
+
+These are the strongest public proof cases:
+
+- `queue_service`
+- `downstream_service`
+- `db_pool_saturation_service`
+
+### Supporting pattern demos
+
+These are valuable second-wave demos:
+
+- `shared_state_lock_service`
+- `retry_storm_service`
+- `mixed_contention_service`
+- `cold_start_burst_service`
+
+### More synthetic analyzer-contract demos
+
+These remain useful, but are more synthetic than the first two tiers:
+
+- `blocking_service`
+- `executor_pressure_service`
+
 ## Artifact policy
 
 - `demos/*/artifacts/`: generated, untracked local outputs.
@@ -15,14 +57,17 @@ For a scenario-by-scenario explanation of what each demo simulates, what triage 
 python3 scripts/demo_tool.py run queue
 python3 scripts/demo_tool.py validate queue
 
-python3 scripts/demo_tool.py run blocking
-python3 scripts/demo_tool.py validate blocking
-
-python3 scripts/demo_tool.py run executor
-python3 scripts/demo_tool.py validate executor
-
 python3 scripts/demo_tool.py run downstream
 python3 scripts/demo_tool.py validate downstream
+
+python3 scripts/demo_tool.py run db-pool
+python3 scripts/demo_tool.py validate db-pool
+
+python3 scripts/demo_tool.py run shared-lock
+python3 scripts/demo_tool.py validate shared-lock
+
+python3 scripts/demo_tool.py run retry-storm
+python3 scripts/demo_tool.py validate retry-storm
 
 python3 scripts/demo_tool.py run mixed
 python3 scripts/demo_tool.py validate mixed
@@ -30,23 +75,42 @@ python3 scripts/demo_tool.py validate mixed
 python3 scripts/demo_tool.py run cold-start
 python3 scripts/demo_tool.py validate cold-start
 
-python3 scripts/demo_tool.py run db-pool
-python3 scripts/demo_tool.py validate db-pool
+python3 scripts/demo_tool.py run blocking
+python3 scripts/demo_tool.py validate blocking
 
+python3 scripts/demo_tool.py run executor
+python3 scripts/demo_tool.py validate executor
 ```
 
-## What each demo demonstrates
+## Quick interpretation map by demo
 
-| Demo | Expected emphasis | Key fields |
-| --- | --- | --- |
-| `queue_service` | application queueing pressure | `primary_suspect.kind`, `p95_queue_share_permille`, suspect evidence |
-| `blocking_service` | blocking-pool pressure | `primary_suspect.kind`, blocking-related evidence, p95 shares |
-| `executor_pressure_service` | executor pressure / runnable backlog | `primary_suspect.kind`, runtime queue-depth evidence, low blocking-depth evidence |
-| `downstream_service` | downstream-stage dominance | `primary_suspect.kind`, `p95_service_share_permille`, suspect evidence |
-| `mixed_contention_service` | queue + downstream contention together | baseline includes both suspects; mitigation should shift rank and/or score |
-| `cold_start_burst_service` | cold-start cohort causes warmup drag and burst queueing | baseline evidence references `cold_start_stage` and/or queue pressure; mitigation lowers p95 and primary suspect score |
-| `db_pool_saturation_service` | DB pool admission + slow DB stage contention | baseline suspect includes queue saturation and/or downstream dominance; mitigation improves p95 and/or score |
-| `runtime_cost` | instrumentation overhead measurement (not suspect-ranking triage) | run via `python3 scripts/measure_runtime_cost.py`; writes `demos/runtime_cost/artifacts/` |
+Use this table for first-pass diagnosis reading. Suspects are leads, not proof.
+
+| Demo | What it proves well | What it does not prove | First report fields to inspect |
+| --- | --- | --- | --- |
+| `queue_service` | Clear, convincing queue-dominant latency story; one of the strongest flagship demos. | Not a proof of every real queue topology under production burst behavior. | `primary_suspect.kind`, `p95_queue_share_permille`, queue-depth evidence. |
+| `downstream_service` | Very clean stage-dominance story; one of the strongest public proof cases. | Not a full model of all downstream path complexity. | `primary_suspect.kind`, `p95_service_share_permille`, downstream stage evidence. |
+| `db_pool_saturation_service` | Strong split between DB admission wait (`db_pool`) and DB stage time (`db_query`) in one common service shape. | Still a synthetic DB-pool model, not proof under a real DB driver/client stack. | Queue wait evidence for `db_pool` plus stage-share evidence for `db_query`. |
+| `shared_state_lock_service` | Strong lock-contention framing: lock admission wait as queue-like pressure plus separate critical-section stage attribution. | Not a claim that all lock contention behaves identically across real services. | Queue evidence for `shared_state_write_lock` and stage evidence for `shared_state_critical_section`. |
+| `retry_storm_service` | Product-interesting diagnosis pattern: downstream dominance from retry policy, not only one slow call. | More advanced and instrumentation-shaped than core proof demos. | `primary_suspect.kind`, `downstream_total` service-share evidence, retry-policy next checks. |
+| `mixed_contention_service` | Shows multiple suspects can coexist and ranking can shift after mitigation. | Less crisp than queue-only or downstream-only proof cases. | Top two suspects, evidence mix across queue and downstream, before/after rank shift. |
+| `cold_start_burst_service` | Useful warmup-plus-burst pattern with both stage and admission effects. | Less universal than queue/downstream/DB-pool scenarios. | Evidence tied to `cold_start_stage`, queue-share impact, before/after p95 change. |
+| `blocking_service` | Directionally useful for exercising blocking-pool diagnosis behavior. | More synthetic than a strongest real-world proof case. | Blocking-pressure suspect evidence and blocking-related runtime signals. |
+| `executor_pressure_service` | Useful for exercising executor-pressure diagnosis and runnable-backlog evidence. | More synthetic because backlog signals are modeled explicitly. | Executor-pressure suspect evidence, runtime queue-depth signals, blocking-depth contrast. |
+
+## CI validation coverage caveat
+
+The documented demo surface is broader than the currently CI-validated surface. In `.github/workflows/ci.yml`, CI validates:
+
+- `queue`
+- `downstream`
+- `db-pool`
+- `mixed`
+- `cold-start`
+- `blocking`
+- `executor`
+
+At the time of writing, `shared-lock` and `retry-storm` are documented and fixture-backed, but have weaker continuous validation coverage than the demos above.
 
 ## Runtime-cost demo path (separate from triage scenarios)
 
@@ -59,22 +123,6 @@ python3 scripts/measure_runtime_cost.py
 ```
 
 For mode definitions, metrics, and interpretation details, see **[`docs/runtime-cost.md`](./runtime-cost.md)**.
-
-## Mixed-contention expected rank behavior
-
-- Baseline profile intentionally keeps both contention sources visible in report evidence:
-  - application queue saturation from semaphore worker limits
-  - downstream-stage latency from a deterministic slow-stage ratio
-- One of these is expected to be the primary suspect, and the other should appear in the ranked suspects list.
-- Mitigation profile reduces one bottleneck (worker-limit queueing), and validation expects a rank/score shift in the primary suspect.
-
-## Cold-start burst expected interpretation
-
-- `before` intentionally sends a burst while an initial cohort pays a larger `cold_start_stage` delay.
-- Diagnosis should rank either queue saturation or downstream-stage dominance as the top suspect and include evidence tied to warmup stage share and/or queue impact.
-- `after` applies a mitigated profile (smaller cold cohort + staggered startup + more admission capacity), and validation expects:
-  - lower `p95_latency_us`
-  - lower primary suspect score
 
 ## If local results differ from fixtures
 
