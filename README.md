@@ -144,4 +144,4 @@ For concise docs by audience, start at **[docs/README.md](docs/README.md)**.
 
 For the same canonical first-run workflow in walkthrough form, see **[docs/user-guide.md](docs/user-guide.md)**.
 
-For demo-specific behavior and triage expectations, see **[demos/README.md](demos/README.md)**.
+For demo-specific behavior, recommended public progression, and realism/CI-coverage caveats, see **[demos/README.md](demos/README.md)**.
