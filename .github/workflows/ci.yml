@@ -93,6 +93,12 @@ jobs:
       - name: Validate db-pool demo
         run: python3 scripts/demo_tool.py validate db-pool
 
+      - name: Validate shared-lock demo
+        run: python3 scripts/demo_tool.py validate shared-lock
+
+      - name: Validate retry-storm demo
+        run: python3 scripts/demo_tool.py validate retry-storm
+        
       - name: Measure runtime cost (non-blocking)
         continue-on-error: true
         run: python3 scripts/measure_runtime_cost.py
