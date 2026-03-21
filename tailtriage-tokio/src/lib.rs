@@ -5,8 +5,12 @@
 //! - [`instrument_request`] for request entry-point tracing and optional
 //!   request-event recording into a [`tailtriage_core::Tailtriage`] collector.
 //!
-//! Macro example:
-//! ```ignore
+//! `instrument_request` is optional convenience. You can either:
+//! - annotate handlers with the macro for request-level timing and tracing, or
+//! - call [`tailtriage_core::Tailtriage::request`] directly for explicit control.
+//!
+//! Macro example (compile-checked):
+//! ```no_run
 //! use tailtriage_core::Tailtriage;
 //! use tailtriage_tokio::instrument_request;
 //!
@@ -23,7 +27,19 @@
 //! ) -> Result<(), &'static str> {
 //!     Ok(())
 //! }
+//!
+//! # #[tokio::main(flavor = "current_thread")]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let config = tailtriage_core::Config::new("billing");
+//! # let tailtriage = Tailtriage::init(config)?;
+//! handle_invoice(&tailtriage, "req-123".to_string()).await?;
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! Runtime sampling is worth enabling when you need extra evidence to separate
+//! executor or blocking-pool pressure from application-level queue/stage waits.
+//! Keep it disabled for the lowest-overhead light runs.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,6 +83,10 @@ pub struct RuntimeSampler {
 
 impl RuntimeSampler {
     /// Starts periodic runtime metrics sampling on the current Tokio runtime.
+    ///
+    /// Use this during incident triage when runtime pressure evidence is needed
+    /// to rank suspects (for example: global queue growth or alive-task spikes).
+    /// For minimal-overhead capture, skip sampler startup.
     ///
     /// # Errors
     ///

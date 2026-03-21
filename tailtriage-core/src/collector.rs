@@ -12,6 +12,37 @@ use crate::{
 };
 
 /// Per-run collector that records request events and writes the final artifact.
+///
+/// [`Tailtriage`] is intentionally small: initialize once per process/run,
+/// wrap request futures with [`Self::request`], wrap critical await points with
+/// stage/queue helpers, then flush one JSON artifact for CLI triage.
+///
+/// # Example
+/// ```
+/// use futures_executor::block_on;
+/// use tailtriage_core::{Config, RequestMeta, Tailtriage};
+///
+/// let mut config = Config::new("api");
+/// config.output_path = std::env::temp_dir().join("tailtriage-api.json");
+/// let tailtriage = Tailtriage::init(config)?;
+///
+/// let request_id = "req-1".to_string();
+/// let meta = RequestMeta::new(request_id.clone(), "/checkout").with_kind("http");
+///
+/// block_on(tailtriage.request(meta, "ok", async {
+///     tailtriage
+///         .queue(request_id.clone(), "ingress")
+///         .await_on(async {})
+///         .await;
+///     tailtriage
+///         .stage(request_id, "db")
+///         .await_value(async {})
+///         .await;
+/// }));
+///
+/// tailtriage.flush()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug)]
 pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
@@ -154,6 +185,11 @@ impl Tailtriage {
     }
 
     /// Returns a stage timing wrapper for one awaited operation.
+    ///
+    /// Use stage wrappers for downstream work such as DB/HTTP/cache calls.
+    /// Pick [`crate::StageTimer::await_on`] when the stage naturally returns
+    /// `Result<T, E>`, or [`crate::StageTimer::await_value`] for infallible
+    /// futures where success should always be recorded as `true`.
     #[must_use]
     pub fn stage(&self, request_id: impl Into<String>, stage: impl Into<String>) -> StageTimer<'_> {
         StageTimer {
@@ -164,6 +200,9 @@ impl Tailtriage {
     }
 
     /// Returns a queue timing wrapper for one awaited operation.
+    ///
+    /// Use this around waits caused by application queueing/backpressure
+    /// (for example a semaphore permit wait or bounded channel receive).
     #[must_use]
     pub fn queue(&self, request_id: impl Into<String>, queue: impl Into<String>) -> QueueTimer<'_> {
         QueueTimer {
