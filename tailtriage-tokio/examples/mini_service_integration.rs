@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
+use tailtriage_core::Tailtriage;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
@@ -20,19 +20,21 @@ struct WorkItem {
 async fn handle_checkout(
     tailtriage: &Tailtriage,
     tx: &mpsc::Sender<WorkItem>,
-    request: CheckoutRequest,
+    input: CheckoutRequest,
 ) -> Result<(), &'static str> {
-    let meta = RequestMeta::new(request.request_id.clone(), "/checkout").with_kind("http");
-    let request_id = meta.request_id.clone();
+    let request = tailtriage
+        .begin_request("/checkout")
+        .with_request_id(input.request_id.clone())
+        .kind("http");
 
-    tailtriage
-        .request(meta, "ok", async {
+    request
+        .run("ok", async {
             let (completion_tx, completion_rx) = oneshot::channel();
 
-            tailtriage
-                .queue(request_id.clone(), "checkout_ingress")
+            request
+                .queue("checkout_ingress")
                 .await_on(tx.send(WorkItem {
-                    request,
+                    request: input,
                     completion_tx,
                 }))
                 .await
@@ -64,10 +66,11 @@ async fn run_worker(tailtriage: Arc<Tailtriage>, mut rx: mpsc::Receiver<WorkItem
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("mini-checkout-service");
-    config.output_path = "tailtriage-run.json".into();
-
-    let tailtriage = Arc::new(Tailtriage::init(config)?);
+    let tailtriage = Arc::new(
+        Tailtriage::builder("mini-checkout-service")
+            .output("tailtriage-run.json")
+            .build()?,
+    );
     let (tx, rx) = mpsc::channel(8);
 
     let worker = tokio::spawn(run_worker(Arc::clone(&tailtriage), rx));
@@ -87,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(tx);
     worker.await?;
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
 
     println!("wrote tailtriage-run.json from mini_service_integration");
     println!("next: cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json");

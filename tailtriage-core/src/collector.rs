@@ -1,48 +1,18 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use crate::config::Config;
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
-    unix_time_ms, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent, QueueTimer,
-    RequestEvent, RequestMeta, Run, RunMetadata, RuntimeSnapshot, SinkError, StageEvent,
-    StageTimer,
+    unix_time_ms, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent, QueueTimer, RequestEvent,
+    Run, RunMetadata, RuntimeSnapshot, SinkError, StageEvent, StageTimer, TailtriageBuilder,
 };
 
 /// Per-run collector that records request events and writes the final artifact.
-///
-/// [`Tailtriage`] is intentionally small: initialize once per process/run,
-/// wrap request futures with [`Self::request`], wrap critical await points with
-/// stage/queue helpers, then flush one JSON artifact for CLI triage.
-///
-/// # Example
-/// ```
-/// use futures_executor::block_on;
-/// use tailtriage_core::{Config, RequestMeta, Tailtriage};
-///
-/// let mut config = Config::new("api");
-/// config.output_path = std::env::temp_dir().join("tailtriage-api.json");
-/// let tailtriage = Tailtriage::init(config)?;
-///
-/// let request_id = "req-1".to_string();
-/// let meta = RequestMeta::new(request_id.clone(), "/checkout").with_kind("http");
-///
-/// block_on(tailtriage.request(meta, "ok", async {
-///     tailtriage
-///         .queue(request_id.clone(), "ingress")
-///         .await_on(async {})
-///         .await;
-///     tailtriage
-///         .stage(request_id, "db")
-///         .await_value(async {})
-///         .await;
-/// }));
-///
-/// tailtriage.flush()?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
 #[derive(Debug)]
 pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
@@ -52,12 +22,13 @@ pub struct Tailtriage {
 }
 
 impl Tailtriage {
-    /// Initializes tailtriage collection for one service run.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InitError::EmptyServiceName`] if `config.service_name` is blank.
-    pub fn init(config: Config) -> Result<Self, InitError> {
+    /// Starts building a new tailtriage run for `service_name`.
+    #[must_use]
+    pub fn builder(service_name: impl Into<String>) -> TailtriageBuilder {
+        TailtriageBuilder::new(service_name)
+    }
+
+    pub(crate) fn from_config(config: Config) -> Result<Self, InitError> {
         if config.service_name.trim().is_empty() {
             return Err(InitError::EmptyServiceName);
         }
@@ -82,34 +53,28 @@ impl Tailtriage {
         })
     }
 
-    /// Times one request future and records its completion as a [`RequestEvent`].
+    /// Starts one reusable request context.
+    #[must_use]
+    pub fn begin_request(&self, route: impl Into<String>) -> RequestContext<'_> {
+        RequestContext {
+            tailtriage: self,
+            request_id: generate_request_id(),
+            route: route.into(),
+            kind: None,
+            started_at_unix_ms: unix_time_ms(),
+            started: Instant::now(),
+        }
+    }
+
+    /// Writes the current run to the configured sink and closes the run.
     ///
-    /// `outcome` should represent your application-level request result (for example:
-    /// `"ok"`, `"error"`, or `"timeout"`).
-    pub async fn request<Fut, T>(
-        &self,
-        meta: RequestMeta,
-        outcome: impl Into<String>,
-        fut: Fut,
-    ) -> T
-    where
-        Fut: std::future::Future<Output = T>,
-    {
-        let started_at_unix_ms = unix_time_ms();
-        let started = Instant::now();
-        let value = fut.await;
-        let finished_at_unix_ms = unix_time_ms();
-
-        self.record_request_fields(
-            meta.request_id,
-            meta.route,
-            meta.kind,
-            (started_at_unix_ms, finished_at_unix_ms),
-            duration_to_us(started.elapsed()),
-            outcome,
-        );
-
-        value
+    /// # Errors
+    ///
+    /// Returns [`SinkError`] if writing or serialization fails.
+    pub fn shutdown(&self) -> Result<(), SinkError> {
+        let mut guard = lock_run(&self.run);
+        guard.metadata.finished_at_unix_ms = unix_time_ms();
+        self.sink.write(&guard)
     }
 
     /// Returns a clone of the current in-memory run state.
@@ -118,51 +83,12 @@ impl Tailtriage {
         lock_run(&self.run).clone()
     }
 
-    /// Records one request event using pre-computed timing and outcome fields.
-    pub fn record_request_fields(
-        &self,
-        request_id: impl Into<String>,
-        route: impl Into<String>,
-        kind: Option<String>,
-        time_window_unix_ms: (u64, u64),
-        latency_us: u64,
-        outcome: impl Into<String>,
-    ) {
-        let (started_at_unix_ms, finished_at_unix_ms) = time_window_unix_ms;
-        let event = RequestEvent {
-            request_id: request_id.into(),
-            route: route.into(),
-            kind,
-            started_at_unix_ms,
-            finished_at_unix_ms,
-            latency_us,
-            outcome: outcome.into(),
-        };
-        self.record_request_event(event);
-    }
-
-    /// Writes the current run to the configured sink.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SinkError`] if writing or serialization fails.
-    pub fn flush(&self) -> Result<(), SinkError> {
-        let mut guard = lock_run(&self.run);
-        guard.metadata.finished_at_unix_ms = unix_time_ms();
-        self.sink.write(&guard)
-    }
-
     /// Returns the output file path used by the configured sink.
     #[must_use]
     pub fn output_path(&self) -> &Path {
         self.sink.path()
     }
 
-    /// Creates an in-flight guard for `gauge`.
-    ///
-    /// The counter is incremented on creation and decremented when the returned
-    /// guard is dropped.
-    #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         let gauge = gauge.into();
         let count = {
@@ -184,13 +110,6 @@ impl Tailtriage {
         }
     }
 
-    /// Returns a stage timing wrapper for one awaited operation.
-    ///
-    /// Use stage wrappers for downstream work such as DB/HTTP/cache calls.
-    /// Pick [`crate::StageTimer::await_on`] when the stage naturally returns
-    /// `Result<T, E>`, or [`crate::StageTimer::await_value`] for infallible
-    /// futures where success should always be recorded as `true`.
-    #[must_use]
     pub fn stage(&self, request_id: impl Into<String>, stage: impl Into<String>) -> StageTimer<'_> {
         StageTimer {
             tailtriage: self,
@@ -199,11 +118,6 @@ impl Tailtriage {
         }
     }
 
-    /// Returns a queue timing wrapper for one awaited operation.
-    ///
-    /// Use this around waits caused by application queueing/backpressure
-    /// (for example a semaphore permit wait or bounded channel receive).
-    #[must_use]
     pub fn queue(&self, request_id: impl Into<String>, queue: impl Into<String>) -> QueueTimer<'_> {
         QueueTimer {
             tailtriage: self,
@@ -252,13 +166,88 @@ impl Tailtriage {
         }
     }
 
-    fn record_request_event(&self, event: RequestEvent) {
+    pub(crate) fn record_request_event(&self, event: RequestEvent) {
         let mut run = lock_run(&self.run);
         if run.requests.len() >= self.limits.max_requests {
             run.truncation.dropped_requests = run.truncation.dropped_requests.saturating_add(1);
         } else {
             run.requests.push(event);
         }
+    }
+}
+
+/// Reusable request context that carries correlation across fractured code.
+#[derive(Debug)]
+pub struct RequestContext<'a> {
+    tailtriage: &'a Tailtriage,
+    request_id: String,
+    route: String,
+    kind: Option<String>,
+    started_at_unix_ms: u64,
+    started: Instant,
+}
+
+impl RequestContext<'_> {
+    /// Overrides the generated request ID.
+    #[must_use]
+    pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
+        self.request_id = request_id.into();
+        self
+    }
+
+    /// Sets an optional semantic request kind.
+    #[must_use]
+    pub fn kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
+    }
+
+    /// Returns the request correlation ID.
+    #[must_use]
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
+    /// Records a named inflight gauge around a scope.
+    #[must_use]
+    pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
+        self.tailtriage.inflight(gauge)
+    }
+
+    /// Times one queue wait in this request context.
+    #[must_use]
+    pub fn queue(&self, queue: impl Into<String>) -> QueueTimer<'_> {
+        self.tailtriage.queue(self.request_id.clone(), queue)
+    }
+
+    /// Times one stage in this request context.
+    #[must_use]
+    pub fn stage(&self, stage: impl Into<String>) -> StageTimer<'_> {
+        self.tailtriage.stage(self.request_id.clone(), stage)
+    }
+
+    /// Completes this request context with an outcome.
+    pub fn complete(&self, outcome: impl Into<String>) {
+        let finished_at_unix_ms = unix_time_ms();
+        self.tailtriage.record_request_event(RequestEvent {
+            request_id: self.request_id.clone(),
+            route: self.route.clone(),
+            kind: self.kind.clone(),
+            started_at_unix_ms: self.started_at_unix_ms,
+            finished_at_unix_ms,
+            latency_us: duration_to_us(self.started.elapsed()),
+            outcome: outcome.into(),
+        });
+    }
+
+    /// Convenience sugar over [`Self::complete`] that awaits `fut` first.
+    pub async fn run<Fut, T>(&self, outcome: impl Into<String>, fut: Fut) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        let value = fut.await;
+        self.complete(outcome);
+        value
     }
 }
 
@@ -285,3 +274,10 @@ pub(crate) fn duration_to_us(duration: Duration) -> u64 {
 fn generate_run_id() -> String {
     format!("run-{}", unix_time_ms())
 }
+
+fn generate_request_id() -> String {
+    let sequence = REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("req-{}-{sequence}", unix_time_ms())
+}
+
+static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);

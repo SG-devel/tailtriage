@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestMeta;
 use tokio::sync::Semaphore;
 
 struct ModeSettings {
@@ -62,15 +61,17 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/mixed-contention-demo");
+            let request = tailtriage
+                .begin_request("/mixed-contention-demo")
+                .with_request_id(request_id.clone());
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("mixed_contention_inflight");
+            request
+                .run("ok", async {
+                    let _inflight = request.inflight("mixed_contention_inflight");
 
                     let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                    let permit = tailtriage
-                        .queue(request_id.clone(), "worker_permit")
+                    let permit = request
+                        .queue("worker_permit")
                         .with_depth_at_start(depth)
                         .await_on(semaphore.acquire())
                         .await
@@ -79,8 +80,8 @@ async fn main() -> anyhow::Result<()> {
 
                     let _permit = permit;
 
-                    tailtriage
-                        .stage(request_id.clone(), "app_prepare")
+                    request
+                        .stage("app_prepare")
                         .await_value(tokio::time::sleep(settings.app_stage_delay))
                         .await;
 
@@ -89,8 +90,8 @@ async fn main() -> anyhow::Result<()> {
                     } else {
                         Duration::ZERO
                     };
-                    tailtriage
-                        .stage(request_id, "downstream_call")
+                    request
+                        .stage("downstream_call")
                         .await_value(tokio::time::sleep(
                             settings.downstream_base_delay + extra_downstream,
                         ))
@@ -108,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())

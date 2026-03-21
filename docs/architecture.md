@@ -14,15 +14,14 @@
 ### `tailtriage-core`
 
 - run schema (`Run`, metadata, events, snapshots)
-- collection lifecycle (`Tailtriage::init`, `flush`, `snapshot`)
-- instrumentation wrappers (`request`, `queue`, `stage`, `inflight`)
+- collection lifecycle (`Tailtriage::builder(...).build()`, `shutdown`, `snapshot`)
+- request-context instrumentation (`begin_request`, `queue`, `stage`, `inflight`, `complete`)
 - local JSON sink (`LocalJsonSink`)
 
 ### `tailtriage-tokio`
 
 - runtime sampling (`RuntimeSampler`)
 - runtime snapshot capture (`capture_runtime_snapshot`)
-- macro re-export: `#[instrument_request]`
 
 Note: some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
 
@@ -41,9 +40,9 @@ Note: some runtime metrics require `tokio_unstable`; unavailable fields are reco
 
 ## Recommended integration sequence
 
-1. init one collector
-2. wrap request handlers
+1. build one `Tailtriage` instance
+2. start one request context per work item
 3. instrument key queue waits
 4. instrument key downstream stages
 5. optionally enable runtime sampler
-6. flush and analyze
+6. call `shutdown()` and analyze

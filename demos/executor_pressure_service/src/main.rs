@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::{unix_time_ms, RequestMeta, RuntimeSnapshot};
+use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
 struct ModeSettings {
     worker_threads: usize,
@@ -93,13 +93,15 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
         requests.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/executor-pressure");
+            let request = tailtriage
+                .begin_request("/executor-pressure")
+                .with_request_id(request_id.clone());
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("executor_pressure_inflight");
-                    tailtriage
-                        .queue(request_id.clone(), "admission")
+            request
+                .run("ok", async {
+                    let _inflight = request.inflight("executor_pressure_inflight");
+                    request
+                        .queue("admission")
                         .with_depth_at_start(runnable_backlog.fetch_add(1, Ordering::SeqCst) + 1)
                         .await_on(tokio::task::yield_now())
                         .await;
@@ -126,8 +128,8 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
                         }));
                     }
 
-                    tailtriage
-                        .stage(request_id, "executor_hot_path")
+                    request
+                        .stage("executor_hot_path")
                         .await_value(async {
                             for subtask in subtasks {
                                 subtask.await.expect("subtask should finish");
@@ -151,7 +153,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
     sampler.await.context("sampler task panicked")?;
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", output_path.display());
     Ok(())
 }

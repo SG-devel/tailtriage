@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::{RequestMeta, Tailtriage};
+use tailtriage_core::Tailtriage;
 
 #[derive(Clone, Copy)]
 struct ModeSettings {
@@ -146,19 +146,21 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/retry-storm-demo");
+            let request = tailtriage
+                .begin_request("/retry-storm-demo")
+                .with_request_id(request_id.clone());
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("retry_storm_inflight");
+            request
+                .run("ok", async {
+                    let _inflight = request.inflight("retry_storm_inflight");
 
-                    tailtriage
-                        .stage(request_id.clone(), "app_precheck")
+                    request
+                        .stage("app_precheck")
                         .await_value(tokio::time::sleep(settings.app_precheck_delay))
                         .await;
 
-                    tailtriage
-                        .stage(request_id.clone(), "downstream_total")
+                    request
+                        .stage("downstream_total")
                         .await_value(run_downstream_with_retries(
                             Arc::clone(&tailtriage),
                             request_id,
@@ -179,7 +181,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())

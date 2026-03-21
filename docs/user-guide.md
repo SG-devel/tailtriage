@@ -61,7 +61,7 @@ The installed binary name is `tailtriage`.
 
 ### 3) Capture one artifact in your app
 
-Create a `TailTriage` instance, wrap request/queue/stage boundaries, and flush the artifact to disk at shutdown.
+Create a `Tailtriage` instance with `Tailtriage::builder(...)`, start one reusable request context per work item with `begin_request(...)`, wrap explicit queue/stage boundaries, then call `shutdown()` at lifecycle end.
 
 For a concrete instrumentation shape, mirror the minimal example in [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
 

@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestMeta;
 use tokio::sync::Semaphore;
 
 struct ModeSettings {
@@ -59,20 +58,22 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/db-pool-saturation-demo");
+            let request = tailtriage
+                .begin_request("/db-pool-saturation-demo")
+                .with_request_id(request_id.clone());
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("db_pool_saturation_inflight");
+            request
+                .run("ok", async {
+                    let _inflight = request.inflight("db_pool_saturation_inflight");
 
-                    tailtriage
-                        .stage(request_id.clone(), "app_precheck")
+                    request
+                        .stage("app_precheck")
                         .await_value(tokio::time::sleep(settings.app_precheck_delay))
                         .await;
 
                     let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                    let permit = tailtriage
-                        .queue(request_id.clone(), "db_pool")
+                    let permit = request
+                        .queue("db_pool")
                         .with_depth_at_start(depth)
                         .await_on(db_pool.acquire())
                         .await
@@ -81,8 +82,8 @@ async fn main() -> anyhow::Result<()> {
 
                     let _permit = permit;
 
-                    tailtriage
-                        .stage(request_id, "db_query")
+                    request
+                        .stage("db_query")
                         .await_value(tokio::time::sleep(settings.db_query_delay))
                         .await;
                 })
@@ -98,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())
