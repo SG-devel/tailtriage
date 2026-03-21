@@ -99,6 +99,9 @@ jobs:
       - name: Validate retry-storm demo
         run: python3 scripts/demo_tool.py validate retry-storm
         
+      - name: Check demo fixture drift
+        run: python3 scripts/check_demo_fixture_drift.py
+
       - name: Measure runtime cost (non-blocking)
         continue-on-error: true
         run: python3 scripts/measure_runtime_cost.py

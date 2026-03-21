@@ -124,6 +124,18 @@ python3 scripts/measure_runtime_cost.py
 
 For mode definitions, metrics, and interpretation details, see **[`docs/runtime-cost.md`](./runtime-cost.md)**.
 
+## Demo fixture drift guard and refresh workflow
+
+`python3 scripts/check_demo_fixture_drift.py` regenerates demo analysis outputs and fails if committed fixtures are stale.
+
+When analyzer output changes intentionally, refresh fixtures with:
+
+```bash
+python3 scripts/check_demo_fixture_drift.py --refresh
+```
+
+Then review the fixture diffs, commit them, and re-run the drift guard to confirm the refresh is complete.
+
 ## If local results differ from fixtures
 
 1. rerun on an otherwise idle machine
