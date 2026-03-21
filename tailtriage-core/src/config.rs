@@ -27,6 +27,8 @@ pub struct Config {
     pub mode: CaptureMode,
     /// JSON artifact path for this run.
     pub output_path: PathBuf,
+    /// Bounded capture limits for each event/sample section.
+    pub capture_limits: CaptureLimits,
 }
 
 impl Config {
@@ -39,6 +41,29 @@ impl Config {
             run_id: None,
             mode: CaptureMode::Light,
             output_path: PathBuf::from("tailtriage-run.json"),
+            capture_limits: CaptureLimits::default(),
+        }
+    }
+}
+
+/// Limits that bound in-memory capture growth for each run section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureLimits {
+    pub max_requests: usize,
+    pub max_stages: usize,
+    pub max_queues: usize,
+    pub max_inflight_snapshots: usize,
+    pub max_runtime_snapshots: usize,
+}
+
+impl Default for CaptureLimits {
+    fn default() -> Self {
+        Self {
+            max_requests: 100_000,
+            max_stages: 200_000,
+            max_queues: 200_000,
+            max_inflight_snapshots: 200_000,
+            max_runtime_snapshots: 100_000,
         }
     }
 }

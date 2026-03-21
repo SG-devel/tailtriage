@@ -2,8 +2,8 @@ use std::future::ready;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
-    CaptureMode, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent, RequestEvent,
-    RequestMeta, Run, RunMetadata, RunSink, RuntimeSnapshot, StageEvent, Tailtriage,
+    CaptureLimits, CaptureMode, Config, InFlightSnapshot, InitError, LocalJsonSink, QueueEvent,
+    RequestEvent, RequestMeta, Run, RunMetadata, RunSink, RuntimeSnapshot, StageEvent, Tailtriage,
 };
 
 fn sample_run() -> Run {
@@ -266,6 +266,61 @@ fn stage_wrapper_records_stage_event() {
     assert_eq!(event.stage, "fetch_customer");
     assert!(event.success);
     assert!(event.finished_at_unix_ms >= event.started_at_unix_ms);
+}
+
+#[test]
+fn capture_limits_drop_events_and_track_truncation_counters() {
+    let mut config = Config::new("payments");
+    config.capture_limits = CaptureLimits {
+        max_requests: 1,
+        max_stages: 1,
+        max_queues: 1,
+        max_inflight_snapshots: 1,
+        max_runtime_snapshots: 1,
+    };
+    let tailtriage = Tailtriage::init(config).expect("init should succeed");
+
+    tailtriage.record_request_fields("req-1", "/a", None, (1, 2), 10, "ok");
+    tailtriage.record_request_fields("req-2", "/b", None, (1, 2), 10, "ok");
+    futures_executor::block_on(tailtriage.stage("req-1", "db").await_value(ready(())));
+    futures_executor::block_on(tailtriage.stage("req-1", "cache").await_value(ready(())));
+    futures_executor::block_on(tailtriage.queue("req-1", "q").await_on(ready(())));
+    futures_executor::block_on(tailtriage.queue("req-1", "q2").await_on(ready(())));
+    {
+        let _guard = tailtriage.inflight("g");
+    }
+    {
+        let _guard = tailtriage.inflight("g");
+    }
+    tailtriage.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: 1,
+        alive_tasks: Some(1),
+        global_queue_depth: None,
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+    tailtriage.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: 2,
+        alive_tasks: Some(2),
+        global_queue_depth: None,
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+
+    let run = tailtriage.snapshot();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.inflight.len(), 1);
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert_eq!(run.truncation.dropped_requests, 1);
+    assert_eq!(run.truncation.dropped_stages, 1);
+    assert_eq!(run.truncation.dropped_queues, 1);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 3);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
+    assert!(run.truncation.is_truncated());
 }
 
 #[test]
