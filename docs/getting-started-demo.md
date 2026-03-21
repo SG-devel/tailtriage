@@ -98,13 +98,15 @@ Use this table for first-pass diagnosis reading. Suspects are leads, not proof.
 | `blocking_service` | Directionally useful for exercising blocking-pool diagnosis behavior. | More synthetic than a strongest real-world proof case. | Blocking-pressure suspect evidence and blocking-related runtime signals. |
 | `executor_pressure_service` | Useful for exercising executor-pressure diagnosis and runnable-backlog evidence. | More synthetic because backlog signals are modeled explicitly. | Executor-pressure suspect evidence, runtime queue-depth signals, blocking-depth contrast. |
 
-## CI validation coverage caveat
+## CI validation coverage
 
-The documented demo surface is broader than the currently CI-validated surface. In `.github/workflows/ci.yml`, CI validates:
+The documented demo surface matches the CI validation surface. In `.github/workflows/ci.yml`, the `CI` workflow validates:
 
 - `queue`
 - `downstream`
 - `db-pool`
+- `shared-lock`
+- `retry-storm`
 - `mixed`
 - `cold-start`
 - `blocking`

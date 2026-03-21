@@ -22,7 +22,6 @@ Apply these settings to the default branch (`main`) in:
   - [x] Require branches to be up to date before merging
   - [x] Required status checks:
     - `CI`
-    - `Python Demo Checks`
 - [x] **Block force pushes**
 - [x] **Block branch deletion**
 
@@ -78,7 +77,7 @@ If you add extra topics, keep them narrowly relevant to Tokio async-service tria
 Complete this checklist before switching repository visibility from private to public:
 
 1. Apply the branch protection rule in Section 1 to `main`.
-2. Confirm required status checks are exactly `CI` and `Python Demo Checks`.
+2. Confirm required status checks are exactly `CI`.
 3. Normalize labels using Section 2.
 4. Set description and topics using Section 3.
 5. Verify README opening clearly positions `tailtriage` as a Tokio tail-latency triage toolkit.
@@ -101,9 +100,8 @@ Run these checks after changing branch rules, labels, topics, or description.
 1. Open **Settings → Branches** and confirm the `main` rule is active.
 2. Open a test PR from a branch behind `main`:
    - Verify merge is blocked until required checks pass and branch is updated.
-3. Confirm both checks appear in required checks:
+3. Confirm the required check appears in required checks:
    - `CI`
-   - `Python Demo Checks`
 4. Confirm force-push and delete controls are disabled for `main`.
 
 ### B. Label verification
