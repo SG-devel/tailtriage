@@ -54,7 +54,7 @@ MVP does **not** include:
 ### 5.1 Initialization (`tailtriage-core`)
 
 ```rust
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{RequestOptions, Tailtriage};
 
 let tailtriage = Tailtriage::builder("invoice-api")
     .light()
@@ -66,7 +66,7 @@ let tailtriage = Tailtriage::builder("invoice-api")
 
 ```rust
 let request = tailtriage
-    .request_with_id("/invoice", "req-123")
+    .request_with("/invoice", RequestOptions::new().request_id("req-123"))
     .with_kind("create_invoice");
 
 request
@@ -79,7 +79,7 @@ request
     .await_on(customer_api.fetch())
     .await?;
 
-request.complete("ok");
+request.complete(tailtriage_core::Outcome::Ok);
 ```
 
 ### 5.3 In-flight tracking
@@ -121,7 +121,7 @@ request
 For infallible stages:
 
 ```rust
-tailtriage
+request
     .stage("cache_lookup")
     .await_value(cache.refresh())
     .await;
@@ -132,26 +132,19 @@ tailtriage
 ```rust
 use std::sync::Arc;
 use std::time::Duration;
+use tailtriage_core::{SamplingConfig, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 
-let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
+let tailtriage = Arc::new(
+    Tailtriage::builder("invoice-api")
+        .sampling(SamplingConfig::runtime(Duration::from_millis(200)))
+        .build()?,
+);
+let sampler = RuntimeSampler::start_configured(Arc::clone(&tailtriage))?
+    .expect("sampling enabled");
 // ... run workload ...
 sampler.shutdown().await;
 ```
-
-### 5.7 Request attribute macro (`tailtriage-tokio`)
-
-`tailtriage-tokio` re-exports `#[request context helpers]` from `legacy macro crate (removed)` for request entry-point ergonomics.
-
-The macro always emits tracing request events. When `tailtriage = <expr>` is provided,
-it also records `RequestEvent` entries directly into the active run artifact.
-
-Supported arguments:
-- `route = <expr>` (optional; defaults to `module_path!()::fn_name`)
-- `kind = <expr>` (optional; defaults to `fn_name`)
-- `tailtriage = <expr>` (optional; enables run-artifact request recording)
-- `request_id = <expr>` (optional; defaults to a route+timestamp id when `tailtriage` is set)
-- `skip(...)` (optional; passed through to `tracing::instrument`)
 
 ## 6. Run data model
 

@@ -80,7 +80,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 cargo install tailtriage-cli
 ```
 
-3) Capture and analyze one run artifact:
+3) Capture one run artifact in your app, then analyze it:
+
+- Capture in your service with `Tailtriage::builder(...).build()?`, explicit request queue/stage wrappers, and `tailtriage.shutdown()?` at process shutdown (see [`docs/user-guide.md`](docs/user-guide.md)).
 
 ```bash
 tailtriage analyze tailtriage-run.json --format json

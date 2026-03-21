@@ -58,11 +58,13 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request =
-                tailtriage.request_with_id("/db-pool-saturation-demo", request_id.clone());
+            let request = tailtriage.request_with(
+                "/db-pool-saturation-demo",
+                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
+            );
 
             {
-                let _inflight = tailtriage.inflight("db_pool_saturation_inflight");
+                let _inflight = request.inflight("db_pool_saturation_inflight");
 
                 request
                     .stage("app_precheck")
@@ -85,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
                     .await_value(tokio::time::sleep(settings.db_query_delay))
                     .await;
             }
-            request.complete("ok");
+            request.complete(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
