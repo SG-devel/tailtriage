@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestMeta;
 use tokio::sync::Semaphore;
 
 struct ModeSettings {
@@ -59,34 +58,34 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/db-pool-saturation-demo");
+            let request =
+                tailtriage.request_with_id("/db-pool-saturation-demo", request_id.clone());
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("db_pool_saturation_inflight");
+            {
+                let _inflight = tailtriage.inflight("db_pool_saturation_inflight");
 
-                    tailtriage
-                        .stage(request_id.clone(), "app_precheck")
-                        .await_value(tokio::time::sleep(settings.app_precheck_delay))
-                        .await;
+                request
+                    .stage("app_precheck")
+                    .await_value(tokio::time::sleep(settings.app_precheck_delay))
+                    .await;
 
-                    let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                    let permit = tailtriage
-                        .queue(request_id.clone(), "db_pool")
-                        .with_depth_at_start(depth)
-                        .await_on(db_pool.acquire())
-                        .await
-                        .expect("db pool semaphore should remain open");
-                    waiting_depth.fetch_sub(1, Ordering::SeqCst);
+                let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
+                let permit = request
+                    .queue("db_pool")
+                    .with_depth_at_start(depth)
+                    .await_on(db_pool.acquire())
+                    .await
+                    .expect("db pool semaphore should remain open");
+                waiting_depth.fetch_sub(1, Ordering::SeqCst);
 
-                    let _permit = permit;
+                let _permit = permit;
 
-                    tailtriage
-                        .stage(request_id, "db_query")
-                        .await_value(tokio::time::sleep(settings.db_query_delay))
-                        .await;
-                })
-                .await;
+                request
+                    .stage("db_query")
+                    .await_value(tokio::time::sleep(settings.db_query_delay))
+                    .await;
+            }
+            request.complete("ok");
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
@@ -98,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())

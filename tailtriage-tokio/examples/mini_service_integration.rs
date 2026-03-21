@@ -1,97 +1,86 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
-use tokio::sync::{mpsc, oneshot};
+use tailtriage_core::Tailtriage;
+use tailtriage_tokio::RuntimeSampler;
 
-#[derive(Debug)]
+#[derive(Clone)]
 struct CheckoutRequest {
     request_id: String,
-    sku: &'static str,
-    quantity: u32,
+    cart_total_cents: u64,
 }
 
-#[derive(Debug)]
-struct WorkItem {
-    request: CheckoutRequest,
-    completion_tx: oneshot::Sender<Result<(), &'static str>>,
-}
-
-async fn handle_checkout(
-    tailtriage: &Tailtriage,
-    tx: &mpsc::Sender<WorkItem>,
-    request: CheckoutRequest,
+async fn authorize_payment(
+    request: &tailtriage_core::RequestContext<'_>,
 ) -> Result<(), &'static str> {
-    let meta = RequestMeta::new(request.request_id.clone(), "/checkout").with_kind("http");
-    let request_id = meta.request_id.clone();
-
-    tailtriage
-        .request(meta, "ok", async {
-            let (completion_tx, completion_rx) = oneshot::channel();
-
-            tailtriage
-                .queue(request_id.clone(), "checkout_ingress")
-                .await_on(tx.send(WorkItem {
-                    request,
-                    completion_tx,
-                }))
-                .await
-                .map_err(|_| "worker channel closed")?;
-
-            completion_rx.await.map_err(|_| "worker dropped response")?
+    request
+        .stage("payment_authorization")
+        .await_on(async {
+            tokio::time::sleep(Duration::from_millis(4)).await;
+            Ok::<(), &'static str>(())
         })
         .await
 }
 
-async fn run_worker(tailtriage: Arc<Tailtriage>, mut rx: mpsc::Receiver<WorkItem>) {
-    while let Some(work) = rx.recv().await {
-        let request_id = work.request.request_id.clone();
+async fn handle_checkout(
+    tailtriage: Arc<Tailtriage>,
+    request: CheckoutRequest,
+) -> Result<(), &'static str> {
+    let request_ctx = tailtriage
+        .request_with_id("/checkout", request.request_id)
+        .with_kind("http");
 
-        tailtriage
-            .stage(request_id.clone(), "inventory_lookup")
-            .await_value(tokio::time::sleep(Duration::from_millis(4)))
+    {
+        let _inflight = request_ctx.inflight("checkout_inflight");
+
+        request_ctx
+            .queue("checkout_permit")
+            .with_depth_at_start(2)
+            .await_on(tokio::time::sleep(Duration::from_millis(2)))
             .await;
 
-        let payment_delay_ms = if work.request.quantity > 2 { 11 } else { 6 };
-        tailtriage
-            .stage(request_id, "payment_authorization")
-            .await_value(tokio::time::sleep(Duration::from_millis(payment_delay_ms)))
+        request_ctx
+            .stage("inventory_lookup")
+            .await_on(async {
+                tokio::time::sleep(Duration::from_millis(3)).await;
+                Ok::<(), &'static str>(())
+            })
+            .await?;
+
+        request_ctx
+            .stage("pricing")
+            .await_value(tokio::time::sleep(Duration::from_millis(
+                request.cart_total_cents / 50,
+            )))
             .await;
 
-        let _ = work.completion_tx.send(Ok(()));
+        authorize_payment(&request_ctx).await?;
     }
+    request_ctx.complete("ok");
+    Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("mini-checkout-service");
-    config.output_path = "tailtriage-run.json".into();
+    let tailtriage = Arc::new(
+        Tailtriage::builder("mini-checkout-service")
+            .output(std::env::temp_dir().join("tailtriage-mini-service.json"))
+            .investigation()
+            .build()?,
+    );
 
-    let tailtriage = Arc::new(Tailtriage::init(config)?);
-    let (tx, rx) = mpsc::channel(8);
+    let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))?;
 
-    let worker = tokio::spawn(run_worker(Arc::clone(&tailtriage), rx));
+    let request = CheckoutRequest {
+        request_id: "req-123".to_string(),
+        cart_total_cents: 240,
+    };
 
-    for index in 0..12 {
-        let request = CheckoutRequest {
-            request_id: format!("checkout-{index}"),
-            sku: "SKU-123",
-            quantity: if index % 4 == 0 { 3 } else { 1 },
-        };
+    handle_checkout(Arc::clone(&tailtriage), request).await?;
 
-        if request.sku.starts_with("SKU-") {
-            handle_checkout(&tailtriage, &tx, request).await?;
-        }
-    }
+    sampler.shutdown().await;
+    tailtriage.shutdown()?;
 
-    drop(tx);
-    worker.await?;
-
-    tailtriage.flush()?;
-
-    println!("wrote tailtriage-run.json from mini_service_integration");
-    println!("next: cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json");
-    println!("inspect first: primary_suspect.kind, evidence[], next_checks[]");
-
+    println!("artifact: {}", tailtriage.output_path().display());
     Ok(())
 }
