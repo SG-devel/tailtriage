@@ -1,17 +1,17 @@
 {
   "request_count": 320,
-  "p50_latency_us": 5907090,
-  "p95_latency_us": 6004079,
-  "p99_latency_us": 6030449,
-  "p95_queue_share_permille": 55,
+  "p50_latency_us": 4154430,
+  "p95_latency_us": 4243755,
+  "p99_latency_us": 4272221,
+  "p95_queue_share_permille": 61,
   "p95_service_share_permille": 999,
   "inflight_trend": {
     "gauge": "executor_pressure_inflight",
     "sample_count": 640,
     "peak_count": 320,
     "p95_count": 304,
-    "growth_delta": 3,
-    "growth_per_sec_milli": 495
+    "growth_delta": 5,
+    "growth_per_sec_milli": 1161
   },
   "warnings": [],
   "primary_suspect": {
@@ -20,7 +20,7 @@
     "confidence": "high",
     "evidence": [
       "Runtime global queue depth p95 is 320, suggesting scheduler contention.",
-      "In-flight gauge 'executor_pressure_inflight' growth is positive (delta=3, peak=320), consistent with accumulating executor pressure."
+      "In-flight gauge 'executor_pressure_inflight' growth is positive (delta=5, peak=320), consistent with accumulating executor pressure."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
@@ -33,9 +33,9 @@
       "score": 79,
       "confidence": "medium",
       "evidence": [
-        "Stage 'executor_hot_path' has p95 latency 5934696 us across 320 samples.",
-        "Stage 'executor_hot_path' cumulative latency is 1825447296 us.",
-        "Stage 'executor_hot_path' contributes 975 permille of cumulative request latency."
+        "Stage 'executor_hot_path' has p95 latency 4201649 us across 320 samples.",
+        "Stage 'executor_hot_path' cumulative latency is 1279186169 us.",
+        "Stage 'executor_hot_path' contributes 970 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'executor_hot_path'.",

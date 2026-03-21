@@ -1,34 +1,29 @@
 use std::time::Duration;
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
+use tailtriage_core::{Outcome, Tailtriage};
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("minimal-checkout");
-    config.output_path = "tailtriage-run.json".into();
+    let output_path = std::env::temp_dir().join("tailtriage_minimal_checkout.json");
 
-    let tailtriage = Tailtriage::init(config)?;
+    let tailtriage = Tailtriage::builder("minimal-checkout")
+        .output(&output_path)
+        .build()?;
 
-    let meta = RequestMeta::for_route("/checkout").with_kind("http");
-    let request_id = meta.request_id.clone();
-
-    tailtriage
-        .request(meta, "ok", async {
-            tailtriage
-                .queue(request_id.clone(), "ingress_queue")
-                .await_on(tokio::time::sleep(Duration::from_millis(3)))
-                .await;
-
-            tailtriage
-                .stage(request_id, "db_call")
-                .await_value(tokio::time::sleep(Duration::from_millis(8)))
-                .await;
-        })
+    let req = tailtriage.request("/checkout").with_kind("place_order");
+    let _inflight = req.inflight("checkout_inflight");
+    req.queue("admission")
+        .with_depth_at_start(3)
+        .await_on(tokio::time::sleep(Duration::from_millis(4)))
         .await;
+    req.stage("db")
+        .await_on(async {
+            tokio::time::sleep(Duration::from_millis(12)).await;
+            Ok::<(), &'static str>(())
+        })
+        .await?;
+    req.complete(Outcome::Ok);
 
-    tailtriage.flush()?;
-
-    println!("wrote tailtriage-run.json");
-    println!("next: cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json");
-
+    tailtriage.shutdown()?;
+    println!("wrote {}", output_path.display());
     Ok(())
 }

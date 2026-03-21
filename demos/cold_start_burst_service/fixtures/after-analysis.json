@@ -1,8 +1,8 @@
 {
   "request_count": 220,
-  "p50_latency_us": 8472,
-  "p95_latency_us": 8793,
-  "p99_latency_us": 8930,
+  "p50_latency_us": 8391,
+  "p95_latency_us": 8666,
+  "p99_latency_us": 11625,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 999,
   "inflight_trend": {
@@ -19,9 +19,9 @@
     "score": 79,
     "confidence": "medium",
     "evidence": [
-      "Stage 'cold_start_stage' has p95 latency 8757 us across 220 samples.",
-      "Stage 'cold_start_stage' cumulative latency is 1813418 us.",
-      "Stage 'cold_start_stage' contributes 997 permille of cumulative request latency."
+      "Stage 'cold_start_stage' has p95 latency 8652 us across 220 samples.",
+      "Stage 'cold_start_stage' cumulative latency is 1814179 us.",
+      "Stage 'cold_start_stage' contributes 998 permille of cumulative request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'cold_start_stage'.",

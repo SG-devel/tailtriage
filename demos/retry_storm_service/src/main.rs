@@ -1,9 +1,8 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::{RequestMeta, Tailtriage};
+use tailtriage_core::{Outcome, RequestContext, RequestOptions};
 
 #[derive(Clone, Copy)]
 struct ModeSettings {
@@ -83,8 +82,7 @@ fn downstream_outcome(request_number: u64, attempt: u8) -> (Duration, Downstream
 }
 
 async fn run_downstream_with_retries(
-    tailtriage: Arc<Tailtriage>,
-    request_id: String,
+    req: &RequestContext<'_>,
     request_number: u64,
     settings: ModeSettings,
 ) {
@@ -94,8 +92,8 @@ async fn run_downstream_with_retries(
         let stage = attempt_stage_name(attempt);
         let (latency, outcome) = downstream_outcome(request_number, attempt);
 
-        let succeeded = tailtriage
-            .stage(request_id.clone(), stage)
+        let succeeded = req
+            .stage(stage)
             .await_value(async {
                 tokio::time::sleep(latency).await;
                 matches!(outcome, DownstreamResult::Ok)
@@ -112,8 +110,7 @@ async fn run_downstream_with_retries(
         }
 
         if consecutive_failures >= settings.breaker_fail_threshold {
-            tailtriage
-                .stage(request_id.clone(), "retry_circuit_open")
+            req.stage("retry_circuit_open")
                 .await_value(tokio::time::sleep(settings.breaker_cooldown))
                 .await;
             return;
@@ -124,8 +121,7 @@ async fn run_downstream_with_retries(
             .saturating_mul(u32::from(attempt) + 1)
             + deterministic_jitter(request_number, attempt, settings.jitter_divisor);
 
-        tailtriage
-            .stage(request_id.clone(), "retry_backoff_wait")
+        req.stage("retry_backoff_wait")
             .await_value(tokio::time::sleep(backoff))
             .await;
     }
@@ -141,33 +137,26 @@ async fn main() -> anyhow::Result<()> {
     let mut tasks = Vec::with_capacity(mode_settings.offered_requests as usize);
 
     for request_number in 0..mode_settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let tailtriage = tailtriage.clone();
         let settings = mode_settings;
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/retry-storm-demo");
+            let req = tailtriage.request_with(
+                "/retry-storm-demo",
+                RequestOptions::new().request_id(request_id),
+            );
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("retry_storm_inflight");
+            let _inflight = req.inflight("retry_storm_inflight");
 
-                    tailtriage
-                        .stage(request_id.clone(), "app_precheck")
-                        .await_value(tokio::time::sleep(settings.app_precheck_delay))
-                        .await;
-
-                    tailtriage
-                        .stage(request_id.clone(), "downstream_total")
-                        .await_value(run_downstream_with_retries(
-                            Arc::clone(&tailtriage),
-                            request_id,
-                            request_number,
-                            settings,
-                        ))
-                        .await;
-                })
+            req.stage("app_precheck")
+                .await_value(tokio::time::sleep(settings.app_precheck_delay))
                 .await;
+
+            req.stage("downstream_total")
+                .await_value(run_downstream_with_retries(&req, request_number, settings))
+                .await;
+            req.complete(Outcome::Ok);
         }));
 
         if request_number % mode_settings.inter_arrival_pause_every == 0 {
@@ -179,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())

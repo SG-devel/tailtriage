@@ -1,17 +1,17 @@
 {
   "request_count": 180,
-  "p50_latency_us": 9250,
-  "p95_latency_us": 29421,
-  "p99_latency_us": 29678,
+  "p50_latency_us": 9407,
+  "p95_latency_us": 29375,
+  "p99_latency_us": 29787,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
     "gauge": "retry_storm_inflight",
     "sample_count": 360,
-    "peak_count": 16,
+    "peak_count": 18,
     "p95_count": 15,
     "growth_delta": -1,
-    "growth_per_sec_milli": -4739
+    "growth_per_sec_milli": -4784
   },
   "warnings": [],
   "primary_suspect": {
@@ -19,8 +19,8 @@
     "score": 76,
     "confidence": "medium",
     "evidence": [
-      "Stage 'downstream_total' has p95 latency 27315 us across 180 samples.",
-      "Stage 'downstream_total' cumulative latency is 2138366 us.",
+      "Stage 'downstream_total' has p95 latency 27310 us across 180 samples.",
+      "Stage 'downstream_total' cumulative latency is 2147965 us.",
       "Stage 'downstream_total' contributes 848 permille of cumulative request latency."
     ],
     "next_checks": [

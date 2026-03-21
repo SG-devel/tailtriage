@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 993912,
-  "p95_latency_us": 1190539,
-  "p99_latency_us": 1207352,
+  "p50_latency_us": 990982,
+  "p95_latency_us": 1188635,
+  "p99_latency_us": 1205092,
   "p95_queue_share_permille": 993,
-  "p95_service_share_permille": 329,
+  "p95_service_share_permille": 330,
   "inflight_trend": {
     "gauge": "cold_start_burst_inflight",
     "sample_count": 440,
     "peak_count": 220,
     "p95_count": 209,
-    "growth_delta": 1,
-    "growth_per_sec_milli": 816
+    "growth_delta": 2,
+    "growth_per_sec_milli": 1639
   },
   "warnings": [],
   "primary_suspect": {
@@ -21,7 +21,7 @@
     "evidence": [
       "Queue wait at p95 consumes 99.3% of request time.",
       "Observed queue depth sample up to 216.",
-      "In-flight gauge 'cold_start_burst_inflight' grew by 1 over the run window (p95=209, peak=220)."
+      "In-flight gauge 'cold_start_burst_inflight' grew by 2 over the run window (p95=209, peak=220)."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -34,8 +34,8 @@
       "score": 55,
       "confidence": "low",
       "evidence": [
-        "Stage 'cold_start_stage' has p95 latency 63606 us across 220 samples.",
-        "Stage 'cold_start_stage' cumulative latency is 4878331 us.",
+        "Stage 'cold_start_stage' has p95 latency 63424 us across 220 samples.",
+        "Stage 'cold_start_stage' cumulative latency is 4869302 us.",
         "Stage 'cold_start_stage' contributes 24 permille of cumulative request latency."
       ],
       "next_checks": [
