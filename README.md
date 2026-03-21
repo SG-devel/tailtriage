@@ -39,6 +39,14 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 
 This writes `tailtriage-run.json` in the current directory.
 
+Want a small **adoption-confidence** example that looks more like a service than the synthetic demos? Run:
+
+```bash
+cargo run -p tailtriage-tokio --example mini_service_integration
+```
+
+That example is intentionally outside `demos/` and exists only as a realistic integration reference (not a production case study).
+
 2) Analyze that artifact with the workspace CLI crate:
 
 ```bash
