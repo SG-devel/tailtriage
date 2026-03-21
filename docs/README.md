@@ -4,8 +4,9 @@ Use this page as the single entry point for project documentation.
 
 ## Start here
 
-- **First use / integration:** [user-guide.md](user-guide.md)
+- **Canonical first run (capture -> analyze -> interpret):** [user-guide.md](user-guide.md)
 - **How triage analysis works:** [diagnostics.md](diagnostics.md)
+- **Before/after proof workflow (secondary):** [../demos/retry_storm_service/fixtures/before-after-comparison.json](../demos/retry_storm_service/fixtures/before-after-comparison.json)
 
 ## Core references
 
