@@ -145,7 +145,10 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with_id("/retry-storm-demo", request_id);
+            let request = tailtriage.request_with(
+                "/retry-storm-demo",
+                tailtriage_core::RequestOptions::new().request_id(request_id),
+            );
 
             {
                 let _inflight = request.inflight("retry_storm_inflight");
@@ -164,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
                     ))
                     .await;
             }
-            request.complete("ok");
+            request.complete(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % mode_settings.inter_arrival_pause_every == 0 {

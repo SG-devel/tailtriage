@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+
+use crate::{LocalJsonSink, RunSink};
 
 /// Capture mode used during a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,14 +38,15 @@ impl Default for CaptureLimits {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub(crate) struct Config {
     pub service_name: String,
     pub service_version: Option<String>,
     pub run_id: Option<String>,
     pub mode: CaptureMode,
-    pub output_path: PathBuf,
+    pub sink: Arc<dyn RunSink + Send + Sync>,
     pub capture_limits: CaptureLimits,
+    pub sampling: SamplingConfig,
 }
 
 impl Config {
@@ -51,8 +56,9 @@ impl Config {
             service_version: builder.service_version.clone(),
             run_id: builder.run_id.clone(),
             mode: builder.mode,
-            output_path: builder.output_path.clone(),
+            sink: Arc::clone(&builder.sink),
             capture_limits: builder.capture_limits,
+            sampling: builder.sampling,
         }
     }
 }
@@ -62,12 +68,17 @@ impl Config {
 pub enum BuildError {
     /// Service name was empty.
     EmptyServiceName,
+    /// Runtime sampling interval was zero.
+    InvalidRuntimeSamplingInterval,
 }
 
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::InvalidRuntimeSamplingInterval => {
+                write!(f, "runtime sampling interval must be greater than zero")
+            }
         }
     }
 }
@@ -75,14 +86,15 @@ impl std::fmt::Display for BuildError {
 impl std::error::Error for BuildError {}
 
 /// Builder for constructing a [`crate::Tailtriage`] run.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct TailtriageBuilder {
     pub(crate) service_name: String,
     pub(crate) service_version: Option<String>,
     pub(crate) run_id: Option<String>,
     pub(crate) mode: CaptureMode,
-    pub(crate) output_path: PathBuf,
+    pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) capture_limits: CaptureLimits,
+    pub(crate) sampling: SamplingConfig,
 }
 
 impl TailtriageBuilder {
@@ -92,8 +104,9 @@ impl TailtriageBuilder {
             service_version: None,
             run_id: None,
             mode: CaptureMode::Light,
-            output_path: PathBuf::from("tailtriage-run.json"),
+            sink: Arc::new(LocalJsonSink::new("tailtriage-run.json")),
             capture_limits: CaptureLimits::default(),
+            sampling: SamplingConfig::disabled(),
         }
     }
 
@@ -111,7 +124,16 @@ impl TailtriageBuilder {
 
     #[must_use]
     pub fn output(mut self, output_path: impl AsRef<Path>) -> Self {
-        self.output_path = output_path.as_ref().to_path_buf();
+        self.sink = Arc::new(LocalJsonSink::new(output_path));
+        self
+    }
+
+    #[must_use]
+    pub fn sink<S>(mut self, sink: S) -> Self
+    where
+        S: RunSink + Send + Sync + 'static,
+    {
+        self.sink = Arc::new(sink);
         self
     }
 
@@ -133,12 +155,69 @@ impl TailtriageBuilder {
         self
     }
 
+    #[must_use]
+    pub fn sampling(mut self, sampling: SamplingConfig) -> Self {
+        self.sampling = sampling;
+        self
+    }
+
     /// Builds one [`crate::Tailtriage`] collector for the configured service.
     ///
     /// # Errors
     ///
     /// Returns [`BuildError::EmptyServiceName`] when the configured service name is blank.
     pub fn build(self) -> Result<crate::Tailtriage, BuildError> {
+        if self
+            .sampling
+            .runtime_interval()
+            .is_some_and(|interval| interval.is_zero())
+        {
+            return Err(BuildError::InvalidRuntimeSamplingInterval);
+        }
         crate::Tailtriage::from_config(Config::from_builder(&self))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RequestOptions {
+    pub request_id: Option<String>,
+}
+
+impl RequestOptions {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
+        self.request_id = Some(request_id.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SamplingConfig {
+    runtime_interval: Option<Duration>,
+}
+
+impl SamplingConfig {
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self {
+            runtime_interval: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn runtime(interval: Duration) -> Self {
+        Self {
+            runtime_interval: Some(interval),
+        }
+    }
+
+    #[must_use]
+    pub const fn runtime_interval(&self) -> Option<Duration> {
+        self.runtime_interval
     }
 }

@@ -93,10 +93,13 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
         requests.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with_id("/executor-pressure", request_id.clone());
+            let request = tailtriage.request_with(
+                "/executor-pressure",
+                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
+            );
 
             {
-                let _inflight = tailtriage.inflight("executor_pressure_inflight");
+                let _inflight = request.inflight("executor_pressure_inflight");
                 request
                     .queue("admission")
                     .with_depth_at_start(runnable_backlog.fetch_add(1, Ordering::SeqCst) + 1)
@@ -136,7 +139,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
                 runnable_backlog.fetch_sub(1, Ordering::SeqCst);
             }
-            request.complete("ok");
+            request.complete(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.burst_pause_every == 0 {

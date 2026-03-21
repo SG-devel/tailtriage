@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{Outcome, RequestOptions, SamplingConfig, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 
 #[derive(Clone)]
@@ -27,7 +27,10 @@ async fn handle_checkout(
     request: CheckoutRequest,
 ) -> Result<(), &'static str> {
     let request_ctx = tailtriage
-        .request_with_id("/checkout", request.request_id)
+        .request_with(
+            "/checkout",
+            RequestOptions::new().request_id(request.request_id),
+        )
         .with_kind("http");
 
     {
@@ -56,20 +59,23 @@ async fn handle_checkout(
 
         authorize_payment(&request_ctx).await?;
     }
-    request_ctx.complete("ok");
+    request_ctx.complete(Outcome::Ok);
     Ok(())
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let output_path = std::env::temp_dir().join("tailtriage-mini-service.json");
     let tailtriage = Arc::new(
         Tailtriage::builder("mini-checkout-service")
-            .output(std::env::temp_dir().join("tailtriage-mini-service.json"))
+            .output(&output_path)
+            .sampling(SamplingConfig::runtime(Duration::from_millis(5)))
             .investigation()
             .build()?,
     );
 
-    let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))?;
+    let sampler =
+        RuntimeSampler::start_configured(Arc::clone(&tailtriage))?.expect("sampling configured");
 
     let request = CheckoutRequest {
         request_id: "req-123".to_string(),
@@ -81,6 +87,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sampler.shutdown().await;
     tailtriage.shutdown()?;
 
-    println!("artifact: {}", tailtriage.output_path().display());
+    println!("artifact: {}", output_path.display());
     Ok(())
 }
