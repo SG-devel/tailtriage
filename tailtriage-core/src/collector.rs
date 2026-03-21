@@ -9,8 +9,7 @@ use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
     unix_time_ms, BuildError, InFlightSnapshot, Outcome, QueueEvent, QueueTimer, RequestEvent,
-    RequestOptions, Run, RunMetadata, RuntimeSnapshot, SamplingConfig, SinkError, StageEvent,
-    StageTimer,
+    RequestOptions, Run, RunMetadata, RuntimeSnapshot, SinkError, StageEvent, StageTimer,
 };
 
 /// Per-run collector that records request events and writes the final artifact.
@@ -19,14 +18,12 @@ pub struct Tailtriage {
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) limits: crate::CaptureLimits,
-    pub(crate) sampling: SamplingConfig,
 }
 
 impl std::fmt::Debug for Tailtriage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Tailtriage")
             .field("limits", &self.limits)
-            .field("sampling", &self.sampling)
             .finish_non_exhaustive()
     }
 }
@@ -71,7 +68,6 @@ impl Tailtriage {
             inflight_counts: Mutex::new(HashMap::new()),
             sink: config.sink,
             limits: config.capture_limits,
-            sampling: config.sampling,
         })
     }
 
@@ -140,8 +136,10 @@ impl Tailtriage {
         }
     }
 
-    /// Records one Tokio runtime metrics sample.
-    #[doc(hidden)]
+    /// Records one runtime metrics sample captured by an integration crate.
+    ///
+    /// This is an intentional extension point for runtime-specific integrations
+    /// (for example, `tailtriage-tokio`) and for advanced custom samplers.
     pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
         let mut run = lock_run(&self.run);
         if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
@@ -150,11 +148,6 @@ impl Tailtriage {
         } else {
             run.runtime_snapshots.push(snapshot);
         }
-    }
-
-    #[must_use]
-    pub const fn runtime_sampling_interval(&self) -> Option<Duration> {
-        self.sampling.runtime_interval()
     }
 
     pub(crate) fn record_stage_event(&self, event: StageEvent) {

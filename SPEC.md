@@ -132,16 +132,17 @@ request
 ```rust
 use std::sync::Arc;
 use std::time::Duration;
-use tailtriage_core::{SamplingConfig, Tailtriage};
+use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
 
 let tailtriage = Arc::new(
     Tailtriage::builder("invoice-api")
-        .sampling(SamplingConfig::runtime(Duration::from_millis(200)))
         .build()?,
 );
-let sampler = RuntimeSampler::start_configured(Arc::clone(&tailtriage))?
-    .expect("sampling enabled");
+let sampler = RuntimeSampler::start(
+    Arc::clone(&tailtriage),
+    Duration::from_millis(200),
+)?;
 // ... run workload ...
 sampler.shutdown().await;
 ```

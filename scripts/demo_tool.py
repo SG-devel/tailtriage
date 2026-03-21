@@ -480,10 +480,13 @@ def validate_db_pool(root_dir: Path) -> None:
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
 
-    if after_p95 >= before_p95 and after_score >= before_score:
+    if after_p95 >= before_p95:
         raise SystemExit(
-            "expected mitigation to improve p95 and/or primary suspect score, "
-            f"got p95 {before_p95}->{after_p95} and score {before_score}->{after_score}"
+            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
+        )
+    if after_score >= before_score:
+        raise SystemExit(
+            f"expected mitigated primary suspect score to drop, got before={before_score} after={after_score}"
         )
 
     print(
@@ -526,6 +529,9 @@ def validate_shared_lock(root_dir: Path) -> None:
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
 
+    # Shared-lock mitigation reliably reduces latency, but the queue-vs-stage score split can
+    # remain tied depending on scheduler interleavings in this synthetic scenario.
+    # Accept a flat score when p95 latency still improves.
     if after_p95 >= before_p95 and after_score >= before_score:
         raise SystemExit(
             "expected mitigation to improve p95 and/or primary suspect score, "
