@@ -43,6 +43,9 @@ impl StageTimer<'_> {
     /// This helper is intended for fallible stage work where success can be
     /// derived from `Result::is_ok`.
     ///
+    /// Prefer this method when your stage naturally returns `Result<T, E>` and
+    /// you want success/failure evidence in the resulting triage report.
+    ///
     /// # Errors
     ///
     /// Returns the same error value produced by `fut` after recording the
@@ -70,6 +73,9 @@ impl StageTimer<'_> {
     }
 
     /// Awaits an infallible stage future and records a successful stage event.
+    ///
+    /// Use this method when there is no meaningful stage-level error signal
+    /// (for example, internal CPU work or a prevalidated transformation).
     pub async fn await_value<Fut, T>(self, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
@@ -110,6 +116,10 @@ impl QueueTimer<'_> {
     }
 
     /// Awaits `fut`, records queue wait duration, and returns the original output.
+    ///
+    /// Queue events are interpreted as application-level wait evidence (a lead,
+    /// not proof). Record these around bounded resources to help separate
+    /// queueing pressure from slow downstream stage time.
     pub async fn await_on<Fut, T>(self, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
