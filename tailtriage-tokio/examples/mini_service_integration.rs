@@ -1,12 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
+use tailtriage_core::{RequestContext, Tailtriage};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 struct CheckoutRequest {
-    request_id: String,
     sku: &'static str,
     quantity: u32,
 }
@@ -18,63 +17,62 @@ struct WorkItem {
 }
 
 async fn handle_checkout(
-    tailtriage: &Tailtriage,
+    tailtriage: &Arc<Tailtriage>,
     tx: &mpsc::Sender<WorkItem>,
     request: CheckoutRequest,
 ) -> Result<(), &'static str> {
-    let meta = RequestMeta::new(request.request_id.clone(), "/checkout").with_kind("http");
-    let request_id = meta.request_id.clone();
+    let request_context = tailtriage.request("/checkout").with_kind("http");
+    let (completion_tx, completion_rx) = oneshot::channel();
 
-    tailtriage
-        .request(meta, "ok", async {
-            let (completion_tx, completion_rx) = oneshot::channel();
-
-            tailtriage
-                .queue(request_id.clone(), "checkout_ingress")
-                .await_on(tx.send(WorkItem {
-                    request,
-                    completion_tx,
-                }))
-                .await
-                .map_err(|_| "worker channel closed")?;
-
-            completion_rx.await.map_err(|_| "worker dropped response")?
-        })
+    request_context
+        .queue("checkout_ingress")
+        .await_on(tx.send(WorkItem {
+            request,
+            completion_tx,
+        }))
         .await
+        .map_err(|_| "worker channel closed")?;
+
+    let result = completion_rx.await.map_err(|_| "worker dropped response")?;
+    request_context.complete("ok");
+    result
 }
 
 async fn run_worker(tailtriage: Arc<Tailtriage>, mut rx: mpsc::Receiver<WorkItem>) {
     while let Some(work) = rx.recv().await {
-        let request_id = work.request.request_id.clone();
-
-        tailtriage
-            .stage(request_id.clone(), "inventory_lookup")
-            .await_value(tokio::time::sleep(Duration::from_millis(4)))
-            .await;
-
-        let payment_delay_ms = if work.request.quantity > 2 { 11 } else { 6 };
-        tailtriage
-            .stage(request_id, "payment_authorization")
-            .await_value(tokio::time::sleep(Duration::from_millis(payment_delay_ms)))
-            .await;
-
+        let request = tailtriage.request("/checkout-worker");
+        process_work_item(&request, work.request.quantity).await;
+        request.complete("ok");
         let _ = work.completion_tx.send(Ok(()));
     }
 }
 
+async fn process_work_item(request: &RequestContext<'_>, quantity: u32) {
+    request
+        .stage("inventory_lookup")
+        .await_value(tokio::time::sleep(Duration::from_millis(4)))
+        .await;
+
+    let payment_delay_ms = if quantity > 2 { 11 } else { 6 };
+    request
+        .stage("payment_authorization")
+        .await_value(tokio::time::sleep(Duration::from_millis(payment_delay_ms)))
+        .await;
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("mini-checkout-service");
-    config.output_path = "tailtriage-run.json".into();
-
-    let tailtriage = Arc::new(Tailtriage::init(config)?);
+    let tailtriage = Arc::new(
+        Tailtriage::builder("mini-checkout-service")
+            .output("tailtriage-run.json")
+            .build()?,
+    );
     let (tx, rx) = mpsc::channel(8);
 
     let worker = tokio::spawn(run_worker(Arc::clone(&tailtriage), rx));
 
     for index in 0..12 {
         let request = CheckoutRequest {
-            request_id: format!("checkout-{index}"),
             sku: "SKU-123",
             quantity: if index % 4 == 0 { 3 } else { 1 },
         };
@@ -87,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(tx);
     worker.await?;
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
 
     println!("wrote tailtriage-run.json from mini_service_integration");
     println!("next: cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json");

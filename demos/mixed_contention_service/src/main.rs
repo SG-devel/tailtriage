@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestMeta;
 use tokio::sync::Semaphore;
 
 struct ModeSettings {
@@ -61,42 +60,37 @@ async fn main() -> anyhow::Result<()> {
         let waiting_depth = Arc::clone(&waiting_depth);
 
         tasks.push(tokio::spawn(async move {
-            let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/mixed-contention-demo");
+            let request = tailtriage.request("/mixed-contention-demo");
+            let _inflight = request.inflight("mixed_contention_inflight");
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("mixed_contention_inflight");
+            let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
+            let permit = request
+                .queue("worker_permit")
+                .with_depth_at_start(depth)
+                .await_on(semaphore.acquire())
+                .await
+                .expect("semaphore should remain open");
+            waiting_depth.fetch_sub(1, Ordering::SeqCst);
 
-                    let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                    let permit = tailtriage
-                        .queue(request_id.clone(), "worker_permit")
-                        .with_depth_at_start(depth)
-                        .await_on(semaphore.acquire())
-                        .await
-                        .expect("semaphore should remain open");
-                    waiting_depth.fetch_sub(1, Ordering::SeqCst);
+            let _permit = permit;
 
-                    let _permit = permit;
-
-                    tailtriage
-                        .stage(request_id.clone(), "app_prepare")
-                        .await_value(tokio::time::sleep(settings.app_stage_delay))
-                        .await;
-
-                    let extra_downstream = if request_number.is_multiple_of(4) {
-                        settings.downstream_slow_delay
-                    } else {
-                        Duration::ZERO
-                    };
-                    tailtriage
-                        .stage(request_id, "downstream_call")
-                        .await_value(tokio::time::sleep(
-                            settings.downstream_base_delay + extra_downstream,
-                        ))
-                        .await;
-                })
+            request
+                .stage("app_prepare")
+                .await_value(tokio::time::sleep(settings.app_stage_delay))
                 .await;
+
+            let extra_downstream = if request_number.is_multiple_of(4) {
+                settings.downstream_slow_delay
+            } else {
+                Duration::ZERO
+            };
+            request
+                .stage("downstream_call")
+                .await_value(tokio::time::sleep(
+                    settings.downstream_base_delay + extra_downstream,
+                ))
+                .await;
+            request.complete("ok");
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
@@ -108,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())

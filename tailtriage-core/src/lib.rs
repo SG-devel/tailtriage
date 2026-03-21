@@ -3,16 +3,18 @@
 mod collector;
 mod config;
 mod events;
+mod request_context;
 mod sink;
 mod time;
 mod timers;
 
-pub use collector::Tailtriage;
-pub use config::{CaptureLimits, CaptureMode, Config, InitError, RequestMeta};
+pub use collector::{Tailtriage, TailtriageBuilder};
+pub use config::{CaptureLimits, CaptureMode, InitError};
 pub use events::{
     InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
     TruncationSummary,
 };
+pub use request_context::RequestContext;
 pub use sink::{LocalJsonSink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};
 pub use timers::{InflightGuard, QueueTimer, StageTimer};

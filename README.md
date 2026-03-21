@@ -150,7 +150,7 @@ MVP scope is intentionally narrow:
 
 ## Bounded capture and truncation
 
-`tailtriage` keeps run data in memory until flush. To keep this bounded in production-like runs, configure per-section capture limits:
+`tailtriage` keeps run data in memory until `shutdown()`. To keep this bounded in production-like runs, configure per-section capture limits:
 
 - `max_requests`
 - `max_stages`

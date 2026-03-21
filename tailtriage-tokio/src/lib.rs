@@ -2,40 +2,7 @@
 //!
 //! This crate provides:
 //! - [`RuntimeSampler`] for periodic Tokio runtime metrics snapshots.
-//! - [`instrument_request`] for request entry-point tracing and optional
-//!   request-event recording into a [`tailtriage_core::Tailtriage`] collector.
-//!
-//! `instrument_request` is optional convenience. You can either:
-//! - annotate handlers with the macro for request-level timing and tracing, or
-//! - call [`tailtriage_core::Tailtriage::request`] directly for explicit control.
-//!
-//! Macro example (compile-checked):
-//! ```no_run
-//! use tailtriage_core::Tailtriage;
-//! use tailtriage_tokio::instrument_request;
-//!
-//! #[instrument_request(
-//!     route = "/invoice",
-//!     kind = "create_invoice",
-//!     tailtriage = tailtriage,
-//!     request_id = request_id.clone(),
-//!     skip(tailtriage)
-//! )]
-//! async fn handle_invoice(
-//!     tailtriage: &Tailtriage,
-//!     request_id: String,
-//! ) -> Result<(), &'static str> {
-//!     Ok(())
-//! }
-//!
-//! # #[tokio::main(flavor = "current_thread")]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # let config = tailtriage_core::Config::new("billing");
-//! # let tailtriage = Tailtriage::init(config)?;
-//! handle_invoice(&tailtriage, "req-123".to_string()).await?;
-//! # Ok(())
-//! # }
-//! ```
+//! - request-context compatible runtime capture helpers.
 //!
 //! Runtime sampling is worth enabling when you need extra evidence to separate
 //! executor or blocking-pool pressure from application-level queue/stage waits.
@@ -48,8 +15,6 @@ use tailtriage_core::{unix_time_ms, RuntimeSnapshot, Tailtriage};
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-
-pub use tailtriage_macros::instrument_request;
 
 /// Returns the crate name for smoke-testing workspace wiring.
 #[must_use]
@@ -173,7 +138,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use tailtriage_core::{Config, Tailtriage};
+    use tailtriage_core::Tailtriage;
 
     use super::crate_name;
     use super::{RuntimeSampler, SamplerStartError};
@@ -190,11 +155,12 @@ mod tests {
             .expect("system time before epoch")
             .as_nanos();
 
-        let mut config = Config::new("runtime-test");
-        config.output_path =
-            std::env::temp_dir().join(format!("tailtriage_tokio_sampler_{nanos}.json"));
-
-        let tailtriage = Arc::new(Tailtriage::init(config).expect("init should succeed"));
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join(format!("tailtriage_tokio_sampler_{nanos}.json")))
+                .build()
+                .expect("build should succeed"),
+        );
         let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))
             .expect("sampler should start");
 
@@ -214,9 +180,12 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn runtime_sampler_rejects_zero_interval() {
-        let mut config = Config::new("runtime-test");
-        config.output_path = std::env::temp_dir().join("tailtriage_tokio_zero_interval.json");
-        let tailtriage = Arc::new(Tailtriage::init(config).expect("init should succeed"));
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_zero_interval.json"))
+                .build()
+                .expect("build should succeed"),
+        );
 
         let err = RuntimeSampler::start(tailtriage, Duration::ZERO)
             .expect_err("zero interval should fail");

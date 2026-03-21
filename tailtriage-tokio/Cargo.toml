@@ -12,9 +12,7 @@ categories = ["asynchronous", "development-tools::profiling", "development-tools
 
 [dependencies]
 tailtriage-core = { version = "0.1.0", path = "../tailtriage-core" }
-tailtriage-macros = { version = "0.1.0", path = "../tailtriage-macros" }
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
-tracing = "0.1"
 
 [lints]
 workspace = true

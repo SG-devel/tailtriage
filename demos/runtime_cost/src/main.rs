@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 use serde::Serialize;
-use tailtriage_core::{CaptureMode, Config, RequestMeta, Tailtriage};
+use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
 use tokio::sync::{Mutex, Semaphore};
 
@@ -62,17 +62,20 @@ async fn main() -> anyhow::Result<()> {
     let mut sampler = None;
 
     if cli.mode != Mode::Baseline {
-        let mut config = Config::new("runtime_cost_demo");
-        config.mode = match cli.mode {
-            Mode::Light => CaptureMode::Light,
-            Mode::Investigation => CaptureMode::Investigation,
-            Mode::Baseline => CaptureMode::Light,
+        let mode_builder = match cli.mode {
+            Mode::Light => Tailtriage::builder("runtime_cost_demo").light(),
+            Mode::Investigation => Tailtriage::builder("runtime_cost_demo").investigation(),
+            Mode::Baseline => Tailtriage::builder("runtime_cost_demo").light(),
         };
-        config.output_path = cli
-            .output_dir
-            .join(format!("run-{:?}.json", cli.mode).to_lowercase());
 
-        let instance = Arc::new(Tailtriage::init(config)?);
+        let instance = Arc::new(
+            mode_builder
+                .output(
+                    cli.output_dir
+                        .join(format!("run-{:?}.json", cli.mode).to_lowercase()),
+                )
+                .build()?,
+        );
 
         if cli.mode == Mode::Investigation {
             sampler = Some(RuntimeSampler::start(
@@ -90,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
     let wall_start = Instant::now();
     let mut tasks = Vec::with_capacity(cli.requests);
 
-    for idx in 0..cli.requests {
+    for _idx in 0..cli.requests {
         let sem = Arc::clone(&semaphore);
         let latencies = Arc::clone(&latencies_us);
         let mode = cli.mode;
@@ -107,30 +110,30 @@ async fn main() -> anyhow::Result<()> {
                     drop(permit);
                 }
                 (_, Some(ts)) => {
-                    let request_id = format!("request-{idx}");
-                    let meta = RequestMeta::new(request_id.clone(), "/runtime-cost");
-
-                    ts.request(meta, "ok", async {
-                        let _inflight = ts.inflight("runtime_cost_requests");
-                        let permit = ts
-                            .queue(request_id.clone(), "worker_semaphore")
+                    let request = ts.request("/runtime-cost");
+                    {
+                        let _inflight = request.inflight("runtime_cost_requests");
+                        let permit = request
+                            .queue("worker_semaphore")
                             .await_on(sem.acquire())
                             .await
                             .expect("semaphore closed");
 
                         if mode == Mode::Investigation {
-                            ts.stage(request_id.clone(), "pre_work_marker")
+                            request
+                                .stage("pre_work_marker")
                                 .await_value(tokio::time::sleep(Duration::from_micros(300)))
                                 .await;
                         }
 
-                        ts.stage(request_id, "simulated_work")
+                        request
+                            .stage("simulated_work")
                             .await_value(tokio::time::sleep(work_duration))
                             .await;
 
                         drop(permit);
-                    })
-                    .await;
+                    }
+                    request.complete("ok");
                 }
                 (_, None) => unreachable!("instrumented modes require a collector"),
             }
@@ -151,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(ts) = tailtriage {
-        ts.flush()?;
+        ts.shutdown()?;
     }
 
     let mut latencies = Arc::into_inner(latencies_us)
