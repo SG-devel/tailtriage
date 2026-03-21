@@ -15,6 +15,22 @@ pub enum CaptureMode {
 }
 
 /// Configuration used to initialize one tailtriage capture run.
+///
+/// This is the main integration entry point for setup: create a config, tune
+/// capture limits when needed, then call [`crate::Tailtriage::init`].
+///
+/// # Example
+/// ```
+/// use tailtriage_core::{Config, Tailtriage};
+///
+/// let mut config = Config::new("checkout-service");
+/// config.service_version = Some("1.4.2".to_string());
+/// config.output_path = std::env::temp_dir().join("tailtriage-run.json");
+///
+/// let tailtriage = Tailtriage::init(config)?;
+/// assert_eq!(tailtriage.output_path().file_name().unwrap(), "tailtriage-run.json");
+/// # Ok::<(), tailtriage_core::InitError>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Service/application name.
@@ -69,6 +85,19 @@ impl Default for CaptureLimits {
 }
 
 /// Runtime request metadata captured by [`crate::Tailtriage::request`].
+///
+/// Use [`RequestMeta::new`] when you already have a stable request ID from your
+/// framework or gateway. Use [`RequestMeta::for_route`] when you need a local,
+/// readable ID for light-touch instrumentation.
+///
+/// # Example
+/// ```
+/// use tailtriage_core::RequestMeta;
+///
+/// let meta = RequestMeta::for_route("/checkout").with_kind("http");
+/// assert_eq!(meta.route, "/checkout");
+/// assert_eq!(meta.kind.as_deref(), Some("http"));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestMeta {
     /// Correlation ID for the request.
