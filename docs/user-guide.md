@@ -1,41 +1,35 @@
-# User guide (first use)
+# User guide (canonical first run)
 
-This guide covers the shortest path to a useful diagnosis.
+This is the shortest capture -> analyze -> interpret path.
 
-## 1) Instrument one request flow
+## 1) Add dependencies
 
-```rust
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
-
-let tailtriage = Tailtriage::init(Config::new("my-service"))?;
-
-let meta = RequestMeta::for_route("/checkout").with_kind("http");
-let request_id = meta.request_id.clone();
-
-tailtriage
-    .request(meta, "ok", async {
-        tailtriage
-            .queue(request_id.clone(), "ingress_queue")
-            .await_on(async_work_that_waits())
-            .await;
-
-        tailtriage
-            .stage(request_id, "db_call")
-            .await_value(async_downstream_call())
-            .await;
-    })
-    .await;
-
-tailtriage.flush()?;
+```toml
+[dependencies]
+tailtriage-core = "0.1"
+tailtriage-tokio = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
-## 2) Analyze the run
+## 2) Capture one artifact
+
+Use the minimal runnable example:
 
 ```bash
-tailtriage analyze <run.json> --format json
+cargo run -p tailtriage-tokio --example minimal_checkout
 ```
 
-Read these fields first:
+Expected output includes `wrote tailtriage-run.json`.
+
+## 3) Analyze
+
+```bash
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+## 4) Interpret the diagnosis
+
+Inspect these fields first:
 
 - `primary_suspect.kind`
 - `primary_suspect.evidence[]`
@@ -43,11 +37,31 @@ Read these fields first:
 - `p95_queue_share_permille`
 - `p95_service_share_permille`
 
-## 3) If result is `InsufficientEvidence`
+Representative diagnosis shape:
+
+```json
+{
+  "primary_suspect": {
+    "kind": "ApplicationQueueSaturation",
+    "evidence": [
+      "Queue wait at p95 consumes 98.4% of request time.",
+      "Observed queue depth sample up to 230."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  }
+}
+```
+
+Suspects are evidence-ranked leads, not proof of root cause.
+
+## 5) If result is `InsufficientEvidence`
 
 Add one more queue wrapper and one more stage wrapper around the most likely missing wait points, then rerun with comparable load.
 
-## 4) Optional stronger attribution
+## 6) Optional stronger attribution
 
 Enable runtime snapshots when queue/stage instrumentation is still ambiguous:
 
@@ -60,6 +74,12 @@ let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_mill
 // run workload
 sampler.shutdown().await;
 ```
+
+## Before/after proof path
+
+After first run, validate one mitigation workflow:
+
+- [retry_storm_service before/after comparison](../demos/retry_storm_service/fixtures/before-after-comparison.json)
 
 ## Next docs
 
