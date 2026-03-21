@@ -26,9 +26,7 @@ mod time;
 mod timers;
 
 pub use collector::{RequestContext, Tailtriage};
-pub use config::{
-    BuildError, CaptureLimits, CaptureMode, RequestOptions, SamplingConfig, TailtriageBuilder,
-};
+pub use config::{BuildError, CaptureLimits, CaptureMode, RequestOptions, TailtriageBuilder};
 pub use events::{
     InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot,
     StageEvent, TruncationSummary,

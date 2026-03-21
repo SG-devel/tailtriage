@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{Outcome, RequestOptions, SamplingConfig, Tailtriage};
+use tailtriage_core::{Outcome, RequestOptions, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 
 #[derive(Clone)]
@@ -69,13 +69,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tailtriage = Arc::new(
         Tailtriage::builder("mini-checkout-service")
             .output(&output_path)
-            .sampling(SamplingConfig::runtime(Duration::from_millis(5)))
             .investigation()
             .build()?,
     );
 
-    let sampler =
-        RuntimeSampler::start_configured(Arc::clone(&tailtriage))?.expect("sampling configured");
+    let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))?;
 
     let request = CheckoutRequest {
         request_id: "req-123".to_string(),
