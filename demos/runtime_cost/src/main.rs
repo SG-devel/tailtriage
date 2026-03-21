@@ -110,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
                     let request_id = format!("request-{idx}");
                     let meta = RequestMeta::new(request_id.clone(), "/runtime-cost");
 
-                    ts.request(meta, "ok", async {
+                    ts.request_with_meta(meta, "ok", async {
                         let _inflight = ts.inflight("runtime_cost_requests");
                         let permit = ts
                             .queue(request_id.clone(), "worker_semaphore")

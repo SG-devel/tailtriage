@@ -12,7 +12,7 @@ All service demos follow the same pattern:
 2. Create artifact output directory.
 3. Initialize one `Tailtriage` collector.
 4. Generate a deterministic request burst.
-5. Wrap requests with `tailtriage.request(...)`.
+5. Wrap requests with `tailtriage.request_with_meta(...)`.
 6. Instrument admission queue and/or stages.
 7. Flush to JSON and run CLI analysis.
 

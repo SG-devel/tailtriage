@@ -120,6 +120,22 @@ impl RuntimeSampler {
         })
     }
 
+    /// Starts runtime sampling using the interval configured on [`Tailtriage`].
+    ///
+    /// Returns `Ok(None)` when sampling is not configured.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SamplerStartError::ZeroInterval`] when the configured interval is zero.
+    pub fn start_configured(
+        tailtriage: Arc<Tailtriage>,
+    ) -> Result<Option<Self>, SamplerStartError> {
+        match tailtriage.runtime_sampling_interval() {
+            Some(interval) => Self::start(tailtriage, interval).map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Requests sampler shutdown and waits for task completion.
     pub async fn shutdown(mut self) {
         if let Some(stop_tx) = self.stop_tx.take() {
@@ -233,5 +249,24 @@ mod tests {
             assert_eq!(snapshot.blocking_queue_depth, None);
             assert_eq!(snapshot.remote_schedule_count, None);
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn runtime_sampler_starts_from_builder_interval() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-configured")
+                .runtime_sampling_interval(Duration::from_millis(5))
+                .build()
+                .expect("builder should succeed"),
+        );
+
+        let maybe_sampler =
+            RuntimeSampler::start_configured(Arc::clone(&tailtriage)).expect("should start");
+        assert!(maybe_sampler.is_some());
+        let sampler = maybe_sampler.expect("sampler expected");
+
+        tokio::time::sleep(Duration::from_millis(15)).await;
+        sampler.shutdown().await;
+        assert!(!tailtriage.snapshot().runtime_snapshots.is_empty());
     }
 }

@@ -88,7 +88,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
             let meta = RequestMeta::new(request_id.clone(), "/blocking-demo");
 
             tailtriage
-                .request(meta, "ok", async {
+                .request_with_meta(meta, "ok", async {
                     let _inflight = tailtriage.inflight("blocking_service_inflight");
                     let _wait = tailtriage
                         .queue(request_id.clone(), "dispatch_overhead")

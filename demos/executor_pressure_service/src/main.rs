@@ -96,7 +96,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
             let meta = RequestMeta::new(request_id.clone(), "/executor-pressure");
 
             tailtriage
-                .request(meta, "ok", async {
+                .request_with_meta(meta, "ok", async {
                     let _inflight = tailtriage.inflight("executor_pressure_inflight");
                     tailtriage
                         .queue(request_id.clone(), "admission")

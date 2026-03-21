@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tailtriage_cli::analyze::{analyze_run, DiagnosisKind};
-use tailtriage_core::{Config, RequestMeta, Run, Tailtriage};
+use tailtriage_core::{Run, Tailtriage};
 use tailtriage_tokio::instrument_request;
 
 fn temp_artifact_path(prefix: &str) -> std::path::PathBuf {
@@ -15,30 +15,32 @@ fn temp_artifact_path(prefix: &str) -> std::path::PathBuf {
 #[tokio::test(flavor = "current_thread")]
 async fn queue_heavy_direct_capture_flush_and_analysis_reports_queue_suspect() {
     let output_path = temp_artifact_path("queue");
-    let mut config = Config::new("e2e-queue");
-    config.output_path = output_path.clone();
-    let tailtriage = Tailtriage::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::builder("e2e-queue")
+        .output(output_path.clone())
+        .build()
+        .expect("build should succeed");
 
     for index in 0..6 {
-        let request_id = format!("queue-{index}");
-        let request_meta = RequestMeta::new(request_id.clone(), "/checkout");
-
-        tailtriage
-            .request(request_meta, "ok", async {
-                tailtriage
-                    .queue(request_id.clone(), "checkout_queue")
-                    .with_depth_at_start(24)
-                    .await_on(tokio::time::sleep(std::time::Duration::from_millis(8)))
-                    .await;
-                tailtriage
-                    .stage(request_id.clone(), "local_work")
-                    .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
-                    .await;
-            })
+        let request = tailtriage.request_with_id("/checkout", format!("queue-{index}"));
+        let started = std::time::Instant::now();
+        let started_at = tailtriage_core::unix_time_ms();
+        request
+            .queue("checkout_queue")
+            .with_depth_at_start(24)
+            .await_on(tokio::time::sleep(std::time::Duration::from_millis(8)))
             .await;
+        request
+            .stage("local_work")
+            .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
+            .await;
+        request.complete(
+            (started_at, tailtriage_core::unix_time_ms()),
+            started.elapsed().as_micros().try_into().unwrap_or(u64::MAX),
+            "ok",
+        );
     }
 
-    tailtriage.flush().expect("flush should succeed");
+    tailtriage.shutdown().expect("shutdown should succeed");
 
     let run_json = std::fs::read_to_string(&output_path).expect("artifact should be readable");
     let run: Run = serde_json::from_str(&run_json).expect("artifact should parse as Run");
@@ -79,9 +81,10 @@ async fn downstream_handler(tailtriage: &Tailtriage, request_id: &str) -> Result
 #[tokio::test(flavor = "current_thread")]
 async fn downstream_heavy_macro_capture_flush_and_analysis_reports_stage_suspect() {
     let output_path = temp_artifact_path("downstream");
-    let mut config = Config::new("e2e-downstream");
-    config.output_path = output_path.clone();
-    let tailtriage = Tailtriage::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::builder("e2e-downstream")
+        .output(output_path.clone())
+        .build()
+        .expect("build should succeed");
 
     for index in 0..5 {
         let request_id = format!("downstream-{index}");
@@ -90,7 +93,7 @@ async fn downstream_heavy_macro_capture_flush_and_analysis_reports_stage_suspect
             .expect("handler should succeed");
     }
 
-    tailtriage.flush().expect("flush should succeed");
+    tailtriage.shutdown().expect("shutdown should succeed");
 
     let run_json = std::fs::read_to_string(&output_path).expect("artifact should be readable");
     let run: Run = serde_json::from_str(&run_json).expect("artifact should parse as Run");
@@ -110,20 +113,22 @@ async fn downstream_heavy_macro_capture_flush_and_analysis_reports_stage_suspect
 #[tokio::test(flavor = "current_thread")]
 async fn request_only_capture_flush_and_analysis_reports_insufficient_evidence() {
     let output_path = temp_artifact_path("insufficient");
-    let mut config = Config::new("e2e-insufficient");
-    config.output_path = output_path.clone();
-    let tailtriage = Tailtriage::init(config).expect("init should succeed");
+    let tailtriage = Tailtriage::builder("e2e-insufficient")
+        .output(output_path.clone())
+        .build()
+        .expect("build should succeed");
 
     for index in 0..3 {
-        let request_meta = RequestMeta::new(format!("insufficient-{index}"), "/health");
-        tailtriage
-            .request(request_meta, "ok", async {
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-            })
+        let request = tailtriage.request_with_id("/health", format!("insufficient-{index}"));
+        request
+            .run(
+                "ok",
+                tokio::time::sleep(std::time::Duration::from_millis(1)),
+            )
             .await;
     }
 
-    tailtriage.flush().expect("flush should succeed");
+    tailtriage.shutdown().expect("shutdown should succeed");
 
     let run_json = std::fs::read_to_string(&output_path).expect("artifact should be readable");
     let run: Run = serde_json::from_str(&run_json).expect("artifact should parse as Run");

@@ -149,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
             let meta = RequestMeta::new(request_id.clone(), "/retry-storm-demo");
 
             tailtriage
-                .request(meta, "ok", async {
+                .request_with_meta(meta, "ok", async {
                     let _inflight = tailtriage.inflight("retry_storm_inflight");
 
                     tailtriage

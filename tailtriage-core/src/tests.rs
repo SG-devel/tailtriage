@@ -124,7 +124,8 @@ fn request_records_timing_and_outcome() {
     let mut request = RequestMeta::new("req-42", "/invoice");
     request.kind = Some("create_invoice".to_owned());
 
-    let result = futures_executor::block_on(tailtriage.request(request, "ok", ready(7_u32)));
+    let result =
+        futures_executor::block_on(tailtriage.request_with_meta(request, "ok", ready(7_u32)));
     assert_eq!(result, 7);
 
     let snapshot = tailtriage.snapshot();
@@ -162,7 +163,7 @@ fn request_with_for_route_and_kind_records_expected_fields() {
 
     let tailtriage = Tailtriage::init(config).expect("init should succeed");
     let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
-    let result = futures_executor::block_on(tailtriage.request(meta, "ok", ready(9_u32)));
+    let result = futures_executor::block_on(tailtriage.request_with_meta(meta, "ok", ready(9_u32)));
     assert_eq!(result, 9);
 
     let snapshot = tailtriage.snapshot();
@@ -186,7 +187,7 @@ fn request_with_for_route_records_route_and_outcome_without_kind() {
         std::env::temp_dir().join(format!("tailtriage_core_route_only_{nanos}.json"));
 
     let tailtriage = Tailtriage::init(config).expect("init should succeed");
-    let result = futures_executor::block_on(tailtriage.request(
+    let result = futures_executor::block_on(tailtriage.request_with_meta(
         RequestMeta::for_route("/invoice"),
         "error",
         ready(13_u32),

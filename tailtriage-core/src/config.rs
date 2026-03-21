@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use crate::unix_time_ms;
 use serde::{Deserialize, Serialize};
@@ -45,6 +46,8 @@ pub struct Config {
     pub output_path: PathBuf,
     /// Bounded capture limits for each event/sample section.
     pub capture_limits: CaptureLimits,
+    /// Optional Tokio runtime sampling interval.
+    pub runtime_sampling_interval: Option<Duration>,
 }
 
 impl Config {
@@ -58,6 +61,7 @@ impl Config {
             mode: CaptureMode::Light,
             output_path: PathBuf::from("tailtriage-run.json"),
             capture_limits: CaptureLimits::default(),
+            runtime_sampling_interval: None,
         }
     }
 }
@@ -150,12 +154,12 @@ impl RequestMeta {
 
 /// Errors emitted while initializing tailtriage capture.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InitError {
+pub enum BuildError {
     /// Service name was empty.
     EmptyServiceName,
 }
 
-impl std::fmt::Display for InitError {
+impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
@@ -163,6 +167,9 @@ impl std::fmt::Display for InitError {
     }
 }
 
-impl std::error::Error for InitError {}
+impl std::error::Error for BuildError {}
+
+/// Backward-compatible alias for earlier API naming.
+pub type InitError = BuildError;
 
 static REQUEST_META_SEQUENCE: AtomicU64 = AtomicU64::new(0);
