@@ -120,6 +120,20 @@ impl RuntimeSampler {
         })
     }
 
+    /// Starts runtime sampling using the collector's configured sampling model.
+    ///
+    /// Returns `Ok(None)` when runtime sampling is disabled.
+    ///
+    /// # Errors
+    /// Returns [`SamplerStartError::ZeroInterval`] for an invalid configured interval.
+    pub fn start_configured(
+        tailtriage: Arc<Tailtriage>,
+    ) -> Result<Option<Self>, SamplerStartError> {
+        match tailtriage.configured_runtime_sampling_interval() {
+            Some(interval) => Self::start(tailtriage, interval).map(Some),
+            None => Ok(None),
+        }
+    }
     /// Requests sampler shutdown and waits for task completion.
     pub async fn shutdown(mut self) {
         if let Some(stop_tx) = self.stop_tx.take() {
@@ -173,7 +187,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use tailtriage_core::{Config, Tailtriage};
+    use tailtriage_core::{SamplingConfig, Tailtriage};
 
     use super::crate_name;
     use super::{RuntimeSampler, SamplerStartError};
@@ -190,11 +204,14 @@ mod tests {
             .expect("system time before epoch")
             .as_nanos();
 
-        let mut config = Config::new("runtime-test");
-        config.output_path =
+        let output_path =
             std::env::temp_dir().join(format!("tailtriage_tokio_sampler_{nanos}.json"));
-
-        let tailtriage = Arc::new(Tailtriage::init(config).expect("init should succeed"));
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(output_path)
+                .build()
+                .expect("build should succeed"),
+        );
         let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))
             .expect("sampler should start");
 
@@ -214,13 +231,40 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn runtime_sampler_rejects_zero_interval() {
-        let mut config = Config::new("runtime-test");
-        config.output_path = std::env::temp_dir().join("tailtriage_tokio_zero_interval.json");
-        let tailtriage = Arc::new(Tailtriage::init(config).expect("init should succeed"));
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_zero_interval.json"))
+                .build()
+                .expect("build should succeed"),
+        );
 
         let err = RuntimeSampler::start(tailtriage, Duration::ZERO)
             .expect_err("zero interval should fail");
         assert_eq!(err, SamplerStartError::ZeroInterval);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_configured_honors_sampling_config() {
+        let with_sampling = Arc::new(
+            Tailtriage::builder("runtime-configured")
+                .sampling(SamplingConfig::runtime(Duration::from_millis(5)))
+                .build()
+                .expect("build should succeed"),
+        );
+        let sampler = RuntimeSampler::start_configured(Arc::clone(&with_sampling))
+            .expect("configured startup should succeed");
+        assert!(sampler.is_some());
+        sampler.expect("sampler should be present").shutdown().await;
+
+        let without_sampling = Arc::new(
+            Tailtriage::builder("runtime-disabled")
+                .sampling(SamplingConfig::disabled())
+                .build()
+                .expect("build should succeed"),
+        );
+        let none = RuntimeSampler::start_configured(without_sampling)
+            .expect("configured startup should succeed");
+        assert!(none.is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]

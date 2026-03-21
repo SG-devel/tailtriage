@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_output_arg};
-use tailtriage_core::RequestMeta;
+use tailtriage_core::{Outcome, RequestOptions};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
@@ -19,23 +19,24 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/downstream-demo");
+            let request = tailtriage.request_with(
+                "/downstream-demo",
+                RequestOptions::new().request_id(request_id),
+            );
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("downstream_service_inflight");
+            let _inflight = request.inflight("downstream_service_inflight");
 
-                    tailtriage
-                        .stage(request_id.clone(), "app_precheck")
-                        .await_value(tokio::time::sleep(Duration::from_millis(1)))
-                        .await;
-
-                    tailtriage
-                        .stage(request_id, "downstream_call")
-                        .await_value(tokio::time::sleep(Duration::from_millis(20)))
-                        .await;
-                })
+            request
+                .stage("app_precheck")
+                .await_value(tokio::time::sleep(Duration::from_millis(1)))
                 .await;
+
+            request
+                .stage("downstream_call")
+                .await_value(tokio::time::sleep(Duration::from_millis(20)))
+                .await;
+
+            request.complete(Outcome::Ok);
         }));
 
         if request_number.is_multiple_of(8) {
@@ -47,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", output_path.display());
 
     Ok(())

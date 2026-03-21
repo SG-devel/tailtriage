@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
+use tailtriage_core::{Outcome, RequestOptions, Tailtriage};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
@@ -20,41 +20,45 @@ struct WorkItem {
 async fn handle_checkout(
     tailtriage: &Tailtriage,
     tx: &mpsc::Sender<WorkItem>,
-    request: CheckoutRequest,
+    checkout: CheckoutRequest,
 ) -> Result<(), &'static str> {
-    let meta = RequestMeta::new(request.request_id.clone(), "/checkout").with_kind("http");
-    let request_id = meta.request_id.clone();
+    let request_ctx = tailtriage
+        .request_with(
+            "/checkout",
+            RequestOptions::new().request_id(checkout.request_id.clone()),
+        )
+        .with_kind("http");
 
-    tailtriage
-        .request(meta, "ok", async {
-            let (completion_tx, completion_rx) = oneshot::channel();
-
-            tailtriage
-                .queue(request_id.clone(), "checkout_ingress")
-                .await_on(tx.send(WorkItem {
-                    request,
-                    completion_tx,
-                }))
-                .await
-                .map_err(|_| "worker channel closed")?;
-
-            completion_rx.await.map_err(|_| "worker dropped response")?
-        })
+    let (completion_tx, completion_rx) = oneshot::channel();
+    request_ctx
+        .queue("checkout_ingress")
+        .await_on(tx.send(WorkItem {
+            request: checkout,
+            completion_tx,
+        }))
         .await
+        .map_err(|_| "worker channel closed")?;
+
+    let result = completion_rx.await.map_err(|_| "worker dropped response")?;
+    request_ctx.complete(Outcome::Ok);
+    result
 }
 
 async fn run_worker(tailtriage: Arc<Tailtriage>, mut rx: mpsc::Receiver<WorkItem>) {
     while let Some(work) = rx.recv().await {
-        let request_id = work.request.request_id.clone();
+        let request = tailtriage.request_with(
+            "/checkout",
+            RequestOptions::new().request_id(work.request.request_id.clone()),
+        );
 
-        tailtriage
-            .stage(request_id.clone(), "inventory_lookup")
+        request
+            .stage("inventory_lookup")
             .await_value(tokio::time::sleep(Duration::from_millis(4)))
             .await;
 
         let payment_delay_ms = if work.request.quantity > 2 { 11 } else { 6 };
-        tailtriage
-            .stage(request_id, "payment_authorization")
+        request
+            .stage("payment_authorization")
             .await_value(tokio::time::sleep(Duration::from_millis(payment_delay_ms)))
             .await;
 
@@ -64,10 +68,11 @@ async fn run_worker(tailtriage: Arc<Tailtriage>, mut rx: mpsc::Receiver<WorkItem
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("mini-checkout-service");
-    config.output_path = "tailtriage-run.json".into();
-
-    let tailtriage = Arc::new(Tailtriage::init(config)?);
+    let tailtriage = Arc::new(
+        Tailtriage::builder("mini-checkout-service")
+            .output("tailtriage-run.json")
+            .build()?,
+    );
     let (tx, rx) = mpsc::channel(8);
 
     let worker = tokio::spawn(run_worker(Arc::clone(&tailtriage), rx));
@@ -87,11 +92,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(tx);
     worker.await?;
 
-    tailtriage.flush()?;
-
-    println!("wrote tailtriage-run.json from mini_service_integration");
-    println!("next: cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json");
-    println!("inspect first: primary_suspect.kind, evidence[], next_checks[]");
-
+    tailtriage.shutdown()?;
     Ok(())
 }

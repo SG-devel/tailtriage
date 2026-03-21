@@ -140,7 +140,7 @@ async fn writes_request_events_to_run_json_when_tailtriage_is_provided() {
         .expect_err("error request should fail");
     assert_eq!(err, "boom");
 
-    tailtriage.flush().expect("flush should succeed");
+    tailtriage.shutdown().expect("flush should succeed");
 
     let run_json = std::fs::read_to_string(&output_path).expect("run artifact should be readable");
     let run_value: serde_json::Value =

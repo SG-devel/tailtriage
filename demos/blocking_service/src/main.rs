@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::{unix_time_ms, RequestMeta, RuntimeSnapshot};
+use tailtriage_core::{unix_time_ms, Outcome, RequestOptions, RuntimeSnapshot};
 
 struct ModeSettings {
     offered_requests: u64,
@@ -85,32 +85,32 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/blocking-demo");
+            let request = tailtriage.request_with(
+                "/blocking-demo",
+                RequestOptions::new().request_id(request_id),
+            );
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("blocking_service_inflight");
-                    let _wait = tailtriage
-                        .queue(request_id.clone(), "dispatch_overhead")
-                        .await_on(tokio::time::sleep(Duration::from_micros(10)))
-                        .await;
+            let _inflight = request.inflight("blocking_service_inflight");
+            let _wait = request
+                .queue("dispatch_overhead")
+                .await_on(tokio::time::sleep(Duration::from_micros(10)))
+                .await;
 
-                    pending_blocking.fetch_add(1, Ordering::SeqCst);
-                    let handle = tokio::task::spawn_blocking(move || {
-                        std::thread::sleep(blocking_work);
-                    });
+            pending_blocking.fetch_add(1, Ordering::SeqCst);
+            let handle = tokio::task::spawn_blocking(move || {
+                std::thread::sleep(blocking_work);
+            });
 
-                    tailtriage
-                        .stage(request_id, "spawn_blocking_path")
-                        .await_value(async {
-                            handle
-                                .await
-                                .expect("spawn_blocking workload should complete")
-                        })
-                        .await;
-                    pending_blocking.fetch_sub(1, Ordering::SeqCst);
+            request
+                .stage("spawn_blocking_path")
+                .await_value(async {
+                    handle
+                        .await
+                        .expect("spawn_blocking workload should complete")
                 })
                 .await;
+            pending_blocking.fetch_sub(1, Ordering::SeqCst);
+            request.complete(Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
@@ -124,7 +124,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
     sampler.await.context("sampler task panicked")?;
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", output_path.display());
 
     Ok(())

@@ -4,7 +4,6 @@ use crate::collector::{duration_to_us, lock_map};
 use crate::{unix_time_ms, InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
-#[derive(Debug)]
 pub struct InflightGuard<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
     pub(crate) gauge: String,
@@ -30,7 +29,6 @@ impl Drop for InflightGuard<'_> {
 }
 
 /// Thin wrapper for recording stage latency around one await point.
-#[derive(Debug)]
 pub struct StageTimer<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
     pub(crate) request_id: String,
@@ -99,7 +97,6 @@ impl StageTimer<'_> {
 }
 
 /// Thin wrapper for recording queue-wait latency around one await point.
-#[derive(Debug)]
 pub struct QueueTimer<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
     pub(crate) request_id: String,

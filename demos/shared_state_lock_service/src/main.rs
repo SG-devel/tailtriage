@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestMeta;
+use tailtriage_core::{Outcome, RequestOptions};
 use tokio::sync::RwLock;
 
 struct ModeSettings {
@@ -56,35 +56,35 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let meta = RequestMeta::new(request_id.clone(), "/shared-state-lock-demo");
+            let request = tailtriage.request_with(
+                "/shared-state-lock-demo",
+                RequestOptions::new().request_id(request_id),
+            );
 
-            tailtriage
-                .request(meta, "ok", async {
-                    let _inflight = tailtriage.inflight("shared_state_lock_inflight");
+            let _inflight = request.inflight("shared_state_lock_inflight");
 
-                    tailtriage
-                        .stage(request_id.clone(), "pre_lock_work")
-                        .await_value(tokio::time::sleep(settings.pre_lock_stage_delay))
-                        .await;
+            request
+                .stage("pre_lock_work")
+                .await_value(tokio::time::sleep(settings.pre_lock_stage_delay))
+                .await;
 
-                    let waiting_depth = waiting_writers.fetch_add(1, Ordering::SeqCst) + 1;
-                    let guard = tailtriage
-                        .queue(request_id.clone(), "shared_state_write_lock")
-                        .with_depth_at_start(waiting_depth)
-                        .await_on(shared_state.write())
-                        .await;
-                    waiting_writers.fetch_sub(1, Ordering::SeqCst);
+            let waiting_depth = waiting_writers.fetch_add(1, Ordering::SeqCst) + 1;
+            let guard = request
+                .queue("shared_state_write_lock")
+                .with_depth_at_start(waiting_depth)
+                .await_on(shared_state.write())
+                .await;
+            waiting_writers.fetch_sub(1, Ordering::SeqCst);
 
-                    let mut guard = guard;
-                    tailtriage
-                        .stage(request_id, "shared_state_critical_section")
-                        .await_value(async {
-                            *guard += 1;
-                            tokio::time::sleep(settings.critical_section_delay).await;
-                        })
-                        .await;
+            let mut guard = guard;
+            request
+                .stage("shared_state_critical_section")
+                .await_value(async {
+                    *guard += 1;
+                    tokio::time::sleep(settings.critical_section_delay).await;
                 })
                 .await;
+            request.complete(Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
@@ -96,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.flush()?;
+    tailtriage.shutdown()?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())

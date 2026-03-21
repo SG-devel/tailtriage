@@ -32,7 +32,7 @@ fn base_run() -> Run {
                 started_at_unix_ms: 1,
                 finished_at_unix_ms: 2,
                 latency_us: 1_000,
-                outcome: "ok".to_string(),
+                outcome: tailtriage_core::Outcome::Ok,
             },
             RequestEvent {
                 request_id: "r2".to_string(),
@@ -41,7 +41,7 @@ fn base_run() -> Run {
                 started_at_unix_ms: 1,
                 finished_at_unix_ms: 2,
                 latency_us: 1_000,
-                outcome: "ok".to_string(),
+                outcome: tailtriage_core::Outcome::Ok,
             },
             RequestEvent {
                 request_id: "r3".to_string(),
@@ -50,7 +50,7 @@ fn base_run() -> Run {
                 started_at_unix_ms: 1,
                 finished_at_unix_ms: 2,
                 latency_us: 1_000,
-                outcome: "ok".to_string(),
+                outcome: tailtriage_core::Outcome::Ok,
             },
         ],
         stages: Vec::new(),
