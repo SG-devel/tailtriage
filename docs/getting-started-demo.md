@@ -110,8 +110,6 @@ The documented demo surface is broader than the currently CI-validated surface. 
 - `blocking`
 - `executor`
 
-At the time of writing, `shared-lock` and `retry-storm` are documented and fixture-backed, but have weaker continuous validation coverage than the demos above.
-
 ## Runtime-cost demo path (separate from triage scenarios)
 
 `runtime_cost` is a measurement demo that uses a separate script entrypoint rather than `scripts/demo_tool.py`.
