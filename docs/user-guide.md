@@ -44,7 +44,7 @@ Representative diagnosis shape:
   "primary_suspect": {
     "kind": "ApplicationQueueSaturation",
     "evidence": [
-      "Queue wait at p95 consumes 98.4% of request time.",
+      "Queue wait at p95 consumes 98.2% of request time.",
       "Observed queue depth sample up to 230."
     ],
     "next_checks": [

@@ -1,8 +1,8 @@
 {
   "request_count": 220,
-  "p50_latency_us": 8463,
-  "p95_latency_us": 8780,
-  "p99_latency_us": 18231,
+  "p50_latency_us": 8472,
+  "p95_latency_us": 8793,
+  "p99_latency_us": 8930,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 999,
   "inflight_trend": {
@@ -11,19 +11,22 @@
     "peak_count": 4,
     "p95_count": 2,
     "growth_delta": -1,
-    "growth_per_sec_milli": -1049
+    "growth_per_sec_milli": -1066
   },
+  "warnings": [],
   "primary_suspect": {
     "kind": "DownstreamStageDominates",
-    "score": 60,
-    "confidence": "low",
+    "score": 79,
+    "confidence": "medium",
     "evidence": [
-      "Stage 'cold_start_stage' has p95 latency 8752 us across 220 samples.",
-      "Stage 'cold_start_stage' cumulative latency is 1833446 us."
+      "Stage 'cold_start_stage' has p95 latency 8757 us across 220 samples.",
+      "Stage 'cold_start_stage' cumulative latency is 1813418 us.",
+      "Stage 'cold_start_stage' contributes 997 permille of cumulative request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'cold_start_stage'.",
-      "Collect downstream service timings and retry behavior during tail windows."
+      "Collect downstream service timings and retry behavior during tail windows.",
+      "Review downstream SLO/error budget and align retry budget/backoff with it."
     ]
   },
   "secondary_suspects": []
