@@ -14,6 +14,14 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 
 Expected output includes `wrote tailtriage-run.json`.
 
+If you want a more realistic request + queue + worker shape outside the synthetic demos, run:
+
+```bash
+cargo run -p tailtriage-tokio --example mini_service_integration
+```
+
+This mini-service example is an adoption-confidence reference and does **not** replace the demo suite.
+
 ### 2) Analyze with the workspace CLI crate
 
 ```bash
@@ -123,3 +131,4 @@ After first run, validate one mitigation workflow:
 - [Diagnostics guide](diagnostics.md)
 - [Architecture](architecture.md)
 - [Demo workflow](getting-started-demo.md)
+- [Mini-service integration example (source)](../tailtriage-tokio/examples/mini_service_integration.rs)
