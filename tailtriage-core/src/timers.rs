@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::collector::{duration_to_us, lock_map, lock_run};
+use crate::collector::{duration_to_us, lock_map};
 use crate::{unix_time_ms, InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
@@ -21,13 +21,11 @@ impl Drop for InflightGuard<'_> {
             *entry
         };
 
-        lock_run(&self.tailtriage.run)
-            .inflight
-            .push(InFlightSnapshot {
-                gauge: self.gauge.clone(),
-                at_unix_ms: unix_time_ms(),
-                count,
-            });
+        self.tailtriage.record_inflight_snapshot(InFlightSnapshot {
+            gauge: self.gauge.clone(),
+            at_unix_ms: unix_time_ms(),
+            count,
+        });
     }
 }
 
@@ -59,7 +57,7 @@ impl StageTimer<'_> {
         let finished_at_unix_ms = unix_time_ms();
         let success = value.is_ok();
 
-        lock_run(&self.tailtriage.run).stages.push(StageEvent {
+        self.tailtriage.record_stage_event(StageEvent {
             request_id: self.request_id,
             stage: self.stage,
             started_at_unix_ms,
@@ -81,7 +79,7 @@ impl StageTimer<'_> {
         let value = fut.await;
         let finished_at_unix_ms = unix_time_ms();
 
-        lock_run(&self.tailtriage.run).stages.push(StageEvent {
+        self.tailtriage.record_stage_event(StageEvent {
             request_id: self.request_id,
             stage: self.stage,
             started_at_unix_ms,
@@ -121,7 +119,7 @@ impl QueueTimer<'_> {
         let value = fut.await;
         let waited_until_unix_ms = unix_time_ms();
 
-        lock_run(&self.tailtriage.run).queues.push(QueueEvent {
+        self.tailtriage.record_queue_event(QueueEvent {
             request_id: self.request_id,
             queue: self.queue,
             waited_from_unix_ms,

@@ -3,6 +3,7 @@ use std::path::Path;
 use tailtriage_cli::analyze::{analyze_run, DiagnosisKind};
 use tailtriage_core::{
     CaptureMode, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
+    TruncationSummary,
 };
 
 fn load_fixture(name: &str) -> Run {
@@ -56,6 +57,7 @@ fn base_run() -> Run {
         queues: Vec::new(),
         inflight: Vec::new(),
         runtime_snapshots: Vec::new(),
+        truncation: TruncationSummary::default(),
     }
 }
 
