@@ -10,8 +10,8 @@ For exact GitHub operations (branch rules, required checks, labels, topics, owne
 - [ ] Topics are intentional (for example: `rust`, `tokio`, `performance`, `latency`, `diagnostics`).
 - [ ] Default branch is correct and protected.
 - [ ] Branch protection requires passing CI and blocks force-pushes/deletions.
-- [ ] Required status checks reference current workflow names (`CI`, `Python Demo Checks`) and avoid transient job-level names.
-- [ ] Required checks include Rust quality gates (`cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`) and deterministic triage validations for: `queue`, `blocking`, `executor`, `downstream`, `mixed`, `cold-start`, and `db-pool`.
+- [ ] Required status checks reference current workflow names (`CI`) and avoid transient job-level names.
+- [ ] Required checks include Rust quality gates (`cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`) and deterministic triage validations for: `queue`, `blocking`, `executor`, `downstream`, `mixed`, `cold-start`, `db-pool`, `shared-lock`, and `retry-storm`.
 - [ ] Runtime-cost measurement remains informational/non-blocking (it should not gate merges).
 - [ ] Tag and release policy is intentional (no accidental internal tags).
 
@@ -51,6 +51,8 @@ python3 scripts/demo_tool.py validate downstream
 python3 scripts/demo_tool.py validate mixed
 python3 scripts/demo_tool.py validate cold-start
 python3 scripts/demo_tool.py validate db-pool
+python3 scripts/demo_tool.py validate shared-lock
+python3 scripts/demo_tool.py validate retry-storm
 ```
 
 Optional/non-blocking measurement:
