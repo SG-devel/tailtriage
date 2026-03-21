@@ -2,6 +2,43 @@ use serde::{Deserialize, Serialize};
 
 use crate::CaptureMode;
 
+/// Logical request outcome categories used by the public API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    Ok,
+    Error,
+    Timeout,
+    Cancelled,
+    Rejected,
+    Other(String),
+}
+
+impl Outcome {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Ok => "ok",
+            Self::Error => "error",
+            Self::Timeout => "timeout",
+            Self::Cancelled => "cancelled",
+            Self::Rejected => "rejected",
+            Self::Other(value) => value.as_str(),
+        }
+    }
+
+    #[must_use]
+    pub fn into_string(self) -> String {
+        match self {
+            Self::Ok => "ok".to_string(),
+            Self::Error => "error".to_string(),
+            Self::Timeout => "timeout".to_string(),
+            Self::Cancelled => "cancelled".to_string(),
+            Self::Rejected => "rejected".to_string(),
+            Self::Other(value) => value,
+        }
+    }
+}
+
 /// A full output artifact for one tailtriage capture run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {

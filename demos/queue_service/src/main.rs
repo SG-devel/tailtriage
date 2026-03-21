@@ -47,10 +47,13 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with_id("/queue-demo", request_id.clone());
+            let request = tailtriage.request_with(
+                "/queue-demo",
+                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
+            );
 
             {
-                let _inflight = tailtriage.inflight("queue_service_inflight");
+                let _inflight = request.inflight("queue_service_inflight");
 
                 let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
                 let permit = request
@@ -67,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
                     .await_value(tokio::time::sleep(work_duration))
                     .await;
             }
-            request.complete("ok");
+            request.complete(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % inter_arrival_pause_every == 0 {

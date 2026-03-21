@@ -22,7 +22,10 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
     for index in 0..30 {
         let request_id = format!("req-{index}");
         let request = tailtriage
-            .request_with_id("/checkout", request_id)
+            .request_with(
+                "/checkout",
+                tailtriage_core::RequestOptions::new().request_id(request_id),
+            )
             .with_kind("http");
 
         request
@@ -34,7 +37,7 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
             .stage("local_work")
             .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
             .await;
-        request.complete("ok");
+        request.complete(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");
@@ -56,7 +59,10 @@ async fn downstream_heavy_stage_is_ranked() {
         .expect("build should succeed");
 
     let request = tailtriage
-        .request_with_id("/invoice", "req-1")
+        .request_with(
+            "/invoice",
+            tailtriage_core::RequestOptions::new().request_id("req-1"),
+        )
         .with_kind("http");
     request
         .stage("downstream_db")
@@ -66,7 +72,7 @@ async fn downstream_heavy_stage_is_ranked() {
         })
         .await
         .expect("stage should succeed");
-    request.complete("ok");
+    request.complete(tailtriage_core::Outcome::Ok);
 
     tailtriage.shutdown().expect("shutdown should succeed");
 
@@ -87,9 +93,12 @@ async fn low_evidence_run_yields_insufficient_signal() {
         .expect("build should succeed");
 
     for index in 0..3 {
-        let request = tailtriage.request_with_id("/health", format!("insufficient-{index}"));
+        let request = tailtriage.request_with(
+            "/health",
+            tailtriage_core::RequestOptions::new().request_id(format!("insufficient-{index}")),
+        );
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        request.complete("ok");
+        request.complete(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");

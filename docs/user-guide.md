@@ -61,9 +61,32 @@ The installed binary name is `tailtriage`.
 
 ### 3) Capture one artifact in your app
 
-Create a `TailTriage` instance, wrap request/queue/stage boundaries, and shutdown the artifact to disk at shutdown.
+Create one `Tailtriage` instance, wrap request/queue/stage boundaries, and shut down the artifact to disk at process shutdown.
 
-For a concrete instrumentation shape, mirror the minimal example in [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
+Minimal shape:
+
+```rust
+use tailtriage_core::{Outcome, Tailtriage};
+
+let tailtriage = Tailtriage::builder("checkout-service")
+    .output("tailtriage-run.json")
+    .build()?;
+
+let request = tailtriage.request("/checkout").with_kind("http");
+request
+    .queue("queue_wait")
+    .await_on(async {})
+    .await;
+request
+    .stage("db_call")
+    .await_on(async { Ok::<(), &'static str>(()) })
+    .await?;
+request.complete(Outcome::Ok);
+
+tailtriage.shutdown()?;
+```
+
+For a concrete end-to-end instrumentation shape, mirror [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
 
 ### 4) Analyze your artifact with the installed binary
 
@@ -110,11 +133,18 @@ Add one more queue wrapper and one more stage wrapper around the most likely mis
 Enable runtime snapshots when queue/stage instrumentation is still ambiguous:
 
 ```rust
-use std::sync::Arc;
 use std::time::Duration;
+use std::sync::Arc;
+use tailtriage_core::{SamplingConfig, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 
-let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
+let tailtriage = Arc::new(
+    Tailtriage::builder("checkout-service")
+        .sampling(SamplingConfig::runtime(Duration::from_millis(200)))
+        .build()?,
+);
+let sampler = RuntimeSampler::start_configured(Arc::clone(&tailtriage))?
+    .expect("sampling is enabled");
 // run workload
 sampler.shutdown().await;
 ```

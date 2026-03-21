@@ -4,6 +4,10 @@
 //! snapshots that feed evidence into the same unified `Tailtriage` API surface.
 //! Use it when you need stronger separation between executor pressure,
 //! blocking-pool pressure, queueing, and downstream-stage slowdowns.
+//!
+//! Prefer [`RuntimeSampler::start_configured`] with
+//! [`tailtriage_core::SamplingConfig`] so capture setup stays on one builder
+//! surface.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -82,6 +86,23 @@ impl RuntimeSampler {
         })
     }
 
+    /// Starts runtime sampling from the core run configuration when enabled.
+    ///
+    /// Returns `Ok(None)` when runtime sampling is disabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SamplerStartError::ZeroInterval`] when the configured
+    /// interval is zero.
+    pub fn start_configured(
+        tailtriage: Arc<Tailtriage>,
+    ) -> Result<Option<Self>, SamplerStartError> {
+        match tailtriage.runtime_sampling_interval() {
+            Some(interval) => Self::start(tailtriage, interval).map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Requests sampler shutdown and waits for task completion.
     pub async fn shutdown(mut self) {
         if let Some(stop_tx) = self.stop_tx.take() {
@@ -135,7 +156,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use tailtriage_core::Tailtriage;
+    use tailtriage_core::{SamplingConfig, Tailtriage};
 
     use super::crate_name;
     use super::{RuntimeSampler, SamplerStartError};
@@ -199,5 +220,37 @@ mod tests {
             assert_eq!(snapshot.blocking_queue_depth, None);
             assert_eq!(snapshot.remote_schedule_count, None);
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_configured_starts_when_enabled() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .sampling(SamplingConfig::runtime(Duration::from_millis(5)))
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::start_configured(Arc::clone(&tailtriage))
+            .expect("configured sampler should start")
+            .expect("sampling should be enabled");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        sampler.shutdown().await;
+
+        assert!(
+            !tailtriage.snapshot().runtime_snapshots.is_empty(),
+            "configured sampler should record snapshots"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn start_configured_returns_none_when_disabled() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .build()
+                .expect("build should succeed"),
+        );
+        let sampler = RuntimeSampler::start_configured(tailtriage).expect("start should succeed");
+        assert!(sampler.is_none());
     }
 }

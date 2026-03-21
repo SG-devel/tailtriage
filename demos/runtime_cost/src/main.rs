@@ -112,7 +112,10 @@ async fn main() -> anyhow::Result<()> {
                 }
                 (_, Some(ts)) => {
                     let request_id = format!("request-{idx}");
-                    let request = ts.request_with_id("/runtime-cost", request_id);
+                    let request = ts.request_with(
+                        "/runtime-cost",
+                        tailtriage_core::RequestOptions::new().request_id(request_id),
+                    );
 
                     {
                         let _inflight = request.inflight("runtime_cost_requests");
@@ -136,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
 
                         drop(permit);
                     }
-                    request.complete("ok");
+                    request.complete(tailtriage_core::Outcome::Ok);
                 }
                 (_, None) => unreachable!("instrumented modes require a collector"),
             }
