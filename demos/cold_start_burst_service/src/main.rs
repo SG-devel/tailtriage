@@ -70,10 +70,13 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with_id("/cold-start-burst-demo", request_id.clone());
+            let request = tailtriage.request_with(
+                "/cold-start-burst-demo",
+                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
+            );
 
             {
-                let _inflight = tailtriage.inflight("cold_start_burst_inflight");
+                let _inflight = request.inflight("cold_start_burst_inflight");
 
                 let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
                 let permit = request
@@ -91,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
                     .await_value(tokio::time::sleep(stage_delay))
                     .await;
             }
-            request.complete("ok");
+            request.complete(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {

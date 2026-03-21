@@ -1,4 +1,22 @@
-//! Core run schema and local JSON sink for tailtriage.
+//! Core run schema and request-context instrumentation API for tailtriage.
+//!
+//! ```no_run
+//! use tailtriage_core::{Outcome, RequestOptions, Tailtriage};
+//!
+//! # fn demo() -> Result<(), Box<dyn std::error::Error>> {
+//! let tailtriage = Tailtriage::builder("checkout-service")
+//!     .output("tailtriage-run.json")
+//!     .build()?;
+//!
+//! let request = tailtriage
+//!     .request_with("/checkout", RequestOptions::new().request_id("req-1"))
+//!     .with_kind("http");
+//! request.complete(Outcome::Ok);
+//!
+//! tailtriage.shutdown()?;
+//! # Ok(())
+//! # }
+//! ```
 
 mod collector;
 mod config;
@@ -8,10 +26,12 @@ mod time;
 mod timers;
 
 pub use collector::{RequestContext, Tailtriage};
-pub use config::{BuildError, CaptureLimits, CaptureMode, TailtriageBuilder};
+pub use config::{
+    BuildError, CaptureLimits, CaptureMode, RequestOptions, SamplingConfig, TailtriageBuilder,
+};
 pub use events::{
-    InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
-    TruncationSummary,
+    InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot,
+    StageEvent, TruncationSummary,
 };
 pub use sink::{LocalJsonSink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};

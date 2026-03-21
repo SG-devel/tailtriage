@@ -1,4 +1,4 @@
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{Outcome, Tailtriage};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
     }
 
-    request.complete("ok");
+    request.complete(Outcome::Ok);
 
     tailtriage.shutdown()?;
     Ok(())

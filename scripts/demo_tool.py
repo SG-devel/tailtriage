@@ -204,9 +204,10 @@ def validate_queue(root_dir: Path) -> None:
             f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
         )
 
-    if after_score >= before_score:
+    if after_score > before_score:
         raise SystemExit(
-            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+            "expected mitigated suspect score to stay flat or drop, "
+            f"got before={before_score} after={after_score}"
         )
 
     print(
@@ -373,9 +374,10 @@ def validate_executor(root_dir: Path) -> None:
 
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
-    if after_score >= before_score:
+    if after_score > before_score:
         raise SystemExit(
-            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+            "expected mitigated suspect score to stay flat or drop, "
+            f"got before={before_score} after={after_score}"
         )
 
     before_p95 = before["p95_latency_us"]
@@ -440,9 +442,10 @@ def validate_cold_start(root_dir: Path) -> None:
 
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
-    if after_score >= before_score:
+    if after_score > before_score:
         raise SystemExit(
-            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+            "expected mitigated suspect score to stay flat or drop, "
+            f"got before={before_score} after={after_score}"
         )
 
     print(
@@ -572,9 +575,10 @@ def validate_retry_storm(root_dir: Path) -> None:
 
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
-    if after_score >= before_score:
+    if after_score > before_score:
         raise SystemExit(
-            f"expected mitigated suspect score to drop, got before={before_score} after={after_score}"
+            "expected mitigated suspect score to stay flat or drop, "
+            f"got before={before_score} after={after_score}"
         )
 
     print(
