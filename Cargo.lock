@@ -425,6 +425,9 @@ dependencies = [
  "serde",
  "serde_json",
  "tailtriage-core",
+ "tailtriage-tokio",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
