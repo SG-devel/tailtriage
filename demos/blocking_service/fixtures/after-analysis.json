@@ -1,24 +1,25 @@
 {
   "request_count": 250,
-  "p50_latency_us": 54654,
-  "p95_latency_us": 73409,
-  "p99_latency_us": 76883,
-  "p95_queue_share_permille": 62,
-  "p95_service_share_permille": 986,
+  "p50_latency_us": 55720,
+  "p95_latency_us": 88888,
+  "p99_latency_us": 92354,
+  "p95_queue_share_permille": 55,
+  "p95_service_share_permille": 991,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
-    "peak_count": 40,
-    "p95_count": 38,
+    "peak_count": 49,
+    "p95_count": 47,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2032
+    "growth_per_sec_milli": -2040
   },
+  "warnings": [],
   "primary_suspect": {
     "kind": "BlockingPoolPressure",
     "score": 80,
     "confidence": "medium",
     "evidence": [
-      "Blocking queue depth p95 is 38, indicating sustained spawn_blocking backlog."
+      "Blocking queue depth p95 is 45, indicating sustained spawn_blocking backlog."
     ],
     "next_checks": [
       "Audit blocking sections and move avoidable synchronous work out of hot paths.",
@@ -28,15 +29,17 @@
   "secondary_suspects": [
     {
       "kind": "DownstreamStageDominates",
-      "score": 60,
-      "confidence": "low",
+      "score": 79,
+      "confidence": "medium",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 72227 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 12298332 us."
+        "Stage 'spawn_blocking_path' has p95 latency 87633 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 13557163 us.",
+        "Stage 'spawn_blocking_path' contributes 978 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'spawn_blocking_path'.",
-        "Collect downstream service timings and retry behavior during tail windows."
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
       ]
     }
   ]

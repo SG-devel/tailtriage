@@ -1,20 +1,20 @@
 {
   "before": {
     "primary_suspect_kind": "ExecutorPressureSuspected",
-    "primary_suspect_score": 85,
-    "p95_latency_us": 6031022,
-    "p95_queue_share_permille": 77
+    "primary_suspect_score": 90,
+    "p95_latency_us": 6004079,
+    "p95_queue_share_permille": 55
   },
   "after": {
     "primary_suspect_kind": "ExecutorPressureSuspected",
-    "primary_suspect_score": 77,
-    "p95_latency_us": 1175696,
-    "p95_queue_share_permille": 167
+    "primary_suspect_score": 82,
+    "p95_latency_us": 1129448,
+    "p95_queue_share_permille": 95
   },
   "delta": {
     "primary_suspect_kind": null,
     "primary_suspect_score": -8,
-    "p95_latency_us": -4855326,
-    "p95_queue_share_permille": 90
+    "p95_latency_us": -4874631,
+    "p95_queue_share_permille": 40
   }
 }

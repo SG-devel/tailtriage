@@ -2,19 +2,19 @@
   "before": {
     "primary_suspect_kind": "ApplicationQueueSaturation",
     "primary_suspect_score": 90,
-    "p95_latency_us": 5270251,
-    "p95_queue_share_permille": 995
+    "p95_latency_us": 4802998,
+    "p95_queue_share_permille": 994
   },
   "after": {
     "primary_suspect_kind": "ApplicationQueueSaturation",
     "primary_suspect_score": 90,
-    "p95_latency_us": 1820403,
+    "p95_latency_us": 1565039,
     "p95_queue_share_permille": 993
   },
   "delta": {
     "primary_suspect_kind": null,
     "primary_suspect_score": 0,
-    "p95_latency_us": -3449848,
-    "p95_queue_share_permille": -2
+    "p95_latency_us": -3237959,
+    "p95_queue_share_permille": -1
   }
 }
