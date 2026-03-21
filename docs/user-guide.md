@@ -61,9 +61,32 @@ The installed binary name is `tailtriage`.
 
 ### 3) Capture one artifact in your app
 
-Create a `TailTriage` instance, wrap request/queue/stage boundaries, and shutdown the artifact to disk at shutdown.
+Create one `Tailtriage` instance, wrap request/queue/stage boundaries, and shut down the artifact to disk at process shutdown.
 
-For a concrete instrumentation shape, mirror the minimal example in [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
+Minimal shape:
+
+```rust
+use tailtriage_core::Tailtriage;
+
+let tailtriage = Tailtriage::builder("checkout-service")
+    .output("tailtriage-run.json")
+    .build()?;
+
+let request = tailtriage.request("/checkout").with_kind("http");
+request
+    .queue("queue_wait")
+    .await_on(async {})
+    .await;
+request
+    .stage("db_call")
+    .await_on(async { Ok::<(), &'static str>(()) })
+    .await?;
+request.complete("ok");
+
+tailtriage.shutdown()?;
+```
+
+For a concrete end-to-end instrumentation shape, mirror [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
 
 ### 4) Analyze your artifact with the installed binary
 
