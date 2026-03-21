@@ -25,11 +25,39 @@ Workflow in one line: **capture -> analyze -> choose next check -> re-run**.
 - teams with latency/backpressure incidents but limited perf-engineering bandwidth
 - people who want a fast local triage loop before adopting heavier observability workflows
 
-## Canonical first run (recommended)
+## Quickstart: choose your path
 
-Use this as the shortest path from repo landing page to first useful diagnosis.
+### Path A — Try from this repo (source/workspace)
 
-### 1) Add dependencies
+Use this when you are exploring `tailtriage` directly from this repository.
+
+1) Run the minimal example and generate an artifact:
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+```
+
+This writes `tailtriage-run.json` in the current directory.
+
+2) Analyze that artifact with the workspace CLI crate:
+
+```bash
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+3) Read the first useful fields:
+
+- `primary_suspect.kind`
+- `primary_suspect.evidence[]`
+- `primary_suspect.next_checks[]`
+- `p95_queue_share_permille`
+- `p95_service_share_permille`
+
+### Path B — Adopt in your app (crates.io)
+
+Use this when you are integrating `tailtriage` into your own Tokio service.
+
+1) Add library dependencies in your app:
 
 ```toml
 [dependencies]
@@ -38,33 +66,19 @@ tailtriage-tokio = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
-For local workspace development, swap version entries for path dependencies.
-
-### 2) Capture one run artifact
-
-Run the minimal end-to-end example:
+2) Install the published CLI binary:
 
 ```bash
-cargo run -p tailtriage-tokio --example minimal_checkout
+cargo install tailtriage-cli
 ```
 
-This writes `tailtriage-run.json` in the current directory.
-
-### 3) Analyze the artifact
+3) Capture and analyze one run artifact:
 
 ```bash
-cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+tailtriage analyze tailtriage-run.json --format json
 ```
 
-### 4) Interpret the first useful answer
-
-Inspect these fields first:
-
-- `primary_suspect.kind`
-- `primary_suspect.evidence[]`
-- `primary_suspect.next_checks[]`
-- `p95_queue_share_permille`
-- `p95_service_share_permille`
+If you want the smallest realistic capture + analyze flow for an external app, follow **[docs/user-guide.md](docs/user-guide.md)** and use the “Adopt in your app (crates.io)” section.
 
 Representative diagnosis shape:
 
@@ -142,6 +156,6 @@ When a section reaches its configured max, `tailtriage` drops additional entries
 
 For concise docs by audience, start at **[docs/README.md](docs/README.md)**.
 
-For the same canonical first-run workflow in walkthrough form, see **[docs/user-guide.md](docs/user-guide.md)**.
+For source/workspace and crates.io adoption walkthroughs, see **[docs/user-guide.md](docs/user-guide.md)**.
 
 For demo-specific behavior, recommended public progression, and realism/CI-coverage caveats, see **[demos/README.md](demos/README.md)**.
