@@ -4,7 +4,8 @@ Use this page as the single entry point for project documentation.
 
 ## Start here
 
-- **Canonical first run (capture -> analyze -> interpret):** [user-guide.md](user-guide.md)
+- **Try from this repo (source/workspace quickstart):** [user-guide.md#path-a--try-from-this-repo-sourceworkspace](user-guide.md#path-a--try-from-this-repo-sourceworkspace)
+- **Adopt in your app (crates.io quickstart):** [user-guide.md#path-b--adopt-in-your-app-cratesio](user-guide.md#path-b--adopt-in-your-app-cratesio)
 - **How triage analysis works:** [diagnostics.md](diagnostics.md)
 - **Before/after proof workflow (secondary):** [../demos/retry_storm_service/fixtures/before-after-comparison.json](../demos/retry_storm_service/fixtures/before-after-comparison.json)
 
