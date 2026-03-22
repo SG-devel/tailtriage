@@ -82,6 +82,13 @@ request
 request.complete(tailtriage_core::Outcome::Ok);
 ```
 
+Completion helpers on the same request-context model:
+
+```rust
+let value = request.run_ok(async { 42 }).await;
+let result: Result<(), MyError> = request.run_result(async { downstream_call().await }).await;
+```
+
 ### 5.3 In-flight tracking
 
 ```rust
@@ -161,7 +168,7 @@ sampler.shutdown().await;
 
 Each section captures timestamped events/snapshots used by the CLI triage rules.
 
-Capture limits are configurable through `Config.capture_limits` (`max_requests`, `max_stages`, `max_queues`, `max_inflight_snapshots`, `max_runtime_snapshots`). When limits are hit, capture is deterministically truncated for that section and analyzer output should be interpreted as evidence-ranked suspects from partial data.
+Capture limits are configurable through `Tailtriage::builder(...).capture_limits(...)` (`max_requests`, `max_stages`, `max_queues`, `max_inflight_snapshots`, `max_runtime_snapshots`). When limits are hit, capture is deterministically truncated for that section and analyzer output should be interpreted as evidence-ranked suspects from partial data.
 
 ## 7. Analyzer CLI (`tailtriage-cli`)
 

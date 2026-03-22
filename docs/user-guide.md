@@ -66,7 +66,7 @@ Create one `Tailtriage` instance, wrap request/queue/stage boundaries, and shut 
 Minimal shape:
 
 ```rust
-use tailtriage_core::{Outcome, Tailtriage};
+use tailtriage_core::Tailtriage;
 
 let tailtriage = Tailtriage::builder("checkout-service")
     .output("tailtriage-run.json")
@@ -75,13 +75,17 @@ let tailtriage = Tailtriage::builder("checkout-service")
 let request = tailtriage.request("/checkout").with_kind("http");
 request
     .queue("queue_wait")
-    .await_on(async {})
+    .with_depth_at_start(3)
+    .await_on(tokio::time::sleep(std::time::Duration::from_millis(5)))
     .await;
 request
     .stage("db_call")
-    .await_on(async { Ok::<(), &'static str>(()) })
+    .await_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(8)).await;
+        Ok::<(), &'static str>(())
+    })
     .await?;
-request.complete(Outcome::Ok);
+request.run_ok(async {}).await;
 
 tailtriage.shutdown()?;
 ```
@@ -140,6 +144,7 @@ use tailtriage_tokio::RuntimeSampler;
 
 let tailtriage = Arc::new(
     Tailtriage::builder("checkout-service")
+        .output("tailtriage-run.json")
         .build()?,
 );
 let sampler = RuntimeSampler::start(

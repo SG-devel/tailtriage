@@ -1,9 +1,9 @@
 //! Core run schema and request-context instrumentation API for tailtriage.
 //!
 //! ```no_run
-//! use tailtriage_core::{Outcome, RequestOptions, Tailtriage};
+//! use tailtriage_core::{RequestOptions, Tailtriage};
 //!
-//! # fn demo() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 //! let tailtriage = Tailtriage::builder("checkout-service")
 //!     .output("tailtriage-run.json")
 //!     .build()?;
@@ -11,7 +11,7 @@
 //! let request = tailtriage
 //!     .request_with("/checkout", RequestOptions::new().request_id("req-1"))
 //!     .with_kind("http");
-//! request.complete(Outcome::Ok);
+//! request.run_ok(async {}).await;
 //!
 //! tailtriage.shutdown()?;
 //! # Ok(())

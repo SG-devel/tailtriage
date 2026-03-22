@@ -29,6 +29,7 @@ impl std::fmt::Debug for Tailtriage {
 }
 
 /// Reusable request context that carries correlation and timing state.
+#[must_use = "request contexts must be completed via complete(...) or a run_* helper"]
 #[derive(Debug)]
 pub struct RequestContext<'a> {
     tailtriage: &'a Tailtriage,
@@ -189,7 +190,6 @@ impl Tailtriage {
 }
 
 impl RequestContext<'_> {
-    #[must_use]
     pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
         self.kind = Some(kind.into());
         self
@@ -247,11 +247,41 @@ impl RequestContext<'_> {
         });
     }
 
+    /// Runs `fut` and records `outcome` when it finishes.
     pub async fn run<Fut, T>(self, outcome: Outcome, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
     {
         let output = fut.await;
+        self.complete(outcome);
+        output
+    }
+
+    /// Runs an infallible future and records [`Outcome::Ok`] on completion.
+    pub async fn run_ok<Fut, T>(self, fut: Fut) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        self.run(Outcome::Ok, fut).await
+    }
+
+    /// Runs a `Result` future and records `ok`/`error` automatically.
+    ///
+    /// `Ok(_)` is recorded as [`Outcome::Ok`], and `Err(_)` as [`Outcome::Error`].
+    ///
+    /// # Errors
+    ///
+    /// Returns any error produced by `fut` unchanged.
+    pub async fn run_result<Fut, T, E>(self, fut: Fut) -> Result<T, E>
+    where
+        Fut: std::future::Future<Output = Result<T, E>>,
+    {
+        let output = fut.await;
+        let outcome = if output.is_ok() {
+            Outcome::Ok
+        } else {
+            Outcome::Error
+        };
         self.complete(outcome);
         output
     }
