@@ -150,6 +150,26 @@ MVP scope is intentionally narrow:
 - no live UI
 - no exporter/backend requirement
 
+## Request lifecycle
+
+Every `RequestContext` starts one request lifecycle and must be finished **exactly once**.
+
+```rust
+let request = tailtriage.request("/checkout").with_kind("http");
+
+// queue/stage/inflight instrumentation here
+
+request.finish_ok();
+```
+
+Lifecycle contract:
+
+- `queue(...)`, `stage(...)`, and `inflight(...)` record instrumentation only; they do **not** finish the request.
+- You must call one terminal method exactly once: `finish(...)`, `finish_ok()`, or `finish_result(...)`.
+- `Drop` is a debug-time misuse detector only: unfinished `RequestContext` values trigger a debug assertion in development builds.
+- `Drop` does **not** infer success/error and does **not** record request completion automatically.
+- Do not rely on scope exit as request completion.
+
 ## Bounded capture and truncation
 
 `tailtriage` keeps run data in memory until shutdown. To keep this bounded in production-like runs, configure per-section capture limits on the builder:
@@ -163,7 +183,7 @@ let tailtriage = Tailtriage::builder("checkout-service")
 Important request-lifecycle safety note:
 
 - `RequestContext` is `#[must_use]`, and debug builds assert if it is dropped unfinished.
-- Finish each request with `finish(...)`, `finish_ok(...)`, or `finish_result(...)`.
+- Finish each request with `finish(...)`, `finish_ok()`, or `finish_result(...)`; scope exit does not finish requests.
 
 Capture limit knobs:
 

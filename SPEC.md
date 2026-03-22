@@ -89,6 +89,18 @@ request.finish_ok();
 let result: Result<(), MyError> = request.finish_result(downstream_call().await);
 ```
 
+### 5.2.1 Request lifecycle contract
+
+`RequestContext` starts a request lifecycle and instrumentation wrappers (`queue(...)`, `stage(...)`, `inflight(...)`) do not complete it.
+
+Every request context must call exactly one terminal method:
+
+- `finish(...)`
+- `finish_ok()`
+- `finish_result(...)`
+
+If a request context is dropped unfinished, debug builds assert to surface misuse during development. This assertion is a development aid only: `Drop` does **not** infer an outcome and does **not** auto-record request completion.
+
 ### 5.3 In-flight tracking
 
 ```rust

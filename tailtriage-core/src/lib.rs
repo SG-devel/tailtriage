@@ -11,7 +11,12 @@
 //! let request = tailtriage
 //!     .request_with("/checkout", RequestOptions::new().request_id("req-1"))
 //!     .with_kind("http");
+//!
+//! // queue(...), stage(...), and inflight(...) instrumentation can happen here.
+//! // They do not finish the request lifecycle.
 //! request.finish_ok();
+//! // You must finish each request exactly once via finish(...), finish_ok(), or finish_result(...).
+//! // Drop only asserts on unfinished requests in debug builds; it does not auto-record completion.
 //!
 //! tailtriage.shutdown()?;
 //! # Ok(())
