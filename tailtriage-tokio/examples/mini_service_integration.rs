@@ -46,7 +46,7 @@ async fn handle_checkout(
         )
         .with_kind("http");
 
-    {
+    let result = async {
         let _inflight = request_ctx.inflight("checkout_inflight");
 
         request_ctx
@@ -64,10 +64,11 @@ async fn handle_checkout(
             )))
             .await;
 
-        authorize_payment(&request_ctx).await?;
+        authorize_payment(&request_ctx).await
     }
+    .await;
 
-    request_ctx.finish_result(Ok(()))
+    request_ctx.finish_result(result)
 }
 
 #[tokio::main(flavor = "current_thread")]

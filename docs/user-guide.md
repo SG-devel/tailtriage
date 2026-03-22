@@ -12,7 +12,7 @@ Use this path when you are evaluating `tailtriage` from a local clone of this re
 cargo run -p tailtriage-tokio --example minimal_checkout
 ```
 
-Expected output includes `wrote tailtriage-run.json`.
+Expected output includes `Wrote tailtriage-run.json`.
 
 If you want a more realistic request + queue + worker shape outside the synthetic demos, run:
 
@@ -21,6 +21,26 @@ cargo run -p tailtriage-tokio --example mini_service_integration
 ```
 
 This mini-service example is an adoption-confidence reference and does **not** replace the demo suite.
+
+## Finish every request explicitly
+
+Every `RequestContext` starts one request lifecycle. Queue/stage/inflight instrumentation does not finish that lifecycle; you must finish it explicitly exactly once.
+
+```rust
+let request = tailtriage.request("/checkout").with_kind("http");
+
+// queue/stage/inflight instrumentation here
+
+request.finish_ok();
+```
+
+Use one terminal method per request:
+
+- `finish(...)`
+- `finish_ok()`
+- `finish_result(...)`
+
+`Drop` is only a debug-time misuse detector. In debug builds, dropping an unfinished context asserts so you catch forgotten finishes during development. `Drop` does **not** infer an outcome and does **not** record request completion automatically.
 
 ### 2) Analyze with the workspace CLI crate
 
