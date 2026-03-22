@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Declared the `api-change` line as the canonical public API direction for `main`, prioritizing one unified onboarding path over overlapping legacy integration styles.
 - Added a fresh dated MVP audit snapshot (`docs/mvp-audit-2026-03-20.md`) with current acceptance/milestone/scope verification results.
 - Consolidated documentation structure around `docs/README.md` as the canonical docs index.
 - Reduced duplication across README/user guide/diagnostics/demo docs while keeping MVP integration and diagnosis guidance intact.
