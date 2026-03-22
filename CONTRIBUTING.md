@@ -8,6 +8,14 @@ Thanks for helping improve `tailtriage`.
 
 The project focuses on producing **evidence-ranked suspects** and **next checks** from one run artifact. Suspects are leads, not proof of root cause.
 
+## License for contributions
+
+By submitting a contribution to this repository, you agree that your contribution is licensed under the repository's MIT License.
+
+You must have the right to submit the code, documentation, tests, examples, fixtures, and any other material you contribute.
+
+Do not submit material that you cannot license under MIT.
+
 ## Fast contributor workflow
 
 1. Open an issue (or comment on an existing one) before large changes.
@@ -33,11 +41,12 @@ Please do not expand MVP scope in drive-by PRs. In particular, avoid adding:
 
 ## Docs updates expected
 
-If behavior or user workflows change, update:
-
-- `README.md`
-- `SPEC.md`
-- `IMPLEMENTATION_PLAN.md` (if roadmap/milestone expectations shift)
+If behavior or user workflows change, update the relevant public docs. Common files to check:
+- README.md
+- docs/README.md
+- docs/user-guide.md
+- docs/diagnostics.md
+- demos/README.md
 
 ## Pull request checklist
 
@@ -46,3 +55,4 @@ If behavior or user workflows change, update:
 - [ ] `cargo fmt`, `cargo clippy`, and `cargo test` pass.
 - [ ] Public docs reflect behavior changes.
 - [ ] Claims remain evidence-based and within MVP scope.
+- [ ] I have the right to submit this contribution under the MIT License, and I agree that this contribution is licensed under the repository's MIT License.
