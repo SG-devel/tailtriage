@@ -2,6 +2,16 @@
 
 This document explains how `tailtriage analyze` produces a triage report and how to use it.
 
+## Run artifact schema contract
+
+`tailtriage-cli` requires every input run artifact to include a top-level `schema_version` integer. The current supported value is `1`.
+
+Loader behavior is strict:
+
+- missing `schema_version` is rejected
+- non-integer `schema_version` is rejected
+- unsupported `schema_version` is rejected
+
 ## Report contents
 
 `tailtriage analyze <run.json>` outputs:

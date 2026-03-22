@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::CaptureMode;
 
+/// Current schema version for `Run` JSON artifacts.
+pub const SCHEMA_VERSION: u64 = 1;
+
 /// Logical request outcome categories used by the public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -42,6 +45,8 @@ impl Outcome {
 /// A full output artifact for one tailtriage capture run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {
+    /// Run artifact schema version.
+    pub schema_version: u64,
     /// Metadata for the capture session.
     pub metadata: RunMetadata,
     /// Request timing events.
@@ -64,6 +69,7 @@ impl Run {
     #[must_use]
     pub fn new(metadata: RunMetadata) -> Self {
         Self {
+            schema_version: SCHEMA_VERSION,
             metadata,
             requests: Vec::new(),
             stages: Vec::new(),

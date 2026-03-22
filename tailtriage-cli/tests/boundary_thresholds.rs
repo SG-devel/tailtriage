@@ -3,7 +3,7 @@ use std::path::Path;
 use tailtriage_cli::analyze::{analyze_run, DiagnosisKind};
 use tailtriage_core::{
     CaptureMode, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot, StageEvent,
-    TruncationSummary,
+    TruncationSummary, SCHEMA_VERSION,
 };
 
 fn load_fixture(name: &str) -> Run {
@@ -14,6 +14,7 @@ fn load_fixture(name: &str) -> Run {
 
 fn base_run() -> Run {
     Run {
+        schema_version: SCHEMA_VERSION,
         metadata: RunMetadata {
             run_id: "threshold-run".to_string(),
             service_name: "svc".to_string(),

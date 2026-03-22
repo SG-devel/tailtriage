@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 1042256,
-  "p95_latency_us": 1129448,
-  "p99_latency_us": 1143294,
-  "p95_queue_share_permille": 95,
-  "p95_service_share_permille": 997,
+  "p50_latency_us": 1546490,
+  "p95_latency_us": 1701904,
+  "p99_latency_us": 1721980,
+  "p95_queue_share_permille": 171,
+  "p95_service_share_permille": 998,
   "inflight_trend": {
     "gauge": "executor_pressure_inflight",
     "sample_count": 440,
-    "peak_count": 215,
-    "p95_count": 206,
-    "growth_delta": 5,
-    "growth_per_sec_milli": 4152
+    "peak_count": 219,
+    "p95_count": 208,
+    "growth_delta": 7,
+    "growth_per_sec_milli": 3854
   },
   "warnings": [],
   "primary_suspect": {
@@ -19,8 +19,8 @@
     "score": 82,
     "confidence": "medium",
     "evidence": [
-      "Runtime global queue depth p95 is 214, suggesting scheduler contention.",
-      "In-flight gauge 'executor_pressure_inflight' growth is positive (delta=5, peak=215), consistent with accumulating executor pressure."
+      "Runtime global queue depth p95 is 218, suggesting scheduler contention.",
+      "In-flight gauge 'executor_pressure_inflight' growth is positive (delta=7, peak=219), consistent with accumulating executor pressure."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
@@ -33,9 +33,9 @@
       "score": 78,
       "confidence": "medium",
       "evidence": [
-        "Stage 'executor_hot_path' has p95 latency 1086211 us across 220 samples.",
-        "Stage 'executor_hot_path' cumulative latency is 201838141 us.",
-        "Stage 'executor_hot_path' contributes 951 permille of cumulative request latency."
+        "Stage 'executor_hot_path' has p95 latency 1617746 us across 220 samples.",
+        "Stage 'executor_hot_path' cumulative latency is 298738104 us.",
+        "Stage 'executor_hot_path' contributes 941 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'executor_hot_path'.",
