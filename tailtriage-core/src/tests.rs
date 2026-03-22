@@ -159,6 +159,79 @@ fn run_records_outcome_after_future_completion() {
 }
 
 #[test]
+fn run_ok_records_ok_outcome_for_infallible_future() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-run-ok.json");
+
+    let value = futures_executor::block_on(tailtriage.request("/run-ok").run_ok(ready(11_u8)));
+    assert_eq!(value, 11);
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.requests[0].outcome, "ok");
+}
+
+#[test]
+fn run_result_maps_result_to_request_outcome() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-run-result.json");
+
+    let ok_value =
+        futures_executor::block_on(tailtriage.request("/run-result-ok").run_result(ready::<
+            Result<u8, &'static str>,
+        >(Ok(
+            3,
+        ))))
+        .expect("ok future should return ok");
+    assert_eq!(ok_value, 3);
+
+    let err =
+        futures_executor::block_on(tailtriage.request("/run-result-err").run_result(ready::<
+            Result<u8, &'static str>,
+        >(
+            Err("boom")
+        )))
+        .expect_err("err future should return err");
+    assert_eq!(err, "boom");
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_eq!(snapshot.requests[0].outcome, "ok");
+    assert_eq!(snapshot.requests[1].outcome, "error");
+}
+
+async fn stage_in_helper_layer(
+    request: &crate::RequestContext<'_>,
+    stage_name: &str,
+) -> Result<(), &'static str> {
+    request
+        .stage(stage_name)
+        .await_on(ready(Ok::<(), &'static str>(())))
+        .await
+}
+
+#[test]
+fn request_context_supports_fractured_code_usage() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-fractured.json");
+    let request = tailtriage
+        .request_with(
+            "/fractured",
+            RequestOptions::new().request_id("req-fractured"),
+        )
+        .with_kind("http");
+
+    futures_executor::block_on(request.queue("q").await_on(ready(())));
+    futures_executor::block_on(stage_in_helper_layer(&request, "layer_a"))
+        .expect("helper stage should succeed");
+    futures_executor::block_on(stage_in_helper_layer(&request, "layer_b"))
+        .expect("helper stage should succeed");
+    request.complete(Outcome::Ok);
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.stages.len(), 2);
+    assert_eq!(snapshot.queues.len(), 1);
+}
+
+#[test]
 fn custom_sink_receives_shutdown_run() {
     let sink = Arc::new(RecordingSink::default());
     let tailtriage = Tailtriage::builder("payments")
