@@ -16,10 +16,10 @@ from _demo_runner import (
     write_before_after_comparison,
 )
 
-EXPECTED_QUEUE_KIND = {"application_queue_saturation", "ApplicationQueueSaturation"}
-EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure", "BlockingPoolPressure"}
-EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected", "ExecutorPressureSuspected"}
-EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates", "DownstreamStageDominates"}
+EXPECTED_QUEUE_KIND = {"application_queue_saturation"}
+EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure"}
+EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected"}
+EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates"}
 EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND

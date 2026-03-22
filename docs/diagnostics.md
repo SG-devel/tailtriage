@@ -59,18 +59,18 @@ Rules of thumb:
 
 ## Suspect kinds
 
-- `ApplicationQueueSaturation`
-- `BlockingPoolPressure`
-- `ExecutorPressureSuspected`
-- `DownstreamStageDominates`
-- `InsufficientEvidence`
+- `application_queue_saturation`
+- `blocking_pool_pressure`
+- `executor_pressure_suspected`
+- `downstream_stage_dominates`
+- `insufficient_evidence`
 
 These are **evidence-ranked leads**, not causal proof.
 
 ### Executor pressure vs blocking-pool pressure
 
-- `ExecutorPressureSuspected` emphasizes runtime scheduler backlog signals (for example, elevated global/local runtime queue depth with in-flight growth).
-- `BlockingPoolPressure` emphasizes `spawn_blocking` backlog signals (for example, elevated blocking queue depth evidence).
+- `executor_pressure_suspected` emphasizes runtime scheduler backlog signals (for example, elevated global/local runtime queue depth with in-flight growth).
+- `blocking_pool_pressure` emphasizes `spawn_blocking` backlog signals (for example, elevated blocking queue depth evidence).
 - If blocking queue depth remains low/absent while runtime queue depth rises, prefer executor-pressure next checks before blocking-pool tuning.
 
 Runtime-signal availability caveat:

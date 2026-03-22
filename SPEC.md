@@ -215,11 +215,11 @@ Canonical invocation for demo validation and runtime-cost measurement is **Pytho
 
 MVP categories:
 
-- `ApplicationQueueSaturation`
-- `BlockingPoolPressure`
-- `ExecutorPressureSuspected`
-- `DownstreamStageDominates`
-- `InsufficientEvidence`
+- `application_queue_saturation`
+- `blocking_pool_pressure`
+- `executor_pressure_suspected`
+- `downstream_stage_dominates`
+- `insufficient_evidence`
 
 Important: these are evidence-ranked suspects, **not** proof of root cause.
 
@@ -233,7 +233,7 @@ Validation scripts in `scripts/` must pass for these demos.
 
 ### 9.1 Additional runnable proof case
 
-- `demos/downstream_service`: deterministic downstream-stage dominance scenario that should rank `DownstreamStageDominates` as the primary suspect.
+- `demos/downstream_service`: deterministic downstream-stage dominance scenario that should rank `downstream_stage_dominates` as the primary suspect.
 - `demos/mixed_contention_service`: deterministic mixed queue + downstream contention scenario where both suspects should be present in ranked evidence and mitigation should shift rank and/or score when one bottleneck is reduced.
 - `demos/shared_state_lock_service`: deterministic shared-state lock contention scenario where lock wait is modeled as queue-like wait and lock-protected work is modeled as a service stage; mitigation should reduce queueing/serialization signals.
 - `demos/retry_storm_service`: deterministic retry-heavy downstream scenario with intermittently failing/slow calls; baseline should show downstream-stage dominance with elevated service share, and mitigated mode should improve p95 and lower suspect score via capped retries/jitter/circuit-break style behavior.

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosisKind {
     ApplicationQueueSaturation,
     BlockingPoolPressure,
@@ -22,6 +22,15 @@ impl DiagnosisKind {
             Self::DownstreamStageDominates => "downstream_stage_dominates",
             Self::InsufficientEvidence => "insufficient_evidence",
         }
+    }
+}
+
+impl Serialize for DiagnosisKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
     }
 }
 
