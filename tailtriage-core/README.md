@@ -62,4 +62,4 @@ This repository is pre-publish.
 
 - Tokio integration and `RuntimeSampler`: <https://docs.rs/tailtriage-tokio>
 - CLI analysis workflow: <https://docs.rs/tailtriage-cli>
-- Repository guide and demos: <https://github.com/tailtriage/tailtriage>
+- Repository guide and demos: <https://github.com/SG-devel/tailtriage>
