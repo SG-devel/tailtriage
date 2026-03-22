@@ -63,6 +63,12 @@ These are **evidence-ranked leads**, not causal proof.
 - `BlockingPoolPressure` emphasizes `spawn_blocking` backlog signals (for example, elevated blocking queue depth evidence).
 - If blocking queue depth remains low/absent while runtime queue depth rises, prefer executor-pressure next checks before blocking-pool tuning.
 
+Runtime-signal availability caveat:
+
+- On stable Tokio, `RuntimeSampler` always captures `alive_tasks` and `global_queue_depth`.
+- `local_queue_depth`, `blocking_queue_depth`, and `remote_schedule_count` require `tokio_unstable` and are otherwise `None`.
+- As a result, blocking-pool vs executor suspect separation may be weaker on stable builds; treat ranking as directional triage and prioritize follow-up checks.
+
 ## In-flight trend fields
 
 When present:

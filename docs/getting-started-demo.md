@@ -46,6 +46,8 @@ These remain useful, but are more synthetic than the first two tiers:
 - `blocking_service`
 - `executor_pressure_service`
 
+Important: these two demos intentionally model stronger blocking/executor contrast signals than many real services naturally expose by default. They are useful triage-contract exercises, not proof that equivalent runtime signals are always present in user applications.
+
 ## Artifact policy
 
 - `demos/*/artifacts/`: generated, untracked local outputs.
