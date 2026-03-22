@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 //! Core run schema and request-context instrumentation API for tailtriage.
 //!
 //! ```no_run
