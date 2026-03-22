@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
                     ))
                     .await;
             }
-            request.complete(tailtriage_core::Outcome::Ok);
+            request.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % mode_settings.inter_arrival_pause_every == 0 {

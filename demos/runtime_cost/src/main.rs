@@ -139,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
 
                         drop(permit);
                     }
-                    request.complete(tailtriage_core::Outcome::Ok);
+                    request.finish(tailtriage_core::Outcome::Ok);
                 }
                 (_, None) => unreachable!("instrumented modes require a collector"),
             }

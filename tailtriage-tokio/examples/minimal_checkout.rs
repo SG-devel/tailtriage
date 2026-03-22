@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
-    request.run_ok(async {}).await;
+    request.finish_ok();
 
     tailtriage.shutdown()?;
     println!("Wrote {artifact_path}");

@@ -29,7 +29,7 @@ impl std::fmt::Debug for Tailtriage {
 }
 
 /// Reusable request context that carries correlation and timing state.
-#[must_use = "request contexts must be completed via complete(...) or a run_* helper"]
+#[must_use = "request contexts must be finished via finish(...) or a finish_* helper"]
 #[derive(Debug)]
 pub struct RequestContext<'a> {
     tailtriage: &'a Tailtriage,
@@ -38,6 +38,7 @@ pub struct RequestContext<'a> {
     kind: Option<String>,
     started_at_unix_ms: u64,
     started: Instant,
+    finished: bool,
 }
 
 impl Tailtriage {
@@ -94,6 +95,7 @@ impl Tailtriage {
             kind: None,
             started_at_unix_ms: unix_time_ms(),
             started: Instant::now(),
+            finished: false,
         }
     }
 
@@ -234,56 +236,57 @@ impl RequestContext<'_> {
         self.tailtriage.inflight(gauge)
     }
 
-    pub fn complete(self, outcome: Outcome) {
+    pub fn finish(mut self, outcome: Outcome) {
+        self.finish_internal(outcome);
+    }
+
+    pub fn finish_ok(self) {
+        self.finish(Outcome::Ok);
+    }
+
+    /// Records `ok`/`error` based on `result` and returns it unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns `result` unchanged, including the original `Err(E)` value.
+    pub fn finish_result<T, E>(self, result: Result<T, E>) -> Result<T, E> {
+        let outcome = if result.is_ok() {
+            Outcome::Ok
+        } else {
+            Outcome::Error
+        };
+        self.finish(outcome);
+        result
+    }
+
+    fn finish_internal(&mut self, outcome: Outcome) {
+        if self.finished {
+            debug_assert!(
+                !self.finished,
+                "tailtriage request context was finished more than once; each request must be finished exactly once"
+            );
+            return;
+        }
+        self.finished = true;
         let outcome = outcome.into_string();
         self.tailtriage.record_request_event(RequestEvent {
-            request_id: self.request_id,
-            route: self.route,
-            kind: self.kind,
+            request_id: self.request_id.clone(),
+            route: self.route.clone(),
+            kind: self.kind.clone(),
             started_at_unix_ms: self.started_at_unix_ms,
             finished_at_unix_ms: unix_time_ms(),
             latency_us: duration_to_us(self.started.elapsed()),
             outcome,
         });
     }
+}
 
-    /// Runs `fut` and records `outcome` when it finishes.
-    pub async fn run<Fut, T>(self, outcome: Outcome, fut: Fut) -> T
-    where
-        Fut: std::future::Future<Output = T>,
-    {
-        let output = fut.await;
-        self.complete(outcome);
-        output
-    }
-
-    /// Runs an infallible future and records [`Outcome::Ok`] on completion.
-    pub async fn run_ok<Fut, T>(self, fut: Fut) -> T
-    where
-        Fut: std::future::Future<Output = T>,
-    {
-        self.run(Outcome::Ok, fut).await
-    }
-
-    /// Runs a `Result` future and records `ok`/`error` automatically.
-    ///
-    /// `Ok(_)` is recorded as [`Outcome::Ok`], and `Err(_)` as [`Outcome::Error`].
-    ///
-    /// # Errors
-    ///
-    /// Returns any error produced by `fut` unchanged.
-    pub async fn run_result<Fut, T, E>(self, fut: Fut) -> Result<T, E>
-    where
-        Fut: std::future::Future<Output = Result<T, E>>,
-    {
-        let output = fut.await;
-        let outcome = if output.is_ok() {
-            Outcome::Ok
-        } else {
-            Outcome::Error
-        };
-        self.complete(outcome);
-        output
+impl Drop for RequestContext<'_> {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.finished || std::thread::panicking(),
+            "tailtriage request context dropped without finish(...), finish_ok(), or finish_result(...)"
+        );
     }
 }
 
