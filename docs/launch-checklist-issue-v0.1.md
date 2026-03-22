@@ -39,7 +39,7 @@ Rationale: demos are proof workflows, not stable crate APIs.
 
 - [x] `description` present and aligned with Tokio tail-latency triage positioning.
 - [x] `license` present (`MIT`).
-- [x] `repository` present (`https://github.com/tailtriage/tailtriage`).
+- [x] `repository` present (`https://github.com/SG-devel/tailtriage`).
 - [x] `documentation` present (docs.rs URL per crate).
 - [x] `readme` configured (`../README.md`).
 - [x] `keywords` present for crates.io discovery.
