@@ -140,6 +140,32 @@ Representative diagnosis shape:
 
 Suspects are evidence-ranked leads, not proof of root cause.
 
+## Examples
+
+Use these as the three main starting points from this repository:
+
+- **`minimal_checkout`** — fastest first run; the smallest capture → analyze loop from source
+- **`axum_minimal`** — recommended framework-based adoption starter for a tiny local axum service
+- **`mini_service_integration`** — non-framework integration example showing request instrumentation across helper layers
+
+Run them with:
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+cargo run -p tailtriage-tokio --example axum_minimal
+cargo run -p tailtriage-tokio --example mini_service_integration
+```
+
+All three write tailtriage-run.json and can be analyzed with:
+
+```bash
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+Use minimal_checkout for the quickest first result, axum_minimal for framework-style adoption shape, and mini_service_integration when you want to see instrumentation flow through helper layers.
+
+The examples are found in tailtriage-tokio/examples.
+
 ## Demo realism and before/after proof path
 
 Demo guidance: the strongest public proof demos are `queue_service`, `downstream_service`, and `db_pool_saturation_service`; later demos include intentionally more synthetic analyzer-contract exercises.
@@ -151,6 +177,10 @@ After first run, use one fixture-backed before/after workflow to validate change
 - [`demos/retry_storm_service/fixtures/before-after-comparison.json`](demos/retry_storm_service/fixtures/before-after-comparison.json)
 - Full demo guide and progression notes: **[demos/README.md](demos/README.md)**
 - Demo walkthrough for first-time users: **[docs/getting-started-demo.md](docs/getting-started-demo.md)**
+
+The “before/after proof path” is the repo’s way of showing that tailtriage is useful not just for labeling a run, but for validating whether a change actually improved the suspected bottleneck.
+-  “before” means: run the service or demo in a baseline/problematic configuration
+- “after” means: run it again after a mitigation or configuration change
 
 ## Why not just use tokio-console or tokio-metrics?
 
