@@ -2,7 +2,9 @@
 
 `tailtriage` is a Rust toolkit for **Tokio tail-latency triage**.
 
-It is built for ordinary Rust/Tokio developers who need a useful first answer without being expert performance engineers.
+It is for Rust/Tokio developers who need a fast first triage answer without being expert performance engineers.
+
+It is not an observability backend, distributed tracing system, or automated root-cause proof engine.
 
 Core question:
 
@@ -35,6 +37,19 @@ On stable Tokio, unstable-only fields are captured as `None`, so executor-pressu
 - people who want a fast local triage loop before adopting heavier observability workflows
 
 ## Quickstart: choose your path
+
+### Fastest try-it path (about 60 seconds)
+
+If you want the quickest first run from this repository, run:
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+Then inspect `primary_suspect.kind`, `primary_suspect.evidence[]`, and `primary_suspect.next_checks[]`.
+
+Need route-by-route setup guidance? Start at **[docs/README.md](docs/README.md)**, then follow **[docs/user-guide.md](docs/user-guide.md)**.
 
 ### Path A — Try from this repo (source/workspace)
 
@@ -125,11 +140,17 @@ Representative diagnosis shape:
 
 Suspects are evidence-ranked leads, not proof of root cause.
 
-## Before/after proof path (secondary)
+## Demo realism and before/after proof path
+
+Demo guidance: the strongest public proof demos are `queue_service`, `downstream_service`, and `db_pool_saturation_service`; later demos include intentionally more synthetic analyzer-contract exercises.
+
+Suspects remain evidence-ranked leads, not proof of root cause.
 
 After first run, use one fixture-backed before/after workflow to validate changes:
 
 - [`demos/retry_storm_service/fixtures/before-after-comparison.json`](demos/retry_storm_service/fixtures/before-after-comparison.json)
+- Full demo guide and progression notes: **[demos/README.md](demos/README.md)**
+- Demo walkthrough for first-time users: **[docs/getting-started-demo.md](docs/getting-started-demo.md)**
 
 ## Why not just use tokio-console or tokio-metrics?
 
