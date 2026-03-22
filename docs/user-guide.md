@@ -133,7 +133,7 @@ Representative diagnosis shape:
 ```json
 {
   "primary_suspect": {
-    "kind": "ApplicationQueueSaturation",
+    "kind": "application_queue_saturation",
     "evidence": [
       "Queue wait at p95 consumes 98.2% of request time.",
       "Observed queue depth sample up to 230."
@@ -148,7 +148,7 @@ Representative diagnosis shape:
 
 Suspects are evidence-ranked leads, not proof of root cause.
 
-## If result is `InsufficientEvidence`
+## If result is `insufficient_evidence`
 
 Add one more queue wrapper and one more stage wrapper around the most likely missing wait points, then rerun with comparable load.
 
