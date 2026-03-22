@@ -2,6 +2,8 @@
 
 Use demos to validate diagnosis behavior with deterministic fixtures.
 
+Demo honesty note: this suite mixes strongest public proof demos with intentionally more synthetic analyzer-contract demos. Use suspects as triage leads, not root-cause proof.
+
 For a scenario-by-scenario explanation of what each demo simulates, what triage it is intended to exercise, and what setup is shared, see **[`demos/README.md`](../demos/README.md)**.
 
 ## Recommended public progression
