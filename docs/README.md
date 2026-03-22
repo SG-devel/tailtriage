@@ -2,10 +2,13 @@
 
 Use this page as the single entry point for project documentation.
 
+If you are new to `tailtriage`, start in **User docs** below and ignore maintainer sections on your first pass.
+
 ## User docs (start here)
 
-- **Try from this repo (source/workspace quickstart):** [user-guide.md#path-a--try-from-this-repo-sourceworkspace](user-guide.md#path-a--try-from-this-repo-sourceworkspace)
-- **Adopt in your app (crates.io quickstart):** [user-guide.md#path-b--adopt-in-your-app-cratesio](user-guide.md#path-b--adopt-in-your-app-cratesio)
+1. **Try from this repo (fastest first run):** [user-guide.md#path-a--try-from-this-repo-sourceworkspace](user-guide.md#path-a--try-from-this-repo-sourceworkspace)
+2. **Adopt in your app (crates.io quickstart):** [user-guide.md#path-b--adopt-in-your-app-cratesio](user-guide.md#path-b--adopt-in-your-app-cratesio)
+3. **Run demos with realism notes:** [getting-started-demo.md](getting-started-demo.md)
 
 ### First-run and triage workflow
 
@@ -23,7 +26,7 @@ Use this page as the single entry point for project documentation.
 - **Release/polish plan:** [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md)
 - **Project changelog:** [changelog.md](changelog.md)
 
-## Maintainer / launch / operational docs
+## Maintainer / launch / operational docs (for contributors/maintainers)
 
 - **v0.1 release decision gates and launch order:** [release-gates-v0.1.md](release-gates-v0.1.md)
 - **Public visibility readiness checklist:** [public-readiness-checklist.md](public-readiness-checklist.md)
