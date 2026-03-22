@@ -94,6 +94,7 @@ fn shutdown_writes_artifact() {
 
     let bytes = std::fs::read(output).expect("artifact should exist");
     let run: crate::Run = serde_json::from_slice(&bytes).expect("artifact should deserialize");
+    assert_eq!(run.schema_version, crate::SCHEMA_VERSION);
     assert_eq!(run.requests.len(), 1);
 }
 
