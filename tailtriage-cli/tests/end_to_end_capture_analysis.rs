@@ -37,7 +37,7 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
             .stage("local_work")
             .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
             .await;
-        request.complete(tailtriage_core::Outcome::Ok);
+        request.run_ok(async {}).await;
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");
@@ -58,21 +58,30 @@ async fn downstream_heavy_stage_is_ranked() {
         .build()
         .expect("build should succeed");
 
-    let request = tailtriage
-        .request_with(
-            "/invoice",
-            tailtriage_core::RequestOptions::new().request_id("req-1"),
-        )
-        .with_kind("http");
-    request
-        .stage("downstream_db")
-        .await_on(async {
-            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
-            Ok::<(), &'static str>(())
-        })
-        .await
-        .expect("stage should succeed");
-    request.complete(tailtriage_core::Outcome::Ok);
+    for index in 0..48 {
+        let request = tailtriage
+            .request_with(
+                "/invoice",
+                tailtriage_core::RequestOptions::new().request_id(format!("downstream-{index}")),
+            )
+            .with_kind("http");
+
+        request
+            .stage("downstream_db")
+            .await_on(async {
+                tokio::time::sleep(std::time::Duration::from_millis(28)).await;
+                Ok::<(), &'static str>(())
+            })
+            .await
+            .expect("stage should succeed");
+
+        request
+            .stage("marshal_response")
+            .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
+            .await;
+
+        request.run_ok(async {}).await;
+    }
 
     tailtriage.shutdown().expect("shutdown should succeed");
 
@@ -80,7 +89,7 @@ async fn downstream_heavy_stage_is_ranked() {
     let report = analyze_run(&run);
     assert_eq!(
         report.primary_suspect.kind.as_str(),
-        "insufficient_evidence"
+        "downstream_stage_dominates"
     );
 }
 
@@ -98,7 +107,7 @@ async fn low_evidence_run_yields_insufficient_signal() {
             tailtriage_core::RequestOptions::new().request_id(format!("insufficient-{index}")),
         );
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        request.complete(tailtriage_core::Outcome::Ok);
+        request.run_ok(async {}).await;
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");

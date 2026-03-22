@@ -82,7 +82,7 @@ cargo install tailtriage-cli
 
 3) Capture one run artifact in your app, then analyze it:
 
-- Capture in your service with `Tailtriage::builder(...).build()?`, explicit request queue/stage wrappers, and `tailtriage.shutdown()?` at process shutdown (see [`docs/user-guide.md`](docs/user-guide.md)).
+- Capture in your service with `Tailtriage::builder(...).build()?`, explicit request queue/stage wrappers, and `tailtriage.shutdown()?` at process shutdown (see [`docs/user-guide.md`](docs/user-guide.md)). Complete each request with `request.complete(...)`, `request.run_ok(...)`, or `request.run_result(...)`.
 
 ```bash
 tailtriage analyze tailtriage-run.json --format json
@@ -152,7 +152,7 @@ MVP scope is intentionally narrow:
 
 ## Bounded capture and truncation
 
-`tailtriage` keeps run data in memory until shutdown. To keep this bounded in production-like runs, configure per-section capture limits:
+`tailtriage` keeps run data in memory until shutdown. To keep this bounded in production-like runs, configure per-section capture limits via `Tailtriage::builder(...).capture_limits(...)`:
 
 - `max_requests`
 - `max_stages`

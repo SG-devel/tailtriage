@@ -12,7 +12,10 @@ Use this path when you are evaluating `tailtriage` from a local clone of this re
 cargo run -p tailtriage-tokio --example minimal_checkout
 ```
 
-Expected output includes `wrote tailtriage-run.json`.
+Expected output includes:
+
+- `wrote tailtriage-run.json`
+- `next: cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json`
 
 If you want a more realistic request + queue + worker shape outside the synthetic demos, run:
 
@@ -66,7 +69,7 @@ Create one `Tailtriage` instance, wrap request/queue/stage boundaries, and shut 
 Minimal shape:
 
 ```rust
-use tailtriage_core::{Outcome, Tailtriage};
+use tailtriage_core::Tailtriage;
 
 let tailtriage = Tailtriage::builder("checkout-service")
     .output("tailtriage-run.json")
@@ -79,9 +82,12 @@ request
     .await;
 request
     .stage("db_call")
-    .await_on(async { Ok::<(), &'static str>(()) })
+    .await_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(12)).await;
+        Ok::<(), &'static str>(())
+    })
     .await?;
-request.complete(Outcome::Ok);
+request.run_ok(async {}).await;
 
 tailtriage.shutdown()?;
 ```
@@ -140,6 +146,7 @@ use tailtriage_tokio::RuntimeSampler;
 
 let tailtriage = Arc::new(
     Tailtriage::builder("checkout-service")
+        .output("tailtriage-run.json")
         .build()?,
 );
 let sampler = RuntimeSampler::start(

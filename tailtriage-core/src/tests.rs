@@ -159,6 +159,74 @@ fn run_records_outcome_after_future_completion() {
 }
 
 #[test]
+fn run_ok_records_ok_outcome() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-run-ok.json");
+    let request = tailtriage.request("/run-ok");
+
+    let value = futures_executor::block_on(request.run_ok(ready(11_u8)));
+    assert_eq!(value, 11);
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.requests[0].outcome, "ok");
+}
+
+#[test]
+fn run_result_records_ok_and_error_outcomes() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-run-result.json");
+
+    let ok_value = futures_executor::block_on(
+        tailtriage
+            .request_with("/run-result", RequestOptions::new().request_id("ok-req"))
+            .run_result(ready(Ok::<u8, &'static str>(5))),
+    )
+    .expect("request should succeed");
+    assert_eq!(ok_value, 5);
+
+    let err_value = futures_executor::block_on(
+        tailtriage
+            .request_with("/run-result", RequestOptions::new().request_id("err-req"))
+            .run_result(ready(Err::<u8, &'static str>("boom"))),
+    )
+    .expect_err("request should fail");
+    assert_eq!(err_value, "boom");
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_eq!(snapshot.requests[0].outcome, "ok");
+    assert_eq!(snapshot.requests[1].outcome, "error");
+}
+
+#[test]
+fn fractured_code_helpers_can_share_request_context() {
+    fn instrument_queue(request: &crate::RequestContext<'_>) {
+        futures_executor::block_on(request.queue("worker").await_on(ready(())));
+    }
+
+    async fn instrument_stage(request: &crate::RequestContext<'_>) -> Result<(), &'static str> {
+        request
+            .stage("db")
+            .await_on(async { Ok::<(), &'static str>(()) })
+            .await
+    }
+
+    let tailtriage = build_for_test("payments", "tailtriage-core-fractured.json");
+    let request = tailtriage.request_with(
+        "/fractured",
+        RequestOptions::new().request_id("fractured-req"),
+    );
+
+    instrument_queue(&request);
+    futures_executor::block_on(instrument_stage(&request)).expect("stage should succeed");
+    futures_executor::block_on(request.run_ok(ready(())));
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.queues.len(), 1);
+    assert_eq!(snapshot.stages.len(), 1);
+}
+
+#[test]
 fn custom_sink_receives_shutdown_run() {
     let sink = Arc::new(RecordingSink::default());
     let tailtriage = Tailtriage::builder("payments")

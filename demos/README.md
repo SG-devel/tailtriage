@@ -6,22 +6,22 @@ Each one answers a specific triage question by producing an artifact that should
 
 ## Shared ideas across all demos
 
-All service demos follow the same pattern:
+All service demos follow the same unified API pattern:
 
 1. Parse output path and optional mode (`baseline`/`before`, `mitigated`/`after`).
 2. Create artifact output directory.
-3. Initialize one `Tailtriage` collector.
+3. Build one `Tailtriage` instance with `Tailtriage::builder(...)`.
 4. Generate a deterministic request burst.
 5. Wrap requests with `tailtriage.request(...)`.
 6. Instrument admission queue and/or stages.
-7. Flush to JSON and run CLI analysis.
+7. Complete request contexts, call `tailtriage.shutdown()`, and run CLI analysis.
 
 Shared helper code for this setup lives in `demos/demo_support`:
 
 - `DemoMode` and mode parsing
 - common CLI argument parsing
 - artifact directory creation
-- collector initialization
+- `Tailtriage::builder(...)` setup
 
 This keeps demo binaries focused on the triage scenario rather than boilerplate.
 
