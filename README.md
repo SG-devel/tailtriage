@@ -21,15 +21,6 @@ Core question:
 
 Workflow in one line: **capture -> analyze -> choose next check -> re-run**.
 
-## RuntimeSampler availability note (stable Tokio vs `tokio_unstable`)
-
-When you enable `tailtriage-tokio::RuntimeSampler`, runtime snapshot fields differ by Tokio build mode:
-
-- Always available on stable Tokio: `alive_tasks`, `global_queue_depth`
-- Requires `tokio_unstable`: `local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`
-
-On stable Tokio, unstable-only fields are captured as `None`, so executor-pressure vs blocking-pool-pressure separation can be weaker depending on captured request/runtime evidence.
-
 ## Who it is for
 
 - developers shipping Tokio services
@@ -215,6 +206,15 @@ MVP scope is intentionally narrow:
 - no distributed tracing backend
 - no live UI
 - no exporter/backend requirement
+
+## RuntimeSampler availability note (stable Tokio vs `tokio_unstable`)
+
+When you enable `tailtriage-tokio::RuntimeSampler`, runtime snapshot fields differ by Tokio build mode:
+
+- Always available on stable Tokio: `alive_tasks`, `global_queue_depth`
+- Requires `tokio_unstable`: `local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`
+
+On stable Tokio, unstable-only fields are captured as `None`, so executor-pressure vs blocking-pool-pressure separation can be weaker depending on captured request/runtime evidence.
 
 ## Request lifecycle
 
