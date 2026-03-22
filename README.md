@@ -162,8 +162,8 @@ let tailtriage = Tailtriage::builder("checkout-service")
 
 Important request-lifecycle safety note:
 
-- `RequestContext` is `#[must_use]`, so a dropped unfinished request emits a warning.
-- Finish each request with `complete(...)`, `run(...)`, `run_ok(...)`, or `run_result(...)`.
+- `RequestContext` is `#[must_use]`, and debug builds assert if it is dropped unfinished.
+- Finish each request with `finish(...)`, `finish_ok(...)`, or `finish_result(...)`.
 
 Capture limit knobs:
 

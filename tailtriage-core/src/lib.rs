@@ -11,7 +11,7 @@
 //! let request = tailtriage
 //!     .request_with("/checkout", RequestOptions::new().request_id("req-1"))
 //!     .with_kind("http");
-//! request.run_ok(async {}).await;
+//! request.finish_ok();
 //!
 //! tailtriage.shutdown()?;
 //! # Ok(())

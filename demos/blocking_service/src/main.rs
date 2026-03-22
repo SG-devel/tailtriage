@@ -112,7 +112,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
                     .await;
                 pending_blocking.fetch_sub(1, Ordering::SeqCst);
             }
-            request.complete(tailtriage_core::Outcome::Ok);
+            request.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {

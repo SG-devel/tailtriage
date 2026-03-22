@@ -85,7 +85,7 @@ request
         Ok::<(), &'static str>(())
     })
     .await?;
-request.run_ok(async {}).await;
+request.finish_ok();
 
 tailtriage.shutdown()?;
 ```
