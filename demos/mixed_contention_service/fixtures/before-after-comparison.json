@@ -1,12 +1,12 @@
 {
   "before": {
-    "primary_suspect_kind": "ApplicationQueueSaturation",
+    "primary_suspect_kind": "application_queue_saturation",
     "primary_suspect_score": 90,
     "p95_latency_us": 744182,
     "p95_queue_share_permille": 980
   },
   "after": {
-    "primary_suspect_kind": "DownstreamStageDominates",
+    "primary_suspect_kind": "downstream_stage_dominates",
     "primary_suspect_score": 77,
     "p95_latency_us": 34609,
     "p95_queue_share_permille": 0

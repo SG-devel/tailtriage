@@ -47,7 +47,7 @@ fn queue_demo_fixture_reports_application_queue_saturation() {
     let fixture = "demos/queue_service/fixtures/sample-analysis.json";
     let report = load_demo_analysis(fixture);
 
-    assert_primary_kind_in_allowed_set(&report, &["ApplicationQueueSaturation"], fixture);
+    assert_primary_kind_in_allowed_set(&report, &["application_queue_saturation"], fixture);
     assert_primary_score_floor(&report, 70, fixture);
 }
 
@@ -56,7 +56,7 @@ fn blocking_demo_fixture_reports_blocking_pool_pressure() {
     let fixture = "demos/blocking_service/fixtures/sample-analysis.json";
     let report = load_demo_analysis(fixture);
 
-    assert_primary_kind_in_allowed_set(&report, &["BlockingPoolPressure"], fixture);
+    assert_primary_kind_in_allowed_set(&report, &["blocking_pool_pressure"], fixture);
     assert_primary_score_floor(&report, 70, fixture);
 }
 
@@ -65,7 +65,7 @@ fn downstream_demo_fixture_reports_downstream_stage_dominance() {
     let fixture = "demos/downstream_service/fixtures/sample-analysis.json";
     let report = load_demo_analysis(fixture);
 
-    assert_primary_kind_in_allowed_set(&report, &["DownstreamStageDominates"], fixture);
+    assert_primary_kind_in_allowed_set(&report, &["downstream_stage_dominates"], fixture);
     assert_primary_score_floor(&report, 60, fixture);
 }
 
@@ -74,7 +74,7 @@ fn executor_demo_fixture_reports_executor_pressure() {
     let fixture = "demos/executor_pressure_service/fixtures/sample-analysis.json";
     let report = load_demo_analysis(fixture);
 
-    assert_primary_kind_in_allowed_set(&report, &["ExecutorPressureSuspected"], fixture);
+    assert_primary_kind_in_allowed_set(&report, &["executor_pressure_suspected"], fixture);
     assert_primary_score_floor(&report, 60, fixture);
 }
 
@@ -85,7 +85,10 @@ fn mixed_contention_baseline_fixture_has_queue_primary_with_secondary_contention
 
     assert_primary_kind_in_allowed_set(
         &report,
-        &["ApplicationQueueSaturation", "ExecutorPressureSuspected"],
+        &[
+            "application_queue_saturation",
+            "executor_pressure_suspected",
+        ],
         fixture,
     );
     assert_primary_evidence_contains_any(
@@ -103,7 +106,10 @@ fn cold_start_burst_before_fixture_has_cold_start_queue_evidence() {
 
     assert_primary_kind_in_allowed_set(
         &report,
-        &["ApplicationQueueSaturation", "ExecutorPressureSuspected"],
+        &[
+            "application_queue_saturation",
+            "executor_pressure_suspected",
+        ],
         fixture,
     );
     assert_primary_evidence_contains_any(
@@ -126,7 +132,7 @@ fn db_pool_saturation_before_fixture_preserves_queue_signal_floor() {
 
     assert_primary_kind_in_allowed_set(
         &report,
-        &["ApplicationQueueSaturation", "DownstreamStageDominates"],
+        &["application_queue_saturation", "downstream_stage_dominates"],
         fixture,
     );
     assert_primary_evidence_contains_any(&report, &["Queue wait", "queue depth"], fixture);
@@ -140,7 +146,7 @@ fn retry_storm_before_fixture_preserves_downstream_retry_cues() {
 
     assert_primary_kind_in_allowed_set(
         &report,
-        &["DownstreamStageDominates", "ApplicationQueueSaturation"],
+        &["downstream_stage_dominates", "application_queue_saturation"],
         fixture,
     );
     assert_primary_evidence_contains_any(

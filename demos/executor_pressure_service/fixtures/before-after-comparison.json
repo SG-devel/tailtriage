@@ -1,12 +1,12 @@
 {
   "before": {
-    "primary_suspect_kind": "ExecutorPressureSuspected",
+    "primary_suspect_kind": "executor_pressure_suspected",
     "primary_suspect_score": 90,
     "p95_latency_us": 6004079,
     "p95_queue_share_permille": 55
   },
   "after": {
-    "primary_suspect_kind": "ExecutorPressureSuspected",
+    "primary_suspect_kind": "executor_pressure_suspected",
     "primary_suspect_score": 82,
     "p95_latency_us": 1129448,
     "p95_queue_share_permille": 95

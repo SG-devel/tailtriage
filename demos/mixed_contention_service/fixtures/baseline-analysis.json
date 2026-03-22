@@ -1,26 +1,26 @@
 {
   "request_count": 220,
-  "p50_latency_us": 401445,
-  "p95_latency_us": 769293,
-  "p99_latency_us": 802805,
-  "p95_queue_share_permille": 980,
-  "p95_service_share_permille": 430,
+  "p50_latency_us": 396325,
+  "p95_latency_us": 739972,
+  "p99_latency_us": 768478,
+  "p95_queue_share_permille": 979,
+  "p95_service_share_permille": 386,
   "inflight_trend": {
     "gauge": "mixed_contention_inflight",
     "sample_count": 440,
-    "peak_count": 200,
+    "peak_count": 201,
     "p95_count": 190,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "growth_delta": -1,
+    "growth_per_sec_milli": -1154
   },
   "warnings": [],
   "primary_suspect": {
-    "kind": "ApplicationQueueSaturation",
+    "kind": "application_queue_saturation",
     "score": 90,
     "confidence": "high",
     "evidence": [
-      "Queue wait at p95 consumes 98.0% of request time.",
-      "Observed queue depth sample up to 195."
+      "Queue wait at p95 consumes 97.9% of request time.",
+      "Observed queue depth sample up to 196."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -29,12 +29,12 @@
   },
   "secondary_suspects": [
     {
-      "kind": "DownstreamStageDominates",
+      "kind": "downstream_stage_dominates",
       "score": 56,
       "confidence": "low",
       "evidence": [
-        "Stage 'downstream_call' has p95 latency 32891 us across 220 samples.",
-        "Stage 'downstream_call' cumulative latency is 3858754 us.",
+        "Stage 'downstream_call' has p95 latency 32658 us across 220 samples.",
+        "Stage 'downstream_call' cumulative latency is 3780930 us.",
         "Stage 'downstream_call' contributes 43 permille of cumulative request latency."
       ],
       "next_checks": [
