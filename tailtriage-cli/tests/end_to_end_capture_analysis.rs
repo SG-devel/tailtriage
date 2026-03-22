@@ -58,21 +58,32 @@ async fn downstream_heavy_stage_is_ranked() {
         .build()
         .expect("build should succeed");
 
-    let request = tailtriage
-        .request_with(
-            "/invoice",
-            tailtriage_core::RequestOptions::new().request_id("req-1"),
-        )
-        .with_kind("http");
-    request
-        .stage("downstream_db")
-        .await_on(async {
-            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
-            Ok::<(), &'static str>(())
-        })
-        .await
-        .expect("stage should succeed");
-    request.complete(tailtriage_core::Outcome::Ok);
+    for index in 0..36 {
+        let request = tailtriage
+            .request_with(
+                "/invoice",
+                tailtriage_core::RequestOptions::new().request_id(format!("req-{index}")),
+            )
+            .with_kind("http");
+        request
+            .queue("ingress")
+            .with_depth_at_start(1)
+            .await_on(tokio::time::sleep(std::time::Duration::from_millis(1)))
+            .await;
+        request
+            .stage("downstream_db")
+            .await_on(async {
+                tokio::time::sleep(std::time::Duration::from_millis(26)).await;
+                Ok::<(), &'static str>(())
+            })
+            .await
+            .expect("stage should succeed");
+        request
+            .stage("render_response")
+            .await_value(tokio::time::sleep(std::time::Duration::from_millis(2)))
+            .await;
+        request.complete(tailtriage_core::Outcome::Ok);
+    }
 
     tailtriage.shutdown().expect("shutdown should succeed");
 
@@ -80,7 +91,7 @@ async fn downstream_heavy_stage_is_ranked() {
     let report = analyze_run(&run);
     assert_eq!(
         report.primary_suspect.kind.as_str(),
-        "insufficient_evidence"
+        "downstream_stage_dominates"
     );
 }
 

@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{Outcome, RequestOptions, Tailtriage};
-use tailtriage_tokio::RuntimeSampler;
+use tailtriage_core::{RequestOptions, Tailtriage};
 
 #[derive(Clone)]
 struct CheckoutRequest {
@@ -17,6 +16,20 @@ async fn authorize_payment(
         .stage("payment_authorization")
         .await_on(async {
             tokio::time::sleep(Duration::from_millis(4)).await;
+            Ok::<(), &'static str>(())
+        })
+        .await
+}
+
+async fn reserve_inventory(
+    request: &tailtriage_core::RequestContext<'_>,
+    cart_total_cents: u64,
+) -> Result<(), &'static str> {
+    let reserve_ms = if cart_total_cents > 700 { 9 } else { 4 };
+    request
+        .stage("reserve_inventory")
+        .await_on(async move {
+            tokio::time::sleep(Duration::from_millis(reserve_ms)).await;
             Ok::<(), &'static str>(())
         })
         .await
@@ -42,13 +55,7 @@ async fn handle_checkout(
             .await_on(tokio::time::sleep(Duration::from_millis(2)))
             .await;
 
-        request_ctx
-            .stage("inventory_lookup")
-            .await_on(async {
-                tokio::time::sleep(Duration::from_millis(3)).await;
-                Ok::<(), &'static str>(())
-            })
-            .await?;
+        reserve_inventory(&request_ctx, request.cart_total_cents).await?;
 
         request_ctx
             .stage("pricing")
@@ -59,32 +66,46 @@ async fn handle_checkout(
 
         authorize_payment(&request_ctx).await?;
     }
-    request_ctx.complete(Outcome::Ok);
+
+    request_ctx
+        .run_result(async { Ok::<(), &'static str>(()) })
+        .await?;
     Ok(())
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output_path = std::env::temp_dir().join("tailtriage-mini-service.json");
+    let output_path = "tailtriage-run.json";
     let tailtriage = Arc::new(
         Tailtriage::builder("mini-checkout-service")
-            .output(&output_path)
+            .output(output_path)
             .investigation()
             .build()?,
     );
+    let requests = [
+        CheckoutRequest {
+            request_id: "req-101".to_string(),
+            cart_total_cents: 180,
+        },
+        CheckoutRequest {
+            request_id: "req-102".to_string(),
+            cart_total_cents: 950,
+        },
+        CheckoutRequest {
+            request_id: "req-103".to_string(),
+            cart_total_cents: 320,
+        },
+    ];
 
-    let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))?;
+    for request in requests {
+        handle_checkout(Arc::clone(&tailtriage), request).await?;
+    }
 
-    let request = CheckoutRequest {
-        request_id: "req-123".to_string(),
-        cart_total_cents: 240,
-    };
-
-    handle_checkout(Arc::clone(&tailtriage), request).await?;
-
-    sampler.shutdown().await;
     tailtriage.shutdown()?;
 
-    println!("artifact: {}", output_path.display());
+    println!("Wrote {output_path}");
+    println!("This example demonstrates a small integration flow across helper layers.");
+    println!("Analyze it with:");
+    println!("  cargo run -p tailtriage-cli -- analyze {output_path} --format json");
     Ok(())
 }
