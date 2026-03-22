@@ -6,7 +6,7 @@ license.workspace = true
 description = "Core data model and analyzer for Tokio tail-latency triage with evidence-ranked suspects"
 repository = "https://github.com/tailtriage/tailtriage"
 documentation = "https://docs.rs/tailtriage-core"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["tokio", "latency", "diagnostics", "performance", "triage"]
 categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
 

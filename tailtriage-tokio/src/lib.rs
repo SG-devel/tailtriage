@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 //! Tokio runtime integration for tailtriage.
 //!
 //! This crate provides [`RuntimeSampler`] for periodic Tokio runtime metrics

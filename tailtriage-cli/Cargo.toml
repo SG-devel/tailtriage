@@ -6,7 +6,7 @@ license.workspace = true
 description = "CLI for Tokio tail-latency triage reports with evidence-ranked suspects and next checks"
 repository = "https://github.com/tailtriage/tailtriage"
 documentation = "https://docs.rs/tailtriage-cli"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["tokio", "latency", "cli", "diagnostics", "triage"]
 categories = ["command-line-utilities", "development-tools::profiling", "development-tools::debugging"]
 

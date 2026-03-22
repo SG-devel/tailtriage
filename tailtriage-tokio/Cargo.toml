@@ -6,7 +6,7 @@ license.workspace = true
 description = "Tokio runtime sampling and request instrumentation helpers for tail-latency triage"
 repository = "https://github.com/tailtriage/tailtriage"
 documentation = "https://docs.rs/tailtriage-tokio"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["tokio", "latency", "instrumentation", "async", "triage"]
 categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
 
