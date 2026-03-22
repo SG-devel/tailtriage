@@ -19,6 +19,30 @@ This crate extends the same `tailtriage-core` request-context workflow with Toki
 
 These snapshots improve triage reports when you need separation between executor pressure, blocking-pool pressure, and application-level queueing.
 
+## `RuntimeSampler` metric availability (stable Tokio vs `tokio_unstable`)
+
+`RuntimeSampler` records a `RuntimeSnapshot` with fields that map directly to Tokio runtime metrics.
+
+Always available on stable Tokio:
+
+- `alive_tasks`
+- `global_queue_depth`
+
+Available only when compiling with `--cfg tokio_unstable`:
+
+- `local_queue_depth`
+- `blocking_queue_depth`
+- `remote_schedule_count`
+
+When `tokio_unstable` is not enabled, those unstable-only fields are recorded as `None` in snapshots.
+
+Practical triage implication:
+
+- on stable Tokio, `tailtriage` can still provide useful runtime enrichment,
+- but executor-pressure vs blocking-pool-pressure separation is often weaker because some scheduler and blocking-pool signals are unavailable.
+
+Treat suspects as evidence-ranked leads and follow the recommended next checks before concluding root cause.
+
 ## When runtime sampling is useful vs optional
 
 Use runtime sampling when:

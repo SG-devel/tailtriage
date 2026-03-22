@@ -175,6 +175,25 @@ let sampler = RuntimeSampler::start(
 sampler.shutdown().await;
 ```
 
+### RuntimeSampler metric availability
+
+`RuntimeSampler` does not expose the same fields in all Tokio build modes.
+
+Always available on stable Tokio:
+
+- `alive_tasks`
+- `global_queue_depth`
+
+Available only with `tokio_unstable`:
+
+- `local_queue_depth`
+- `blocking_queue_depth`
+- `remote_schedule_count`
+
+Without `tokio_unstable`, unstable-only fields are captured as `None`.
+
+This means runtime sampling still helps triage on stable Tokio, but blocking-pool vs executor separation can be less decisive depending on which request-level signals you captured.
+
 ## Before/after proof path
 
 After first run, validate one mitigation workflow:
