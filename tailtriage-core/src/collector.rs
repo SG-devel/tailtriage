@@ -29,6 +29,14 @@ impl std::fmt::Debug for Tailtriage {
 }
 
 /// Reusable request context that carries correlation and timing state.
+///
+/// A `RequestContext` starts one request lifecycle. Instrumentation helpers
+/// (`queue(...)`, `stage(...)`, and `inflight(...)`) do not finish that lifecycle.
+/// You must call exactly one terminal method: [`Self::finish`], [`Self::finish_ok`],
+/// or [`Self::finish_result`].
+///
+/// `Drop` only detects misuse in debug builds (unfinished contexts). It does not
+/// infer an outcome and does not auto-record request completion.
 #[must_use = "request contexts must be finished via finish(...) or a finish_* helper"]
 #[derive(Debug)]
 pub struct RequestContext<'a> {
@@ -236,14 +244,25 @@ impl RequestContext<'_> {
         self.tailtriage.inflight(gauge)
     }
 
+    /// Finishes this request with an explicit [`Outcome`].
+    ///
+    /// Use this when you already know the terminal outcome.
     pub fn finish(mut self, outcome: Outcome) {
         self.finish_internal(outcome);
     }
 
+    /// Convenience helper for successfully completed requests.
+    ///
+    /// Equivalent to `finish(Outcome::Ok)`.
     pub fn finish_ok(self) {
         self.finish(Outcome::Ok);
     }
 
+    /// Finishes this request from `result` and returns `result` unchanged.
+    ///
+    /// Use this when your request handler already ends in a `Result` and you want
+    /// a single terminal expression like `request.finish_result(result)`.
+    ///
     /// Records `ok`/`error` based on `result` and returns it unchanged.
     ///
     /// # Errors
@@ -281,6 +300,9 @@ impl RequestContext<'_> {
     }
 }
 
+/// Debug-only misuse detection for unfinished request contexts.
+///
+/// This does not auto-finish requests or record request outcomes.
 impl Drop for RequestContext<'_> {
     fn drop(&mut self) {
         debug_assert!(
