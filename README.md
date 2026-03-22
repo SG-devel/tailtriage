@@ -152,7 +152,20 @@ MVP scope is intentionally narrow:
 
 ## Bounded capture and truncation
 
-`tailtriage` keeps run data in memory until shutdown. To keep this bounded in production-like runs, configure per-section capture limits:
+`tailtriage` keeps run data in memory until shutdown. To keep this bounded in production-like runs, configure per-section capture limits on the builder:
+
+```rust
+let tailtriage = Tailtriage::builder("checkout-service")
+    .capture_limits(tailtriage_core::CaptureLimits::default())
+    .build()?;
+```
+
+Important request-lifecycle safety note:
+
+- `RequestContext` is `#[must_use]`, so a dropped unfinished request emits a warning.
+- Finish each request with `complete(...)`, `run(...)`, `run_ok(...)`, or `run_result(...)`.
+
+Capture limit knobs:
 
 - `max_requests`
 - `max_stages`
