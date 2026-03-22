@@ -43,4 +43,4 @@ tailtriage analyze tailtriage-run.json --format json
 
 - Data capture API (`tailtriage-core`): <https://docs.rs/tailtriage-core>
 - Tokio runtime sampling (`tailtriage-tokio`): <https://docs.rs/tailtriage-tokio>
-- Repository docs and demos: <https://github.com/tailtriage/tailtriage>
+- Repository docs and demos: <https://github.com/SG-devel/tailtriage>
