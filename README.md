@@ -104,7 +104,7 @@ Representative diagnosis shape:
 ```json
 {
   "primary_suspect": {
-    "kind": "ApplicationQueueSaturation",
+    "kind": "application_queue_saturation",
     "evidence": [
       "Queue wait at p95 consumes 98.2% of request time.",
       "Observed queue depth sample up to 230."

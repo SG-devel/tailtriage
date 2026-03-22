@@ -1,21 +1,21 @@
 {
   "request_count": 320,
-  "p50_latency_us": 8577010,
-  "p95_latency_us": 8689823,
-  "p99_latency_us": 8752466,
-  "p95_queue_share_permille": 43,
+  "p50_latency_us": 7524354,
+  "p95_latency_us": 7682592,
+  "p99_latency_us": 7697126,
+  "p95_queue_share_permille": 45,
   "p95_service_share_permille": 999,
   "inflight_trend": {
     "gauge": "executor_pressure_inflight",
     "sample_count": 640,
     "peak_count": 320,
     "p95_count": 304,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -113
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
   },
   "warnings": [],
   "primary_suspect": {
-    "kind": "ExecutorPressureSuspected",
+    "kind": "executor_pressure_suspected",
     "score": 85,
     "confidence": "high",
     "evidence": [
@@ -28,13 +28,13 @@
   },
   "secondary_suspects": [
     {
-      "kind": "DownstreamStageDominates",
+      "kind": "downstream_stage_dominates",
       "score": 79,
       "confidence": "medium",
       "evidence": [
-        "Stage 'executor_hot_path' has p95 latency 8617225 us across 320 samples.",
-        "Stage 'executor_hot_path' cumulative latency is 2645785563 us.",
-        "Stage 'executor_hot_path' contributes 971 permille of cumulative request latency."
+        "Stage 'executor_hot_path' has p95 latency 7530413 us across 320 samples.",
+        "Stage 'executor_hot_path' cumulative latency is 2327569590 us.",
+        "Stage 'executor_hot_path' contributes 975 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'executor_hot_path'.",

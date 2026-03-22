@@ -1,13 +1,13 @@
 {
   "before": {
-    "primary_suspect_kind": "BlockingPoolPressure",
+    "primary_suspect_kind": "blocking_pool_pressure",
     "primary_suspect_score": 80,
     "p95_latency_us": 3528432,
     "p95_service_share_permille": 999,
     "blocking_queue_depth_p95": 244
   },
   "after": {
-    "primary_suspect_kind": "BlockingPoolPressure",
+    "primary_suspect_kind": "blocking_pool_pressure",
     "primary_suspect_score": 80,
     "p95_latency_us": 88888,
     "p95_service_share_permille": 991,

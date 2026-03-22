@@ -1,21 +1,21 @@
 {
   "request_count": 220,
-  "p50_latency_us": 2662161,
-  "p95_latency_us": 4994458,
-  "p99_latency_us": 5210245,
+  "p50_latency_us": 2544909,
+  "p95_latency_us": 4808253,
+  "p99_latency_us": 4990004,
   "p95_queue_share_permille": 994,
-  "p95_service_share_permille": 101,
+  "p95_service_share_permille": 96,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
     "peak_count": 217,
     "p95_count": 206,
     "growth_delta": -1,
-    "growth_per_sec_milli": -187
+    "growth_per_sec_milli": -195
   },
   "warnings": [],
   "primary_suspect": {
-    "kind": "ApplicationQueueSaturation",
+    "kind": "application_queue_saturation",
     "score": 90,
     "confidence": "high",
     "evidence": [
@@ -29,12 +29,12 @@
   },
   "secondary_suspects": [
     {
-      "kind": "DownstreamStageDominates",
+      "kind": "downstream_stage_dominates",
       "score": 55,
       "confidence": "low",
       "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 24744 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 5286489 us.",
+        "Stage 'shared_state_critical_section' has p95 latency 23446 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 5106285 us.",
         "Stage 'shared_state_critical_section' contributes 9 permille of cumulative request latency."
       ],
       "next_checks": [

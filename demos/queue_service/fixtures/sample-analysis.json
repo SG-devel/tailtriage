@@ -1,10 +1,10 @@
 {
   "request_count": 250,
-  "p50_latency_us": 803400,
-  "p95_latency_us": 1552689,
-  "p99_latency_us": 1604927,
+  "p50_latency_us": 782979,
+  "p95_latency_us": 1467750,
+  "p99_latency_us": 1518268,
   "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 286,
+  "p95_service_share_permille": 269,
   "inflight_trend": {
     "gauge": "queue_service_inflight",
     "sample_count": 500,
@@ -15,7 +15,7 @@
   },
   "warnings": [],
   "primary_suspect": {
-    "kind": "ApplicationQueueSaturation",
+    "kind": "application_queue_saturation",
     "score": 90,
     "confidence": "high",
     "evidence": [
@@ -29,13 +29,13 @@
   },
   "secondary_suspects": [
     {
-      "kind": "DownstreamStageDominates",
+      "kind": "downstream_stage_dominates",
       "score": 55,
       "confidence": "low",
       "evidence": [
-        "Stage 'simulated_work' has p95 latency 29811 us across 250 samples.",
-        "Stage 'simulated_work' cumulative latency is 6928007 us.",
-        "Stage 'simulated_work' contributes 34 permille of cumulative request latency."
+        "Stage 'simulated_work' has p95 latency 26642 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 6569224 us.",
+        "Stage 'simulated_work' contributes 33 permille of cumulative request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'simulated_work'.",
