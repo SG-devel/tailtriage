@@ -48,13 +48,19 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 
 This writes `tailtriage-run.json` in the current directory.
 
-Want a small **adoption-confidence** example that looks more like a service than the synthetic demos? Run:
+Want the recommended framework-based adoption starter for a tiny local service? Run:
+
+```bash
+cargo run -p tailtriage-tokio --example axum_minimal
+```
+
+This axum example is intentionally outside `demos/` and is an adoption starter (not a production case study and not a replacement for the synthetic demo suite).
+
+Need a non-framework mini integration that focuses on helper-layer instrumentation shape? Run:
 
 ```bash
 cargo run -p tailtriage-tokio --example mini_service_integration
 ```
-
-That example is intentionally outside `demos/` and exists only as a realistic integration reference (not a production case study).
 
 2) Analyze that artifact with the workspace CLI crate (artifacts include required top-level `schema_version: 1`):
 

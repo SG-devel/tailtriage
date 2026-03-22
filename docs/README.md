@@ -11,6 +11,7 @@ Use this page as the single entry point for project documentation.
 
 - **How triage analysis works:** [diagnostics.md](diagnostics.md)
 - **Demos and fixture workflow:** [getting-started-demo.md](getting-started-demo.md)
+- **Framework-based adoption starter (axum):** [../tailtriage-tokio/examples/axum_minimal.rs](../tailtriage-tokio/examples/axum_minimal.rs)
 - **Realistic mini-service integration example (adoption confidence):** [../tailtriage-tokio/examples/mini_service_integration.rs](../tailtriage-tokio/examples/mini_service_integration.rs)
 - **Before/after proof workflow (secondary):** [../demos/retry_storm_service/fixtures/before-after-comparison.json](../demos/retry_storm_service/fixtures/before-after-comparison.json)
 - **Runtime cost measurement:** [runtime-cost.md](runtime-cost.md)

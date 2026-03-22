@@ -12,8 +12,12 @@ categories = ["asynchronous", "development-tools::profiling", "development-tools
 
 [dependencies]
 tailtriage-core = { version = "0.1.0", path = "../tailtriage-core" }
-tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tracing = "0.1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
