@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "metadata": {
     "run_id": "stage-run",
     "service_name": "svc",

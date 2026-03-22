@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use tailtriage_core::Run;
+use tailtriage_core::{Run, SCHEMA_VERSION};
 
-const SUPPORTED_SCHEMA_VERSION: u64 = 1;
+const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
 
 #[derive(Debug)]
 pub struct LoadedArtifact {
@@ -25,6 +25,9 @@ pub enum ArtifactLoadError {
         path: PathBuf,
         found: u64,
         supported: u64,
+    },
+    MissingSchemaVersion {
+        path: PathBuf,
     },
     InvalidSchemaVersionType {
         path: PathBuf,
@@ -53,9 +56,14 @@ impl std::fmt::Display for ArtifactLoadError {
                 "unsupported run artifact schema_version={found} in '{}'; supported schema_version is {supported}. Re-generate the artifact with a compatible tailtriage version.",
                 path.display()
             ),
+            Self::MissingSchemaVersion { path } => write!(
+                f,
+                "invalid run artifact in '{}': missing required top-level schema_version.",
+                path.display()
+            ),
             Self::InvalidSchemaVersionType { path } => write!(
                 f,
-                "invalid run artifact in '{}': schema_version must be an integer when provided.",
+                "invalid run artifact in '{}': schema_version must be an integer.",
                 path.display()
             ),
             Self::Validation { path, message } => write!(
@@ -111,20 +119,24 @@ pub fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadErro
 }
 
 fn validate_schema_version(raw: &Value, path: &Path) -> Result<(), ArtifactLoadError> {
-    if let Some(version) = raw.get("schema_version") {
-        let Some(found) = version.as_u64() else {
-            return Err(ArtifactLoadError::InvalidSchemaVersionType {
-                path: path.to_path_buf(),
-            });
-        };
+    let Some(version) = raw.get("schema_version") else {
+        return Err(ArtifactLoadError::MissingSchemaVersion {
+            path: path.to_path_buf(),
+        });
+    };
 
-        if found != SUPPORTED_SCHEMA_VERSION {
-            return Err(ArtifactLoadError::UnsupportedSchemaVersion {
-                path: path.to_path_buf(),
-                found,
-                supported: SUPPORTED_SCHEMA_VERSION,
-            });
-        }
+    let Some(found) = version.as_u64() else {
+        return Err(ArtifactLoadError::InvalidSchemaVersionType {
+            path: path.to_path_buf(),
+        });
+    };
+
+    if found != SUPPORTED_SCHEMA_VERSION {
+        return Err(ArtifactLoadError::UnsupportedSchemaVersion {
+            path: path.to_path_buf(),
+            found,
+            supported: SUPPORTED_SCHEMA_VERSION,
+        });
     }
 
     Ok(())
@@ -179,7 +191,7 @@ mod tests {
     fn rejects_missing_required_fields() {
         let dir = tempfile::tempdir().expect("tempdir should build");
         let path = dir.path().join("missing-fields.json");
-        std::fs::write(&path, r#"{"metadata":{},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#)
+        std::fs::write(&path, r#"{"schema_version":1,"metadata":{},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#)
             .expect("fixture should write");
 
         let error = load_run_artifact(&path).expect_err("expected schema failure");
@@ -199,6 +211,34 @@ mod tests {
         let message = error.to_string();
 
         assert!(message.contains("requests section is empty"));
+    }
+
+    #[test]
+    fn rejects_missing_schema_version() {
+        let dir = tempfile::tempdir().expect("tempdir should build");
+        let path = dir.path().join("missing-version.json");
+        std::fs::write(&path, valid_run_json_with_prefix("")).expect("fixture should write");
+
+        let error = load_run_artifact(&path).expect_err("expected missing version failure");
+        let message = error.to_string();
+
+        assert!(message.contains("missing required top-level schema_version"));
+    }
+
+    #[test]
+    fn rejects_non_integer_schema_versions() {
+        let dir = tempfile::tempdir().expect("tempdir should build");
+        let path = dir.path().join("string-version.json");
+        std::fs::write(
+            &path,
+            valid_run_json_with_prefix("\"schema_version\": \"1\","),
+        )
+        .expect("fixture should write");
+
+        let error = load_run_artifact(&path).expect_err("expected schema type failure");
+        let message = error.to_string();
+
+        assert!(message.contains("schema_version must be an integer"));
     }
 
     #[test]
@@ -229,7 +269,7 @@ mod tests {
 
     fn valid_run_json_with_requests(requests_json: &str) -> String {
         format!(
-            "{{\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null}},\"requests\":{requests_json},\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
+            "{{\"schema_version\":1,\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null}},\"requests\":{requests_json},\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
         )
     }
 

@@ -44,3 +44,8 @@ tailtriage analyze tailtriage-run.json --format json
 - Data capture API (`tailtriage-core`): <https://docs.rs/tailtriage-core>
 - Tokio runtime sampling (`tailtriage-tokio`): <https://docs.rs/tailtriage-tokio>
 - Repository docs and demos: <https://github.com/SG-devel/tailtriage>
+
+
+## Artifact schema contract
+
+`tailtriage-cli` requires a top-level `schema_version` field in every run artifact. Current supported value: `1`. Missing, non-integer, or unsupported values fail fast with a clear error so triage runs against a known schema contract.

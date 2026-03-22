@@ -36,7 +36,7 @@ pub use collector::{RequestContext, Tailtriage};
 pub use config::{BuildError, CaptureLimits, CaptureMode, RequestOptions, TailtriageBuilder};
 pub use events::{
     InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot,
-    StageEvent, TruncationSummary,
+    StageEvent, TruncationSummary, SCHEMA_VERSION,
 };
 pub use sink::{LocalJsonSink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};

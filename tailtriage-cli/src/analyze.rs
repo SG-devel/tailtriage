@@ -578,7 +578,9 @@ pub fn render_text(report: &Report) -> String {
 
 #[cfg(test)]
 mod tests {
-    use tailtriage_core::{CaptureMode, RequestEvent, Run, RunMetadata, StageEvent};
+    use tailtriage_core::{
+        CaptureMode, RequestEvent, Run, RunMetadata, StageEvent, SCHEMA_VERSION,
+    };
 
     use crate::analyze::{
         analyze_run, render_text, Confidence, DiagnosisKind, InflightTrend, Report, Suspect,
@@ -586,6 +588,7 @@ mod tests {
 
     fn test_run() -> Run {
         Run {
+            schema_version: SCHEMA_VERSION,
             metadata: RunMetadata {
                 run_id: "run-1".to_owned(),
                 service_name: "svc".to_owned(),
