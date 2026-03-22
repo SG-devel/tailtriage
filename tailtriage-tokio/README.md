@@ -71,4 +71,4 @@ This repository is pre-publish.
 
 - Core request instrumentation API: <https://docs.rs/tailtriage-core>
 - CLI diagnosis workflow: <https://docs.rs/tailtriage-cli>
-- Repository guide and demos: <https://github.com/tailtriage/tailtriage>
+- Repository guide and demos: <https://github.com/SG-devel/tailtriage>
