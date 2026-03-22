@@ -37,7 +37,7 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
             .stage("local_work")
             .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
             .await;
-        request.complete(tailtriage_core::Outcome::Ok);
+        request.finish(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");
@@ -82,7 +82,7 @@ async fn downstream_heavy_stage_is_ranked() {
             .stage("render_response")
             .await_value(tokio::time::sleep(std::time::Duration::from_millis(2)))
             .await;
-        request.complete(tailtriage_core::Outcome::Ok);
+        request.finish(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");
@@ -109,7 +109,7 @@ async fn low_evidence_run_yields_insufficient_signal() {
             tailtriage_core::RequestOptions::new().request_id(format!("insufficient-{index}")),
         );
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        request.complete(tailtriage_core::Outcome::Ok);
+        request.finish(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");

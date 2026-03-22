@@ -79,14 +79,14 @@ request
     .await_on(customer_api.fetch())
     .await?;
 
-request.complete(tailtriage_core::Outcome::Ok);
+request.finish(tailtriage_core::Outcome::Ok);
 ```
 
 Completion helpers on the same request-context model:
 
 ```rust
-let value = request.run_ok(async { 42 }).await;
-let result: Result<(), MyError> = request.run_result(async { downstream_call().await }).await;
+request.finish_ok();
+let result: Result<(), MyError> = request.finish_result(downstream_call().await);
 ```
 
 ### 5.3 In-flight tracking
