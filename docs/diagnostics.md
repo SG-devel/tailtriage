@@ -8,7 +8,7 @@ This document explains how `tailtriage analyze` produces a triage report and how
 
 - request count
 - request latency percentiles (p50/p95/p99)
-- p95 request-time shares:
+- p95 per-request share percentiles:
   - `p95_queue_share_permille`
   - `p95_service_share_permille`
 - optional in-flight trend summary
@@ -29,8 +29,8 @@ Each suspect includes:
 | --- | --- | --- |
 | `request_count` | `usize` | Requests observed in the run. |
 | `p50_latency_us` / `p95_latency_us` / `p99_latency_us` | `Option<u64>` | Request latency percentiles (microseconds). |
-| `p95_queue_share_permille` | `Option<u64>` | Queue-time share of p95 request latency (0-1000). |
-| `p95_service_share_permille` | `Option<u64>` | Service/stage share of p95 request latency (0-1000). |
+| `p95_queue_share_permille` | `Option<u64>` | 95th percentile of per-request queue-time share (0-1000). |
+| `p95_service_share_permille` | `Option<u64>` | 95th percentile of per-request service-time share (0-1000). |
 | `inflight_trend` | `Option<InflightTrend>` | Dominant in-flight gauge trend when snapshots exist. |
 | `warnings` | `Vec<String>` | Analyzer warnings, including capture truncation context from run artifacts. |
 | `primary_suspect` | `Suspect` | Highest-ranked suspect. |
