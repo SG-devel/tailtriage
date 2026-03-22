@@ -14,13 +14,19 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 
 Expected output includes `Wrote tailtriage-run.json`.
 
-If you want a more realistic request + queue + worker shape outside the synthetic demos, run:
+For the recommended framework-based adoption starter, run:
+
+```bash
+cargo run -p tailtriage-tokio --example axum_minimal
+```
+
+This axum example is an adoption starter and does **not** replace the demo suite or claim production-hardening.
+
+If you want a non-framework helper-layer reference, run:
 
 ```bash
 cargo run -p tailtriage-tokio --example mini_service_integration
 ```
-
-This mini-service example is an adoption-confidence reference and does **not** replace the demo suite.
 
 ## Finish every request explicitly
 
@@ -206,4 +212,5 @@ After first run, validate one mitigation workflow:
 - [Diagnostics guide](diagnostics.md)
 - [Architecture](architecture.md)
 - [Demo workflow](getting-started-demo.md)
+- [Axum adoption starter example (source)](../tailtriage-tokio/examples/axum_minimal.rs)
 - [Mini-service integration example (source)](../tailtriage-tokio/examples/mini_service_integration.rs)
