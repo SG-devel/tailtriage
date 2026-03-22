@@ -139,7 +139,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
                 runnable_backlog.fetch_sub(1, Ordering::SeqCst);
             }
-            request.complete(tailtriage_core::Outcome::Ok);
+            request.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.burst_pause_every == 0 {

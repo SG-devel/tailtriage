@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
                     .await_value(tokio::time::sleep(stage_delay))
                     .await;
             }
-            request.complete(tailtriage_core::Outcome::Ok);
+            request.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {

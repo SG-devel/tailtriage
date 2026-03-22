@@ -67,10 +67,7 @@ async fn handle_checkout(
         authorize_payment(&request_ctx).await?;
     }
 
-    request_ctx
-        .run_result(async { Ok::<(), &'static str>(()) })
-        .await?;
-    Ok(())
+    request_ctx.finish_result(Ok(()))
 }
 
 #[tokio::main(flavor = "current_thread")]

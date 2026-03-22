@@ -1,4 +1,5 @@
 use std::future::ready;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
 use crate::{BuildError, CaptureLimits, Outcome, RequestOptions, Tailtriage};
@@ -40,7 +41,7 @@ fn request_context_records_request_event() {
     assert_eq!(request.route(), "/invoice");
     assert_eq!(request.kind(), Some("http"));
     futures_executor::block_on(request.stage("db").await_value(ready(())));
-    request.complete(Outcome::Ok);
+    request.finish_ok();
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
@@ -57,6 +58,8 @@ fn generated_request_ids_are_unique() {
     let first = tailtriage.request("/invoice");
     let second = tailtriage.request("/invoice");
     assert_ne!(first.request_id(), second.request_id());
+    first.finish_ok();
+    second.finish_ok();
 }
 
 #[test]
@@ -69,7 +72,7 @@ fn queue_stage_and_inflight_are_recorded() {
         let _: Result<(), ()> =
             futures_executor::block_on(request.stage("persist").await_on(ready(Ok(()))));
     }
-    request.complete(Outcome::Ok);
+    request.finish_ok();
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.inflight.len(), 2);
@@ -86,7 +89,7 @@ fn shutdown_writes_artifact() {
         .expect("build should succeed");
 
     let request = tailtriage.request("/health");
-    request.complete(Outcome::Ok);
+    request.finish_ok();
     tailtriage.shutdown().expect("shutdown should succeed");
 
     let bytes = std::fs::read(output).expect("artifact should exist");
@@ -114,12 +117,12 @@ fn capture_limits_apply_to_all_sections() {
     {
         let _guard = first.inflight("g");
     }
-    first.complete(Outcome::Ok);
+    first.finish_ok();
 
     let second = tailtriage.request_with("/invoice", RequestOptions::new().request_id("req-2"));
     futures_executor::block_on(second.stage("db").await_value(ready(())));
     futures_executor::block_on(second.queue("q").await_on(ready(())));
-    second.complete(Outcome::Ok);
+    second.finish_ok();
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
         alive_tasks: Some(1),
@@ -146,12 +149,9 @@ fn capture_limits_apply_to_all_sections() {
 }
 
 #[test]
-fn run_records_outcome_after_future_completion() {
-    let tailtriage = build_for_test("payments", "tailtriage-core-run-sugar.json");
-    let request = tailtriage.request("/run-sugar");
-
-    let value = futures_executor::block_on(request.run(Outcome::Ok, ready(7_u8)));
-    assert_eq!(value, 7);
+fn finish_records_outcome() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-finish.json");
+    tailtriage.request("/finish").finish(Outcome::Ok);
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
@@ -159,11 +159,10 @@ fn run_records_outcome_after_future_completion() {
 }
 
 #[test]
-fn run_ok_records_ok_outcome_for_infallible_future() {
-    let tailtriage = build_for_test("payments", "tailtriage-core-run-ok.json");
+fn finish_ok_records_ok_outcome() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-finish-ok.json");
 
-    let value = futures_executor::block_on(tailtriage.request("/run-ok").run_ok(ready(11_u8)));
-    assert_eq!(value, 11);
+    tailtriage.request("/finish-ok").finish_ok();
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
@@ -171,25 +170,19 @@ fn run_ok_records_ok_outcome_for_infallible_future() {
 }
 
 #[test]
-fn run_result_maps_result_to_request_outcome() {
-    let tailtriage = build_for_test("payments", "tailtriage-core-run-result.json");
+fn finish_result_maps_result_to_request_outcome() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-finish-result.json");
 
-    let ok_value =
-        futures_executor::block_on(tailtriage.request("/run-result-ok").run_result(ready::<
-            Result<u8, &'static str>,
-        >(Ok(
-            3,
-        ))))
-        .expect("ok future should return ok");
+    let ok_value = tailtriage
+        .request("/finish-result-ok")
+        .finish_result(Ok::<u8, &'static str>(3))
+        .expect("ok result should remain ok");
     assert_eq!(ok_value, 3);
 
-    let err =
-        futures_executor::block_on(tailtriage.request("/run-result-err").run_result(ready::<
-            Result<u8, &'static str>,
-        >(
-            Err("boom")
-        )))
-        .expect_err("err future should return err");
+    let err = tailtriage
+        .request("/finish-result-err")
+        .finish_result::<u8, _>(Err("boom"))
+        .expect_err("err result should remain err");
     assert_eq!(err, "boom");
 
     let snapshot = tailtriage.snapshot();
@@ -223,7 +216,7 @@ fn request_context_supports_fractured_code_usage() {
         .expect("helper stage should succeed");
     futures_executor::block_on(stage_in_helper_layer(&request, "layer_b"))
         .expect("helper stage should succeed");
-    request.complete(Outcome::Ok);
+    request.finish_ok();
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
@@ -239,7 +232,7 @@ fn custom_sink_receives_shutdown_run() {
         .build()
         .expect("build should succeed");
 
-    tailtriage.request("/sink-test").complete(Outcome::Ok);
+    tailtriage.request("/sink-test").finish_ok();
     tailtriage.shutdown().expect("shutdown should succeed");
 
     let stored = sink
@@ -249,4 +242,14 @@ fn custom_sink_receives_shutdown_run() {
         .clone()
         .expect("sink should receive run");
     assert_eq!(stored.requests.len(), 1);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn dropping_unfinished_request_panics_in_debug() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-drop-unfinished.json");
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let _request = tailtriage.request("/unfinished");
+    }));
+    assert!(result.is_err(), "unfinished request should panic in debug");
 }

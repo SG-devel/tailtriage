@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
                     .await_value(tokio::time::sleep(Duration::from_millis(20)))
                     .await;
             }
-            request.complete(tailtriage_core::Outcome::Ok);
+            request.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number.is_multiple_of(8) {
