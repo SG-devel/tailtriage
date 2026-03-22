@@ -58,8 +58,8 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 - `primary_suspect.kind`
 - `primary_suspect.evidence[]`
 - `primary_suspect.next_checks[]`
-- `p95_queue_share_permille`
-- `p95_service_share_permille`
+- `p95_queue_share_permille` (95th percentile of per-request queue-time share)
+- `p95_service_share_permille` (95th percentile of per-request service-time share)
 
 ### Path B — Adopt in your app (crates.io)
 
