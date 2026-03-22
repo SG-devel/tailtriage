@@ -54,43 +54,64 @@ MVP does **not** include:
 ### 5.1 Initialization (`tailtriage-core`)
 
 ```rust
-use tailtriage_core::{Config, Tailtriage};
+use tailtriage_core::{RequestOptions, Tailtriage};
 
-let mut config = Config::new("invoice-api");
-config.output_path = "tailtriage-run.json".into();
-config.capture_limits.max_requests = 50_000;
-let tailtriage = Tailtriage::init(config)?;
+let tailtriage = Tailtriage::builder("invoice-api")
+    .light()
+    .output("tailtriage-run.json")
+    .build()?;
 ```
 
-### 5.2 Request timing wrapper
+### 5.2 Request-context instrumentation
 
 ```rust
-use tailtriage_core::RequestMeta;
+let request = tailtriage
+    .request_with("/invoice", RequestOptions::new().request_id("req-123"))
+    .with_kind("create_invoice");
 
-let meta = RequestMeta::for_route("/invoice").with_kind("create_invoice");
-let request_id = meta.request_id.clone();
-
-tailtriage
-    .request(meta, "ok", async move {
-        tailtriage
-            .queue(request_id.clone(), "invoice_worker")
-            .await_on(semaphore.acquire())
-            .await;
-    })
+request
+    .queue("invoice_worker")
+    .await_on(semaphore.acquire())
     .await;
+
+request
+    .stage("fetch_customer")
+    .await_on(customer_api.fetch())
+    .await?;
+
+request.finish(tailtriage_core::Outcome::Ok);
 ```
+
+Completion helpers on the same request-context model:
+
+```rust
+request.finish_ok();
+let result: Result<(), MyError> = request.finish_result(downstream_call().await);
+```
+
+### 5.2.1 Request lifecycle contract
+
+`RequestContext` starts a request lifecycle and instrumentation wrappers (`queue(...)`, `stage(...)`, `inflight(...)`) do not complete it.
+
+Every request context must call exactly one terminal method:
+
+- `finish(...)`
+- `finish_ok()`
+- `finish_result(...)`
+
+If a request context is dropped unfinished, debug builds assert to surface misuse during development. This assertion is a development aid only: `Drop` does **not** infer an outcome and does **not** auto-record request completion.
 
 ### 5.3 In-flight tracking
 
 ```rust
-let _inflight = tailtriage.inflight("invoice_requests");
+let _inflight = request.inflight("invoice_requests");
 ```
 
 ### 5.4 Queue wait timing wrapper
 
 ```rust
-tailtriage
-    .queue(request_id.clone(), "invoice_worker")
+request
+    .queue("invoice_worker")
     .await_on(semaphore.acquire())
     .await;
 ```
@@ -98,8 +119,8 @@ tailtriage
 Optional queue depth sample:
 
 ```rust
-tailtriage
-    .queue(request_id.clone(), "invoice_worker")
+request
+    .queue("invoice_worker")
     .with_depth_at_start(depth)
     .await_on(semaphore.acquire())
     .await;
@@ -110,8 +131,8 @@ tailtriage
 For fallible stages (`Result` output):
 
 ```rust
-tailtriage
-    .stage(request_id.clone(), "fetch_customer")
+request
+    .stage("fetch_customer")
     .await_on(customer_api.fetch())
     .await;
 ```
@@ -119,8 +140,8 @@ tailtriage
 For infallible stages:
 
 ```rust
-tailtriage
-    .stage(request_id, "cache_lookup")
+request
+    .stage("cache_lookup")
     .await_value(cache.refresh())
     .await;
 ```
@@ -130,26 +151,20 @@ tailtriage
 ```rust
 use std::sync::Arc;
 use std::time::Duration;
+use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
 
-let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
+let tailtriage = Arc::new(
+    Tailtriage::builder("invoice-api")
+        .build()?,
+);
+let sampler = RuntimeSampler::start(
+    Arc::clone(&tailtriage),
+    Duration::from_millis(200),
+)?;
 // ... run workload ...
 sampler.shutdown().await;
 ```
-
-### 5.7 Request attribute macro (`tailtriage-tokio`)
-
-`tailtriage-tokio` re-exports `#[instrument_request]` from `tailtriage-macros` for request entry-point ergonomics.
-
-The macro always emits tracing request events. When `tailtriage = <expr>` is provided,
-it also records `RequestEvent` entries directly into the active run artifact.
-
-Supported arguments:
-- `route = <expr>` (optional; defaults to `module_path!()::fn_name`)
-- `kind = <expr>` (optional; defaults to `fn_name`)
-- `tailtriage = <expr>` (optional; enables run-artifact request recording)
-- `request_id = <expr>` (optional; defaults to a route+timestamp id when `tailtriage` is set)
-- `skip(...)` (optional; passed through to `tracing::instrument`)
 
 ## 6. Run data model
 
@@ -165,7 +180,7 @@ Supported arguments:
 
 Each section captures timestamped events/snapshots used by the CLI triage rules.
 
-Capture limits are configurable through `Config.capture_limits` (`max_requests`, `max_stages`, `max_queues`, `max_inflight_snapshots`, `max_runtime_snapshots`). When limits are hit, capture is deterministically truncated for that section and analyzer output should be interpreted as evidence-ranked suspects from partial data.
+Capture limits are configurable through `Tailtriage::builder(...).capture_limits(...)` (`max_requests`, `max_stages`, `max_queues`, `max_inflight_snapshots`, `max_runtime_snapshots`). When limits are hit, capture is deterministically truncated for that section and analyzer output should be interpreted as evidence-ranked suspects from partial data.
 
 ## 7. Analyzer CLI (`tailtriage-cli`)
 

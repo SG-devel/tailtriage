@@ -21,7 +21,7 @@ It includes:
 These crates are part of the first public release surface:
 
 1. `tailtriage-core`
-2. `tailtriage-macros`
+2. `(removed in unified API migration)`
 3. `tailtriage-tokio`
 4. `tailtriage-cli` (binary crate shipping `tailtriage`)
 
@@ -59,7 +59,7 @@ CLI analysis command uses the `tailtriage` binary from `tailtriage-cli`.
 Expected docs.rs pages for first publish:
 
 - <https://docs.rs/tailtriage-core>
-- <https://docs.rs/tailtriage-macros>
+- <https://docs.rs/(removed in unified API migration)>
 - <https://docs.rs/tailtriage-tokio>
 - <https://docs.rs/tailtriage-cli>
 
@@ -77,12 +77,12 @@ cargo publish -p tailtriage-core --dry-run --allow-dirty
 
 Outcome: ✅ Success (packaging + verification completed; upload aborted due to dry-run).
 
-### 2) `tailtriage-macros`
+### 2) `(removed in unified API migration)`
 
 Command:
 
 ```bash
-cargo publish -p tailtriage-macros --dry-run --allow-dirty
+cargo publish -p (removed in unified API migration) --dry-run --allow-dirty
 ```
 
 Outcome: ✅ Success (packaging + verification completed; upload aborted due to dry-run).
@@ -127,7 +127,7 @@ Before first publish, configure crate owners for each publish-now crate:
 
 ```bash
 cargo owner --add github:tailtriage:owners tailtriage-core
-cargo owner --add github:tailtriage:owners tailtriage-macros
+cargo owner --add github:tailtriage:owners (removed in unified API migration)
 cargo owner --add github:tailtriage:owners tailtriage-tokio
 cargo owner --add github:tailtriage:owners tailtriage-cli
 ```
@@ -138,6 +138,6 @@ If a GitHub team owner is unavailable, add at least two individual maintainers a
 
 1. Publish `tailtriage-core`.
 2. Re-run dry-runs for `tailtriage-tokio` and `tailtriage-cli`.
-3. Publish `tailtriage-macros`, then `tailtriage-tokio`, then `tailtriage-cli`.
+3. Publish `(removed in unified API migration)`, then `tailtriage-tokio`, then `tailtriage-cli`.
 4. Verify docs.rs builds for all four crates and confirm README rendering on each page.
 5. Re-check README install commands from a clean environment.

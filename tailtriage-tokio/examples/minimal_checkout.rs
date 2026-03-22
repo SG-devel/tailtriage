@@ -1,34 +1,43 @@
 use std::time::Duration;
-use tailtriage_core::{Config, RequestMeta, Tailtriage};
 
-#[tokio::main]
+use tailtriage_core::Tailtriage;
+
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = Config::new("minimal-checkout");
-    config.output_path = "tailtriage-run.json".into();
+    let artifact_path = "tailtriage-run.json";
+    let tailtriage = Tailtriage::builder("minimal-checkout")
+        .output(artifact_path)
+        .build()?;
 
-    let tailtriage = Tailtriage::init(config)?;
+    let request = tailtriage.request("/checkout").with_kind("http");
 
-    let meta = RequestMeta::for_route("/checkout").with_kind("http");
-    let request_id = meta.request_id.clone();
-
-    tailtriage
-        .request(meta, "ok", async {
-            tailtriage
-                .queue(request_id.clone(), "ingress_queue")
-                .await_on(tokio::time::sleep(Duration::from_millis(3)))
-                .await;
-
-            tailtriage
-                .stage(request_id, "db_call")
-                .await_value(tokio::time::sleep(Duration::from_millis(8)))
-                .await;
-        })
+    request
+        .queue("checkout_worker_queue")
+        .with_depth_at_start(4)
+        .await_on(tokio::time::sleep(Duration::from_millis(6)))
         .await;
 
-    tailtriage.flush()?;
+    request
+        .stage("inventory_lookup")
+        .await_on(async {
+            tokio::time::sleep(Duration::from_millis(8)).await;
+            Ok::<(), &'static str>(())
+        })
+        .await?;
 
-    println!("wrote tailtriage-run.json");
-    println!("next: cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json");
+    request
+        .stage("payment_gateway")
+        .await_on(async {
+            tokio::time::sleep(Duration::from_millis(12)).await;
+            Ok::<(), &'static str>(())
+        })
+        .await?;
 
+    request.finish_ok();
+
+    tailtriage.shutdown()?;
+    println!("Wrote {artifact_path}");
+    println!("Next step:");
+    println!("  cargo run -p tailtriage-cli -- analyze {artifact_path} --format json");
     Ok(())
 }

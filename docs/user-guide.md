@@ -12,7 +12,7 @@ Use this path when you are evaluating `tailtriage` from a local clone of this re
 cargo run -p tailtriage-tokio --example minimal_checkout
 ```
 
-Expected output includes `wrote tailtriage-run.json`.
+Expected output includes `Wrote tailtriage-run.json`.
 
 If you want a more realistic request + queue + worker shape outside the synthetic demos, run:
 
@@ -21,6 +21,26 @@ cargo run -p tailtriage-tokio --example mini_service_integration
 ```
 
 This mini-service example is an adoption-confidence reference and does **not** replace the demo suite.
+
+## Finish every request explicitly
+
+Every `RequestContext` starts one request lifecycle. Queue/stage/inflight instrumentation does not finish that lifecycle; you must finish it explicitly exactly once.
+
+```rust
+let request = tailtriage.request("/checkout").with_kind("http");
+
+// queue/stage/inflight instrumentation here
+
+request.finish_ok();
+```
+
+Use one terminal method per request:
+
+- `finish(...)`
+- `finish_ok()`
+- `finish_result(...)`
+
+`Drop` is only a debug-time misuse detector. In debug builds, dropping an unfinished context asserts so you catch forgotten finishes during development. `Drop` does **not** infer an outcome and does **not** record request completion automatically.
 
 ### 2) Analyze with the workspace CLI crate
 
@@ -61,9 +81,36 @@ The installed binary name is `tailtriage`.
 
 ### 3) Capture one artifact in your app
 
-Create a `TailTriage` instance, wrap request/queue/stage boundaries, and flush the artifact to disk at shutdown.
+Create one `Tailtriage` instance, wrap request/queue/stage boundaries, and shut down the artifact to disk at process shutdown.
 
-For a concrete instrumentation shape, mirror the minimal example in [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
+Minimal shape:
+
+```rust
+use tailtriage_core::Tailtriage;
+
+let tailtriage = Tailtriage::builder("checkout-service")
+    .output("tailtriage-run.json")
+    .build()?;
+
+let request = tailtriage.request("/checkout").with_kind("http");
+request
+    .queue("queue_wait")
+    .with_depth_at_start(3)
+    .await_on(tokio::time::sleep(std::time::Duration::from_millis(5)))
+    .await;
+request
+    .stage("db_call")
+    .await_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(8)).await;
+        Ok::<(), &'static str>(())
+    })
+    .await?;
+request.finish_ok();
+
+tailtriage.shutdown()?;
+```
+
+For a concrete end-to-end instrumentation shape, mirror [`tailtriage-tokio/examples/minimal_checkout.rs`](../tailtriage-tokio/examples/minimal_checkout.rs).
 
 ### 4) Analyze your artifact with the installed binary
 
@@ -110,11 +157,20 @@ Add one more queue wrapper and one more stage wrapper around the most likely mis
 Enable runtime snapshots when queue/stage instrumentation is still ambiguous:
 
 ```rust
-use std::sync::Arc;
 use std::time::Duration;
+use std::sync::Arc;
+use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
 
-let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
+let tailtriage = Arc::new(
+    Tailtriage::builder("checkout-service")
+        .output("tailtriage-run.json")
+        .build()?,
+);
+let sampler = RuntimeSampler::start(
+    Arc::clone(&tailtriage),
+    Duration::from_millis(200),
+)?;
 // run workload
 sampler.shutdown().await;
 ```
