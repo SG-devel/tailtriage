@@ -56,7 +56,7 @@ cargo run -p tailtriage-tokio --example mini_service_integration
 
 That example is intentionally outside `demos/` and exists only as a realistic integration reference (not a production case study).
 
-2) Analyze that artifact with the workspace CLI crate:
+2) Analyze that artifact with the workspace CLI crate (artifacts include required top-level `schema_version: 1`):
 
 ```bash
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json

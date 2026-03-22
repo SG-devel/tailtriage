@@ -1,8 +1,8 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1868837,
-  "p95_latency_us": 3528432,
-  "p99_latency_us": 3676994,
+  "p50_latency_us": 1890958,
+  "p95_latency_us": 3622573,
+  "p99_latency_us": 3783549,
   "p95_queue_share_permille": 5,
   "p95_service_share_permille": 999,
   "inflight_trend": {
@@ -32,8 +32,8 @@
       "score": 79,
       "confidence": "medium",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3527249 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 466827768 us.",
+        "Stage 'spawn_blocking_path' has p95 latency 3621361 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 477143600 us.",
         "Stage 'spawn_blocking_path' contributes 999 permille of cumulative request latency."
       ],
       "next_checks": [
