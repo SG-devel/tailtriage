@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use tailtriage_core::Tailtriage;
+use tokio::sync::Barrier;
 
 /// Demo profile selector used by before/after style demo binaries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,4 +74,48 @@ pub fn init_collector(service_name: &str, output_path: &Path) -> anyhow::Result<
         .output(output_path)
         .build()?;
     Ok(Arc::new(collector))
+}
+
+/// Shared synchronized start gate for a request cohort.
+///
+/// This helps demos avoid ad-hoc burst pacing and start measured work at
+/// roughly the same time across request tasks.
+#[derive(Clone)]
+pub struct CohortStart {
+    barrier: Arc<Barrier>,
+}
+
+impl CohortStart {
+    /// Create a cohort barrier for `participant_count` async tasks.
+    pub fn new(participant_count: usize) -> Self {
+        Self {
+            barrier: Arc::new(Barrier::new(participant_count)),
+        }
+    }
+
+    /// Wait for all participants before entering measured work.
+    pub async fn wait(&self) {
+        self.barrier.wait().await;
+    }
+}
+
+/// Run a warmup phase followed by a measured phase.
+///
+/// This utility keeps demo shaping consistent when services need runtime
+/// warmup before collecting artifact-relevant measured requests.
+pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
+    warmup_requests: usize,
+    warmup_phase: Warmup,
+    measured_phase: Measured,
+) where
+    Warmup: FnOnce() -> WarmupFut,
+    WarmupFut: std::future::Future<Output = ()>,
+    Measured: FnOnce() -> MeasuredFut,
+    MeasuredFut: std::future::Future<Output = ()>,
+{
+    if warmup_requests > 0 {
+        warmup_phase().await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    measured_phase().await;
 }

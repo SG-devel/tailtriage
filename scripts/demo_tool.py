@@ -21,12 +21,23 @@ EXPECTED_QUEUE_KIND = {"application_queue_saturation"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure"}
 EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected"}
 EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates"}
-EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
-EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
-EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
-EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
+EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
+EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
+EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
+EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_RETRY_STORM_PRIMARY_KINDS = EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
+SCENARIOS = [
+    "queue",
+    "blocking",
+    "executor",
+    "downstream",
+    "mixed",
+    "cold-start",
+    "db-pool",
+    "shared-lock",
+    "retry-storm",
+]
 
 
 def _suspects(report: dict) -> list[dict]:
@@ -372,15 +383,11 @@ def validate_mixed(root_dir: Path, *, profile: str = "dev") -> None:
     baseline_primary = before["primary_suspect"]["kind"]
     if baseline_primary not in EXPECTED_MIXED_PRIMARY_KINDS:
         raise SystemExit(
-            "expected baseline primary suspect to be queue or downstream, "
+            "expected baseline primary suspect to be queue saturation, "
             f"got {baseline_primary}"
         )
 
-    if baseline_primary in EXPECTED_QUEUE_KIND:
-        expected_secondary = EXPECTED_DOWNSTREAM_KIND
-    else:
-        expected_secondary = EXPECTED_QUEUE_KIND
-
+    expected_secondary = EXPECTED_DOWNSTREAM_KIND
     if not has_suspect_kind(before, expected_secondary):
         raise SystemExit(
             "expected baseline report to include secondary contention source, "
@@ -426,28 +433,15 @@ def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
     after = load_report_json(artifact_dir / "after-analysis.json")
 
     kind = before["primary_suspect"]["kind"]
-    allowed_primary_kinds = EXPECTED_EXECUTOR_KIND
-    if profile == "release":
-        # Release builds can shift triage ranking toward queue- or downstream-first
-        # even when executor pressure evidence is still present in the report.
-        allowed_primary_kinds = (
-            EXPECTED_EXECUTOR_KIND | EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
-        )
-
-    if kind not in allowed_primary_kinds:
+    if kind not in EXPECTED_EXECUTOR_KIND:
         raise SystemExit(
             "expected executor demo baseline primary suspect in "
-            f"{sorted(allowed_primary_kinds)}, got {kind}"
+            f"{sorted(EXPECTED_EXECUTOR_KIND)}, got {kind}"
         )
 
     has_executor_suspect = has_suspect_kind(before, EXPECTED_EXECUTOR_KIND)
-    if profile != "release" and not has_executor_suspect:
+    if not has_executor_suspect:
         raise SystemExit("expected executor pressure suspect to appear in baseline report")
-    if profile == "release" and not has_executor_suspect:
-        print(
-            "note: release baseline did not rank executor pressure as a suspect; "
-            "accepting queue/downstream-dominant ranking for release stability"
-        )
 
     if _contains_blocking_depth_evidence(before):
         raise SystemExit("executor baseline evidence unexpectedly referenced blocking queue depth")
@@ -507,7 +501,7 @@ def validate_cold_start(root_dir: Path, *, profile: str = "dev") -> None:
     before_kind = before["primary_suspect"]["kind"]
     if before_kind not in EXPECTED_COLD_START_PRIMARY_KINDS:
         raise SystemExit(
-            "expected baseline primary suspect to indicate queue or downstream pressure, "
+            "expected baseline primary suspect to indicate queue pressure, "
             f"got {before_kind}"
         )
 
@@ -554,7 +548,7 @@ def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
     before_kind = before["primary_suspect"]["kind"]
     if before_kind not in EXPECTED_DB_POOL_PRIMARY_KINDS:
         raise SystemExit(
-            "expected baseline primary suspect to indicate queue or downstream pressure, "
+            "expected baseline primary suspect to indicate queue pressure, "
             f"got {before_kind}"
         )
 
@@ -595,7 +589,7 @@ def validate_shared_lock(root_dir: Path, *, profile: str = "dev") -> None:
     before_kind = before["primary_suspect"]["kind"]
     if before_kind not in EXPECTED_SHARED_LOCK_PRIMARY_KINDS:
         raise SystemExit(
-            "expected baseline primary suspect to indicate queue or downstream pressure, "
+            "expected baseline primary suspect to indicate queue pressure, "
             f"got {before_kind}"
         )
 
@@ -695,17 +689,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
     run_parser.add_argument(
         "scenario",
-        choices=[
-            "queue",
-            "blocking",
-            "executor",
-            "downstream",
-            "mixed",
-            "cold-start",
-            "db-pool",
-            "shared-lock",
-            "retry-storm",
-        ],
+        choices=SCENARIOS,
     )
     run_parser.add_argument(
         "mode",
@@ -731,17 +715,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
     validate_parser.add_argument(
         "scenario",
-        choices=[
-            "queue",
-            "blocking",
-            "executor",
-            "downstream",
-            "mixed",
-            "cold-start",
-            "db-pool",
-            "shared-lock",
-            "retry-storm",
-        ],
+        choices=SCENARIOS,
     )
     validate_parser.add_argument(
         "--profile",
@@ -757,31 +731,77 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Shortcut for --profile release.",
     )
 
+    matrix_parser = subparsers.add_parser(
+        "diagnosis-matrix",
+        help="Run baseline/mitigated demo variants in dev and release and print a compact diagnosis table.",
+    )
+    matrix_parser.add_argument(
+        "--scenario",
+        action="append",
+        choices=SCENARIOS,
+        help="Optional scenario filter; can be provided multiple times.",
+    )
+
     return parser.parse_args(argv)
+
+def _scenario_to_artifact_dir(root_dir: Path, scenario: str) -> Path:
+    return {
+        "queue": root_dir / "demos/queue_service/artifacts",
+        "blocking": root_dir / "demos/blocking_service/artifacts",
+        "executor": root_dir / "demos/executor_pressure_service/artifacts",
+        "downstream": root_dir / "demos/downstream_service/artifacts",
+        "mixed": root_dir / "demos/mixed_contention_service/artifacts",
+        "cold-start": root_dir / "demos/cold_start_burst_service/artifacts",
+        "db-pool": root_dir / "demos/db_pool_saturation_service/artifacts",
+        "shared-lock": root_dir / "demos/shared_state_lock_service/artifacts",
+        "retry-storm": root_dir / "demos/retry_storm_service/artifacts",
+    }[scenario]
+
+def _run_scenario(root_dir: Path, scenario: str, mode: str, *, profile: str) -> None:
+    if scenario == "queue":
+        run_scenario_queue(root_dir, mode, profile=profile)
+    elif scenario == "blocking":
+        run_scenario_blocking(root_dir, mode, profile=profile)
+    elif scenario == "downstream":
+        run_scenario_downstream(root_dir, mode, profile=profile)
+    elif scenario == "executor":
+        run_scenario_executor(root_dir, mode, profile=profile)
+    elif scenario == "cold-start":
+        run_scenario_cold_start(root_dir, mode, profile=profile)
+    elif scenario == "db-pool":
+        run_scenario_db_pool(root_dir, mode, profile=profile)
+    elif scenario == "shared-lock":
+        run_scenario_shared_lock(root_dir, mode, profile=profile)
+    elif scenario == "retry-storm":
+        run_scenario_retry_storm(root_dir, mode, profile=profile)
+    else:
+        run_scenario_mixed(root_dir, mode, profile=profile)
+
+def run_diagnosis_matrix(root_dir: Path, scenarios: list[str] | None = None) -> None:
+    selected = scenarios or SCENARIOS
+    print("scenario profile mode primary score p95_us secondary evidence")
+    for scenario in selected:
+        for profile in PROFILE_CHOICES:
+            for mode in ("before", "after"):
+                _run_scenario(root_dir, scenario, mode, profile=profile)
+                report = load_report_json(_scenario_to_artifact_dir(root_dir, scenario) / f"{mode}-analysis.json")
+                primary = report["primary_suspect"]["kind"]
+                score = report["primary_suspect"]["score"]
+                p95 = report["p95_latency_us"]
+                secondary = ",".join(s["kind"] for s in (report.get("secondary_suspects") or [])) or "-"
+                evidence = "; ".join((report["primary_suspect"].get("evidence") or [])[:2]).replace("\n", " ")
+                print(f"{scenario:11} {profile:7} {mode:6} {primary:30} {score:5} {p95:8} {secondary:30} {evidence}")
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     root_dir = repo_root(__file__)
 
+    if args.command == "diagnosis-matrix":
+        run_diagnosis_matrix(root_dir, scenarios=args.scenario)
+        return
+
     if args.command == "run":
-        if args.scenario == "queue":
-            run_scenario_queue(root_dir, args.mode, profile=args.profile)
-        elif args.scenario == "blocking":
-            run_scenario_blocking(root_dir, args.mode, profile=args.profile)
-        elif args.scenario == "downstream":
-            run_scenario_downstream(root_dir, args.mode, profile=args.profile)
-        elif args.scenario == "executor":
-            run_scenario_executor(root_dir, args.mode, profile=args.profile)
-        elif args.scenario == "cold-start":
-            run_scenario_cold_start(root_dir, args.mode, profile=args.profile)
-        elif args.scenario == "db-pool":
-            run_scenario_db_pool(root_dir, args.mode, profile=args.profile)
-        elif args.scenario == "shared-lock":
-            run_scenario_shared_lock(root_dir, args.mode, profile=args.profile)
-        elif args.scenario == "retry-storm":
-            run_scenario_retry_storm(root_dir, args.mode, profile=args.profile)
-        else:
-            run_scenario_mixed(root_dir, args.mode, profile=args.profile)
+        _run_scenario(root_dir, args.scenario, args.mode, profile=args.profile)
         return
 
     if args.scenario == "queue":

@@ -1,46 +1,31 @@
 {
-  "request_count": 320,
-  "p50_latency_us": 7524354,
-  "p95_latency_us": 7682592,
-  "p99_latency_us": 7697126,
-  "p95_queue_share_permille": 45,
-  "p95_service_share_permille": 999,
+  "request_count": 240,
+  "p50_latency_us": 24208470,
+  "p95_latency_us": 24293640,
+  "p99_latency_us": 24318146,
+  "p95_queue_share_permille": 0,
+  "p95_service_share_permille": 1000,
   "inflight_trend": {
     "gauge": "executor_pressure_inflight",
-    "sample_count": 640,
-    "peak_count": 320,
-    "p95_count": 304,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "sample_count": 480,
+    "peak_count": 240,
+    "p95_count": 228,
+    "growth_delta": 1,
+    "growth_per_sec_milli": 41
   },
   "warnings": [],
   "primary_suspect": {
     "kind": "executor_pressure_suspected",
-    "score": 85,
+    "score": 90,
     "confidence": "high",
     "evidence": [
-      "Runtime global queue depth p95 is 320, suggesting scheduler contention."
+      "Runtime global queue depth p95 is 1832, suggesting scheduler contention.",
+      "In-flight gauge 'executor_pressure_inflight' growth is positive (delta=1, peak=240), consistent with accumulating executor pressure."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
       "Compare with per-stage timings to isolate overloaded async stages."
     ]
   },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominates",
-      "score": 79,
-      "confidence": "medium",
-      "evidence": [
-        "Stage 'executor_hot_path' has p95 latency 7530413 us across 320 samples.",
-        "Stage 'executor_hot_path' cumulative latency is 2327569590 us.",
-        "Stage 'executor_hot_path' contributes 975 permille of cumulative request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'executor_hot_path'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
-    }
-  ]
+  "secondary_suspects": []
 }
