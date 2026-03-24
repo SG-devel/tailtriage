@@ -22,8 +22,32 @@ Shared helper code for this setup lives in `demos/demo_support`:
 - common CLI argument parsing
 - artifact directory creation
 - collector initialization
+- synchronized cohort start helpers for stable request-release shaping
+- warmup/measurement phase helper primitives
 
 This keeps demo binaries focused on the triage scenario rather than boilerplate.
+
+## Baseline diagnosis contract (dev + release)
+
+The demo validation contract is intentionally exact across profiles.
+
+| Scenario | Expected baseline primary suspect | Required supporting signal |
+| --- | --- | --- |
+| `queue` | `application_queue_saturation` | Queue evidence on primary suspect |
+| `blocking` | `blocking_pool_pressure` | Blocking queue depth evidence remains visible |
+| `executor` | `executor_pressure_suspected` | Runtime snapshot pressure + executor suspect score |
+| `downstream` | `downstream_stage_dominates` | Stage-dominance evidence on primary suspect |
+| `mixed` | `application_queue_saturation` | Downstream suspect also appears as secondary |
+| `cold-start` | `application_queue_saturation` | Evidence mentions `cold_start_stage` and/or queue impact |
+| `db-pool` | `application_queue_saturation` | Queue pressure on DB admission path |
+| `shared-lock` | `application_queue_saturation` | Queue wait/depth evidence from lock contention |
+| `retry-storm` | `downstream_stage_dominates` | Elevated service-share evidence from retry-heavy stage |
+
+For tuning and profile-robustness checks, use:
+
+```bash
+python3 scripts/demo_tool.py diagnosis-matrix
+```
 
 ## Recommended public progression
 
