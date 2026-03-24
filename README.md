@@ -157,6 +157,12 @@ All three write tailtriage-run.json and can be analyzed with:
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
+CI smoke-validates this exact public flow with:
+
+```bash
+python3 scripts/smoke_public_examples.py
+```
+
 Use minimal_checkout for the quickest first result, axum_minimal for framework-style adoption shape, and mini_service_integration when you want to see instrumentation flow through helper layers.
 
 The examples are found in tailtriage-tokio/examples.
