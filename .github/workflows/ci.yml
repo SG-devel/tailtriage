@@ -107,6 +107,10 @@ jobs:
       - name: Smoke-check launch-critical public examples
         if: matrix.profile == 'dev'
         run: python3 scripts/smoke_public_examples.py
+
+      - name: Smoke-check external consumer adoption flow
+        if: matrix.profile == 'release'
+        run: python3 scripts/smoke_external_consumer.py
         
       - name: Check demo fixture drift
         if: matrix.profile == 'dev'
