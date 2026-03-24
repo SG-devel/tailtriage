@@ -14,6 +14,7 @@ If you are new to `tailtriage`, start in **User docs** below and ignore maintain
 
 - **How triage analysis works:** [diagnostics.md](diagnostics.md)
 - **Demos and fixture workflow:** [getting-started-demo.md](getting-started-demo.md)
+- **Fastest source first run (`minimal_checkout`):** [../tailtriage-tokio/examples/minimal_checkout.rs](../tailtriage-tokio/examples/minimal_checkout.rs)
 - **Framework-based adoption starter (axum):** [../tailtriage-tokio/examples/axum_minimal.rs](../tailtriage-tokio/examples/axum_minimal.rs)
 - **Realistic mini-service integration example (adoption confidence):** [../tailtriage-tokio/examples/mini_service_integration.rs](../tailtriage-tokio/examples/mini_service_integration.rs)
 - **Before/after proof workflow (secondary):** [../demos/retry_storm_service/fixtures/before-after-comparison.json](../demos/retry_storm_service/fixtures/before-after-comparison.json)

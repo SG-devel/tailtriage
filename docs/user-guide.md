@@ -179,7 +179,10 @@ let sampler = RuntimeSampler::start(
 )?;
 // run workload
 sampler.shutdown().await;
+tailtriage.shutdown()?;
 ```
+
+`sampler.shutdown().await` stops runtime snapshot collection, and `tailtriage.shutdown()?` performs the final artifact flush to `tailtriage-run.json`.
 
 ### RuntimeSampler metric availability
 
@@ -212,5 +215,6 @@ After first run, validate one mitigation workflow:
 - [Diagnostics guide](diagnostics.md)
 - [Architecture](architecture.md)
 - [Demo workflow](getting-started-demo.md)
+- [Minimal source first-run example (source)](../tailtriage-tokio/examples/minimal_checkout.rs)
 - [Axum adoption starter example (source)](../tailtriage-tokio/examples/axum_minimal.rs)
 - [Mini-service integration example (source)](../tailtriage-tokio/examples/mini_service_integration.rs)
