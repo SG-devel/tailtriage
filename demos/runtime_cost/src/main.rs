@@ -252,6 +252,9 @@ fn print_help() {
     eprintln!(
         "runtime_cost --mode <baseline|light|investigation> [--requests N] [--concurrency N] [--work-ms N] [--output-dir DIR]"
     );
+    eprintln!(
+        "note: investigation mode models a richer investigation profile (dense runtime sampling + extra pre_work_marker stage work)."
+    );
 }
 
 fn percentile_ms(sorted_us: &[u64], percentile: f64) -> f64 {
