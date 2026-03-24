@@ -350,6 +350,10 @@ In `.github/workflows/ci.yml`, the `CI` workflow continuously validates:
 - `blocking`
 - `executor`
 
+The CI workflow runs this full set in both `dev` and `release` profiles.
+
+Fixture drift checks are intentionally run in `dev` profile only (`python3 scripts/check_demo_fixture_drift.py`) so fixture comparisons stay deterministic while release-path validation remains covered by per-scenario `validate ... --release` checks.
+
 ## Typical local workflow
 
 ```bash
@@ -364,6 +368,13 @@ python3 scripts/demo_tool.py validate db-pool
 ```
 
 Then continue through `shared-lock`, `retry-storm`, `mixed`, `cold-start`, `blocking`, and `executor`.
+
+For release-profile validation (production-representative runtime behavior), append `--release`:
+
+```bash
+python3 scripts/demo_tool.py validate queue --release
+python3 scripts/demo_tool.py validate downstream --release
+```
 
 Running `downstream` follows the same before/after artifact contract as the other comparison demos:
 
