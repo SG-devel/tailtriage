@@ -15,7 +15,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import demo_tool  # noqa: E402
-from demo_tool import has_suspect_kind, parse_args  # noqa: E402
+from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
 class DemoWrapperTests(unittest.TestCase):
@@ -63,6 +63,10 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "validate")
         self.assertEqual(args.scenario, "retry-storm")
 
+    def test_parse_args_accepts_release_shortcut(self) -> None:
+        args = parse_args(["validate", "queue", "--release"])
+        self.assertEqual(args.profile, "release")
+
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
             "secondary_suspects": [{"kind": "downstream_stage_dominates"}],
@@ -81,6 +85,93 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
         self.assertFalse(has_suspect_kind(report, {"blocking_pool_pressure"}))
 
+    def test_suspect_score_reads_secondary_kind_score(self) -> None:
+        report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
+            "secondary_suspects": [{"kind": "executor_pressure_suspected", "score": 70}],
+        }
+        self.assertEqual(suspect_score(report, "executor_pressure_suspected"), 70)
+        self.assertIsNone(suspect_score(report, "blocking_pool_pressure"))
+
+    def test_contains_blocking_depth_evidence_checks_secondary_suspects(self) -> None:
+        report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "evidence": []},
+            "secondary_suspects": [
+                {
+                    "kind": "executor_pressure_suspected",
+                    "evidence": ["Blocking queue depth p95 is 12 due to contention."],
+                }
+            ],
+        }
+        self.assertTrue(demo_tool._contains_blocking_depth_evidence(report))
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_executor")
+    def test_validate_executor_release_accepts_downstream_primary_with_executor_secondary(
+        self,
+        _run_scenario_executor_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 83, "evidence": []},
+            "secondary_suspects": [{"kind": "executor_pressure_suspected", "score": 70, "evidence": []}],
+            "p95_latency_us": 31_000,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 50, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 900,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_executor")
+    def test_validate_executor_release_allows_missing_executor_suspect(
+        self,
+        _run_scenario_executor_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 83, "evidence": []},
+            "secondary_suspects": [{"kind": "application_queue_saturation", "score": 70, "evidence": []}],
+            "p95_latency_us": 31_000,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 50, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 900,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_executor")
+    def test_validate_executor_dev_requires_executor_primary(
+        self,
+        _run_scenario_executor_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 83, "evidence": []},
+            "secondary_suspects": [{"kind": "downstream_stage_dominates", "score": 70, "evidence": []}],
+            "p95_latency_us": 31_000,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 50, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 900,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        with self.assertRaisesRegex(
+            SystemExit,
+            "expected executor demo baseline primary suspect",
+        ):
+            demo_tool.validate_executor(Path("/tmp/tailscope"), profile="dev")
+
 
 class DemoMainRoutingTests(unittest.TestCase):
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
@@ -92,7 +183,11 @@ class DemoMainRoutingTests(unittest.TestCase):
     ) -> None:
         demo_tool.main(["run", "queue", "baseline"])
 
-        run_scenario_queue_mock.assert_called_once_with(Path("/tmp/tailscope"), "baseline")
+        run_scenario_queue_mock.assert_called_once_with(
+            Path("/tmp/tailscope"),
+            "baseline",
+            profile="dev",
+        )
 
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.validate_mixed")
@@ -103,7 +198,7 @@ class DemoMainRoutingTests(unittest.TestCase):
     ) -> None:
         demo_tool.main(["validate", "mixed"])
 
-        validate_mixed_mock.assert_called_once_with(Path("/tmp/tailscope"))
+        validate_mixed_mock.assert_called_once_with(Path("/tmp/tailscope"), profile="dev")
 
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_downstream")
@@ -113,7 +208,11 @@ class DemoMainRoutingTests(unittest.TestCase):
         _repo_root_mock,
     ) -> None:
         demo_tool.main(["run", "downstream", "baseline"])
-        run_scenario_downstream_mock.assert_called_once_with(Path("/tmp/tailscope"), "baseline")
+        run_scenario_downstream_mock.assert_called_once_with(
+            Path("/tmp/tailscope"),
+            "baseline",
+            profile="dev",
+        )
 
 
 if __name__ == "__main__":
