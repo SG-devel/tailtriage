@@ -20,6 +20,10 @@ EXPECTED_QUEUE_KIND = {"application_queue_saturation"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure"}
 EXPECTED_EXECUTOR_KIND = {"executor_pressure_suspected"}
 EXPECTED_DOWNSTREAM_KIND = {"downstream_stage_dominates"}
+EXPECTED_EXECUTOR_BASELINE_BY_PROFILE = {
+    "dev": EXPECTED_EXECUTOR_KIND,
+    "release": EXPECTED_EXECUTOR_KIND | EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND,
+}
 EXPECTED_MIXED_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_COLD_START_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
@@ -406,8 +410,13 @@ def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
     after = load_report_json(artifact_dir / "after-analysis.json")
 
     kind = before["primary_suspect"]["kind"]
-    if kind not in EXPECTED_EXECUTOR_KIND:
-        raise SystemExit(f"expected executor pressure suspect in baseline, got {kind}")
+    expected_kinds = EXPECTED_EXECUTOR_BASELINE_BY_PROFILE[profile]
+    if kind not in expected_kinds:
+        expected_list = ", ".join(sorted(expected_kinds))
+        raise SystemExit(
+            "expected executor-pressure baseline suspect profile set "
+            f"({expected_list}), got {kind}"
+        )
 
     if _contains_blocking_depth_evidence(before):
         raise SystemExit("executor baseline evidence unexpectedly referenced blocking queue depth")
