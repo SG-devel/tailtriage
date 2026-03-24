@@ -124,6 +124,11 @@ The documented demo surface matches the CI validation surface. In `.github/workf
 - `blocking`
 - `executor`
 
+CI runs this same validation surface in both Cargo profiles:
+
+- `dev` (default/debug-oriented developer path)
+- `release` (production-representative latency/queueing/runtime behavior path)
+
 ## Runtime-cost demo path (separate from triage scenarios)
 
 `runtime_cost` is a measurement demo that uses a separate script entrypoint rather than `scripts/demo_tool.py`.
@@ -140,10 +145,14 @@ For mode definitions, metrics, and interpretation details, see **[`docs/runtime-
 
 `python3 scripts/check_demo_fixture_drift.py` regenerates demo analysis outputs and fails if committed fixtures are stale.
 
+Fixture drift policy is explicit: committed fixtures are **dev-profile canonical** for deterministic drift checks in CI.  
+Release runs are still validated in CI via `scripts/demo_tool.py validate ... --profile release`, but fixture drift comparison remains anchored to dev outputs because borderline suspect rank/score relationships can legitimately shift by profile.
+
 When analyzer output changes intentionally, refresh fixtures with:
 
 ```bash
 python3 scripts/check_demo_fixture_drift.py --refresh
+python3 scripts/check_demo_fixture_drift.py --release --refresh
 ```
 
 Then review the fixture diffs, commit them, and re-run the drift guard to confirm the refresh is complete.
@@ -153,3 +162,13 @@ Then review the fixture diffs, commit them, and re-run the drift guard to confir
 1. rerun on an otherwise idle machine
 2. confirm script success first
 3. compare fixture JSONs before interpreting local artifact drift
+
+To run the full demo validations in release profile locally, pass `--release` (or `--profile release`) per scenario:
+
+```bash
+python3 scripts/demo_tool.py validate queue --release
+python3 scripts/demo_tool.py validate downstream --release
+python3 scripts/demo_tool.py validate db-pool --release
+python3 scripts/demo_tool.py validate shared-lock --release
+python3 scripts/demo_tool.py validate retry-storm --release
+```

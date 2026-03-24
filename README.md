@@ -42,6 +42,8 @@ Then inspect `primary_suspect.kind`, `primary_suspect.evidence[]`, and `primary_
 
 Need route-by-route setup guidance? Start at **[docs/README.md](docs/README.md)**, then follow **[docs/user-guide.md](docs/user-guide.md)**.
 
+Profile note: commands use Cargo's default **dev/debug** profile unless you pass `--release` (or `--profile release` in script-based demo helpers). Diagnosis shape should usually stay directionally stable across profiles, while exact timings and borderline score/ranking relationships can differ.
+
 ### Path A — Try from this repo (source/workspace)
 
 Use this when you are exploring `tailtriage` directly from this repository.
@@ -235,6 +237,8 @@ Lifecycle contract:
 - `Drop` is a debug-time misuse detector only: unfinished `RequestContext` values trigger a debug assertion in development builds.
 - `Drop` does **not** infer success/error and does **not** record request completion automatically.
 - Do not rely on scope exit as request completion.
+
+For latency/queueing/runtime-representative measurements, prefer release mode (`cargo ... --release`).
 
 ## Bounded capture and truncation
 
