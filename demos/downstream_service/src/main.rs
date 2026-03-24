@@ -2,11 +2,34 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_output_arg};
+use demo_support::{init_collector, parse_demo_args, DemoMode};
+
+#[derive(Clone, Copy)]
+struct DownstreamSettings {
+    app_precheck_delay: Duration,
+    downstream_delay: Duration,
+}
+
+impl DownstreamSettings {
+    fn for_mode(mode: DemoMode) -> Self {
+        match mode {
+            DemoMode::Baseline => Self {
+                app_precheck_delay: Duration::from_millis(1),
+                downstream_delay: Duration::from_millis(20),
+            },
+            DemoMode::Mitigated => Self {
+                app_precheck_delay: Duration::from_millis(1),
+                downstream_delay: Duration::from_millis(9),
+            },
+        }
+    }
+}
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
-    let output_path = parse_output_arg("demos/downstream_service/artifacts/downstream-run.json")?;
+    let args = parse_demo_args("demos/downstream_service/artifacts/downstream-run.json")?;
+    let output_path = args.output_path;
+    let settings = DownstreamSettings::for_mode(args.mode);
 
     let tailtriage = init_collector("downstream_service_demo", &output_path)?;
 
@@ -28,12 +51,12 @@ async fn main() -> anyhow::Result<()> {
 
                 request
                     .stage("app_precheck")
-                    .await_value(tokio::time::sleep(Duration::from_millis(1)))
+                    .await_value(tokio::time::sleep(settings.app_precheck_delay))
                     .await;
 
                 request
                     .stage("downstream_call")
-                    .await_value(tokio::time::sleep(Duration::from_millis(20)))
+                    .await_value(tokio::time::sleep(settings.downstream_delay))
                     .await;
             }
             request.finish(tailtriage_core::Outcome::Ok);

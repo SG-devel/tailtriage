@@ -59,6 +59,14 @@ def snapshot_blocking(report: dict) -> dict[str, int | str | None]:
         "blocking_queue_depth_p95": extract_blocking_queue_depth_p95(report),
     }
 
+def snapshot_downstream(report: dict) -> dict[str, int | str | None]:
+    return {
+        "primary_suspect_kind": report["primary_suspect"]["kind"],
+        "primary_suspect_score": report["primary_suspect"]["score"],
+        "p95_latency_us": report["p95_latency_us"],
+        "p95_service_share_permille": report.get("p95_service_share_permille"),
+    }
+
 def run_before_after_scenario(
     root_dir: Path,
     demo_manifest: Path,
@@ -118,21 +126,14 @@ def run_scenario_executor(root_dir: Path, mode: str) -> None:
         snapshot_queue,
     )
 
-def run_scenario_downstream(root_dir: Path, artifact_path: str | None) -> None:
-    run_path = (
-        Path(artifact_path)
-        if artifact_path
-        else root_dir / "demos/downstream_service/artifacts/downstream-run.json"
-    )
-    analysis_path = root_dir / "demos/downstream_service/artifacts/downstream-analysis.json"
-    run_and_analyze(
+def run_scenario_downstream(root_dir: Path, mode: str) -> None:
+    run_before_after_scenario(
+        root_dir,
         root_dir / "demos/downstream_service/Cargo.toml",
-        root_dir / "tailtriage-cli/Cargo.toml",
-        run_path,
-        analysis_path,
+        root_dir / "demos/downstream_service/artifacts",
+        mode,
+        snapshot_downstream,
     )
-    print(f"run artifact: {run_path}")
-    print(f"analysis: {analysis_path}")
 
 def run_scenario_mixed(root_dir: Path, mode: str) -> None:
     run_before_after_scenario(
@@ -294,16 +295,43 @@ def validate_blocking(root_dir: Path) -> None:
     )
 
 def validate_downstream(root_dir: Path) -> None:
-    run_scenario_downstream(root_dir, None)
-    analysis_path = root_dir / "demos/downstream_service/artifacts/downstream-analysis.json"
+    run_scenario_downstream(root_dir, "both")
+    artifact_dir = root_dir / "demos/downstream_service/artifacts"
+    before = load_report_json(artifact_dir / "before-analysis.json")
+    after = load_report_json(artifact_dir / "after-analysis.json")
 
-    report = load_report_json(analysis_path)
-    kind = report["primary_suspect"]["kind"]
-    if kind not in EXPECTED_DOWNSTREAM_KIND:
-        raise SystemExit(f"expected downstream stage suspect, got {kind}")
+    before_kind = before["primary_suspect"]["kind"]
+    if before_kind not in EXPECTED_DOWNSTREAM_KIND:
+        raise SystemExit(f"expected downstream stage suspect in baseline, got {before_kind}")
 
-    print(f"validation passed: primary suspect is {kind}")
-    print(f"validated analysis file: {analysis_path}")
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    if after_p95 >= before_p95:
+        raise SystemExit(
+            f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
+        )
+
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+    if after_score > before_score:
+        raise SystemExit(
+            "expected mitigated suspect score to stay flat or drop, "
+            f"got before={before_score} after={after_score}"
+        )
+
+    print(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
+            before_kind,
+            before_p95,
+            after_p95,
+            before_score,
+            after_score,
+        )
+    )
+    print(
+        "validated analysis files: "
+        f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
+    )
 
 def validate_mixed(root_dir: Path) -> None:
     run_scenario_mixed(root_dir, "both")
@@ -629,11 +657,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="?",
         default="both",
         choices=MODE_CHOICES,
-        help="Queue/blocking mode (before/after/both + baseline/mitigated aliases).",
-    )
-    run_parser.add_argument(
-        "--artifact-path",
-        help="Downstream only: custom run artifact path.",
+        help="Demo mode (before/after/both + baseline/mitigated aliases).",
     )
 
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
@@ -664,9 +688,7 @@ def main(argv: list[str] | None = None) -> None:
         elif args.scenario == "blocking":
             run_scenario_blocking(root_dir, args.mode)
         elif args.scenario == "downstream":
-            if args.mode != "both":
-                raise SystemExit("downstream scenario does not accept mode; use --artifact-path if needed")
-            run_scenario_downstream(root_dir, args.artifact_path)
+            run_scenario_downstream(root_dir, args.mode)
         elif args.scenario == "executor":
             run_scenario_executor(root_dir, args.mode)
         elif args.scenario == "cold-start":

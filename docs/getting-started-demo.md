@@ -86,6 +86,14 @@ python3 scripts/demo_tool.py run executor
 python3 scripts/demo_tool.py validate executor
 ```
 
+`run downstream` now writes the same before/after artifact set as other comparison demos:
+
+- `demos/downstream_service/artifacts/before-run.json`
+- `demos/downstream_service/artifacts/before-analysis.json`
+- `demos/downstream_service/artifacts/after-run.json`
+- `demos/downstream_service/artifacts/after-analysis.json`
+- `demos/downstream_service/artifacts/before-after-comparison.json`
+
 ## Quick interpretation map by demo
 
 Use this table for first-pass diagnosis reading. Suspects are leads, not proof.
@@ -93,7 +101,7 @@ Use this table for first-pass diagnosis reading. Suspects are leads, not proof.
 | Demo | What it proves well | What it does not prove | First report fields to inspect |
 | --- | --- | --- | --- |
 | `queue_service` | Clear, convincing queue-dominant latency story; one of the strongest flagship demos. | Not a proof of every real queue topology under production burst behavior. | `primary_suspect.kind`, `p95_queue_share_permille`, queue-depth evidence. |
-| `downstream_service` | Very clean stage-dominance story; one of the strongest public proof cases. | Not a full model of all downstream path complexity. | `primary_suspect.kind`, `p95_service_share_permille`, downstream stage evidence. |
+| `downstream_service` | Very clean stage-dominance story; one of the strongest public proof cases with a mitigation comparison. | Not a full model of all downstream path complexity. | `primary_suspect.kind`, `p95_service_share_permille`, downstream stage evidence, and before/after p95 change. |
 | `db_pool_saturation_service` | Strong split between DB admission wait (`db_pool`) and DB stage time (`db_query`) in one common service shape. | Still a synthetic DB-pool model, not proof under a real DB driver/client stack. | Queue wait evidence for `db_pool` plus stage-share evidence for `db_query`. |
 | `shared_state_lock_service` | Strong lock-contention framing: lock admission wait as queue-like pressure plus separate critical-section stage attribution. | Not a claim that all lock contention behaves identically across real services. | Queue evidence for `shared_state_write_lock` and stage evidence for `shared_state_critical_section`. |
 | `retry_storm_service` | Product-interesting diagnosis pattern: downstream dominance from retry policy, not only one slow call. | More advanced and instrumentation-shaped than core proof demos. | `primary_suspect.kind`, `downstream_total` service-share evidence, retry-policy next checks. |

@@ -16,7 +16,7 @@ from _demo_runner import (
     variant_paths,
     write_before_after_comparison,
 )
-from demo_tool import snapshot_blocking, snapshot_queue
+from demo_tool import snapshot_blocking, snapshot_downstream, snapshot_queue
 
 
 class FixtureDriftError(RuntimeError):
@@ -80,15 +80,6 @@ def _run_before_after(
     write_before_after_comparison(temp_artifact_dir, snapshot_fn(before), snapshot_fn(after))
 
 
-def _run_downstream(root_dir: Path, temp_artifact_dir: Path) -> None:
-    run_and_analyze(
-        root_dir / "demos/downstream_service/Cargo.toml",
-        root_dir / "tailtriage-cli/Cargo.toml",
-        temp_artifact_dir / "downstream-run.json",
-        temp_artifact_dir / "downstream-analysis.json",
-    )
-
-
 def _scenario_specs() -> list[tuple[Path, Path]]:
     return [
         (Path("demos/queue_service/fixtures/before-analysis.json"), Path("queue/before-analysis.json")),
@@ -110,8 +101,20 @@ def _scenario_specs() -> list[tuple[Path, Path]]:
             Path("executor/before-analysis.json"),
         ),
         (
+            Path("demos/downstream_service/fixtures/before-analysis.json"),
+            Path("downstream/before-analysis.json"),
+        ),
+        (
+            Path("demos/downstream_service/fixtures/after-analysis.json"),
+            Path("downstream/after-analysis.json"),
+        ),
+        (
             Path("demos/downstream_service/fixtures/sample-analysis.json"),
-            Path("downstream/downstream-analysis.json"),
+            Path("downstream/before-analysis.json"),
+        ),
+        (
+            Path("demos/downstream_service/fixtures/before-after-comparison.json"),
+            Path("downstream/before-after-comparison.json"),
         ),
         (
             Path("demos/mixed_contention_service/fixtures/baseline-analysis.json"),
@@ -175,7 +178,12 @@ def regenerate_outputs(root_dir: Path, out_dir: Path) -> None:
         out_dir / "executor",
         snapshot_queue,
     )
-    _run_downstream(root_dir, out_dir / "downstream")
+    _run_before_after(
+        root_dir,
+        root_dir / "demos/downstream_service/Cargo.toml",
+        out_dir / "downstream",
+        snapshot_downstream,
+    )
     _run_before_after(
         root_dir,
         root_dir / "demos/mixed_contention_service/Cargo.toml",
