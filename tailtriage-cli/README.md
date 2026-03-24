@@ -1,49 +1,36 @@
 # tailtriage-cli
 
-Command-line diagnosis tool for one `tailtriage` run artifact.
+Command-line triage analyzer for one `tailtriage` run artifact.
 
-`tailtriage-cli` loads a JSON artifact and produces a report with evidence-ranked suspects and next checks.
+For the public repo launch, the primary path is running the CLI from source in this workspace. `cargo install` is post-publish guidance.
 
-## Install
+## Use from this repo now
+
+```bash
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+## Post-publish install (when released)
 
 ```bash
 cargo install tailtriage-cli
-```
-
-If you are developing inside this repository, run from source with `cargo run -p tailtriage-cli -- ...`.
-
-## Analyze one artifact
-
-```bash
-tailtriage analyze tailtriage-run.json
-```
-
-From a source checkout, use:
-
-```bash
-cargo run -p tailtriage-cli -- analyze tailtriage-run.json
+tailtriage analyze tailtriage-run.json --format json
 ```
 
 ## Output shape to inspect first
 
-Start with:
+1. `primary_suspect.kind`
+2. `primary_suspect.evidence[]`
+3. `primary_suspect.next_checks[]`
 
-1. Top-ranked suspects and their evidence,
-2. `next_checks` to decide what to instrument or capture next,
-3. confidence/coverage caveats (suspects are leads, not proof).
-
-For machine processing, use JSON output:
-
-```bash
-tailtriage analyze tailtriage-run.json --format json
-```
-
-## Related docs
-
-- Data capture API (`tailtriage-core`): <https://docs.rs/tailtriage-core>
-- Tokio runtime sampling (`tailtriage-tokio`): <https://docs.rs/tailtriage-tokio>
-- Repository docs and demos: <https://github.com/SG-devel/tailtriage>
+Suspects are evidence-ranked leads, not proof of root cause.
 
 ## Artifact schema contract
 
-`tailtriage-cli` requires a top-level `schema_version` field in every run artifact. Current supported value: `1`. Missing, non-integer, or unsupported values fail fast with a clear error so triage runs against a known schema contract.
+`tailtriage-cli` requires a top-level `schema_version` field. Current supported value: `1`.
+
+## Related docs
+
+- Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>
+- Core crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-core>
+- Tokio integration crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-tokio>

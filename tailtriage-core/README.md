@@ -2,35 +2,30 @@
 
 Core run schema, request-context lifecycle, and instrumentation primitives for `tailtriage`.
 
-`tailtriage-core` owns the run artifact data model and the per-request capture API consumed by integrations and the CLI diagnosis workflow.
+For the public repo launch, the primary path is workspace/source integration from this repository. Crates.io snippets below are post-publish guidance.
 
-## Install
+## Use from this repo now
 
-Add this crate to your application:
+From the workspace root, run examples and analysis directly:
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+## Post-publish crate add (when released)
 
 ```toml
 [dependencies]
 tailtriage-core = "0.1"
 ```
 
-If you are developing inside this repository, you can also use a workspace path dependency.
-
 ## What this crate owns
 
-- Run artifact schema (`RunArtifact`, requests, runtime snapshots).
-- Unified request-context model (`Tailtriage`, `RequestContext`).
-- Instrumentation primitives for queue wait, stage timing, and in-flight spans.
-- Request lifecycle completion (`finish`, `finish_ok`, `finish_result`) and final artifact flush (`shutdown`).
-
-## When to depend on `tailtriage-core` directly
-
-Use this crate directly when you want to:
-
-- instrument request/work-item flow in your service,
-- produce run JSON artifacts for triage,
-- or build custom integration code without Tokio runtime sampling.
-
-If you also want periodic Tokio runtime metrics in the same run artifact, add `tailtriage-tokio` alongside this crate.
+- Run artifact schema (`RunArtifact`, requests, runtime snapshots)
+- Unified request-context model (`Tailtriage`, `RequestContext`)
+- Queue/stage/in-flight instrumentation primitives
+- Request lifecycle completion (`finish`, `finish_ok`, `finish_result`) and final artifact flush (`shutdown`)
 
 ## Minimal usage
 
@@ -46,15 +41,8 @@ let request = tailtriage
     .request_with("/checkout", RequestOptions::new().request_id("req-1"))
     .with_kind("http");
 
-request.queue("ingress").await_on(async {
-    // wait for semaphore / bounded queue
-}).await;
-
-request.stage("db").await_on(async {
-    // downstream stage call
-    Ok::<(), std::io::Error>(())
-}).await?;
-
+request.queue("ingress").await_on(async {}).await;
+request.stage("db").await_on(async { Ok::<(), std::io::Error>(()) }).await?;
 request.finish_ok();
 
 tailtriage.shutdown()?;
@@ -64,6 +52,6 @@ tailtriage.shutdown()?;
 
 ## Related docs
 
-- Tokio integration and `RuntimeSampler`: <https://docs.rs/tailtriage-tokio>
-- CLI analysis workflow: <https://docs.rs/tailtriage-cli>
-- Repository guide and demos: <https://github.com/SG-devel/tailtriage>
+- Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>
+- Tokio integration crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-tokio>
+- CLI crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-cli>
