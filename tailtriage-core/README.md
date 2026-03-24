@@ -2,7 +2,18 @@
 
 Core run schema, request-context lifecycle, and instrumentation primitives for `tailtriage`.
 
-`tailtriage-core` is the crate that owns the data model consumed by the CLI analyzer and the per-request capture API used by integrations.
+`tailtriage-core` owns the run artifact data model and the per-request capture API consumed by integrations and the CLI diagnosis workflow.
+
+## Install
+
+Add this crate to your application:
+
+```toml
+[dependencies]
+tailtriage-core = "0.1"
+```
+
+If you are developing inside this repository, you can also use a workspace path dependency.
 
 ## What this crate owns
 
@@ -50,13 +61,6 @@ tailtriage.shutdown()?;
 # Ok(())
 # }
 ```
-
-## First-use guidance
-
-This repository is pre-publish.
-
-- **After first crates.io publish:** add `tailtriage-core` in your app's `Cargo.toml`.
-- **Before publish (current state):** use the workspace path dependency from this repository.
 
 ## Related docs
 
