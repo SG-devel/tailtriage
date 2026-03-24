@@ -53,6 +53,7 @@ Written to `demos/runtime_cost/artifacts/`:
   - Includes per-mode dispersion metrics.
   - Includes paired overhead deltas vs baseline.
   - Includes machine-readable measurement quality and optional stability warning reasons.
+  - Includes sample-count context (`measured_rounds`, `samples_per_mode`, and minimum rounds required for `stable`).
 - Per-mode run JSON files for instrumented runs.
 
 ## Reading noisy-machine results
@@ -61,6 +62,7 @@ Normal laptops can be noisy due to thermal drift, scheduler contention, and back
 
 - Prefer running on an otherwise idle machine.
 - Treat results as indicative unless `measurement_quality` is `stable`.
+- The script requires at least 4 measured rounds before it can classify a run as `stable`; lower counts are reported as `insufficient_data`.
 - If the script reports `noisy` or `unstable`, rerun under quieter conditions before drawing strong conclusions.
 
 ## Policy
