@@ -1,47 +1,30 @@
 {
-  "request_count": 220,
-  "p50_latency_us": 1392112,
-  "p95_latency_us": 1480261,
-  "p99_latency_us": 1499635,
-  "p95_queue_share_permille": 111,
-  "p95_service_share_permille": 996,
+  "request_count": 240,
+  "p50_latency_us": 4611494,
+  "p95_latency_us": 4755588,
+  "p99_latency_us": 4779618,
+  "p95_queue_share_permille": 0,
+  "p95_service_share_permille": 1000,
   "inflight_trend": {
     "gauge": "executor_pressure_inflight",
-    "sample_count": 440,
-    "peak_count": 217,
-    "p95_count": 206,
-    "growth_delta": 4,
-    "growth_per_sec_milli": 2495
+    "sample_count": 480,
+    "peak_count": 240,
+    "p95_count": 228,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -208
   },
   "warnings": [],
   "primary_suspect": {
     "kind": "executor_pressure_suspected",
-    "score": 82,
-    "confidence": "medium",
+    "score": 85,
+    "confidence": "high",
     "evidence": [
-      "Runtime global queue depth p95 is 217, suggesting scheduler contention.",
-      "In-flight gauge 'executor_pressure_inflight' growth is positive (delta=4, peak=217), consistent with accumulating executor pressure."
+      "Runtime global queue depth p95 is 720, suggesting scheduler contention."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
       "Compare with per-stage timings to isolate overloaded async stages."
     ]
   },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominates",
-      "score": 78,
-      "confidence": "medium",
-      "evidence": [
-        "Stage 'executor_hot_path' has p95 latency 1402884 us across 220 samples.",
-        "Stage 'executor_hot_path' cumulative latency is 260359288 us.",
-        "Stage 'executor_hot_path' contributes 948 permille of cumulative request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'executor_hot_path'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
-    }
-  ]
+  "secondary_suspects": []
 }
