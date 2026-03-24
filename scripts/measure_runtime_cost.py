@@ -22,6 +22,8 @@ DEFAULT_WARMUP_ROUNDS = 2
 QUALITY_STABLE = "stable"
 QUALITY_NOISY = "noisy"
 QUALITY_UNSTABLE = "unstable"
+QUALITY_INSUFFICIENT_DATA = "insufficient_data"
+MIN_ROUNDS_FOR_STABLE = 4
 
 
 def parse_args() -> argparse.Namespace:
@@ -82,6 +84,18 @@ def paired_overhead_rows(measured_rounds: list[dict], mode: str, metric: str) ->
 
 
 def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, list[str]]:
+    measured_round_count = len(measured_rounds)
+    if measured_round_count < MIN_ROUNDS_FOR_STABLE:
+        return (
+            QUALITY_INSUFFICIENT_DATA,
+            [
+                (
+                    "fewer than minimum measured rounds for stable classification "
+                    f"({measured_round_count} < {MIN_ROUNDS_FOR_STABLE})"
+                )
+            ],
+        )
+
     reasons: list[str] = []
 
     for mode in MODES:
@@ -144,6 +158,8 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "work_ms": by_mode["baseline"][0]["work_ms"],
         "warmup_rounds": len({row["round"] for row in rows if row["is_warmup"]}),
         "measured_rounds": len(measured_rounds),
+        "samples_per_mode": {mode: len(by_mode[mode]) for mode in MODES},
+        "minimum_rounds_for_stable": MIN_ROUNDS_FOR_STABLE,
         "round_ordering": "interleaved_rotating",
         "execution_profile": "release_binary",
         "modes": {},
