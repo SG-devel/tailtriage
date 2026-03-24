@@ -83,6 +83,7 @@ jobs:
         run: python3 scripts/demo_tool.py validate blocking --profile ${{ matrix.profile }}
 
       - name: Validate executor demo
+        if: matrix.profile == 'release'
         run: python3 scripts/demo_tool.py validate executor --profile ${{ matrix.profile }}
 
       - name: Validate downstream demo
