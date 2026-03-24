@@ -8,6 +8,11 @@ Thanks for helping improve `tailtriage`.
 
 The project focuses on producing **evidence-ranked suspects** and **next checks** from one run artifact. Suspects are leads, not proof of root cause.
 
+## Community and security policies
+
+- Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md).
+- For security vulnerabilities, follow the private reporting instructions in [SECURITY.md](SECURITY.md) and avoid opening public issues before a fix is available.
+
 ## License for contributions
 
 By submitting a contribution to this repository, you agree that your contribution is licensed under the repository's MIT License.
