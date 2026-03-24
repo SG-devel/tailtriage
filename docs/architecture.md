@@ -1,6 +1,10 @@
 # Architecture (MVP)
 
-`tailtriage` is a file-based diagnosis pipeline over one instrumented run.
+`tailtriage` is a file-based triage pipeline over one instrumented run.
+
+## Why three crates
+
+The project is split into three crates so service instrumentation, Tokio runtime enrichment, and artifact diagnosis can evolve independently while staying on one shared run schema.
 
 ## Flow
 
@@ -24,7 +28,7 @@
 - runtime snapshot capture (`capture_runtime_snapshot`)
 - request context instrumentation via `Tailtriage::request(...)` and `RequestContext` helpers
 
-Note: some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
+Some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
 
 ### `tailtriage-cli`
 
@@ -33,17 +37,10 @@ Note: some runtime metrics require `tokio_unstable`; unavailable fields are reco
 - apply rule-based diagnosis ranking
 - render text or JSON report
 
+The CLI consumes run artifacts and does not need to be embedded into your service.
+
 ## Contract boundary
 
 - Input: one local `Run` JSON artifact.
 - Output: ranked suspects with evidence and next checks.
 - Non-claim: proven root cause.
-
-## Recommended integration sequence
-
-1. init one collector
-2. wrap request handlers
-3. instrument key queue waits
-4. instrument key downstream stages
-5. optionally enable runtime sampler
-6. shutdown and analyze
