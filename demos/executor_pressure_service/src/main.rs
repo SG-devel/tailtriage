@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, CohortStart, DemoMode};
+use demo_support::{
+    init_collector, parse_demo_args, run_warmup_then_measured, CohortStart, DemoMode,
+};
 use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
 struct ModeSettings {
@@ -57,21 +59,77 @@ fn main() -> anyhow::Result<()> {
 async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
     let tailtriage = init_collector("executor_pressure_demo", &output_path)?;
     let measured_requests = settings.offered_requests;
-    let total_requests = measured_requests + settings.warmup_requests;
-    let start_gate = CohortStart::new(total_requests as usize);
 
     let runnable_backlog = Arc::new(AtomicU64::new(0));
     let hot_slice_local_depth = Arc::new(AtomicU64::new(0));
-    let capture_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let warmup_count = settings.warmup_requests as usize;
+    let measured_count = measured_requests as usize;
 
-    let sampler = {
-        let tailtriage = Arc::clone(&tailtriage);
+    run_warmup_then_measured(
+        warmup_count,
+        || {
+            let runnable_backlog = Arc::clone(&runnable_backlog);
+            let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
+            async move {
+                run_request_cohort(
+                    warmup_count,
+                    settings.fanout_tasks,
+                    settings.cpu_turns,
+                    settings.snapshot_depth_scale,
+                    Arc::clone(&runnable_backlog),
+                    Arc::clone(&hot_slice_local_depth),
+                    None,
+                )
+                .await
+                .expect("warmup request cohort should finish");
+            }
+        },
+        || {
+            let tailtriage = Arc::clone(&tailtriage);
+            let runnable_backlog = Arc::clone(&runnable_backlog);
+            let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
+            async move {
+                run_request_cohort(
+                    measured_count,
+                    settings.fanout_tasks,
+                    settings.cpu_turns,
+                    settings.snapshot_depth_scale,
+                    Arc::clone(&runnable_backlog),
+                    Arc::clone(&hot_slice_local_depth),
+                    Some(Arc::clone(&tailtriage)),
+                )
+                .await
+                .expect("measured request cohort should finish");
+            }
+        },
+    )
+    .await;
+
+    tailtriage.shutdown()?;
+    println!("wrote {}", output_path.display());
+    Ok(())
+}
+
+async fn run_request_cohort(
+    request_count: usize,
+    fanout_tasks: usize,
+    cpu_turns: usize,
+    snapshot_depth_scale: u64,
+    runnable_backlog: Arc<AtomicU64>,
+    hot_slice_local_depth: Arc<AtomicU64>,
+    collector: Option<Arc<tailtriage_core::Tailtriage>>,
+) -> anyhow::Result<()> {
+    if request_count == 0 {
+        return Ok(());
+    }
+
+    let capture_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sampler = if let Some(tailtriage) = collector.as_ref() {
+        let tailtriage = Arc::clone(tailtriage);
         let runnable_backlog = Arc::clone(&runnable_backlog);
         let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
         let capture_done = Arc::clone(&capture_done);
-        let snapshot_depth_scale = settings.snapshot_depth_scale;
-
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(1));
             let mut captured = 0_u64;
             while !capture_done.load(Ordering::SeqCst) || captured < 50 {
@@ -91,60 +149,45 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
                     remote_schedule_count: Some(amplified_local_depth),
                 });
             }
-        })
+        }))
+    } else {
+        None
     };
 
-    let mut requests = Vec::with_capacity(total_requests as usize);
-
-    for request_number in 0..total_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+    let start_gate = CohortStart::new(request_count);
+    let mut requests = Vec::with_capacity(request_count);
+    for request_number in 0..request_count {
+        let collector = collector.as_ref().map(Arc::clone);
         let runnable_backlog = Arc::clone(&runnable_backlog);
         let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
         let start_gate = start_gate.clone();
-
         requests.push(tokio::spawn(async move {
             start_gate.wait().await;
-            let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with(
-                "/executor-pressure",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-
-            {
-                let _inflight = request.inflight("executor_pressure_inflight");
-                runnable_backlog.fetch_add(1, Ordering::SeqCst);
-
-                let mut subtasks = Vec::with_capacity(settings.fanout_tasks);
-                for _ in 0..settings.fanout_tasks {
-                    let local_depth = Arc::clone(&hot_slice_local_depth);
-                    let cpu_turns = settings.cpu_turns;
-                    subtasks.push(tokio::spawn(async move {
-                        local_depth.fetch_add(1, Ordering::SeqCst);
-                        for turn in 0..cpu_turns {
-                            let mut spin = 0_u64;
-                            for _ in 0..6_400 {
-                                spin = spin.wrapping_add(1);
-                            }
-                            if spin == 0 {
-                                tokio::task::yield_now().await;
-                            }
-                            if turn.is_multiple_of(24) {
-                                tokio::task::yield_now().await;
-                            }
-                        }
-                        local_depth.fetch_sub(1, Ordering::SeqCst);
-                    }));
-                }
-
-                for subtask in subtasks {
-                    subtask.await.expect("subtask should finish");
-                }
-
-                tokio::time::sleep(Duration::from_micros(250)).await;
-
-                runnable_backlog.fetch_sub(1, Ordering::SeqCst);
+            if let Some(collector) = collector {
+                let request_id = format!("request-{request_number}");
+                let request = collector.request_with(
+                    "/executor-pressure",
+                    tailtriage_core::RequestOptions::new().request_id(request_id),
+                );
+                let inflight_guard = request.inflight("executor_pressure_inflight");
+                execute_request_work(
+                    fanout_tasks,
+                    cpu_turns,
+                    Arc::clone(&runnable_backlog),
+                    Arc::clone(&hot_slice_local_depth),
+                )
+                .await;
+                drop(inflight_guard);
+                request.finish(tailtriage_core::Outcome::Ok);
+            } else {
+                execute_request_work(
+                    fanout_tasks,
+                    cpu_turns,
+                    Arc::clone(&runnable_backlog),
+                    Arc::clone(&hot_slice_local_depth),
+                )
+                .await;
             }
-            request.finish(tailtriage_core::Outcome::Ok);
         }));
     }
 
@@ -153,9 +196,45 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
     }
 
     capture_done.store(true, Ordering::SeqCst);
-    sampler.await.context("sampler task panicked")?;
-
-    tailtriage.shutdown()?;
-    println!("wrote {}", output_path.display());
+    if let Some(sampler) = sampler {
+        sampler.await.context("sampler task panicked")?;
+    }
     Ok(())
+}
+
+async fn execute_request_work(
+    fanout_tasks: usize,
+    cpu_turns: usize,
+    runnable_backlog: Arc<AtomicU64>,
+    hot_slice_local_depth: Arc<AtomicU64>,
+) {
+    runnable_backlog.fetch_add(1, Ordering::SeqCst);
+
+    let mut subtasks = Vec::with_capacity(fanout_tasks);
+    for _ in 0..fanout_tasks {
+        let local_depth = Arc::clone(&hot_slice_local_depth);
+        subtasks.push(tokio::spawn(async move {
+            local_depth.fetch_add(1, Ordering::SeqCst);
+            for turn in 0..cpu_turns {
+                let mut spin = 0_u64;
+                for _ in 0..6_400 {
+                    spin = spin.wrapping_add(1);
+                }
+                if spin == 0 {
+                    tokio::task::yield_now().await;
+                }
+                if turn.is_multiple_of(24) {
+                    tokio::task::yield_now().await;
+                }
+            }
+            local_depth.fetch_sub(1, Ordering::SeqCst);
+        }));
+    }
+
+    for subtask in subtasks {
+        subtask.await.expect("subtask should finish");
+    }
+
+    tokio::time::sleep(Duration::from_micros(250)).await;
+    runnable_backlog.fetch_sub(1, Ordering::SeqCst);
 }

@@ -99,25 +99,23 @@ impl CohortStart {
     }
 }
 
-/// Run a short warmup phase followed by a measured phase.
+/// Run a warmup phase followed by a measured phase.
 ///
 /// This utility keeps demo shaping consistent when services need runtime
-/// warmup before collecting the artifact-relevant requests.
-pub async fn run_warmup_then_measured<F, Fut>(
+/// warmup before collecting artifact-relevant measured requests.
+pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
     warmup_requests: usize,
-    measured_requests: usize,
-    mut run_request: F,
+    warmup_phase: Warmup,
+    measured_phase: Measured,
 ) where
-    F: FnMut(bool) -> Fut,
-    Fut: std::future::Future<Output = ()>,
+    Warmup: FnOnce() -> WarmupFut,
+    WarmupFut: std::future::Future<Output = ()>,
+    Measured: FnOnce() -> MeasuredFut,
+    MeasuredFut: std::future::Future<Output = ()>,
 {
-    for _ in 0..warmup_requests {
-        run_request(false).await;
-    }
     if warmup_requests > 0 {
+        warmup_phase().await;
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
-    for _ in 0..measured_requests {
-        run_request(true).await;
-    }
+    measured_phase().await;
 }
