@@ -103,6 +103,10 @@ jobs:
 
       - name: Validate retry-storm demo
         run: python3 scripts/demo_tool.py validate retry-storm --profile ${{ matrix.profile }}
+
+      - name: Smoke-check launch-critical public examples
+        if: matrix.profile == 'dev'
+        run: python3 scripts/smoke_public_examples.py
         
       - name: Check demo fixture drift
         if: matrix.profile == 'dev'
