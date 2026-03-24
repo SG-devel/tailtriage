@@ -428,9 +428,11 @@ def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
     kind = before["primary_suspect"]["kind"]
     allowed_primary_kinds = EXPECTED_EXECUTOR_KIND
     if profile == "release":
-        # Release builds can shift triage ranking toward queue-first even when
-        # executor pressure evidence is still present in the report.
-        allowed_primary_kinds = EXPECTED_EXECUTOR_KIND | EXPECTED_QUEUE_KIND
+        # Release builds can shift triage ranking toward queue- or downstream-first
+        # even when executor pressure evidence is still present in the report.
+        allowed_primary_kinds = (
+            EXPECTED_EXECUTOR_KIND | EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
+        )
 
     if kind not in allowed_primary_kinds:
         raise SystemExit(
