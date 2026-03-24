@@ -1,18 +1,14 @@
 # Runtime cost measurement
 
-This is the reproducible overhead measurement path for MVP modes.
+This document covers the reproducible local benchmark path for tailtriage runtime-cost triage.
 
 ## Modes
 
-- `baseline`: no `tailtriage` instrumentation
-- `light`: request + queue + stage + inflight instrumentation
-- `investigation`: light mode + extra stage marker + dense runtime sampling
+- `baseline`: no `tailtriage` instrumentation.
+- `light`: request + queue + stage + inflight instrumentation.
+- `investigation`: light mode + dense runtime sampling + an additional `pre_work_marker` stage sleep (`300 µs`) that models richer investigation profile depth.
 
-## Metrics reported
-
-- throughput (req/s)
-- latency p50/p95/p99
-- relative overhead vs baseline (for `light` and `investigation`)
+`investigation` is intentionally **not** a pure collector toggle. Treat it as an investigation-profile cost measurement, not proof of isolated instrumentation overhead.
 
 ## Canonical command
 
@@ -20,22 +16,57 @@ This is the reproducible overhead measurement path for MVP modes.
 python3 scripts/measure_runtime_cost.py
 ```
 
-Optional environment overrides:
+The script builds `demos/runtime_cost` in **release mode** once, then executes the release binary directly for all warmup and measured rounds.
 
-- `REQUESTS` (default `1200`)
-- `CONCURRENCY` (default `48`)
-- `WORK_MS` (default `3`)
-- `ITERATIONS` (default `5`)
+## Defaults and knobs
 
-## Outputs
+Defaults are selected to improve signal-to-noise on ordinary development machines while keeping runtime practical:
+
+- `--requests` (default `6000`)
+- `--concurrency` (default `64`)
+- `--work-ms` (default `3`)
+- `--warmup-rounds` (default `2`)
+- `--rounds` (default `6`)
+
+Equivalent environment variables are also supported:
+
+- `REQUESTS`
+- `CONCURRENCY`
+- `WORK_MS`
+- `WARMUP_ROUNDS`
+- `ROUNDS`
+
+## How the benchmark is run
+
+- Modes are sampled in interleaved rounds with rotating order.
+- Warmup rounds run first and are excluded from overhead summaries.
+- Overhead is computed from per-round paired deltas versus baseline (same round), then summarized.
+- Output includes dispersion (mean/median/min/max/stdev/CV), not only means.
+
+## Output files
 
 Written to `demos/runtime_cost/artifacts/`:
 
 - `runtime-cost-raw.jsonl`
+  - Includes `round`, `phase`, and `is_warmup` metadata for each sample.
 - `runtime-cost-summary.json`
-- per-mode run JSON files for instrumented modes
+  - Includes per-mode dispersion metrics.
+  - Includes paired overhead deltas vs baseline.
+  - Includes machine-readable measurement quality and optional stability warning reasons.
+  - Includes sample-count context (`measured_rounds`, `samples_per_mode`, and minimum rounds required for `stable`).
+- Per-mode run JSON files for instrumented runs.
+
+## Reading noisy-machine results
+
+Normal laptops can be noisy due to thermal drift, scheduler contention, and background load.
+
+- Prefer running on an otherwise idle machine.
+- Treat results as indicative unless `measurement_quality` is `stable`.
+- The script requires at least 4 measured rounds before it can classify a run as `stable`; lower counts are reported as `insufficient_data`.
+- If the script reports `noisy` or `unstable`, rerun under quieter conditions before drawing strong conclusions.
 
 ## Policy
 
 - Do not hardcode machine-specific “latest numbers” in docs.
 - Cite either fresh script output or committed fixture snapshots when making overhead claims.
+- Interpret results as evidence-ranked suspects for runtime cost triage, not proof of root cause.
