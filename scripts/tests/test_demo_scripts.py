@@ -105,6 +105,52 @@ class DemoWrapperTests(unittest.TestCase):
         }
         self.assertTrue(demo_tool._contains_blocking_depth_evidence(report))
 
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_executor")
+    def test_validate_executor_release_accepts_downstream_primary_with_executor_secondary(
+        self,
+        _run_scenario_executor_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 83, "evidence": []},
+            "secondary_suspects": [{"kind": "executor_pressure_suspected", "score": 70, "evidence": []}],
+            "p95_latency_us": 31_000,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 50, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 900,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_executor")
+    def test_validate_executor_release_requires_executor_suspect(
+        self,
+        _run_scenario_executor_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 83, "evidence": []},
+            "secondary_suspects": [{"kind": "application_queue_saturation", "score": 70, "evidence": []}],
+            "p95_latency_us": 31_000,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 50, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 900,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        with self.assertRaisesRegex(
+            SystemExit,
+            "expected executor pressure suspect to appear in baseline report",
+        ):
+            demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
+
 
 class DemoMainRoutingTests(unittest.TestCase):
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
