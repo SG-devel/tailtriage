@@ -1,4 +1,5 @@
 use std::future::ready;
+#[cfg(debug_assertions)]
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
