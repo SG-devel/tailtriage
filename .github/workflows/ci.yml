@@ -116,6 +116,10 @@ jobs:
         if: matrix.profile == 'dev'
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
 
+      - name: Validate publishable crates
+        if: matrix.profile == 'dev'
+        run: python3 scripts/validate_publishable_crates.py
+
       - name: Measure runtime cost (non-blocking)
         continue-on-error: true
         run: python3 scripts/measure_runtime_cost.py
