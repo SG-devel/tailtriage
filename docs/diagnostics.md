@@ -46,10 +46,13 @@ Each suspect includes:
 | `primary_suspect` | `Suspect` | Highest-ranked suspect. |
 | `secondary_suspects` | `Vec<Suspect>` | Remaining ranked suspects. |
 
+The two p95 share fields are independent percentile summaries over different per-request series. They are not complementary totals and are not expected to sum to `1000`.
+
 ## Interpreting shares quickly
 
 - `1000` permille = 100%
 - `500` permille = 50%
+- `p95_queue_share_permille` and `p95_service_share_permille` are each a percentile over their own distribution, so they should not be added together.
 
 Rules of thumb:
 
