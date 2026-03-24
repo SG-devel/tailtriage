@@ -95,10 +95,10 @@ def summarize(raw_path: Path, summary_path: Path, *, profile: str, warmup_rounds
         if not by_mode[mode]:
             raise SystemExit(f"missing measured data for mode: {mode}")
 
-    measured_round_indices = sorted({row["round"] for row in measured})
+    measured_round_indices = sorted({row["round"] for row in measured_rows})
     measured_rounds: list[dict] = []
     for round_idx in measured_round_indices:
-        round_rows = {row["mode"]: row for row in measured if row["round"] == round_idx}
+        round_rows = {row["mode"]: row for row in measured_rows if row["round"] == round_idx}
         missing_modes = [mode for mode in MODES if mode not in round_rows]
         if missing_modes:
             raise SystemExit(f"round {round_idx} missing modes: {', '.join(missing_modes)}")

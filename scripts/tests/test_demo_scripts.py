@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+import json
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -15,6 +17,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import demo_tool  # noqa: E402
+import measure_runtime_cost  # noqa: E402
 from demo_tool import has_suspect_kind, parse_args  # noqa: E402
 
 
@@ -127,6 +130,48 @@ class DemoMainRoutingTests(unittest.TestCase):
             "baseline",
             profile="dev",
         )
+
+
+class RuntimeCostScriptTests(unittest.TestCase):
+    def test_summarize_uses_measured_rows_for_round_grouping(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            raw_path = temp_path / "runtime-cost-raw.jsonl"
+            summary_path = temp_path / "runtime-cost-summary.json"
+
+            rows = []
+            for round_index in (0, 1):
+                for mode in ("baseline", "light", "investigation"):
+                    rows.append(
+                        {
+                            "mode": mode,
+                            "round": round_index,
+                            "phase": "measure",
+                            "requests": 100,
+                            "concurrency": 16,
+                            "work_ms": 2,
+                            "throughput_rps": 100.0 + round_index,
+                            "latency_p50_ms": 2.0 + round_index,
+                            "latency_p95_ms": 4.0 + round_index,
+                            "latency_p99_ms": 6.0 + round_index,
+                        }
+                    )
+
+            raw_path.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+            summary = measure_runtime_cost.summarize(
+                raw_path,
+                summary_path,
+                profile="dev",
+                warmup_rounds=0,
+            )
+
+            self.assertEqual(summary["profile"], "dev")
+            self.assertEqual(summary["measured_rounds_per_mode"], 2)
+            self.assertTrue(summary_path.exists())
 
 
 if __name__ == "__main__":
