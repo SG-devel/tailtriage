@@ -52,11 +52,11 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.scenario, "db-pool")
         self.assertEqual(args.mode, "mitigated")
 
-    def test_parse_args_accepts_downstream_artifact_flag(self) -> None:
-        args = parse_args(["run", "downstream", "--artifact-path", "custom-run.json"])
+    def test_parse_args_accepts_downstream_mode(self) -> None:
+        args = parse_args(["run", "downstream", "after"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "downstream")
-        self.assertEqual(args.artifact_path, "custom-run.json")
+        self.assertEqual(args.mode, "after")
 
     def test_parse_args_accepts_retry_storm_scenario(self) -> None:
         args = parse_args(["validate", "retry-storm"])
@@ -107,18 +107,13 @@ class DemoMainRoutingTests(unittest.TestCase):
 
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_downstream")
-    def test_main_run_downstream_rejects_non_default_mode(
+    def test_main_run_downstream_baseline_dispatches_downstream_scenario(
         self,
         run_scenario_downstream_mock,
         _repo_root_mock,
     ) -> None:
-        with self.assertRaisesRegex(
-            SystemExit,
-            "downstream scenario does not accept mode; use --artifact-path if needed",
-        ):
-            demo_tool.main(["run", "downstream", "baseline"])
-
-        run_scenario_downstream_mock.assert_not_called()
+        demo_tool.main(["run", "downstream", "baseline"])
+        run_scenario_downstream_mock.assert_called_once_with(Path("/tmp/tailscope"), "baseline")
 
 
 if __name__ == "__main__":
