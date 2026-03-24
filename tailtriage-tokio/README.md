@@ -4,6 +4,18 @@ Tokio-specific integration for `tailtriage`, including `RuntimeSampler` for peri
 
 This crate extends the same `tailtriage-core` request-context workflow with Tokio runtime evidence.
 
+## Install
+
+Add this crate and `tailtriage-core`:
+
+```toml
+[dependencies]
+tailtriage-core = "0.1"
+tailtriage-tokio = "0.1"
+```
+
+If you are developing inside this repository, you can also use workspace path dependencies.
+
 ## What this crate provides
 
 - `RuntimeSampler`: periodic Tokio runtime metrics collection into the active run.
@@ -83,13 +95,6 @@ tailtriage.shutdown()?;
 # Ok(())
 # }
 ```
-
-## First-use guidance
-
-This repository is pre-publish.
-
-- **After first crates.io publish:** add `tailtriage-tokio` and `tailtriage-core` to your app dependencies.
-- **Before publish (current state):** use workspace path dependencies from this repository.
 
 ## Related docs
 
