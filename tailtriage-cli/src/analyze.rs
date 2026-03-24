@@ -547,7 +547,7 @@ pub fn render_text(report: &Report) -> String {
             report.p50_latency_us, report.p95_latency_us, report.p99_latency_us
         ),
         format!(
-            "request_time_share_permille p95 queue={:?} service={:?}",
+            "request_time_share_permille p95 queue={:?} service={:?} (independent percentiles; not expected to sum to 1000)",
             report.p95_queue_share_permille, report.p95_service_share_permille
         ),
         inflight_line,
@@ -796,6 +796,7 @@ mod tests {
         assert!(text.contains("inflight_trend gauge=queue_inflight"));
         assert!(text.contains("samples=4"));
         assert!(text.contains("growth_per_sec_milli=Some(2500)"));
+        assert!(text.contains("independent percentiles; not expected to sum to 1000"));
     }
 
     #[test]

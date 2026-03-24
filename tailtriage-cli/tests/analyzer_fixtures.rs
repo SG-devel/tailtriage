@@ -57,6 +57,7 @@ fn fixture_reports_render_to_text_and_json() {
     let text = render_text(&report);
     assert!(text.contains("primary:"));
     assert!(text.contains("request_time_share_permille"));
+    assert!(text.contains("independent percentiles; not expected to sum to 1000"));
     assert!(text.contains("secondary suspects") || report.secondary_suspects.is_empty());
 
     let json = serde_json::to_string_pretty(&report).expect("json rendering should work");
