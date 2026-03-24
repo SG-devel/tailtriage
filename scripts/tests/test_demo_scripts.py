@@ -15,7 +15,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import demo_tool  # noqa: E402
-from demo_tool import has_suspect_kind, parse_args  # noqa: E402
+from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
 class DemoWrapperTests(unittest.TestCase):
@@ -84,6 +84,26 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertTrue(has_suspect_kind(report, {"application_queue_saturation"}))
         self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
         self.assertFalse(has_suspect_kind(report, {"blocking_pool_pressure"}))
+
+    def test_suspect_score_reads_secondary_kind_score(self) -> None:
+        report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
+            "secondary_suspects": [{"kind": "executor_pressure_suspected", "score": 70}],
+        }
+        self.assertEqual(suspect_score(report, "executor_pressure_suspected"), 70)
+        self.assertIsNone(suspect_score(report, "blocking_pool_pressure"))
+
+    def test_contains_blocking_depth_evidence_checks_secondary_suspects(self) -> None:
+        report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "evidence": []},
+            "secondary_suspects": [
+                {
+                    "kind": "executor_pressure_suspected",
+                    "evidence": ["Blocking queue depth p95 is 12 due to contention."],
+                }
+            ],
+        }
+        self.assertTrue(demo_tool._contains_blocking_depth_evidence(report))
 
 
 class DemoMainRoutingTests(unittest.TestCase):

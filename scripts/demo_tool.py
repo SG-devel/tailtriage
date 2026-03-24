@@ -28,6 +28,17 @@ EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_K
 EXPECTED_RETRY_STORM_PRIMARY_KINDS = EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
 
+
+def _suspects(report: dict) -> list[dict]:
+    return [report.get("primary_suspect") or {}, *(report.get("secondary_suspects") or [])]
+
+
+def suspect_score(report: dict, kind: str) -> int | None:
+    for suspect in _suspects(report):
+        if suspect.get("kind") == kind:
+            return suspect.get("score")
+    return None
+
 def extract_blocking_queue_depth_p95(report: dict) -> int | None:
     suspect = report.get("primary_suspect") or {}
     for evidence in suspect.get("evidence") or []:
@@ -402,9 +413,11 @@ def validate_mixed(root_dir: Path, *, profile: str = "dev") -> None:
     )
 
 def _contains_blocking_depth_evidence(report: dict) -> bool:
-    suspect = report.get("primary_suspect") or {}
-    evidence = suspect.get("evidence") or []
-    return any("blocking queue depth" in str(item).lower() for item in evidence)
+    return any(
+        "blocking queue depth" in str(item).lower()
+        for suspect in _suspects(report)
+        for item in (suspect.get("evidence") or [])
+    )
 
 def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_executor(root_dir, "both", profile=profile)
@@ -413,17 +426,31 @@ def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
     after = load_report_json(artifact_dir / "after-analysis.json")
 
     kind = before["primary_suspect"]["kind"]
-    if kind not in EXPECTED_EXECUTOR_KIND:
-        raise SystemExit(f"expected executor pressure suspect in baseline, got {kind}")
+    allowed_primary_kinds = EXPECTED_EXECUTOR_KIND
+    if profile == "release":
+        # Release builds can shift triage ranking toward queue-first even when
+        # executor pressure evidence is still present in the report.
+        allowed_primary_kinds = EXPECTED_EXECUTOR_KIND | EXPECTED_QUEUE_KIND
+
+    if kind not in allowed_primary_kinds:
+        raise SystemExit(
+            "expected executor demo baseline primary suspect in "
+            f"{sorted(allowed_primary_kinds)}, got {kind}"
+        )
+
+    if not has_suspect_kind(before, EXPECTED_EXECUTOR_KIND):
+        raise SystemExit("expected executor pressure suspect to appear in baseline report")
 
     if _contains_blocking_depth_evidence(before):
         raise SystemExit("executor baseline evidence unexpectedly referenced blocking queue depth")
 
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-    if after_score > before_score:
+    before_score = suspect_score(before, "executor_pressure_suspected")
+    after_score = suspect_score(after, "executor_pressure_suspected")
+    if before_score is None:
+        raise SystemExit("baseline report missing executor pressure suspect score")
+    if after_score is not None and after_score > before_score:
         raise SystemExit(
-            "expected mitigated suspect score to stay flat or drop, "
+            "expected mitigated executor suspect score to stay flat or drop, "
             f"got before={before_score} after={after_score}"
         )
 
@@ -435,12 +462,13 @@ def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
         )
 
     print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, "
+        "executor score {} -> {}".format(
             kind,
             before_p95,
             after_p95,
             before_score,
-            after_score,
+            after_score if after_score is not None else "missing",
         )
     )
     print(
