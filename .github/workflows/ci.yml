@@ -116,6 +116,5 @@ jobs:
       - name: Check demo fixture drift
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
 
-      - name: Measure runtime cost (non-blocking)
-        continue-on-error: true
+      - name: Measure runtime cost
         run: python3 scripts/measure_runtime_cost.py --profile ${{ matrix.profile }}
