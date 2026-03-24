@@ -7,3 +7,4 @@ publish = false
 [dependencies]
 anyhow = "1"
 tailtriage-core = { path = "../../tailtriage-core" }
+tokio = { version = "1", features = ["sync", "time"] }

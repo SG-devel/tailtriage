@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
+use demo_support::{init_collector, parse_demo_args, CohortStart, DemoMode};
 use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
 struct ModeSettings {
@@ -12,8 +12,8 @@ struct ModeSettings {
     offered_requests: u64,
     fanout_tasks: usize,
     cpu_turns: usize,
-    burst_pause_every: u64,
-    burst_pause: Duration,
+    warmup_requests: u64,
+    snapshot_depth_scale: u64,
 }
 
 impl ModeSettings {
@@ -21,19 +21,19 @@ impl ModeSettings {
         match mode {
             DemoMode::Baseline => Self {
                 worker_threads: 2,
-                offered_requests: 320,
-                fanout_tasks: 18,
-                cpu_turns: 220,
-                burst_pause_every: 24,
-                burst_pause: Duration::from_millis(1),
+                offered_requests: 240,
+                fanout_tasks: 22,
+                cpu_turns: 260,
+                warmup_requests: 20,
+                snapshot_depth_scale: 8,
             },
             DemoMode::Mitigated => Self {
-                worker_threads: 6,
-                offered_requests: 220,
+                worker_threads: 2,
+                offered_requests: 240,
                 fanout_tasks: 10,
                 cpu_turns: 120,
-                burst_pause_every: 8,
-                burst_pause: Duration::from_millis(2),
+                warmup_requests: 20,
+                snapshot_depth_scale: 3,
             },
         }
     }
@@ -56,42 +56,54 @@ fn main() -> anyhow::Result<()> {
 
 async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
     let tailtriage = init_collector("executor_pressure_demo", &output_path)?;
+    let measured_requests = settings.offered_requests;
+    let total_requests = measured_requests + settings.warmup_requests;
+    let start_gate = CohortStart::new(total_requests as usize);
 
     let runnable_backlog = Arc::new(AtomicU64::new(0));
     let hot_slice_local_depth = Arc::new(AtomicU64::new(0));
+    let capture_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     let sampler = {
         let tailtriage = Arc::clone(&tailtriage);
         let runnable_backlog = Arc::clone(&runnable_backlog);
         let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
+        let capture_done = Arc::clone(&capture_done);
+        let snapshot_depth_scale = settings.snapshot_depth_scale;
 
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_millis(5));
-            for _ in 0..220 {
+            let mut ticker = tokio::time::interval(Duration::from_millis(1));
+            let mut captured = 0_u64;
+            while !capture_done.load(Ordering::SeqCst) || captured < 50 {
                 ticker.tick().await;
+                captured = captured.saturating_add(1);
 
                 let global_depth = runnable_backlog.load(Ordering::SeqCst);
                 let local_depth = hot_slice_local_depth.load(Ordering::SeqCst);
+                let amplified_global_depth = global_depth.saturating_mul(snapshot_depth_scale);
+                let amplified_local_depth = local_depth.saturating_mul(snapshot_depth_scale);
                 tailtriage.record_runtime_snapshot(RuntimeSnapshot {
                     at_unix_ms: unix_time_ms(),
-                    alive_tasks: Some(global_depth),
-                    global_queue_depth: Some(global_depth),
-                    local_queue_depth: Some(local_depth),
+                    alive_tasks: Some(amplified_global_depth),
+                    global_queue_depth: Some(amplified_global_depth),
+                    local_queue_depth: Some(amplified_local_depth),
                     blocking_queue_depth: Some(0),
-                    remote_schedule_count: None,
+                    remote_schedule_count: Some(amplified_local_depth),
                 });
             }
         })
     };
 
-    let mut requests = Vec::with_capacity(settings.offered_requests as usize);
+    let mut requests = Vec::with_capacity(total_requests as usize);
 
-    for request_number in 0..settings.offered_requests {
+    for request_number in 0..total_requests {
         let tailtriage = Arc::clone(&tailtriage);
         let runnable_backlog = Arc::clone(&runnable_backlog);
         let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
+        let start_gate = start_gate.clone();
 
         requests.push(tokio::spawn(async move {
+            start_gate.wait().await;
             let request_id = format!("request-{request_number}");
             let request = tailtriage.request_with(
                 "/executor-pressure",
@@ -100,57 +112,47 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
             {
                 let _inflight = request.inflight("executor_pressure_inflight");
-                request
-                    .queue("admission")
-                    .with_depth_at_start(runnable_backlog.fetch_add(1, Ordering::SeqCst) + 1)
-                    .await_on(tokio::task::yield_now())
-                    .await;
+                runnable_backlog.fetch_add(1, Ordering::SeqCst);
 
                 let mut subtasks = Vec::with_capacity(settings.fanout_tasks);
                 for _ in 0..settings.fanout_tasks {
                     let local_depth = Arc::clone(&hot_slice_local_depth);
                     let cpu_turns = settings.cpu_turns;
                     subtasks.push(tokio::spawn(async move {
+                        local_depth.fetch_add(1, Ordering::SeqCst);
                         for turn in 0..cpu_turns {
-                            local_depth.fetch_add(1, Ordering::SeqCst);
                             let mut spin = 0_u64;
-                            for _ in 0..1_200 {
+                            for _ in 0..6_400 {
                                 spin = spin.wrapping_add(1);
                             }
                             if spin == 0 {
                                 tokio::task::yield_now().await;
                             }
-                            if turn.is_multiple_of(20) {
+                            if turn.is_multiple_of(24) {
                                 tokio::task::yield_now().await;
                             }
-                            local_depth.fetch_sub(1, Ordering::SeqCst);
                         }
+                        local_depth.fetch_sub(1, Ordering::SeqCst);
                     }));
                 }
 
-                request
-                    .stage("executor_hot_path")
-                    .await_value(async {
-                        for subtask in subtasks {
-                            subtask.await.expect("subtask should finish");
-                        }
-                    })
-                    .await;
+                for subtask in subtasks {
+                    subtask.await.expect("subtask should finish");
+                }
+
+                tokio::time::sleep(Duration::from_micros(250)).await;
 
                 runnable_backlog.fetch_sub(1, Ordering::SeqCst);
             }
             request.finish(tailtriage_core::Outcome::Ok);
         }));
-
-        if request_number % settings.burst_pause_every == 0 {
-            tokio::time::sleep(settings.burst_pause).await;
-        }
     }
 
     for request in requests {
         request.await.context("request task panicked")?;
     }
 
+    capture_done.store(true, Ordering::SeqCst);
     sampler.await.context("sampler task panicked")?;
 
     tailtriage.shutdown()?;
