@@ -8,6 +8,7 @@ import json
 import os
 import statistics
 import subprocess
+import sys
 from pathlib import Path
 
 MODES = ("baseline", "light", "investigation")
@@ -91,8 +92,17 @@ def summarize(raw_path: Path, summary_path: Path, *, profile: str, warmup_rounds
         by_mode.setdefault(row["mode"], []).append(row)
 
     for mode in MODES:
-        if mode not in by_mode:
-            raise SystemExit(f"missing mode: {mode}")
+        if not by_mode[mode]:
+            raise SystemExit(f"missing measured data for mode: {mode}")
+
+    measured_round_indices = sorted({row["round"] for row in measured})
+    measured_rounds: list[dict] = []
+    for round_idx in measured_round_indices:
+        round_rows = {row["mode"]: row for row in measured if row["round"] == round_idx}
+        missing_modes = [mode for mode in MODES if mode not in round_rows]
+        if missing_modes:
+            raise SystemExit(f"round {round_idx} missing modes: {', '.join(missing_modes)}")
+        measured_rounds.append(round_rows)
 
     summary = {
         "profile": profile,

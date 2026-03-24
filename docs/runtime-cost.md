@@ -1,12 +1,12 @@
 # Runtime cost measurement
 
-This is the reproducible overhead measurement path for MVP modes.
+This document covers the reproducible local benchmark path for tailtriage runtime-cost triage.
 
 ## Modes
 
-- `baseline`: no `tailtriage` instrumentation
-- `light`: request + queue + stage + inflight instrumentation
-- `investigation`: light mode + extra stage marker + dense runtime sampling
+- `baseline`: no `tailtriage` instrumentation.
+- `light`: request + queue + stage + inflight instrumentation.
+- `investigation`: light mode + dense runtime sampling + an additional `pre_work_marker` stage sleep (`300 µs`) that models richer investigation profile depth.
 
 ## Metrics reported
 
@@ -23,7 +23,19 @@ python3 scripts/measure_runtime_cost.py                  # release profile defau
 python3 scripts/measure_runtime_cost.py --profile dev    # debug/dev comparison
 ```
 
-Optional environment overrides:
+The script builds `demos/runtime_cost` in **release mode** once, then executes the release binary directly for all warmup and measured rounds.
+
+## Defaults and knobs
+
+Defaults are selected to improve signal-to-noise on ordinary development machines while keeping runtime practical:
+
+- `--requests` (default `6000`)
+- `--concurrency` (default `64`)
+- `--work-ms` (default `3`)
+- `--warmup-rounds` (default `2`)
+- `--rounds` (default `6`)
+
+Equivalent environment variables are also supported:
 
 - `REQUESTS` (default `6000`)
 - `CONCURRENCY` (default `48`)
@@ -32,7 +44,14 @@ Optional environment overrides:
 - `WARMUP_ROUNDS` (default `2`)
 - `RUNTIME_COST_PROFILE` (`dev` or `release`, default `release`)
 
-## Outputs
+## How the benchmark is run
+
+- Modes are sampled in interleaved rounds with rotating order.
+- Warmup rounds run first and are excluded from overhead summaries.
+- Overhead is computed from per-round paired deltas versus baseline (same round), then summarized.
+- Output includes dispersion (mean/median/min/max/stdev/CV), not only means.
+
+## Output files
 
 Written to `demos/runtime_cost/artifacts/`:
 
