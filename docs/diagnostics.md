@@ -1,10 +1,20 @@
 # Diagnostics guide
 
-This document explains how `tailtriage analyze` produces a triage report and how to use it.
+This guide explains how `tailtriage analyze` turns one run artifact into a triage report.
+
+## How to read one report in 30 seconds
+
+1. Check `primary_suspect.kind`.
+2. Read `primary_suspect.evidence[]`.
+3. Read `primary_suspect.next_checks[]`.
+4. Use `p95_queue_share_permille` and `p95_service_share_permille` as directional context.
+5. Change one thing, rerun, and compare.
+
+Ranking is rule-based and directional. Suspects are evidence-ranked leads, not proof of root cause.
 
 ## Run artifact schema contract
 
-`tailtriage-cli` requires every input run artifact to include a top-level `schema_version` integer. The current supported value is `1`.
+`tailtriage-cli` requires a top-level `schema_version` integer in every input artifact. Current supported value: `1`.
 
 Loader behavior is strict:
 
@@ -46,19 +56,7 @@ Each suspect includes:
 | `primary_suspect` | `Suspect` | Highest-ranked suspect. |
 | `secondary_suspects` | `Vec<Suspect>` | Remaining ranked suspects. |
 
-The two p95 share fields are independent percentile summaries over different per-request series. They are not complementary totals and are not expected to sum to `1000`.
-
-## Interpreting shares quickly
-
-- `1000` permille = 100%
-- `500` permille = 50%
-- `p95_queue_share_permille` and `p95_service_share_permille` are each a percentile over their own distribution, so they should not be added together.
-
-Rules of thumb:
-
-- high queue share suggests queue saturation
-- high service share plus dominant stage suggests downstream latency dominance
-- use suspect evidence and next checks to choose one follow-up experiment
+`p95_queue_share_permille` and `p95_service_share_permille` are independent percentiles over different per-request series, so they are not expected to sum to `1000`.
 
 ## Suspect kinds
 
@@ -68,19 +66,17 @@ Rules of thumb:
 - `downstream_stage_dominates`
 - `insufficient_evidence`
 
-These are **evidence-ranked leads**, not causal proof.
+## Executor pressure vs blocking-pool pressure
 
-### Executor pressure vs blocking-pool pressure
+- `executor_pressure_suspected` emphasizes runtime scheduler backlog signals.
+- `blocking_pool_pressure` emphasizes `spawn_blocking` backlog signals.
+- If blocking queue depth stays low/absent while runtime queue depth rises, prioritize executor-focused next checks first.
 
-- `executor_pressure_suspected` emphasizes runtime scheduler backlog signals (for example, elevated global/local runtime queue depth with in-flight growth).
-- `blocking_pool_pressure` emphasizes `spawn_blocking` backlog signals (for example, elevated blocking queue depth evidence).
-- If blocking queue depth remains low/absent while runtime queue depth rises, prefer executor-pressure next checks before blocking-pool tuning.
-
-Runtime-signal availability caveat:
+Runtime-signal caveat:
 
 - On stable Tokio, `RuntimeSampler` always captures `alive_tasks` and `global_queue_depth`.
 - `local_queue_depth`, `blocking_queue_depth`, and `remote_schedule_count` require `tokio_unstable` and are otherwise `None`.
-- As a result, blocking-pool vs executor suspect separation may be weaker on stable builds; treat ranking as directional triage and prioritize follow-up checks.
+- Separation between blocking-pool and executor suspects can therefore be weaker on stable builds.
 
 ## In-flight trend fields
 
@@ -93,19 +89,17 @@ When present:
 - `growth_delta`
 - `growth_per_sec_milli`
 
-Positive growth means in-flight work accumulated during the run.
+Positive growth indicates in-flight work accumulated during the run.
 
 ## Truncation interpretation
 
-If the run artifact has non-zero `truncation` counters, treat the report as diagnosis from partial data. Prioritize re-running with higher capture limits for truncated sections before ruling suspects in or out.
+If artifact `truncation` counters are non-zero, treat the diagnosis as partial-data triage and rerun with higher capture limits before drawing stronger conclusions.
 
-## Practical triage workflow
+## Practical triage loop
 
 1. Capture one run.
 2. Analyze and inspect primary suspect evidence.
-3. Run the suggested next check for that suspect.
+3. Run one recommended next check.
 4. Change one thing.
-5. Re-run under comparable load.
-6. Compare p95 shares and suspect evidence.
-
-For reproducible before/after demo workflows, see [getting-started-demo.md](getting-started-demo.md).
+5. Rerun with comparable load.
+6. Compare suspect ranking and p95 shares.
