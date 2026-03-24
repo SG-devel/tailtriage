@@ -106,6 +106,7 @@ These are the strongest public proof cases and should usually be run first.
 - `primary_suspect.kind`
 - `p95_service_share_permille`
 - downstream-stage suspect evidence
+- before/after p95 and suspect-score movement in `before-after-comparison.json`
 
 ### `db_pool_saturation_service`
 
@@ -363,6 +364,14 @@ python3 scripts/demo_tool.py validate db-pool
 ```
 
 Then continue through `shared-lock`, `retry-storm`, `mixed`, `cold-start`, `blocking`, and `executor`.
+
+Running `downstream` follows the same before/after artifact contract as the other comparison demos:
+
+- `demos/downstream_service/artifacts/before-run.json`
+- `demos/downstream_service/artifacts/before-analysis.json`
+- `demos/downstream_service/artifacts/after-run.json`
+- `demos/downstream_service/artifacts/after-analysis.json`
+- `demos/downstream_service/artifacts/before-after-comparison.json`
 
 For runtime-cost overhead measurement (separate from suspect-ranking triage), run `python3 scripts/measure_runtime_cost.py` and see `docs/runtime-cost.md` for usage details and interpretation guidance.
 
