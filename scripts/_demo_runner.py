@@ -13,13 +13,26 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+PROFILE_CHOICES = ("dev", "release")
+
 
 def repo_root(from_file: str) -> Path:
     """Return repository root for a script file path under ``scripts/``."""
     return Path(from_file).resolve().parent.parent
 
 
-def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str) -> None:
+def _profile_args(profile: str) -> list[str]:
+    if profile not in PROFILE_CHOICES:
+        raise ValueError(f"unsupported profile: {profile}")
+    return ["--release"] if profile == "release" else []
+
+
+def run_demo_binary(
+    manifest_path: Path,
+    artifact_path: Path,
+    *demo_args: str,
+    profile: str = "dev",
+) -> None:
     """Run a demo binary via ``cargo run --manifest-path ...``."""
     subprocess.run(
         [
@@ -28,6 +41,7 @@ def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str) -
             "--quiet",
             "--manifest-path",
             str(manifest_path),
+            *_profile_args(profile),
             "--",
             str(artifact_path),
             *demo_args,
@@ -36,7 +50,13 @@ def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str) -
     )
 
 
-def run_cli_analysis_json(cli_manifest_path: Path, artifact_path: Path, analysis_path: Path) -> None:
+def run_cli_analysis_json(
+    cli_manifest_path: Path,
+    artifact_path: Path,
+    analysis_path: Path,
+    *,
+    profile: str = "dev",
+) -> None:
     """Analyze an artifact and write JSON output to ``analysis_path``."""
     with analysis_path.open("w", encoding="utf-8") as analysis_file:
         subprocess.run(
@@ -46,6 +66,7 @@ def run_cli_analysis_json(cli_manifest_path: Path, artifact_path: Path, analysis
                 "--quiet",
                 "--manifest-path",
                 str(cli_manifest_path),
+                *_profile_args(profile),
                 "--",
                 "analyze",
                 str(artifact_path),
@@ -63,11 +84,12 @@ def run_and_analyze(
     artifact_path: Path,
     analysis_path: Path,
     *demo_args: str,
+    profile: str = "dev",
 ) -> None:
     """Run demo and analyze the resulting artifact into ``analysis_path``."""
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    run_demo_binary(demo_manifest_path, artifact_path, *demo_args)
-    run_cli_analysis_json(cli_manifest_path, artifact_path, analysis_path)
+    run_demo_binary(demo_manifest_path, artifact_path, *demo_args, profile=profile)
+    run_cli_analysis_json(cli_manifest_path, artifact_path, analysis_path, profile=profile)
 
 
 def variant_paths(artifact_dir: Path, variant: str) -> tuple[Path, Path]:

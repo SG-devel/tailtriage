@@ -39,6 +39,11 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "mixed")
         self.assertEqual(args.mode, "baseline")
+        self.assertEqual(args.profile, "dev")
+
+    def test_parse_args_accepts_release_flag(self) -> None:
+        args = parse_args(["validate", "queue", "--release"])
+        self.assertTrue(args.release)
 
     def test_parse_args_accepts_cold_start_scenario(self) -> None:
         args = parse_args(["validate", "cold-start"])
@@ -92,7 +97,11 @@ class DemoMainRoutingTests(unittest.TestCase):
     ) -> None:
         demo_tool.main(["run", "queue", "baseline"])
 
-        run_scenario_queue_mock.assert_called_once_with(Path("/tmp/tailscope"), "baseline")
+        run_scenario_queue_mock.assert_called_once_with(
+            Path("/tmp/tailscope"),
+            "baseline",
+            profile="dev",
+        )
 
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.validate_mixed")
@@ -103,7 +112,7 @@ class DemoMainRoutingTests(unittest.TestCase):
     ) -> None:
         demo_tool.main(["validate", "mixed"])
 
-        validate_mixed_mock.assert_called_once_with(Path("/tmp/tailscope"))
+        validate_mixed_mock.assert_called_once_with(Path("/tmp/tailscope"), profile="dev")
 
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_downstream")
@@ -113,7 +122,11 @@ class DemoMainRoutingTests(unittest.TestCase):
         _repo_root_mock,
     ) -> None:
         demo_tool.main(["run", "downstream", "baseline"])
-        run_scenario_downstream_mock.assert_called_once_with(Path("/tmp/tailscope"), "baseline")
+        run_scenario_downstream_mock.assert_called_once_with(
+            Path("/tmp/tailscope"),
+            "baseline",
+            profile="dev",
+        )
 
 
 if __name__ == "__main__":

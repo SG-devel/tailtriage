@@ -26,6 +26,7 @@ EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND | EXPECTED_DOWNSTREAM_KIND
 EXPECTED_RETRY_STORM_PRIMARY_KINDS = EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
+PROFILE_CHOICES = ["dev", "release"]
 
 def extract_blocking_queue_depth_p95(report: dict) -> int | None:
     suspect = report.get("primary_suspect") or {}
@@ -73,13 +74,15 @@ def run_before_after_scenario(
     artifact_dir: Path,
     mode: str,
     snapshot_fn: Callable[[dict], dict[str, int | str | None]],
+    *,
+    profile: str = "dev",
 ) -> None:
     cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
 
     def run_variant(variant: str) -> None:
         run_path, analysis_path = variant_paths(artifact_dir, variant)
         mode_arg = "baseline" if variant == "before" else "mitigated"
-        run_and_analyze(demo_manifest, cli_manifest, run_path, analysis_path, mode_arg)
+        run_and_analyze(demo_manifest, cli_manifest, run_path, analysis_path, mode_arg, profile=profile)
         print(f"run artifact ({variant}): {run_path}")
         print(f"analysis ({variant}): {analysis_path}")
 
@@ -99,85 +102,94 @@ def run_before_after_scenario(
     )
     print(f"comparison: {comparison_path}")
 
-def run_scenario_queue(root_dir: Path, mode: str) -> None:
+def run_scenario_queue(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/queue_service/Cargo.toml",
         root_dir / "demos/queue_service/artifacts",
         mode,
         snapshot_queue,
+        profile=profile,
     )
 
-def run_scenario_blocking(root_dir: Path, mode: str) -> None:
+def run_scenario_blocking(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/blocking_service/Cargo.toml",
         root_dir / "demos/blocking_service/artifacts",
         mode,
         snapshot_blocking,
+        profile=profile,
     )
 
-def run_scenario_executor(root_dir: Path, mode: str) -> None:
+def run_scenario_executor(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/executor_pressure_service/Cargo.toml",
         root_dir / "demos/executor_pressure_service/artifacts",
         mode,
         snapshot_queue,
+        profile=profile,
     )
 
-def run_scenario_downstream(root_dir: Path, mode: str) -> None:
+def run_scenario_downstream(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/downstream_service/Cargo.toml",
         root_dir / "demos/downstream_service/artifacts",
         mode,
         snapshot_downstream,
+        profile=profile,
     )
 
-def run_scenario_mixed(root_dir: Path, mode: str) -> None:
+def run_scenario_mixed(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/mixed_contention_service/Cargo.toml",
         root_dir / "demos/mixed_contention_service/artifacts",
         mode,
         snapshot_queue,
+        profile=profile,
     )
 
-def run_scenario_cold_start(root_dir: Path, mode: str) -> None:
+def run_scenario_cold_start(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/cold_start_burst_service/Cargo.toml",
         root_dir / "demos/cold_start_burst_service/artifacts",
         mode,
         snapshot_queue,
+        profile=profile,
     )
 
-def run_scenario_db_pool(root_dir: Path, mode: str) -> None:
+def run_scenario_db_pool(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/db_pool_saturation_service/Cargo.toml",
         root_dir / "demos/db_pool_saturation_service/artifacts",
         mode,
         snapshot_queue,
+        profile=profile,
     )
 
-def run_scenario_shared_lock(root_dir: Path, mode: str) -> None:
+def run_scenario_shared_lock(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/shared_state_lock_service/Cargo.toml",
         root_dir / "demos/shared_state_lock_service/artifacts",
         mode,
         snapshot_queue,
+        profile=profile,
     )
 
-def run_scenario_retry_storm(root_dir: Path, mode: str) -> None:
+def run_scenario_retry_storm(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
         root_dir / "demos/retry_storm_service/Cargo.toml",
         root_dir / "demos/retry_storm_service/artifacts",
         mode,
         snapshot_queue,
+        profile=profile,
     )
 
 def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
@@ -185,8 +197,8 @@ def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
     all_suspects = [primary, *(report.get("secondary_suspects") or [])]
     return any((suspect or {}).get("kind") in expected_kinds for suspect in all_suspects)
 
-def validate_queue(root_dir: Path) -> None:
-    run_scenario_queue(root_dir, "both")
+def validate_queue(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_queue(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/queue_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -225,8 +237,8 @@ def validate_queue(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-def validate_blocking(root_dir: Path) -> None:
-    run_scenario_blocking(root_dir, "both")
+def validate_blocking(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_blocking(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/blocking_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -294,8 +306,8 @@ def validate_blocking(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-def validate_downstream(root_dir: Path) -> None:
-    run_scenario_downstream(root_dir, "both")
+def validate_downstream(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_downstream(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/downstream_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -333,8 +345,8 @@ def validate_downstream(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-def validate_mixed(root_dir: Path) -> None:
-    run_scenario_mixed(root_dir, "both")
+def validate_mixed(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_mixed(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/mixed_contention_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -387,8 +399,8 @@ def _contains_blocking_depth_evidence(report: dict) -> bool:
     evidence = suspect.get("evidence") or []
     return any("blocking queue depth" in str(item).lower() for item in evidence)
 
-def validate_executor(root_dir: Path) -> None:
-    run_scenario_executor(root_dir, "both")
+def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_executor(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/executor_pressure_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -443,8 +455,8 @@ def _report_mentions_cold_start_or_queue(report: dict) -> bool:
         for item in evidence_items
     )
 
-def validate_cold_start(root_dir: Path) -> None:
-    run_scenario_cold_start(root_dir, "both")
+def validate_cold_start(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_cold_start(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/cold_start_burst_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -490,8 +502,8 @@ def validate_cold_start(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-def validate_db_pool(root_dir: Path) -> None:
-    run_scenario_db_pool(root_dir, "both")
+def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_db_pool(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/db_pool_saturation_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -531,8 +543,8 @@ def validate_db_pool(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-def validate_shared_lock(root_dir: Path) -> None:
-    run_scenario_shared_lock(root_dir, "both")
+def validate_shared_lock(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_shared_lock(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/shared_state_lock_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -581,8 +593,8 @@ def validate_shared_lock(root_dir: Path) -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
-def validate_retry_storm(root_dir: Path) -> None:
-    run_scenario_retry_storm(root_dir, "both")
+def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
+    run_scenario_retry_storm(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/retry_storm_service/artifacts"
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
@@ -639,6 +651,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
     run_parser.add_argument(
+        "--profile",
+        choices=PROFILE_CHOICES,
+        default="dev",
+        help="Cargo profile used for demo binaries and CLI analysis (default: dev).",
+    )
+    run_parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Shortcut for --profile release.",
+    )
+    run_parser.add_argument(
         "scenario",
         choices=[
             "queue",
@@ -662,6 +685,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
     validate_parser.add_argument(
+        "--profile",
+        choices=PROFILE_CHOICES,
+        default="dev",
+        help="Cargo profile used for demo binaries and CLI analysis (default: dev).",
+    )
+    validate_parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Shortcut for --profile release.",
+    )
+    validate_parser.add_argument(
         "scenario",
         choices=[
             "queue",
@@ -681,46 +715,47 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     root_dir = repo_root(__file__)
+    profile = "release" if args.release else args.profile
 
     if args.command == "run":
         if args.scenario == "queue":
-            run_scenario_queue(root_dir, args.mode)
+            run_scenario_queue(root_dir, args.mode, profile=profile)
         elif args.scenario == "blocking":
-            run_scenario_blocking(root_dir, args.mode)
+            run_scenario_blocking(root_dir, args.mode, profile=profile)
         elif args.scenario == "downstream":
-            run_scenario_downstream(root_dir, args.mode)
+            run_scenario_downstream(root_dir, args.mode, profile=profile)
         elif args.scenario == "executor":
-            run_scenario_executor(root_dir, args.mode)
+            run_scenario_executor(root_dir, args.mode, profile=profile)
         elif args.scenario == "cold-start":
-            run_scenario_cold_start(root_dir, args.mode)
+            run_scenario_cold_start(root_dir, args.mode, profile=profile)
         elif args.scenario == "db-pool":
-            run_scenario_db_pool(root_dir, args.mode)
+            run_scenario_db_pool(root_dir, args.mode, profile=profile)
         elif args.scenario == "shared-lock":
-            run_scenario_shared_lock(root_dir, args.mode)
+            run_scenario_shared_lock(root_dir, args.mode, profile=profile)
         elif args.scenario == "retry-storm":
-            run_scenario_retry_storm(root_dir, args.mode)
+            run_scenario_retry_storm(root_dir, args.mode, profile=profile)
         else:
-            run_scenario_mixed(root_dir, args.mode)
+            run_scenario_mixed(root_dir, args.mode, profile=profile)
         return
 
     if args.scenario == "queue":
-        validate_queue(root_dir)
+        validate_queue(root_dir, profile=profile)
     elif args.scenario == "blocking":
-        validate_blocking(root_dir)
+        validate_blocking(root_dir, profile=profile)
     elif args.scenario == "downstream":
-        validate_downstream(root_dir)
+        validate_downstream(root_dir, profile=profile)
     elif args.scenario == "executor":
-        validate_executor(root_dir)
+        validate_executor(root_dir, profile=profile)
     elif args.scenario == "cold-start":
-        validate_cold_start(root_dir)
+        validate_cold_start(root_dir, profile=profile)
     elif args.scenario == "db-pool":
-        validate_db_pool(root_dir)
+        validate_db_pool(root_dir, profile=profile)
     elif args.scenario == "shared-lock":
-        validate_shared_lock(root_dir)
+        validate_shared_lock(root_dir, profile=profile)
     elif args.scenario == "retry-storm":
-        validate_retry_storm(root_dir)
+        validate_retry_storm(root_dir, profile=profile)
     else:
-        validate_mixed(root_dir)
+        validate_mixed(root_dir, profile=profile)
 
 if __name__ == "__main__":
     main()

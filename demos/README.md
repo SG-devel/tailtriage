@@ -338,7 +338,7 @@ These remain useful and should stay documented, but docs should treat them as mo
 
 The demo docs and CI validation surface are aligned.
 
-In `.github/workflows/ci.yml`, the `CI` workflow continuously validates:
+In `.github/workflows/ci.yml`, the `CI` workflow continuously validates the same demo surface in both `dev` and `release` profiles:
 
 - `queue`
 - `downstream`
@@ -355,12 +355,15 @@ In `.github/workflows/ci.yml`, the `CI` workflow continuously validates:
 ```bash
 python3 scripts/demo_tool.py run queue
 python3 scripts/demo_tool.py validate queue
+python3 scripts/demo_tool.py validate queue --release
 
 python3 scripts/demo_tool.py run downstream
 python3 scripts/demo_tool.py validate downstream
+python3 scripts/demo_tool.py validate downstream --release
 
 python3 scripts/demo_tool.py run db-pool
 python3 scripts/demo_tool.py validate db-pool
+python3 scripts/demo_tool.py validate db-pool --release
 ```
 
 Then continue through `shared-lock`, `retry-storm`, `mixed`, `cold-start`, `blocking`, and `executor`.
@@ -385,7 +388,8 @@ For runtime-cost overhead measurement (separate from suspect-ranking triage), ru
 **Canonical command**
 
 ```bash
-python3 scripts/measure_runtime_cost.py
+python3 scripts/measure_runtime_cost.py               # release profile default
+python3 scripts/measure_runtime_cost.py --profile dev
 ```
 
 **Output artifacts**

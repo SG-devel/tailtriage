@@ -233,6 +233,7 @@ Lifecycle contract:
 - `queue(...)`, `stage(...)`, and `inflight(...)` record instrumentation only; they do **not** finish the request.
 - You must call one terminal method exactly once: `finish(...)`, `finish_ok()`, or `finish_result(...)`.
 - `Drop` is a debug-time misuse detector only: unfinished `RequestContext` values trigger a debug assertion in development builds.
+- Demo and CI validation now run in both debug/dev and release profiles; use `scripts/demo_tool.py ... --release` for release-profile validation locally.
 - `Drop` does **not** infer success/error and does **not** record request completion automatically.
 - Do not rely on scope exit as request completion.
 

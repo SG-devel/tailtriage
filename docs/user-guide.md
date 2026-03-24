@@ -47,6 +47,7 @@ Use one terminal method per request:
 - `finish_result(...)`
 
 `Drop` is only a debug-time misuse detector. In debug builds, dropping an unfinished context asserts so you catch forgotten finishes during development. `Drop` does **not** infer an outcome and does **not** record request completion automatically.
+For performance triage and runtime-overhead measurement, prefer release-profile runs; debug/dev remains useful for misuse detection and local iteration.
 
 ### 2) Analyze with the workspace CLI crate
 

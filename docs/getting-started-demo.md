@@ -112,7 +112,7 @@ Use this table for first-pass diagnosis reading. Suspects are leads, not proof.
 
 ## CI validation coverage
 
-The documented demo surface matches the CI validation surface. In `.github/workflows/ci.yml`, the `CI` workflow validates:
+The documented demo surface matches the CI validation surface. In `.github/workflows/ci.yml`, the `CI` workflow validates these demos in both `dev` and `release` profiles.
 
 - `queue`
 - `downstream`
@@ -131,19 +131,21 @@ The documented demo surface matches the CI validation surface. In `.github/workf
 Use:
 
 ```bash
-python3 scripts/measure_runtime_cost.py
+python3 scripts/measure_runtime_cost.py                 # release profile default
+python3 scripts/measure_runtime_cost.py --profile dev   # debug/dev profile comparison
 ```
 
 For mode definitions, metrics, and interpretation details, see **[`docs/runtime-cost.md`](./runtime-cost.md)**.
 
 ## Demo fixture drift guard and refresh workflow
 
-`python3 scripts/check_demo_fixture_drift.py` regenerates demo analysis outputs and fails if committed fixtures are stale.
+`python3 scripts/check_demo_fixture_drift.py` regenerates demo analysis outputs and fails if committed fixtures are stale. Fixture drift policy is profile-stable after normalization, and CI checks this in both `dev` and `release`.
 
 When analyzer output changes intentionally, refresh fixtures with:
 
 ```bash
-python3 scripts/check_demo_fixture_drift.py --refresh
+python3 scripts/check_demo_fixture_drift.py --profile dev --refresh
+python3 scripts/check_demo_fixture_drift.py --profile release --refresh
 ```
 
 Then review the fixture diffs, commit them, and re-run the drift guard to confirm the refresh is complete.

@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from _demo_runner import (
+    PROFILE_CHOICES,
     load_report_json,
     repo_root,
     run_and_analyze,
@@ -68,12 +69,21 @@ def _run_before_after(
     demo_manifest: Path,
     temp_artifact_dir: Path,
     snapshot_fn,
+    *,
+    profile: str = "dev",
 ) -> None:
     cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
     for variant in ("before", "after"):
         run_path, analysis_path = variant_paths(temp_artifact_dir, variant)
         mode_arg = "baseline" if variant == "before" else "mitigated"
-        run_and_analyze(demo_manifest, cli_manifest, run_path, analysis_path, mode_arg)
+        run_and_analyze(
+            demo_manifest,
+            cli_manifest,
+            run_path,
+            analysis_path,
+            mode_arg,
+            profile=profile,
+        )
 
     before = load_report_json(temp_artifact_dir / "before-analysis.json")
     after = load_report_json(temp_artifact_dir / "after-analysis.json")
@@ -159,67 +169,76 @@ def _scenario_specs() -> list[tuple[Path, Path]]:
     ]
 
 
-def regenerate_outputs(root_dir: Path, out_dir: Path) -> None:
+def regenerate_outputs(root_dir: Path, out_dir: Path, *, profile: str = "dev") -> None:
     _run_before_after(
         root_dir,
         root_dir / "demos/queue_service/Cargo.toml",
         out_dir / "queue",
         snapshot_queue,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/blocking_service/Cargo.toml",
         out_dir / "blocking",
         snapshot_blocking,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/executor_pressure_service/Cargo.toml",
         out_dir / "executor",
         snapshot_queue,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/downstream_service/Cargo.toml",
         out_dir / "downstream",
         snapshot_downstream,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/mixed_contention_service/Cargo.toml",
         out_dir / "mixed",
         snapshot_queue,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/cold_start_burst_service/Cargo.toml",
         out_dir / "cold-start",
         snapshot_queue,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/db_pool_saturation_service/Cargo.toml",
         out_dir / "db-pool",
         snapshot_queue,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/shared_state_lock_service/Cargo.toml",
         out_dir / "shared-lock",
         snapshot_queue,
+        profile=profile,
     )
     _run_before_after(
         root_dir,
         root_dir / "demos/retry_storm_service/Cargo.toml",
         out_dir / "retry-storm",
         snapshot_queue,
+        profile=profile,
     )
 
 
-def check_or_refresh(root_dir: Path, refresh: bool) -> None:
+def check_or_refresh(root_dir: Path, refresh: bool, *, profile: str = "dev") -> None:
     with tempfile.TemporaryDirectory(prefix="tailtriage-fixture-drift-") as temp_dir:
         generated_root = Path(temp_dir)
-        regenerate_outputs(root_dir, generated_root)
+        regenerate_outputs(root_dir, generated_root, profile=profile)
 
         drifted: list[str] = []
         for fixture_rel, generated_rel in _scenario_specs():
@@ -253,17 +272,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Rewrite committed fixtures with regenerated outputs.",
     )
+    parser.add_argument(
+        "--profile",
+        choices=PROFILE_CHOICES,
+        default="dev",
+        help=(
+            "Cargo profile for fixture regeneration. "
+            "Policy: fixtures are normalized and expected to be stable across profiles; "
+            "CI validates this in both dev and release."
+        ),
+    )
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Shortcut for --profile release.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     root_dir = repo_root(__file__)
-    check_or_refresh(root_dir, refresh=args.refresh)
+    profile = "release" if args.release else args.profile
+    check_or_refresh(root_dir, refresh=args.refresh, profile=profile)
     if args.refresh:
-        print("demo analysis fixtures refreshed")
+        print(f"demo analysis fixtures refreshed (profile={profile})")
     else:
-        print("demo analysis fixtures are up to date")
+        print(f"demo analysis fixtures are up to date (profile={profile})")
 
 
 if __name__ == "__main__":

@@ -39,9 +39,13 @@ env:
 
 jobs:
   verify:
-    name: fmt / clippy / test / demos
+    name: fmt / clippy / test / demos (${{ matrix.profile }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [dev, release]
 
     steps:
       - name: Checkout
@@ -67,41 +71,51 @@ jobs:
         run: cargo fmt --check
 
       - name: Cargo clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: |
+          if [ "${{ matrix.profile }}" = "release" ]; then
+            cargo clippy --workspace --all-targets --locked --release -- -D warnings
+          else
+            cargo clippy --workspace --all-targets --locked -- -D warnings
+          fi
 
       - name: Cargo test
-        run: cargo test --workspace --locked
+        run: |
+          if [ "${{ matrix.profile }}" = "release" ]; then
+            cargo test --workspace --locked --release
+          else
+            cargo test --workspace --locked
+          fi
 
       - name: Validate queue demo
-        run: python3 scripts/demo_tool.py validate queue
+        run: python3 scripts/demo_tool.py validate queue --profile ${{ matrix.profile }}
 
       - name: Validate blocking demo
-        run: python3 scripts/demo_tool.py validate blocking
+        run: python3 scripts/demo_tool.py validate blocking --profile ${{ matrix.profile }}
 
       - name: Validate executor demo
-        run: python3 scripts/demo_tool.py validate executor
+        run: python3 scripts/demo_tool.py validate executor --profile ${{ matrix.profile }}
 
       - name: Validate downstream demo
-        run: python3 scripts/demo_tool.py validate downstream
+        run: python3 scripts/demo_tool.py validate downstream --profile ${{ matrix.profile }}
 
       - name: Validate mixed demo
-        run: python3 scripts/demo_tool.py validate mixed
+        run: python3 scripts/demo_tool.py validate mixed --profile ${{ matrix.profile }}
 
       - name: Validate cold-start demo
-        run: python3 scripts/demo_tool.py validate cold-start
+        run: python3 scripts/demo_tool.py validate cold-start --profile ${{ matrix.profile }}
 
       - name: Validate db-pool demo
-        run: python3 scripts/demo_tool.py validate db-pool
+        run: python3 scripts/demo_tool.py validate db-pool --profile ${{ matrix.profile }}
 
       - name: Validate shared-lock demo
-        run: python3 scripts/demo_tool.py validate shared-lock
+        run: python3 scripts/demo_tool.py validate shared-lock --profile ${{ matrix.profile }}
 
       - name: Validate retry-storm demo
-        run: python3 scripts/demo_tool.py validate retry-storm
+        run: python3 scripts/demo_tool.py validate retry-storm --profile ${{ matrix.profile }}
         
       - name: Check demo fixture drift
-        run: python3 scripts/check_demo_fixture_drift.py
+        run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
 
       - name: Measure runtime cost (non-blocking)
         continue-on-error: true
-        run: python3 scripts/measure_runtime_cost.py
+        run: python3 scripts/measure_runtime_cost.py --profile ${{ matrix.profile }}
