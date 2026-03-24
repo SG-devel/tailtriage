@@ -84,6 +84,8 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 - `p95_queue_share_permille` (95th percentile of per-request queue-time share)
 - `p95_service_share_permille` (95th percentile of per-request service-time share)
 
+`p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries over different per-request series. They are not expected to sum to `1000`.
+
 ### Path B — Adopt in your app (crates.io)
 
 Use this when you are integrating `tailtriage` into your own Tokio service.

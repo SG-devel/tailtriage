@@ -64,6 +64,8 @@ Inspect these fields first:
 - `p95_queue_share_permille` (95th percentile of per-request queue-time share)
 - `p95_service_share_permille` (95th percentile of per-request service-time share)
 
+`p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries over different per-request series. They are not expected to sum to `1000`.
+
 ## Path B — Adopt in your app (crates.io)
 
 Use this path when you want to integrate `tailtriage` into your own Tokio application without workspace context.
@@ -133,6 +135,8 @@ Inspect these fields first:
 - `primary_suspect.next_checks[]`
 - `p95_queue_share_permille` (95th percentile of per-request queue-time share)
 - `p95_service_share_permille` (95th percentile of per-request service-time share)
+
+`p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries over different per-request series. They are not expected to sum to `1000`.
 
 Representative diagnosis shape:
 
