@@ -19,14 +19,14 @@ The project is split into three crates so service instrumentation, Tokio runtime
 
 - run schema (`Run`, metadata, events, snapshots)
 - collection lifecycle (`Tailtriage::builder(...).build`, `shutdown`, `snapshot`)
-- instrumentation wrappers (`request`, `queue`, `stage`, `inflight`)
+- split request lifecycle API (`begin_request`, `RequestHandle`, `RequestCompletion`) plus instrumentation wrappers (`queue`, `stage`, `inflight`)
 - local JSON sink (`LocalJsonSink`)
 
 ### `tailtriage-tokio`
 
 - runtime sampling (`RuntimeSampler`)
 - runtime snapshot capture (`capture_runtime_snapshot`)
-- request context instrumentation via `Tailtriage::request(...)` and `RequestContext` helpers
+- request lifecycle starts via `Tailtriage::begin_request(...)`; `RequestHandle` is instrumentation-only and `RequestCompletion` is finish-only
 
 Some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
 

@@ -53,6 +53,11 @@ pub enum SinkError {
     Io(IoError),
     /// Serialization failure.
     Serialize(serde_json::Error),
+    /// Strict lifecycle validation failure during shutdown.
+    Lifecycle {
+        /// Number of unfinished requests detected at shutdown.
+        unfinished_count: usize,
+    },
 }
 
 impl std::fmt::Display for SinkError {
@@ -62,6 +67,10 @@ impl std::fmt::Display for SinkError {
             Self::Serialize(err) => {
                 write!(f, "serialization error while writing run output: {err}")
             }
+            Self::Lifecycle { unfinished_count } => write!(
+                f,
+                "strict lifecycle validation failed: {unfinished_count} unfinished request(s) remained at shutdown"
+            ),
         }
     }
 }
@@ -71,6 +80,7 @@ impl std::error::Error for SinkError {
         match self {
             Self::Io(err) => Some(err),
             Self::Serialize(err) => Some(err),
+            Self::Lifecycle { .. } => None,
         }
     }
 }

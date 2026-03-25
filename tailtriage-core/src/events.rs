@@ -135,6 +135,30 @@ pub struct RunMetadata {
     pub host: Option<String>,
     /// Process identifier if available.
     pub pid: Option<u32>,
+    /// Lifecycle warnings generated during shutdown validation.
+    #[serde(default)]
+    pub lifecycle_warnings: Vec<String>,
+    /// Incomplete request summary captured at shutdown.
+    #[serde(default)]
+    pub unfinished_requests: UnfinishedRequests,
+}
+
+/// Summary of unfinished requests detected at shutdown.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct UnfinishedRequests {
+    /// Count of requests still pending when shutdown ran.
+    pub count: u64,
+    /// Small sample of unfinished requests for debugging.
+    pub sample: Vec<UnfinishedRequestSample>,
+}
+
+/// One unfinished request sample captured for lifecycle warnings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnfinishedRequestSample {
+    /// Correlation ID for the unfinished request.
+    pub request_id: String,
+    /// Route or operation name associated with the unfinished request.
+    pub route: String,
 }
 
 /// Per-request timing and status.

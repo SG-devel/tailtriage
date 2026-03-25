@@ -49,6 +49,7 @@ pub(crate) struct Config {
     pub mode: CaptureMode,
     pub sink: Arc<dyn RunSink + Send + Sync>,
     pub capture_limits: CaptureLimits,
+    pub strict_lifecycle: bool,
 }
 
 impl Config {
@@ -60,6 +61,7 @@ impl Config {
             mode: builder.mode,
             sink: Arc::clone(&builder.sink),
             capture_limits: builder.capture_limits,
+            strict_lifecycle: builder.strict_lifecycle,
         }
     }
 }
@@ -90,6 +92,7 @@ pub struct TailtriageBuilder {
     pub(crate) mode: CaptureMode,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) capture_limits: CaptureLimits,
+    pub(crate) strict_lifecycle: bool,
 }
 
 impl TailtriageBuilder {
@@ -101,6 +104,7 @@ impl TailtriageBuilder {
             mode: CaptureMode::Light,
             sink: Arc::new(LocalJsonSink::new("tailtriage-run.json")),
             capture_limits: CaptureLimits::default(),
+            strict_lifecycle: false,
         }
     }
 
@@ -165,6 +169,16 @@ impl TailtriageBuilder {
         self
     }
 
+    /// Enables strict lifecycle validation on shutdown.
+    ///
+    /// When enabled, [`crate::Tailtriage::shutdown`] returns an error if unfinished
+    /// requests remain pending.
+    #[must_use]
+    pub fn strict_lifecycle(mut self, strict_lifecycle: bool) -> Self {
+        self.strict_lifecycle = strict_lifecycle;
+        self
+    }
+
     /// Builds one [`crate::Tailtriage`] collector for the configured service.
     ///
     /// # Errors
@@ -175,13 +189,15 @@ impl TailtriageBuilder {
     }
 }
 
-/// Optional request start settings used by [`crate::Tailtriage::request_with`].
+/// Optional request start settings used by [`crate::Tailtriage::begin_request_with`].
 ///
 /// When `request_id` is not provided, a request ID is generated automatically.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RequestOptions {
     /// Optional caller-provided request ID used for request correlation.
     pub request_id: Option<String>,
+    /// Optional semantic request kind (for example `http` or `job`).
+    pub kind: Option<String>,
 }
 
 impl RequestOptions {
@@ -195,6 +211,13 @@ impl RequestOptions {
     #[must_use]
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());
+        self
+    }
+
+    /// Sets an optional semantic kind recorded on completion.
+    #[must_use]
+    pub fn kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
         self
     }
 }

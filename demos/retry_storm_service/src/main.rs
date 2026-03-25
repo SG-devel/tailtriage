@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestContext;
+use tailtriage_core::RequestHandle;
 
 #[derive(Clone, Copy)]
 struct ModeSettings {
@@ -83,7 +83,7 @@ fn downstream_outcome(request_number: u64, attempt: u8) -> (Duration, Downstream
 }
 
 async fn run_downstream_with_retries(
-    request: &RequestContext<'_>,
+    request: &RequestHandle<'_>,
     request_number: u64,
     settings: ModeSettings,
 ) {
@@ -145,10 +145,11 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with(
+            let started = tailtriage.begin_request_with(
                 "/retry-storm-demo",
                 tailtriage_core::RequestOptions::new().request_id(request_id),
             );
+            let request = started.handle.clone();
 
             {
                 let _inflight = request.inflight("retry_storm_inflight");
@@ -167,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
                     ))
                     .await;
             }
-            request.finish(tailtriage_core::Outcome::Ok);
+            started.completion.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % mode_settings.inter_arrival_pause_every == 0 {

@@ -43,6 +43,14 @@ Start with:
 
 The two p95 share fields are independent percentiles and are not expected to sum to `1000`.
 
+## Request lifecycle shape (public API)
+
+`Tailtriage::begin_request(...)` / `begin_request_with(...)` returns `StartedRequest { handle, completion }`:
+- `started.handle` (`RequestHandle`) is instrumentation-only (`queue`, `stage`, `inflight`)
+- `started.completion` (`RequestCompletion`) is the only finish path (`finish`, `finish_ok`, `finish_result`)
+
+`shutdown()` validates unfinished pending requests and records warnings/metadata. It does not fabricate completion timing. With `strict_lifecycle(true)`, `shutdown()` fails when unfinished requests remain.
+
 ## Examples
 
 Three public examples to start with:
