@@ -11,9 +11,10 @@
 //!     .output("tailtriage-run.json")
 //!     .build()?;
 //!
-//! let started = tailtriage
-//!     .begin_request_with("/checkout", RequestOptions::new().request_id("req-1"))
-//!     .with_kind("http");
+//! let started = tailtriage.begin_request_with(
+//!     "/checkout",
+//!     RequestOptions::new().request_id("req-1").kind("http"),
+//! );
 //! let request = started.handle.clone();
 //!
 //! // queue(...), stage(...), and inflight(...) instrumentation can happen here.
