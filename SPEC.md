@@ -167,6 +167,7 @@ let sampler = RuntimeSampler::start(
 )?;
 // ... run workload ...
 sampler.shutdown().await;
+tailtriage.shutdown()?;
 ```
 
 ## 6. Run data model
@@ -206,6 +207,7 @@ The report includes:
 - secondary suspects
 - per-suspect evidence + next checks
 - warnings when run capture was truncated
+- warnings when unfinished request lifecycle state was detected at shutdown
 
 ## Script portability strategy
 

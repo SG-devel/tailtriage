@@ -22,7 +22,7 @@ tailtriage-core = "0.1"
 
 ## What this crate owns
 
-- Run artifact schema (`RunArtifact`, requests, runtime snapshots)
+- Run artifact schema (`Run`, requests, stages, queues, inflight snapshots, runtime snapshots)
 - Unified started-request model (`Tailtriage`, `StartedRequest`, `RequestHandle`, `RequestCompletion`)
 - Queue/stage/in-flight instrumentation primitives
 - Explicit completion token lifecycle (`finish`, `finish_ok`, `finish_result`) and final artifact flush (`shutdown`)
@@ -49,6 +49,22 @@ tailtriage.shutdown()?;
 # Ok(())
 # }
 ```
+
+## Lifecycle ownership
+
+`begin_request(...)` / `begin_request_with(...)` returns `StartedRequest { handle, completion }`:
+
+- `started.handle` (`RequestHandle`) is instrumentation-only
+- `started.completion` (`RequestCompletion`) is the only finish path
+
+`queue(...)`, `stage(...)`, and `inflight(...)` do not finish the request. Every request must be finished exactly once via `finish(...)`, `finish_ok()`, or `finish_result(...)`.
+
+## Shutdown semantics
+
+- `shutdown()` does **not** auto-finish requests.
+- `shutdown()` does **not** fabricate timings or outcomes.
+- unfinished requests are surfaced in run metadata warnings and unfinished-request samples.
+- `strict_lifecycle(true)` makes `shutdown()` return an error when unfinished requests remain.
 
 ## Related docs
 
