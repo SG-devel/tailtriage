@@ -11,6 +11,7 @@ keywords = ["tokio", "latency", "instrumentation", "async", "triage"]
 categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
 
 [dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "matched-path", "tokio"] }
 tailtriage-core = { version = "0.1.0", path = "../tailtriage-core" }
 tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tracing = "0.1"
@@ -19,5 +20,6 @@ tracing = "0.1"
 workspace = true
 
 [dev-dependencies]
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

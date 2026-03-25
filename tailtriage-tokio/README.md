@@ -8,6 +8,8 @@ For the public repo launch, use workspace/source integration first. Crates.io de
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
+cargo run -p tailtriage-tokio --example axum_minimal
+cargo run -p tailtriage-tokio --example axum_service_adoption
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
@@ -24,6 +26,7 @@ tailtriage-tokio = "0.1"
 - `RuntimeSampler` for periodic Tokio runtime snapshots
 - Runtime evidence enrichment on the same run artifact used for request instrumentation
 - Works alongside the split lifecycle API from `tailtriage-core` (`StartedRequest { handle, completion }`)
+- Axum adapter helpers (`tailtriage_tokio::axum::middleware` + `TailtriageRequest`) for request-boundary ergonomics
 
 ## Split lifecycle reminder
 
@@ -81,3 +84,10 @@ tailtriage.shutdown()?;
 - Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>
 - Core crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-core>
 - CLI crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-cli>
+
+## Axum examples and adapter fit
+
+- `axum_minimal`: smallest framework starter with explicit start/finish wiring
+- `axum_service_adoption`: larger service-shaped example using middleware + extractor adapter helpers
+
+The adapter is an ergonomics layer over core primitives. It does not claim production-hardening or zero-instrumentation auto-diagnosis.
