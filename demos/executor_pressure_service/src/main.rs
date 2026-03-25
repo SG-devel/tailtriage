@@ -165,10 +165,11 @@ async fn run_request_cohort(
             start_gate.wait().await;
             if let Some(collector) = collector {
                 let request_id = format!("request-{request_number}");
-                let request = collector.request_with(
+                let started = collector.begin_request_with(
                     "/executor-pressure",
                     tailtriage_core::RequestOptions::new().request_id(request_id),
                 );
+                let request = started.handle.clone();
                 let inflight_guard = request.inflight("executor_pressure_inflight");
                 execute_request_work(
                     fanout_tasks,
@@ -178,7 +179,7 @@ async fn run_request_cohort(
                 )
                 .await;
                 drop(inflight_guard);
-                request.finish(tailtriage_core::Outcome::Ok);
+                started.completion.finish(tailtriage_core::Outcome::Ok);
             } else {
                 execute_request_work(
                     fanout_tasks,

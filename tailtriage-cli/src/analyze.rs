@@ -157,7 +157,9 @@ pub struct Report {
 ///
 /// ```
 /// use tailtriage_cli::analyze::analyze_run;
-/// use tailtriage_core::{CaptureMode, Run, RunMetadata, SCHEMA_VERSION};
+/// use tailtriage_core::{
+///     CaptureMode, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION,
+/// };
 ///
 /// let run = Run {
 ///     schema_version: SCHEMA_VERSION,
@@ -170,6 +172,8 @@ pub struct Report {
 ///         mode: CaptureMode::Light,
 ///         host: None,
 ///         pid: None,
+///         lifecycle_warnings: Vec::new(),
+///         unfinished_requests: UnfinishedRequests::default(),
 ///     },
 ///     requests: vec![],
 ///     stages: vec![],
@@ -688,6 +692,8 @@ mod tests {
                 mode: CaptureMode::Light,
                 host: None,
                 pid: Some(1),
+                lifecycle_warnings: Vec::new(),
+                unfinished_requests: tailtriage_core::UnfinishedRequests::default(),
             },
             requests: vec![
                 RequestEvent {

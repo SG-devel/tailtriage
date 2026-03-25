@@ -79,9 +79,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .output("tailtriage-run.json")
         .build()?;
 
-    let request = tailtriage
-        .request_with("/smoke", RequestOptions::new().request_id("external-req-1"))
-        .with_kind("cli");
+    let started = tailtriage.begin_request_with(
+        "/smoke",
+        RequestOptions::new()
+            .request_id("external-req-1")
+            .kind("cli"),
+    );
+    let request = started.handle.clone();
 
     request
         .queue("ingress")
@@ -94,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await_value(tokio::time::sleep(Duration::from_millis(3)))
         .await;
 
-    request.finish_ok();
+    started.completion.finish_ok();
     tailtriage.shutdown()?;
     Ok(())
 }

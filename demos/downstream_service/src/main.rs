@@ -41,10 +41,11 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with(
+            let started = tailtriage.begin_request_with(
                 "/downstream-demo",
                 tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
             );
+            let request = started.handle.clone();
 
             {
                 let _inflight = request.inflight("downstream_service_inflight");
@@ -59,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
                     .await_value(tokio::time::sleep(settings.downstream_delay))
                     .await;
             }
-            request.finish(tailtriage_core::Outcome::Ok);
+            started.completion.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number.is_multiple_of(8) {

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{RequestOptions, Tailtriage};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,7 +9,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .output(artifact_path)
         .build()?;
 
-    let request = tailtriage.request("/checkout").with_kind("http");
+    let started = tailtriage.begin_request_with("/checkout", RequestOptions::new().kind("http"));
+    let request = started.handle.clone();
 
     request
         .queue("checkout_worker_queue")
@@ -33,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
-    request.finish_ok();
+    started.completion.finish_ok();
 
     tailtriage.shutdown()?;
     println!("Wrote {artifact_path}");
