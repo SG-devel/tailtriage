@@ -23,6 +23,7 @@ tailtriage-tokio = "0.1"
 
 - `RuntimeSampler` for periodic Tokio runtime snapshots
 - Runtime evidence enrichment on the same run artifact used for request instrumentation
+- Works alongside the split lifecycle API from `tailtriage-core` (`StartedRequest { handle, completion }`)
 
 ## `RuntimeSampler` metric availability
 

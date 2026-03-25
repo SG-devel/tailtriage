@@ -95,15 +95,14 @@ let result: Result<(), MyError> = started.completion.finish_result(downstream_ca
 
 ### 5.2.1 Request lifecycle contract
 
-`RequestHandle` starts a request lifecycle and instrumentation wrappers (`queue(...)`, `stage(...)`, `inflight(...)`) do not complete it.
+`Tailtriage::begin_request(...)` / `begin_request_with(...)` starts one lifecycle and returns a split `StartedRequest`.
 
-Every request context must call exactly one terminal method:
+- `started.handle` (`RequestHandle`) is instrumentation-only (`queue`, `stage`, `inflight`)
+- `started.completion` (`RequestCompletion`) is the only completion path (`finish`, `finish_ok`, `finish_result`)
 
-- `finish(...)`
-- `finish_ok()`
-- `finish_result(...)`
+`RequestCompletion` must be finished exactly once. If it is dropped unfinished, debug builds assert to surface misuse during development. This assertion is a development aid only: `Drop` does **not** infer an outcome and does **not** auto-record request completion.
 
-If a request context is dropped unfinished, debug builds assert to surface misuse during development. This assertion is a development aid only: `Drop` does **not** infer an outcome and does **not** auto-record request completion.
+At `shutdown()`, tailtriage validates unfinished pending requests and surfaces warnings/metadata; it does **not** fabricate completion timing. With `strict_lifecycle(true)`, `shutdown()` fails when unfinished requests remain.
 
 ### 5.3 In-flight tracking
 
