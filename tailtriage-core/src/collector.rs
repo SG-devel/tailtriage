@@ -17,7 +17,7 @@ use crate::{
 pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
-    pending_requests: Mutex<HashMap<String, PendingRequest>>,
+    pending_requests: Mutex<HashMap<u64, PendingRequest>>,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) limits: crate::CaptureLimits,
     pub(crate) strict_lifecycle: bool,
@@ -25,6 +25,7 @@ pub struct Tailtriage {
 
 #[derive(Debug, Clone)]
 struct PendingRequest {
+    request_id: String,
     route: String,
     kind: Option<String>,
     started_at_unix_ms: u64,
@@ -64,7 +65,7 @@ pub struct RequestHandle<'a> {
 #[derive(Debug)]
 pub struct RequestCompletion<'a> {
     tailtriage: &'a Tailtriage,
-    request_id: String,
+    pending_key: u64,
     finished: bool,
 }
 
@@ -119,14 +120,16 @@ impl Tailtriage {
         let request_id = options
             .request_id
             .unwrap_or_else(|| generate_request_id(&route));
+        let pending_key = PENDING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let kind = options.kind;
         let pending = PendingRequest {
+            request_id: request_id.clone(),
             route: route.clone(),
             kind: kind.clone(),
             started_at_unix_ms: unix_time_ms(),
             started: Instant::now(),
         };
-        lock_pending(&self.pending_requests).insert(request_id.clone(), pending);
+        lock_pending(&self.pending_requests).insert(pending_key, pending);
 
         StartedRequest {
             handle: RequestHandle {
@@ -137,7 +140,7 @@ impl Tailtriage {
             },
             completion: RequestCompletion {
                 tailtriage: self,
-                request_id,
+                pending_key,
                 finished: false,
             },
         }
@@ -158,11 +161,9 @@ impl Tailtriage {
         let mut pending_samples = Vec::new();
         let pending_count = {
             let pending = lock_pending(&self.pending_requests);
-            pending_samples.extend(pending.iter().take(5).map(|(request_id, req)| {
-                UnfinishedRequestSample {
-                    request_id: request_id.clone(),
-                    route: req.route.clone(),
-                }
+            pending_samples.extend(pending.values().take(5).map(|req| UnfinishedRequestSample {
+                request_id: req.request_id.clone(),
+                route: req.route.clone(),
             }));
             pending.len()
         };
@@ -340,7 +341,7 @@ impl RequestCompletion<'_> {
             return;
         }
 
-        let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.request_id);
+        let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             debug_assert!(
                 false,
@@ -352,7 +353,7 @@ impl RequestCompletion<'_> {
         self.finished = true;
 
         self.tailtriage.record_request_event(RequestEvent {
-            request_id: self.request_id.clone(),
+            request_id: pending.request_id,
             route: pending.route,
             kind: pending.kind,
             started_at_unix_ms: pending.started_at_unix_ms,
@@ -389,8 +390,8 @@ pub(crate) fn lock_map(
 }
 
 fn lock_pending(
-    map: &Mutex<HashMap<String, PendingRequest>>,
-) -> std::sync::MutexGuard<'_, HashMap<String, PendingRequest>> {
+    map: &Mutex<HashMap<u64, PendingRequest>>,
+) -> std::sync::MutexGuard<'_, HashMap<u64, PendingRequest>> {
     match map.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -415,3 +416,4 @@ fn generate_request_id(route: &str) -> String {
 }
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static PENDING_SEQUENCE: AtomicU64 = AtomicU64::new(0);

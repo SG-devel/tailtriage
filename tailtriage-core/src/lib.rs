@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-//! Core run schema and request-context instrumentation API for tailtriage.
+//! Core run schema and split request lifecycle instrumentation API for tailtriage.
 //!
 //! ```no_run
 //! use tailtriage_core::{RequestOptions, Tailtriage};

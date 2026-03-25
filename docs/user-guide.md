@@ -60,6 +60,8 @@ Terminal methods:
 
 `queue(...)`, `stage(...)`, and `inflight(...)` do not finish the request. `Drop` is only a debug-time misuse detector and does not record completion automatically.
 
+On `shutdown()`, tailtriage validates unfinished pending requests and surfaces lifecycle warnings plus unfinished request count/sample in run metadata. It does not invent completion timing. If you set `strict_lifecycle(true)`, `shutdown()` returns an error when unfinished requests remain.
+
 ## RuntimeSampler (optional stronger attribution)
 
 Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure.

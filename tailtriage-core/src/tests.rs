@@ -66,6 +66,27 @@ fn generated_request_ids_are_unique() {
 }
 
 #[test]
+fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-duplicate-explicit-id.json");
+    let first = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-duplicate"),
+    );
+    let second = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-duplicate"),
+    );
+
+    first.completion.finish_ok();
+    second.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_eq!(snapshot.requests[0].request_id, "req-duplicate");
+    assert_eq!(snapshot.requests[1].request_id, "req-duplicate");
+}
+
+#[test]
 fn queue_stage_and_inflight_are_recorded() {
     let tailtriage = build_for_test("payments", "tailtriage-core-timers.json");
     let started =
