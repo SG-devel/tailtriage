@@ -15,7 +15,7 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 Optional additional examples:
 
 ```bash
-cargo run -p tailtriage-tokio --example axum_minimal
+cargo run -p tailtriage-axum --example axum_minimal
 cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
 ```
@@ -151,8 +151,8 @@ Truthful finish semantics at the framework boundary:
 
 Example split:
 
-- `axum_minimal`: smallest framework starter with explicit manual lifecycle wiring
-- `axum_service_adoption`: larger service-shaped path using the adapter and multiple routes
+- `axum_minimal`: smallest framework starter in `tailtriage-axum` with explicit manual lifecycle wiring
+- `axum_service_adoption`: larger service-shaped path in `tailtriage-axum` using the adapter and multiple routes
 
 ## If report shows `insufficient_evidence`
 

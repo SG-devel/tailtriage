@@ -17,7 +17,7 @@ from pathlib import Path
 
 EXAMPLES = [
     ("tailtriage-tokio", "minimal_checkout"),
-    ("tailtriage-tokio", "axum_minimal"),
+    ("tailtriage-axum", "axum_minimal"),
     ("tailtriage-axum", "axum_service_adoption"),
     ("tailtriage-tokio", "mini_service_integration"),
 ]
