@@ -63,7 +63,7 @@ Three public examples to start with:
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-tokio --example axum_minimal
-cargo run -p tailtriage-tokio --example axum_service_adoption
+cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
 python3 scripts/smoke_public_examples.py
 ```

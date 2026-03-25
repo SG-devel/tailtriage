@@ -16,7 +16,7 @@ Optional additional examples:
 
 ```bash
 cargo run -p tailtriage-tokio --example axum_minimal
-cargo run -p tailtriage-tokio --example axum_service_adoption
+cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
 ```
 
@@ -117,10 +117,10 @@ Stable Tokio always captures `alive_tasks` and `global_queue_depth`. `local_queu
 
 ## Axum adapter surface (optional)
 
-`tailtriage-tokio` includes a narrow axum ergonomics layer for request-scoped triage:
+`tailtriage-axum` provides a narrow axum ergonomics layer for request-scoped triage:
 
-- middleware: `tailtriage_tokio::axum::middleware`
-- extractor: `tailtriage_tokio::axum::TailtriageRequest`
+- middleware: `tailtriage_axum::middleware`
+- extractor: `tailtriage_axum::TailtriageRequest`
 
 This layer reduces repeated handler boundary code (request start/finish + handle wiring). It is an adoption helper, not auto-instrumentation magic.
 
@@ -128,7 +128,7 @@ This layer reduces repeated handler boundary code (request start/finish + handle
 use std::sync::Arc;
 use axum::{extract::State, middleware::from_fn_with_state, routing::get, Router};
 use tailtriage_core::Tailtriage;
-use tailtriage_tokio::axum::TailtriageRequest;
+use tailtriage_axum::{middleware, TailtriageRequest};
 
 # async fn app(tailtriage: Arc<Tailtriage>) {
 async fn checkout(TailtriageRequest(req): TailtriageRequest, State(_): State<()>) {
@@ -137,7 +137,7 @@ async fn checkout(TailtriageRequest(req): TailtriageRequest, State(_): State<()>
 
 let app = Router::new()
     .route("/checkout", get(checkout))
-    .layer(from_fn_with_state(tailtriage, tailtriage_tokio::axum::middleware))
+    .layer(from_fn_with_state(tailtriage, middleware))
     .with_state(());
 # let _ = app;
 # }
@@ -166,6 +166,7 @@ Use this path only after crates are released. For launch-day public docs, Path A
 [dependencies]
 tailtriage-core = "0.1"
 tailtriage-tokio = "0.1"
+tailtriage-axum = "0.1" # optional, only for axum middleware/extractor ergonomics
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 

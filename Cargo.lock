@@ -1244,6 +1244,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tailtriage-axum"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tailtriage-core",
+ "tokio",
+]
+
+[[package]]
 name = "tailtriage-cli"
 version = "0.1.0"
 dependencies = [

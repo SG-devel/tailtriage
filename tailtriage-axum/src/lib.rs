@@ -1,6 +1,9 @@
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
 //! Axum adoption helpers layered on top of `tailtriage-core`.
 //!
-//! This module provides a focused middleware + extractor path so handlers can
+//! This crate provides a focused middleware + extractor path so handlers can
 //! access request instrumentation without repeating request start/finish wiring.
 
 use std::sync::Arc;
@@ -11,6 +14,12 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use tailtriage_core::{Outcome, OwnedRequestHandle, RequestOptions, Tailtriage};
+
+/// Returns the crate name for smoke-testing workspace wiring.
+#[must_use]
+pub const fn crate_name() -> &'static str {
+    "tailtriage-axum"
+}
 
 /// Middleware that starts and finishes one tailtriage request per axum request.
 ///
@@ -70,7 +79,7 @@ impl IntoResponse for TailtriageExtractorError {
     fn into_response(self) -> axum::response::Response {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "tailtriage extractor missing. Add tailtriage_tokio::axum::middleware.",
+            "tailtriage extractor missing. Add tailtriage_axum::middleware.",
         )
             .into_response()
     }
@@ -94,7 +103,12 @@ fn status_to_outcome(status: StatusCode) -> Outcome {
 
 #[cfg(test)]
 mod tests {
-    use super::status_to_outcome;
+    use super::{crate_name, status_to_outcome};
+
+    #[test]
+    fn crate_name_is_stable() {
+        assert_eq!(crate_name(), "tailtriage-axum");
+    }
 
     #[test]
     fn maps_server_errors_to_error_outcome() {
