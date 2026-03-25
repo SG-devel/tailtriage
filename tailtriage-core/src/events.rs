@@ -8,15 +8,22 @@ pub const SCHEMA_VERSION: u64 = 1;
 /// Logical request outcome categories used by the public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
+    /// Request completed successfully.
     Ok,
+    /// Request completed with an error.
     Error,
+    /// Request exceeded a timeout threshold.
     Timeout,
+    /// Request was cancelled before completion.
     Cancelled,
+    /// Request was rejected before normal execution.
     Rejected,
+    /// Caller-provided custom outcome label.
     Other(String),
 }
 
 impl Outcome {
+    /// Returns the canonical string label for this outcome.
     #[must_use]
     pub fn as_str(&self) -> &str {
         match self {
@@ -29,6 +36,7 @@ impl Outcome {
         }
     }
 
+    /// Converts this outcome into an owned string label.
     #[must_use]
     pub fn into_string(self) -> String {
         match self {
