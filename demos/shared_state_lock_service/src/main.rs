@@ -55,10 +55,11 @@ async fn main() -> anyhow::Result<()> {
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with(
+            let started = tailtriage.begin_request_with(
                 "/shared-state-lock-demo",
                 tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
             );
+            let request = started.handle.clone();
 
             {
                 let _inflight = request.inflight("shared_state_lock_inflight");
@@ -85,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .await;
             }
-            request.finish(tailtriage_core::Outcome::Ok);
+            started.completion.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {

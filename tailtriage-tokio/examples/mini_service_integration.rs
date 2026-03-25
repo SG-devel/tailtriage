@@ -10,7 +10,7 @@ struct CheckoutRequest {
 }
 
 async fn authorize_payment(
-    request: &tailtriage_core::RequestContext<'_>,
+    request: &tailtriage_core::RequestHandle<'_>,
 ) -> Result<(), &'static str> {
     request
         .stage("payment_authorization")
@@ -22,7 +22,7 @@ async fn authorize_payment(
 }
 
 async fn reserve_inventory(
-    request: &tailtriage_core::RequestContext<'_>,
+    request: &tailtriage_core::RequestHandle<'_>,
     cart_total_cents: u64,
 ) -> Result<(), &'static str> {
     let reserve_ms = if cart_total_cents > 700 { 9 } else { 4 };
@@ -39,12 +39,13 @@ async fn handle_checkout(
     tailtriage: Arc<Tailtriage>,
     request: CheckoutRequest,
 ) -> Result<(), &'static str> {
-    let request_ctx = tailtriage
-        .request_with(
-            "/checkout",
-            RequestOptions::new().request_id(request.request_id),
-        )
-        .with_kind("http");
+    let started = tailtriage.begin_request_with(
+        "/checkout",
+        RequestOptions::new()
+            .request_id(request.request_id)
+            .kind("http"),
+    );
+    let request_ctx = started.handle.clone();
 
     let result = async {
         let _inflight = request_ctx.inflight("checkout_inflight");
@@ -68,7 +69,7 @@ async fn handle_checkout(
     }
     .await;
 
-    request_ctx.finish_result(result)
+    started.completion.finish_result(result)
 }
 
 #[tokio::main(flavor = "current_thread")]

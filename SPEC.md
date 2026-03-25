@@ -62,12 +62,16 @@ let tailtriage = Tailtriage::builder("invoice-api")
     .build()?;
 ```
 
-### 5.2 Request-context instrumentation
+### 5.2 Split request lifecycle instrumentation
 
 ```rust
-let request = tailtriage
-    .request_with("/invoice", RequestOptions::new().request_id("req-123"))
-    .with_kind("create_invoice");
+let started = tailtriage.begin_request_with(
+    "/invoice",
+    RequestOptions::new()
+        .request_id("req-123")
+        .kind("create_invoice"),
+);
+let request = started.handle.clone();
 
 request
     .queue("invoice_worker")
@@ -79,27 +83,26 @@ request
     .await_on(customer_api.fetch())
     .await?;
 
-request.finish(tailtriage_core::Outcome::Ok);
+started.completion.finish(tailtriage_core::Outcome::Ok);
 ```
 
-Completion helpers on the same request-context model:
+Completion helpers on `RequestCompletion`:
 
 ```rust
-request.finish_ok();
-let result: Result<(), MyError> = request.finish_result(downstream_call().await);
+started.completion.finish_ok();
+let result: Result<(), MyError> = started.completion.finish_result(downstream_call().await);
 ```
 
 ### 5.2.1 Request lifecycle contract
 
-`RequestContext` starts a request lifecycle and instrumentation wrappers (`queue(...)`, `stage(...)`, `inflight(...)`) do not complete it.
+`Tailtriage::begin_request(...)` / `begin_request_with(...)` starts one lifecycle and returns a split `StartedRequest`.
 
-Every request context must call exactly one terminal method:
+- `started.handle` (`RequestHandle`) is instrumentation-only (`queue`, `stage`, `inflight`)
+- `started.completion` (`RequestCompletion`) is the only completion path (`finish`, `finish_ok`, `finish_result`)
 
-- `finish(...)`
-- `finish_ok()`
-- `finish_result(...)`
+`RequestCompletion` must be finished exactly once. If it is dropped unfinished, debug builds assert to surface misuse during development. This assertion is a development aid only: `Drop` does **not** infer an outcome and does **not** auto-record request completion.
 
-If a request context is dropped unfinished, debug builds assert to surface misuse during development. This assertion is a development aid only: `Drop` does **not** infer an outcome and does **not** auto-record request completion.
+At `shutdown()`, tailtriage validates unfinished pending requests and surfaces warnings/metadata; it does **not** fabricate completion timing. With `strict_lifecycle(true)`, `shutdown()` fails when unfinished requests remain.
 
 ### 5.3 In-flight tracking
 
