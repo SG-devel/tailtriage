@@ -213,6 +213,33 @@ fn finish_result_maps_result_to_request_outcome() {
     assert_eq!(snapshot.requests[1].outcome, "error");
 }
 
+#[test]
+fn owned_started_request_maps_result_to_request_outcome() {
+    let tailtriage = Arc::new(build_for_test(
+        "payments",
+        "tailtriage-core-owned-started.json",
+    ));
+
+    let ok_value = tailtriage
+        .begin_request_owned("/owned-result-ok")
+        .completion
+        .finish_result(Ok::<u8, &'static str>(9))
+        .expect("ok result should remain ok");
+    assert_eq!(ok_value, 9);
+
+    let err = tailtriage
+        .begin_request_owned("/owned-result-err")
+        .completion
+        .finish_result::<u8, _>(Err("boom"))
+        .expect_err("err result should remain err");
+    assert_eq!(err, "boom");
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_eq!(snapshot.requests[0].outcome, "ok");
+    assert_eq!(snapshot.requests[1].outcome, "error");
+}
+
 async fn stage_in_helper_layer(
     request: &crate::RequestHandle<'_>,
     stage_name: &str,

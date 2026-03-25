@@ -33,7 +33,10 @@ mod sink;
 mod time;
 mod timers;
 
-pub use collector::{RequestCompletion, RequestHandle, StartedRequest, Tailtriage};
+pub use collector::{
+    OwnedRequestCompletion, OwnedRequestHandle, OwnedStartedRequest, RequestCompletion,
+    RequestHandle, StartedRequest, Tailtriage,
+};
 pub use config::{BuildError, CaptureLimits, CaptureMode, RequestOptions, TailtriageBuilder};
 pub use events::{
     InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot,

@@ -16,6 +16,8 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+pub mod axum;
+
 /// Returns the crate name for smoke-testing workspace wiring.
 #[must_use]
 pub const fn crate_name() -> &'static str {

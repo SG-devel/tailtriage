@@ -18,6 +18,7 @@ from pathlib import Path
 EXAMPLES = [
     "minimal_checkout",
     "axum_minimal",
+    "axum_service_adoption",
     "mini_service_integration",
 ]
 
