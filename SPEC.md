@@ -66,7 +66,7 @@ let tailtriage = Tailtriage::builder("invoice-api")
 
 ```rust
 let request = tailtriage
-    .request_with("/invoice", RequestOptions::new().request_id("req-123"))
+    .begin_request_with("/invoice", RequestOptions::new().request_id("req-123"))
     .with_kind("create_invoice");
 
 request
@@ -91,7 +91,7 @@ let result: Result<(), MyError> = request.finish_result(downstream_call().await)
 
 ### 5.2.1 Request lifecycle contract
 
-`RequestContext` starts a request lifecycle and instrumentation wrappers (`queue(...)`, `stage(...)`, `inflight(...)`) do not complete it.
+`RequestHandle` starts a request lifecycle and instrumentation wrappers (`queue(...)`, `stage(...)`, `inflight(...)`) do not complete it.
 
 Every request context must call exactly one terminal method:
 

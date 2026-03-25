@@ -26,7 +26,7 @@ The project is split into three crates so service instrumentation, Tokio runtime
 
 - runtime sampling (`RuntimeSampler`)
 - runtime snapshot capture (`capture_runtime_snapshot`)
-- request context instrumentation via `Tailtriage::request(...)` and `RequestContext` helpers
+- request context instrumentation via `Tailtriage::begin_request(...)` and `RequestHandle` helpers
 
 Some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
 

@@ -3,7 +3,7 @@ use std::future::ready;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
-use crate::{BuildError, CaptureLimits, Outcome, RequestOptions, Tailtriage};
+use crate::{BuildError, CaptureLimits, Outcome, RequestOptions, SinkError, Tailtriage};
 
 #[derive(Debug, Default)]
 struct RecordingSink {
@@ -34,15 +34,19 @@ fn rejects_blank_service_name() {
 }
 
 #[test]
-fn request_context_records_request_event() {
+fn started_request_records_request_event() {
     let tailtriage = build_for_test("payments", "tailtriage-core-request.json");
-    let request = tailtriage
-        .request_with("/invoice", RequestOptions::new().request_id("req-42"))
+    let started = tailtriage
+        .begin_request_with(
+            "/invoice",
+            RequestOptions::new().request_id("req-42").kind("http"),
+        )
         .with_kind("http");
+    let request = started.handle;
     assert_eq!(request.route(), "/invoice");
     assert_eq!(request.kind(), Some("http"));
     futures_executor::block_on(request.stage("db").await_value(ready(())));
-    request.finish_ok();
+    started.completion.finish_ok();
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
@@ -56,24 +60,26 @@ fn request_context_records_request_event() {
 #[test]
 fn generated_request_ids_are_unique() {
     let tailtriage = build_for_test("payments", "tailtriage-core-generated-id.json");
-    let first = tailtriage.request("/invoice");
-    let second = tailtriage.request("/invoice");
-    assert_ne!(first.request_id(), second.request_id());
-    first.finish_ok();
-    second.finish_ok();
+    let first = tailtriage.begin_request("/invoice");
+    let second = tailtriage.begin_request("/invoice");
+    assert_ne!(first.handle.request_id(), second.handle.request_id());
+    first.completion.finish_ok();
+    second.completion.finish_ok();
 }
 
 #[test]
 fn queue_stage_and_inflight_are_recorded() {
     let tailtriage = build_for_test("payments", "tailtriage-core-timers.json");
-    let request = tailtriage.request_with("/invoice", RequestOptions::new().request_id("req-9"));
+    let started =
+        tailtriage.begin_request_with("/invoice", RequestOptions::new().request_id("req-9"));
+    let request = started.handle;
     {
         let _inflight = request.inflight("invoice_inflight");
         futures_executor::block_on(request.queue("permit").await_on(ready(())));
         let _: Result<(), ()> =
             futures_executor::block_on(request.stage("persist").await_on(ready(Ok(()))));
     }
-    request.finish_ok();
+    started.completion.finish_ok();
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.inflight.len(), 2);
@@ -89,8 +95,7 @@ fn shutdown_writes_artifact() {
         .build()
         .expect("build should succeed");
 
-    let request = tailtriage.request("/health");
-    request.finish_ok();
+    tailtriage.begin_request("/health").completion.finish_ok();
     tailtriage.shutdown().expect("shutdown should succeed");
 
     let bytes = std::fs::read(output).expect("artifact should exist");
@@ -113,18 +118,20 @@ fn capture_limits_apply_to_all_sections() {
         .build()
         .expect("build should succeed");
 
-    let first = tailtriage.request_with("/invoice", RequestOptions::new().request_id("req-1"));
-    futures_executor::block_on(first.stage("db").await_value(ready(())));
-    futures_executor::block_on(first.queue("q").await_on(ready(())));
+    let first =
+        tailtriage.begin_request_with("/invoice", RequestOptions::new().request_id("req-1"));
+    futures_executor::block_on(first.handle.stage("db").await_value(ready(())));
+    futures_executor::block_on(first.handle.queue("q").await_on(ready(())));
     {
-        let _guard = first.inflight("g");
+        let _guard = first.handle.inflight("g");
     }
-    first.finish_ok();
+    first.completion.finish_ok();
 
-    let second = tailtriage.request_with("/invoice", RequestOptions::new().request_id("req-2"));
-    futures_executor::block_on(second.stage("db").await_value(ready(())));
-    futures_executor::block_on(second.queue("q").await_on(ready(())));
-    second.finish_ok();
+    let second =
+        tailtriage.begin_request_with("/invoice", RequestOptions::new().request_id("req-2"));
+    futures_executor::block_on(second.handle.stage("db").await_value(ready(())));
+    futures_executor::block_on(second.handle.queue("q").await_on(ready(())));
+    second.completion.finish_ok();
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
         alive_tasks: Some(1),
@@ -153,18 +160,10 @@ fn capture_limits_apply_to_all_sections() {
 #[test]
 fn finish_records_outcome() {
     let tailtriage = build_for_test("payments", "tailtriage-core-finish.json");
-    tailtriage.request("/finish").finish(Outcome::Ok);
-
-    let snapshot = tailtriage.snapshot();
-    assert_eq!(snapshot.requests.len(), 1);
-    assert_eq!(snapshot.requests[0].outcome, "ok");
-}
-
-#[test]
-fn finish_ok_records_ok_outcome() {
-    let tailtriage = build_for_test("payments", "tailtriage-core-finish-ok.json");
-
-    tailtriage.request("/finish-ok").finish_ok();
+    tailtriage
+        .begin_request("/finish")
+        .completion
+        .finish(Outcome::Ok);
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
@@ -176,13 +175,15 @@ fn finish_result_maps_result_to_request_outcome() {
     let tailtriage = build_for_test("payments", "tailtriage-core-finish-result.json");
 
     let ok_value = tailtriage
-        .request("/finish-result-ok")
+        .begin_request("/finish-result-ok")
+        .completion
         .finish_result(Ok::<u8, &'static str>(3))
         .expect("ok result should remain ok");
     assert_eq!(ok_value, 3);
 
     let err = tailtriage
-        .request("/finish-result-err")
+        .begin_request("/finish-result-err")
+        .completion
         .finish_result::<u8, _>(Err("boom"))
         .expect_err("err result should remain err");
     assert_eq!(err, "boom");
@@ -194,7 +195,7 @@ fn finish_result_maps_result_to_request_outcome() {
 }
 
 async fn stage_in_helper_layer(
-    request: &crate::RequestContext<'_>,
+    request: &crate::RequestHandle<'_>,
     stage_name: &str,
 ) -> Result<(), &'static str> {
     request
@@ -204,26 +205,60 @@ async fn stage_in_helper_layer(
 }
 
 #[test]
-fn request_context_supports_fractured_code_usage() {
+fn request_handle_supports_fractured_code_usage() {
     let tailtriage = build_for_test("payments", "tailtriage-core-fractured.json");
-    let request = tailtriage
-        .request_with(
-            "/fractured",
-            RequestOptions::new().request_id("req-fractured"),
-        )
-        .with_kind("http");
+    let started = tailtriage.begin_request_with(
+        "/fractured",
+        RequestOptions::new()
+            .request_id("req-fractured")
+            .kind("http"),
+    );
+    let request = started.handle.clone();
 
     futures_executor::block_on(request.queue("q").await_on(ready(())));
     futures_executor::block_on(stage_in_helper_layer(&request, "layer_a"))
         .expect("helper stage should succeed");
     futures_executor::block_on(stage_in_helper_layer(&request, "layer_b"))
         .expect("helper stage should succeed");
-    request.finish_ok();
+    started.completion.finish_ok();
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.requests.len(), 1);
     assert_eq!(snapshot.stages.len(), 2);
     assert_eq!(snapshot.queues.len(), 1);
+}
+
+#[test]
+fn shutdown_warns_with_unfinished_requests() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-unfinished.json");
+    let started = tailtriage.begin_request("/unfinished");
+    std::mem::forget(started.completion);
+
+    tailtriage.shutdown().expect("shutdown should succeed");
+    let snapshot = tailtriage.snapshot();
+
+    assert_eq!(snapshot.requests.len(), 0);
+    assert_eq!(snapshot.metadata.unfinished_requests.count, 1);
+    assert_eq!(snapshot.metadata.unfinished_requests.sample.len(), 1);
+    assert!(!snapshot.metadata.lifecycle_warnings.is_empty());
+}
+
+#[test]
+fn strict_lifecycle_fails_shutdown_with_unfinished_requests() {
+    let tailtriage = Tailtriage::builder("payments")
+        .strict_lifecycle(true)
+        .build()
+        .expect("build should succeed");
+    let started = tailtriage.begin_request("/unfinished");
+    std::mem::forget(started.completion);
+
+    let error = tailtriage.shutdown().expect_err("strict mode should fail");
+    assert!(matches!(
+        error,
+        SinkError::Lifecycle {
+            unfinished_count: 1
+        }
+    ));
 }
 
 #[test]
@@ -234,7 +269,10 @@ fn custom_sink_receives_shutdown_run() {
         .build()
         .expect("build should succeed");
 
-    tailtriage.request("/sink-test").finish_ok();
+    tailtriage
+        .begin_request("/sink-test")
+        .completion
+        .finish_ok();
     tailtriage.shutdown().expect("shutdown should succeed");
 
     let stored = sink
@@ -248,10 +286,13 @@ fn custom_sink_receives_shutdown_run() {
 
 #[cfg(debug_assertions)]
 #[test]
-fn dropping_unfinished_request_panics_in_debug() {
+fn dropping_unfinished_completion_panics_in_debug() {
     let tailtriage = build_for_test("payments", "tailtriage-core-drop-unfinished.json");
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let _request = tailtriage.request("/unfinished");
+        let _started = tailtriage.begin_request("/unfinished");
     }));
-    assert!(result.is_err(), "unfinished request should panic in debug");
+    assert!(
+        result.is_err(),
+        "unfinished completion should panic in debug"
+    );
 }

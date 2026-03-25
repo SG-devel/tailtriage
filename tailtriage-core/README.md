@@ -1,6 +1,6 @@
 # tailtriage-core
 
-Core run schema, request-context lifecycle, and instrumentation primitives for `tailtriage`.
+Core run schema, split request lifecycle API, and instrumentation primitives for `tailtriage`.
 
 For the public repo launch, the primary path is workspace/source integration from this repository. Crates.io snippets below are post-publish guidance.
 
@@ -23,9 +23,9 @@ tailtriage-core = "0.1"
 ## What this crate owns
 
 - Run artifact schema (`RunArtifact`, requests, runtime snapshots)
-- Unified request-context model (`Tailtriage`, `RequestContext`)
+- Unified started-request model (`Tailtriage`, `StartedRequest`, `RequestHandle`, `RequestCompletion`)
 - Queue/stage/in-flight instrumentation primitives
-- Request lifecycle completion (`finish`, `finish_ok`, `finish_result`) and final artifact flush (`shutdown`)
+- Explicit completion token lifecycle (`finish`, `finish_ok`, `finish_result`) and final artifact flush (`shutdown`)
 
 ## Minimal usage
 
@@ -37,13 +37,14 @@ let tailtriage = Tailtriage::builder("checkout-service")
     .output("tailtriage-run.json")
     .build()?;
 
-let request = tailtriage
-    .request_with("/checkout", RequestOptions::new().request_id("req-1"))
+let started = tailtriage
+    .begin_request_with("/checkout", RequestOptions::new().request_id("req-1"))
     .with_kind("http");
+let request = started.handle.clone();
 
 request.queue("ingress").await_on(async {}).await;
 request.stage("db").await_on(async { Ok::<(), std::io::Error>(()) }).await?;
-request.finish_ok();
+started.completion.finish_ok();
 
 tailtriage.shutdown()?;
 # Ok(())

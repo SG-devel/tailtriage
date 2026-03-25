@@ -140,10 +140,15 @@ pub fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadErro
 
     validate_required_sections(&run, path)?;
 
-    Ok(LoadedArtifact {
-        run,
-        warnings: Vec::new(),
-    })
+    let mut warnings = run.metadata.lifecycle_warnings.clone();
+    if run.metadata.unfinished_requests.count > 0 {
+        warnings.push(format!(
+            "artifact recorded {} unfinished request(s) at shutdown",
+            run.metadata.unfinished_requests.count
+        ));
+    }
+
+    Ok(LoadedArtifact { run, warnings })
 }
 
 fn validate_schema_version(raw: &Value, path: &Path) -> Result<(), ArtifactLoadError> {
@@ -295,15 +300,32 @@ mod tests {
         assert!(message.contains("may be truncated"));
     }
 
+    #[test]
+    fn surfaces_unfinished_request_warnings() {
+        let dir = tempfile::tempdir().expect("tempdir should build");
+        let path = dir.path().join("with-warning.json");
+        std::fs::write(
+            &path,
+            r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":["x"],"unfinished_requests":{"count":1,"sample":[{"request_id":"req1","route":"/"}]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#,
+        )
+        .expect("fixture should write");
+
+        let artifact = load_run_artifact(&path).expect("load should succeed");
+        assert!(artifact
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("unfinished request")));
+    }
+
     fn valid_run_json_with_requests(requests_json: &str) -> String {
         format!(
-            "{{\"schema_version\":1,\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null}},\"requests\":{requests_json},\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
+            "{{\"schema_version\":1,\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null,\"lifecycle_warnings\":[],\"unfinished_requests\":{{\"count\":0,\"sample\":[]}}}},\"requests\":{requests_json},\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
         )
     }
 
     fn valid_run_json_with_prefix(prefix: &str) -> String {
         format!(
-            "{{{prefix}\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null}},\"requests\":[{{\"request_id\":\"req1\",\"route\":\"/\",\"kind\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"latency_us\":10,\"outcome\":\"ok\"}}],\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
+            "{{{prefix}\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null,\"lifecycle_warnings\":[],\"unfinished_requests\":{{\"count\":0,\"sample\":[]}}}},\"requests\":[{{\"request_id\":\"req1\",\"route\":\"/\",\"kind\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"latency_us\":10,\"outcome\":\"ok\"}}],\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
         )
     }
 }

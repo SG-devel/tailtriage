@@ -24,6 +24,8 @@ fn base_run() -> Run {
             mode: CaptureMode::Light,
             host: None,
             pid: Some(7),
+            lifecycle_warnings: Vec::new(),
+            unfinished_requests: tailtriage_core::UnfinishedRequests::default(),
         },
         requests: vec![
             RequestEvent {

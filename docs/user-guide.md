@@ -36,10 +36,10 @@ The p95 share fields are independent percentile summaries and are not expected t
 
 ## Request lifecycle correctness (required)
 
-Every `RequestContext` starts one lifecycle and must be finished **exactly once**.
+Every `RequestHandle` starts one lifecycle and must be finished **exactly once**.
 
 ```rust
-let request = tailtriage.request("/checkout").with_kind("http");
+let request = tailtriage.begin_request("/checkout").with_kind("http");
 
 // queue/stage/inflight instrumentation here
 
