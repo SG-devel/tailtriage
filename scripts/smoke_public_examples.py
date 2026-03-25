@@ -16,10 +16,10 @@ import tempfile
 from pathlib import Path
 
 EXAMPLES = [
-    "minimal_checkout",
-    "axum_minimal",
-    "axum_service_adoption",
-    "mini_service_integration",
+    ("tailtriage-tokio", "minimal_checkout"),
+    ("tailtriage-axum", "axum_minimal"),
+    ("tailtriage-axum", "axum_service_adoption"),
+    ("tailtriage-tokio", "mini_service_integration"),
 ]
 
 EXPECTED_RUN_TOP_LEVEL_KEYS = {
@@ -63,11 +63,11 @@ def assert_keys(payload: dict, expected: set[str], *, context: str) -> None:
         raise SystemExit(f"{context} missing top-level keys: {missing_list}")
 
 
-def validate_example(name: str) -> None:
+def validate_example(package: str, name: str) -> None:
     root = repo_root()
-    print(f"==> validating example: {name}")
+    print(f"==> validating example: {package}::{name}")
 
-    with tempfile.TemporaryDirectory(prefix=f"tailtriage-example-smoke-{name}-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix=f"tailtriage-example-smoke-{package}-{name}-") as temp_dir:
         working_dir = Path(temp_dir)
         artifact_path = working_dir / "tailtriage-run.json"
 
@@ -77,7 +77,7 @@ def validate_example(name: str) -> None:
                 "run",
                 "--quiet",
                 "--manifest-path",
-                str(root / "tailtriage-tokio/Cargo.toml"),
+                str(root / package / "Cargo.toml"),
                 "--example",
                 name,
             ],
@@ -130,8 +130,8 @@ def validate_example(name: str) -> None:
 
 def main() -> None:
     print("Smoke-validating launch-critical public examples...")
-    for name in EXAMPLES:
-        validate_example(name)
+    for package, name in EXAMPLES:
+        validate_example(package, name)
     print("All launch-critical public examples passed smoke validation.")
 
 
