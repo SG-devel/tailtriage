@@ -1,17 +1,18 @@
 # Architecture (MVP)
 
-`tailtriage` is a file-based triage pipeline over one instrumented run.
+`tailtriage` is a file-based triage pipeline over one instrumented run plus optional runtime/framework adapters.
 
-## Why three crates
+## Why focused crates
 
-The project is split into three crates so service instrumentation, Tokio runtime enrichment, and artifact diagnosis can evolve independently while staying on one shared run schema.
+The project is split into focused crates so service instrumentation, Tokio runtime enrichment, framework adapters, and artifact diagnosis can evolve independently while staying on one shared run schema.
 
 ## Flow
 
 1. Service code records request/queue/stage/in-flight signals via `tailtriage-core`.
 2. Optional runtime snapshots are collected by `tailtriage-tokio`.
-3. `tailtriage-core` writes one JSON run artifact (`Run`).
-4. `tailtriage-cli` ranks suspects from that artifact.
+3. Optional framework boundary helpers are provided by adapter crates such as `tailtriage-axum`.
+4. `tailtriage-core` writes one JSON run artifact (`Run`).
+5. `tailtriage-cli` ranks suspects from that artifact.
 
 ## Crate responsibilities
 
@@ -33,6 +34,12 @@ The project is split into three crates so service instrumentation, Tokio runtime
 - `RequestCompletion` is explicit finish-only
 
 Some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
+
+### `tailtriage-axum`
+
+- optional axum adapter middleware (`middleware`)
+- optional axum request extractor (`TailtriageRequest`)
+- framework-boundary request start/finish wiring with explicit handler instrumentation preserved
 
 ### `tailtriage-cli`
 

@@ -7,8 +7,8 @@ use axum::http::StatusCode;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 use axum::Router;
+use tailtriage_axum::TailtriageRequest;
 use tailtriage_core::Tailtriage;
-use tailtriage_tokio::axum::TailtriageRequest;
 use tokio::sync::{oneshot, Semaphore};
 
 #[derive(Clone)]
@@ -57,7 +57,7 @@ async fn middleware_injects_request_handle_and_finishes_from_response_status() {
         .route("/fail", get(failure_handler))
         .layer(from_fn_with_state(
             Arc::clone(&tailtriage),
-            tailtriage_tokio::axum::middleware,
+            tailtriage_axum::middleware,
         ))
         .with_state(app_state);
 

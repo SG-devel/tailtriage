@@ -2,6 +2,7 @@
 members = [
   "tailtriage-core",
   "tailtriage-tokio",
+  "tailtriage-axum",
   "tailtriage-cli",
   "demos/demo_support",
   "demos/queue_service",

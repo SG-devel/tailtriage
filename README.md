@@ -53,17 +53,17 @@ The two p95 share fields are independent percentiles and are not expected to sum
 
 ## Examples
 
-Three public examples to start with:
+Four public examples to start with:
 
 - `minimal_checkout` — fastest capture→analyze loop
-- `axum_minimal` — smallest axum framework starter
+- `axum_minimal` — smallest axum framework starter (adapter crate)
 - `axum_service_adoption` — service-shaped axum adoption example using the adapter surface
 - `mini_service_integration` — helper-layer/fractured-code instrumentation shape
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
-cargo run -p tailtriage-tokio --example axum_minimal
-cargo run -p tailtriage-tokio --example axum_service_adoption
+cargo run -p tailtriage-axum --example axum_minimal
+cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
 python3 scripts/smoke_public_examples.py
 ```
