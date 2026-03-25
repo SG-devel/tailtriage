@@ -41,16 +41,23 @@ let started = tailtriage.begin_request_with(
     "/checkout",
     RequestOptions::new().request_id("req-1").kind("http"),
 );
-let request = started.handle.clone();
+let req = started.handle.clone();
 
-request.queue("ingress").await_on(async {}).await;
-request.stage("db").await_on(async { Ok::<(), std::io::Error>(()) }).await?;
+req.queue("ingress").await_on(async {}).await;
+req.stage("db").await_on(async { Ok::<(), std::io::Error>(()) }).await?;
 started.completion.finish_ok();
 
 tailtriage.shutdown()?;
 # Ok(())
 # }
 ```
+
+## Shutdown semantics
+
+- `shutdown()` does **not** auto-finish requests.
+- `shutdown()` does **not** fabricate timings or outcomes.
+- unfinished requests are surfaced in run metadata warnings and unfinished-request samples.
+- `strict_lifecycle(true)` makes `shutdown()` return an error when unfinished requests remain.
 
 ## Related docs
 

@@ -19,7 +19,9 @@ The project is split into three crates so service instrumentation, Tokio runtime
 
 - run schema (`Run`, metadata, events, snapshots)
 - collection lifecycle (`Tailtriage::builder(...).build`, `shutdown`, `snapshot`)
-- instrumentation wrappers (`request`, `queue`, `stage`, `inflight`)
+- split request lifecycle API (`begin_request`/`begin_request_with` returning `StartedRequest`)
+- instrumentation wrappers on `RequestHandle` (`queue`, `stage`, `inflight`)
+- completion wrappers on `RequestCompletion` (`finish`, `finish_ok`, `finish_result`)
 - local JSON sink (`LocalJsonSink`)
 
 ### `tailtriage-tokio`
@@ -44,3 +46,5 @@ The CLI consumes run artifacts and does not need to be embedded into your servic
 - Input: one local `Run` JSON artifact.
 - Output: ranked suspects with evidence and next checks.
 - Non-claim: proven root cause.
+
+`shutdown()` does not auto-finish requests or fabricate request outcomes/timings; unfinished lifecycle state is surfaced in run metadata warnings, and strict lifecycle mode can fail shutdown.

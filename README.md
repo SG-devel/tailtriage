@@ -43,6 +43,36 @@ Start with:
 
 The two p95 share fields are independent percentiles and are not expected to sum to `1000`.
 
+## Canonical request lifecycle shape
+
+`tailtriage` uses one split lifecycle model:
+
+- start with `begin_request(...)` / `begin_request_with(...)` to get `StartedRequest`
+- instrument with `started.handle` (`RequestHandle`)
+- complete exactly once with `started.completion` (`RequestCompletion`)
+
+```rust
+let started = tailtriage.begin_request_with(
+    "/checkout",
+    RequestOptions::new().request_id("req-1").kind("http"),
+);
+let req = started.handle.clone();
+
+helper_a(&req).await?;
+helper_b(&req).await?;
+
+started.completion.finish_ok();
+```
+
+Only `RequestCompletion` records final completion. `RequestHandle` is instrumentation-only.
+
+## Shutdown lifecycle semantics
+
+- `shutdown()` does **not** auto-finish requests.
+- `shutdown()` does **not** fabricate timings or outcomes.
+- unfinished requests are surfaced in run metadata warnings and unfinished-request samples.
+- `strict_lifecycle(true)` makes `shutdown()` fail when unfinished requests remain.
+
 ## Examples
 
 Three public examples to start with:
