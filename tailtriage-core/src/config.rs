@@ -189,7 +189,7 @@ impl TailtriageBuilder {
     }
 }
 
-/// Optional request start settings used by [`crate::Tailtriage::request_with`].
+/// Optional request start settings used by [`crate::Tailtriage::begin_request_with`].
 ///
 /// When `request_id` is not provided, a request ID is generated automatically.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{extract::State, http::StatusCode, routing::get, Router};
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{RequestOptions, Tailtriage};
 use tokio::sync::{oneshot, Semaphore};
 
 #[derive(Clone)]
@@ -16,8 +16,7 @@ struct AppState {
 async fn checkout_handler(State(state): State<AppState>) -> StatusCode {
     let started = state
         .tailtriage
-        .begin_request("/checkout")
-        .with_kind("http");
+        .begin_request_with("/checkout", RequestOptions::new().kind("http"));
     let request = started.handle.clone();
 
     let result = async {

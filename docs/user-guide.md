@@ -36,14 +36,20 @@ The p95 share fields are independent percentile summaries and are not expected t
 
 ## Request lifecycle correctness (required)
 
-Every `RequestHandle` starts one lifecycle and must be finished **exactly once**.
+Every request lifecycle starts as a `StartedRequest` and must be finished **exactly once** through its `RequestCompletion`.
 
 ```rust
-let request = tailtriage.begin_request("/checkout").with_kind("http");
+use tailtriage_core::RequestOptions;
+
+let started = tailtriage.begin_request_with(
+    "/checkout",
+    RequestOptions::new().kind("http"),
+);
+let request = started.handle.clone();
 
 // queue/stage/inflight instrumentation here
 
-request.finish_ok();
+started.completion.finish_ok();
 ```
 
 Terminal methods:
@@ -52,7 +58,7 @@ Terminal methods:
 - `finish_ok()`
 - `finish_result(...)`
 
-`queue(...)`, `stage(...)`, and `inflight(...)` do not finish the request. `Drop` is only a debug-time misuse detector and does not record completion automatically.
+`queue(...)`, `stage(...)`, and `inflight(...)` on `RequestHandle` do not finish the request. `Drop` is only a debug-time misuse detector and does not record completion automatically.
 
 ## RuntimeSampler (optional stronger attribution)
 

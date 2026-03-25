@@ -39,12 +39,12 @@ async fn handle_checkout(
     tailtriage: Arc<Tailtriage>,
     request: CheckoutRequest,
 ) -> Result<(), &'static str> {
-    let started = tailtriage
-        .begin_request_with(
-            "/checkout",
-            RequestOptions::new().request_id(request.request_id),
-        )
-        .with_kind("http");
+    let started = tailtriage.begin_request_with(
+        "/checkout",
+        RequestOptions::new()
+            .request_id(request.request_id)
+            .kind("http"),
+    );
     let request_ctx = started.handle.clone();
 
     let result = async {

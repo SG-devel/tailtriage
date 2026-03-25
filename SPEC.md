@@ -62,12 +62,16 @@ let tailtriage = Tailtriage::builder("invoice-api")
     .build()?;
 ```
 
-### 5.2 Request-context instrumentation
+### 5.2 Split request lifecycle instrumentation
 
 ```rust
-let request = tailtriage
-    .begin_request_with("/invoice", RequestOptions::new().request_id("req-123"))
-    .with_kind("create_invoice");
+let started = tailtriage.begin_request_with(
+    "/invoice",
+    RequestOptions::new()
+        .request_id("req-123")
+        .kind("create_invoice"),
+);
+let request = started.handle.clone();
 
 request
     .queue("invoice_worker")
@@ -79,14 +83,14 @@ request
     .await_on(customer_api.fetch())
     .await?;
 
-request.finish(tailtriage_core::Outcome::Ok);
+started.completion.finish(tailtriage_core::Outcome::Ok);
 ```
 
-Completion helpers on the same request-context model:
+Completion helpers on `RequestCompletion`:
 
 ```rust
-request.finish_ok();
-let result: Result<(), MyError> = request.finish_result(downstream_call().await);
+started.completion.finish_ok();
+let result: Result<(), MyError> = started.completion.finish_result(downstream_call().await);
 ```
 
 ### 5.2.1 Request lifecycle contract

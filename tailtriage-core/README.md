@@ -37,9 +37,10 @@ let tailtriage = Tailtriage::builder("checkout-service")
     .output("tailtriage-run.json")
     .build()?;
 
-let started = tailtriage
-    .begin_request_with("/checkout", RequestOptions::new().request_id("req-1"))
-    .with_kind("http");
+let started = tailtriage.begin_request_with(
+    "/checkout",
+    RequestOptions::new().request_id("req-1").kind("http"),
+);
 let request = started.handle.clone();
 
 request.queue("ingress").await_on(async {}).await;

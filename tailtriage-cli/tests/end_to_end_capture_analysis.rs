@@ -21,12 +21,13 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
 
     for index in 0..30 {
         let request_id = format!("req-{index}");
-        let request = tailtriage
-            .request_with(
-                "/checkout",
-                tailtriage_core::RequestOptions::new().request_id(request_id),
-            )
-            .with_kind("http");
+        let started = tailtriage.begin_request_with(
+            "/checkout",
+            tailtriage_core::RequestOptions::new()
+                .request_id(request_id)
+                .kind("http"),
+        );
+        let request = started.handle.clone();
 
         request
             .queue("ingress")
@@ -37,7 +38,7 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
             .stage("local_work")
             .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
             .await;
-        request.finish(tailtriage_core::Outcome::Ok);
+        started.completion.finish(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");
@@ -59,12 +60,13 @@ async fn downstream_heavy_stage_is_ranked() {
         .expect("build should succeed");
 
     for index in 0..36 {
-        let request = tailtriage
-            .request_with(
-                "/invoice",
-                tailtriage_core::RequestOptions::new().request_id(format!("req-{index}")),
-            )
-            .with_kind("http");
+        let started = tailtriage.begin_request_with(
+            "/invoice",
+            tailtriage_core::RequestOptions::new()
+                .request_id(format!("req-{index}"))
+                .kind("http"),
+        );
+        let request = started.handle.clone();
         request
             .queue("ingress")
             .with_depth_at_start(1)
@@ -82,7 +84,7 @@ async fn downstream_heavy_stage_is_ranked() {
             .stage("render_response")
             .await_value(tokio::time::sleep(std::time::Duration::from_millis(2)))
             .await;
-        request.finish(tailtriage_core::Outcome::Ok);
+        started.completion.finish(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");
@@ -104,12 +106,12 @@ async fn low_evidence_run_yields_insufficient_signal() {
         .expect("build should succeed");
 
     for index in 0..3 {
-        let request = tailtriage.request_with(
+        let started = tailtriage.begin_request_with(
             "/health",
             tailtriage_core::RequestOptions::new().request_id(format!("insufficient-{index}")),
         );
         tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-        request.finish(tailtriage_core::Outcome::Ok);
+        started.completion.finish(tailtriage_core::Outcome::Ok);
     }
 
     tailtriage.shutdown().expect("shutdown should succeed");
