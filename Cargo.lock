@@ -1282,7 +1282,6 @@ dependencies = [
 name = "tailtriage-tokio"
 version = "0.1.0"
 dependencies = [
- "axum",
  "reqwest",
  "serde",
  "serde_json",

@@ -8,8 +8,6 @@ For the public repo launch, use workspace/source integration first. Crates.io de
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
-cargo run -p tailtriage-tokio --example axum_minimal
-cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
@@ -84,9 +82,8 @@ tailtriage.shutdown()?;
 - Core crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-core>
 - CLI crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-cli>
 
-## Axum examples and adapter fit
+## Axum adapter crate
 
-- `axum_minimal`: smallest framework starter with explicit start/finish wiring
-- `axum_service_adoption`: larger service-shaped example in `tailtriage-axum` using middleware + extractor adapter helpers
+Axum adoption helpers and axum examples live in `tailtriage-axum`.
 
 The adapter is an ergonomics layer over core primitives. It does not claim production-hardening or zero-instrumentation auto-diagnosis.

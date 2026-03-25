@@ -7,6 +7,7 @@ This crate isolates framework-specific middleware and extractor ergonomics so `t
 ## Use from this repo now
 
 ```bash
+cargo run -p tailtriage-axum --example axum_minimal
 cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
