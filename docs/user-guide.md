@@ -43,6 +43,12 @@ use tailtriage_core::RequestOptions;
 
 let started = tailtriage.begin_request_with(
     "/checkout",
+    RequestOptions::new().kind("http"),
+);
+let request = started.handle.clone();
+
+let started = tailtriage.begin_request_with(
+    "/checkout",
     RequestOptions::new().request_id("req-1").kind("http"),
 );
 let req = started.handle.clone();
