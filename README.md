@@ -53,7 +53,7 @@ The two p95 share fields are independent percentiles and are not expected to sum
 
 ## Examples
 
-Three public examples to start with:
+Four public examples to start with:
 
 - `minimal_checkout` — fastest capture→analyze loop
 - `axum_minimal` — smallest axum framework starter (adapter crate)
