@@ -34,15 +34,6 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 - Use `evidence[]` to choose one targeted experiment.
 - Re-run and compare p95 shares plus suspect evidence.
 
-## Request lifecycle shape (public API)
-
-`Tailtriage::begin_request(...)` / `begin_request_with(...)` returns `StartedRequest { handle, completion }`:
-
-- `started.handle` (`RequestHandle`) is instrumentation-only (`queue`, `stage`, `inflight`)
-- `started.completion` (`RequestCompletion`) is the only finish path (`finish`, `finish_ok`, `finish_result`)
-
-`shutdown()` validates unfinished pending requests and records warnings/metadata. It does not fabricate completion timing. With `strict_lifecycle(true)`, `shutdown()` fails when unfinished requests remain.
-
 ## Examples
 
 Four public examples to start with:
@@ -60,23 +51,9 @@ cargo run -p tailtriage-tokio --example mini_service_integration
 python3 scripts/smoke_public_examples.py
 ```
 
-## Demos: strongest proof vs synthetic surface
+## Demos
 
-The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality proof.
-
-| Scenario      | Expected baseline primary suspect | Required supporting signal                               |
-| ------------- | --------------------------------- | -------------------------------------------------------- |
-| `queue`       | `application_queue_saturation`    | Queue evidence on primary suspect                        |
-| `downstream`  | `downstream_stage_dominates`      | Stage-dominance evidence on primary suspect              |
-| `db-pool`     | `application_queue_saturation`    | Queue pressure on DB admission path                      |
-| `shared-lock` | `application_queue_saturation`    | Queue wait/depth evidence from lock contention           |
-| `retry-storm` | `downstream_stage_dominates`      | Elevated service-share evidence from retry-heavy stage   |
-| `mixed`       | `application_queue_saturation`    | Downstream suspect also appears as secondary             |
-| `blocking`    | `blocking_pool_pressure`          | Blocking queue depth evidence remains visible            |
-| `cold-start`  | `application_queue_saturation`    | Evidence mentions `cold_start_stage` and/or queue impact |
-| `executor`    | `executor_pressure_suspected`     | Runtime snapshot pressure + executor suspect score       |
-
-If you only run three demos, run the three strongest public proof demos:
+The nine demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality proof. If you only run three demos, run the three strongest public proof demos:
 
 ```bash
 python3 scripts/demo_tool.py validate queue
@@ -85,6 +62,8 @@ python3 scripts/demo_tool.py validate db-pool
 ```
 
 Use before/after comparisons as a reproducible mitigation confirmation loop, not causal proof.
+
+Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 
 ## What this is not
 
@@ -102,6 +81,15 @@ Those tools are complementary building blocks. `tailtriage` is the triage layer 
 ## RuntimeSampler note (short)
 
 `RuntimeSampler` works on stable Tokio, but some runtime fields (`local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`) require `tokio_unstable`. See [`docs/user-guide.md`](docs/user-guide.md) for details.
+
+## Request lifecycle shape (public API)
+
+`Tailtriage::begin_request(...)` / `begin_request_with(...)` returns `StartedRequest { handle, completion }`:
+
+- `started.handle` (`RequestHandle`) is instrumentation-only (`queue`, `stage`, `inflight`)
+- `started.completion` (`RequestCompletion`) is the only finish path (`finish`, `finish_ok`, `finish_result`)
+
+`shutdown()` validates unfinished pending requests and records warnings/metadata. It does not fabricate completion timing. With `strict_lifecycle(true)`, `shutdown()` fails when unfinished requests remain.
 
 ## Current public status
 
