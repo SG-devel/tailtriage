@@ -16,6 +16,7 @@ Optional additional examples:
 
 ```bash
 cargo run -p tailtriage-tokio --example axum_minimal
+cargo run -p tailtriage-tokio --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
 ```
 
@@ -113,6 +114,45 @@ Always call both shutdowns:
 - `tailtriage.shutdown()?`
 
 Stable Tokio always captures `alive_tasks` and `global_queue_depth`. `local_queue_depth`, `blocking_queue_depth`, and `remote_schedule_count` require `tokio_unstable`.
+
+## Axum adapter surface (optional)
+
+`tailtriage-tokio` includes a narrow axum ergonomics layer for request-scoped triage:
+
+- middleware: `tailtriage_tokio::axum::middleware`
+- extractor: `tailtriage_tokio::axum::TailtriageRequest`
+
+This layer reduces repeated handler boundary code (request start/finish + handle wiring). It is an adoption helper, not auto-instrumentation magic.
+
+```rust,no_run
+use std::sync::Arc;
+use axum::{extract::State, middleware::from_fn_with_state, routing::get, Router};
+use tailtriage_core::Tailtriage;
+use tailtriage_tokio::axum::TailtriageRequest;
+
+# async fn app(tailtriage: Arc<Tailtriage>) {
+async fn checkout(TailtriageRequest(req): TailtriageRequest, State(_): State<()>) {
+    let _: Result<(), ()> = req.stage("inventory_lookup").await_on(async { Ok(()) }).await;
+}
+
+let app = Router::new()
+    .route("/checkout", get(checkout))
+    .layer(from_fn_with_state(tailtriage, tailtriage_tokio::axum::middleware))
+    .with_state(());
+# let _ = app;
+# }
+```
+
+Truthful finish semantics at the framework boundary:
+
+- middleware starts one request per incoming axum request
+- middleware finishes with `Outcome::Ok` for non-5xx responses and `Outcome::Error` for 5xx responses
+- queue/stage/inflight instrumentation remains explicit in handlers/helpers via `TailtriageRequest`
+
+Example split:
+
+- `axum_minimal`: smallest framework starter with explicit manual lifecycle wiring
+- `axum_service_adoption`: larger service-shaped path using the adapter and multiple routes
 
 ## If report shows `insufficient_evidence`
 

@@ -114,6 +114,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Wrote {artifact_path}");
     println!("This axum example is a framework adoption starter, not a production case study.");
+    println!("For a larger service-shaped example, run:");
+    println!("  cargo run -p tailtriage-tokio --example axum_service_adoption");
     println!("Next step:");
     println!("  cargo run -p tailtriage-cli -- analyze {artifact_path} --format json");
 
