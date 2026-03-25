@@ -19,14 +19,18 @@ The project is split into three crates so service instrumentation, Tokio runtime
 
 - run schema (`Run`, metadata, events, snapshots)
 - collection lifecycle (`Tailtriage::builder(...).build`, `shutdown`, `snapshot`)
-- split request lifecycle API (`begin_request`, `RequestHandle`, `RequestCompletion`) plus instrumentation wrappers (`queue`, `stage`, `inflight`)
+- split request lifecycle API (`begin_request` / `begin_request_with` returning `StartedRequest { handle, completion }`)
+- instrumentation wrappers on `RequestHandle` (`queue`, `stage`, `inflight`)
+- completion wrappers on `RequestCompletion` (`finish`, `finish_ok`, `finish_result`)
 - local JSON sink (`LocalJsonSink`)
 
 ### `tailtriage-tokio`
 
 - runtime sampling (`RuntimeSampler`)
 - runtime snapshot capture (`capture_runtime_snapshot`)
-- request lifecycle starts via `Tailtriage::begin_request(...)`; `RequestHandle` is instrumentation-only and `RequestCompletion` is finish-only
+- request lifecycle starts via `Tailtriage::begin_request(...)` / `begin_request_with(...)`
+- `RequestHandle` is instrumentation-only
+- `RequestCompletion` is explicit finish-only
 
 Some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
 
@@ -38,6 +42,8 @@ Some runtime metrics require `tokio_unstable`; unavailable fields are recorded a
 - render text or JSON report
 
 The CLI consumes run artifacts and does not need to be embedded into your service.
+
+`shutdown()` does not auto-finish requests or fabricate request outcomes/timings. Unfinished pending requests are surfaced in run metadata warnings, and `strict_lifecycle(true)` can make `shutdown()` fail.
 
 ## Contract boundary
 
