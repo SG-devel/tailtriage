@@ -23,6 +23,17 @@ tailtriage-tokio = "0.1"
 
 - `RuntimeSampler` for periodic Tokio runtime snapshots
 - Runtime evidence enrichment on the same run artifact used for request instrumentation
+- Works with the split lifecycle model from `tailtriage-core` (`StartedRequest`, `RequestHandle`, `RequestCompletion`)
+
+## Split lifecycle reminder
+
+Request lifecycle ownership stays in `tailtriage-core`:
+
+- start with `begin_request` / `begin_request_with`
+- instrument via `started.handle`
+- finish once via `started.completion`
+
+`shutdown()` does not auto-finish pending requests. Unfinished requests are surfaced in run metadata, and strict lifecycle mode can fail shutdown.
 
 ## `RuntimeSampler` metric availability
 

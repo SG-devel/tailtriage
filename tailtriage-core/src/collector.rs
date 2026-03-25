@@ -17,7 +17,7 @@ use crate::{
 pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
-    pending_requests: Mutex<HashMap<String, PendingRequest>>,
+    pending_requests: Mutex<HashMap<u64, PendingRequest>>,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) limits: crate::CaptureLimits,
     pub(crate) strict_lifecycle: bool,
@@ -25,6 +25,7 @@ pub struct Tailtriage {
 
 #[derive(Debug, Clone)]
 struct PendingRequest {
+    request_id: String,
     route: String,
     kind: Option<String>,
     started_at_unix_ms: u64,
@@ -65,6 +66,7 @@ pub struct RequestHandle<'a> {
 pub struct RequestCompletion<'a> {
     tailtriage: &'a Tailtriage,
     request_id: String,
+    pending_key: u64,
     finished: bool,
 }
 
@@ -120,13 +122,15 @@ impl Tailtriage {
             .request_id
             .unwrap_or_else(|| generate_request_id(&route));
         let kind = options.kind;
+        let pending_key = PENDING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let pending = PendingRequest {
+            request_id: request_id.clone(),
             route: route.clone(),
             kind: kind.clone(),
             started_at_unix_ms: unix_time_ms(),
             started: Instant::now(),
         };
-        lock_pending(&self.pending_requests).insert(request_id.clone(), pending);
+        lock_pending(&self.pending_requests).insert(pending_key, pending);
 
         StartedRequest {
             handle: RequestHandle {
@@ -138,23 +142,10 @@ impl Tailtriage {
             completion: RequestCompletion {
                 tailtriage: self,
                 request_id,
+                pending_key,
                 finished: false,
             },
         }
-    }
-
-    /// Back-compat alias for `begin_request`.
-    pub fn request(&self, route: impl Into<String>) -> StartedRequest<'_> {
-        self.begin_request(route)
-    }
-
-    /// Back-compat alias for `begin_request_with`.
-    pub fn request_with(
-        &self,
-        route: impl Into<String>,
-        options: RequestOptions,
-    ) -> StartedRequest<'_> {
-        self.begin_request_with(route, options)
     }
 
     /// Returns a clone of the current in-memory run state.
@@ -172,9 +163,9 @@ impl Tailtriage {
         let mut pending_samples = Vec::new();
         let pending_count = {
             let pending = lock_pending(&self.pending_requests);
-            pending_samples.extend(pending.iter().take(5).map(|(request_id, req)| {
+            pending_samples.extend(pending.iter().take(5).map(|(_, req)| {
                 UnfinishedRequestSample {
-                    request_id: request_id.clone(),
+                    request_id: req.request_id.clone(),
                     route: req.route.clone(),
                 }
             }));
@@ -271,76 +262,6 @@ impl Tailtriage {
     }
 }
 
-impl StartedRequest<'_> {
-    /// Sets an optional semantic kind for this request (for example `http` or `job`).
-    pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
-        let kind = Some(kind.into());
-        self.handle.kind.clone_from(&kind);
-        if let Some(pending) =
-            lock_pending(&self.handle.tailtriage.pending_requests).get_mut(&self.handle.request_id)
-        {
-            pending.kind = kind;
-        }
-        self
-    }
-
-    /// Returns the stable request ID for this request lifecycle.
-    #[must_use]
-    pub fn request_id(&self) -> &str {
-        self.handle.request_id()
-    }
-
-    /// Returns the route or operation name associated with this request.
-    #[must_use]
-    pub fn route(&self) -> &str {
-        self.handle.route()
-    }
-
-    /// Returns the optional semantic request kind.
-    #[must_use]
-    pub fn kind(&self) -> Option<&str> {
-        self.handle.kind()
-    }
-
-    /// Starts queue-wait timing instrumentation for `queue`.
-    #[must_use]
-    pub fn queue(&self, queue: impl Into<String>) -> QueueTimer<'_> {
-        self.handle.queue(queue)
-    }
-
-    /// Starts stage timing instrumentation for `stage`.
-    #[must_use]
-    pub fn stage(&self, stage: impl Into<String>) -> StageTimer<'_> {
-        self.handle.stage(stage)
-    }
-
-    /// Increments in-flight gauge tracking for `gauge` until the returned guard drops.
-    #[must_use]
-    pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
-        self.handle.inflight(gauge)
-    }
-
-    /// Finishes this request with an explicit [`Outcome`].
-    pub fn finish(self, outcome: Outcome) {
-        self.completion.finish(outcome);
-    }
-
-    /// Convenience helper for successfully completed requests.
-    pub fn finish_ok(self) {
-        self.completion.finish_ok();
-    }
-
-    /// Finishes this request from `result` and returns `result` unchanged.
-    ///
-    /// # Errors
-    ///
-    /// This method does not create new errors. It returns `result` unchanged,
-    /// including the original `Err(E)` value.
-    pub fn finish_result<T, E>(self, result: Result<T, E>) -> Result<T, E> {
-        self.completion.finish_result(result)
-    }
-}
-
 impl RequestHandle<'_> {
     /// Returns the stable request ID for this request lifecycle.
     #[must_use]
@@ -424,7 +345,7 @@ impl RequestCompletion<'_> {
             return;
         }
 
-        let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.request_id);
+        let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             debug_assert!(
                 false,
@@ -473,8 +394,8 @@ pub(crate) fn lock_map(
 }
 
 fn lock_pending(
-    map: &Mutex<HashMap<String, PendingRequest>>,
-) -> std::sync::MutexGuard<'_, HashMap<String, PendingRequest>> {
+    map: &Mutex<HashMap<u64, PendingRequest>>,
+) -> std::sync::MutexGuard<'_, HashMap<u64, PendingRequest>> {
     match map.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -499,3 +420,4 @@ fn generate_request_id(route: &str) -> String {
 }
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static PENDING_SEQUENCE: AtomicU64 = AtomicU64::new(0);

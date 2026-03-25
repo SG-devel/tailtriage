@@ -29,6 +29,8 @@ Suspects are evidence-ranked leads, not proof of root cause.
 
 `tailtriage-cli` requires a top-level `schema_version` field. Current supported value: `1`.
 
+When an artifact includes unfinished request lifecycle warnings (`metadata.lifecycle_warnings` / `metadata.unfinished_requests`), the CLI surfaces those warnings so diagnosis is interpreted as evidence-ranked suspects from incomplete lifecycle data.
+
 ## Related docs
 
 - Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>

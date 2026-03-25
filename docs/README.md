@@ -6,6 +6,7 @@
 - **Public examples:** [`../tailtriage-tokio/examples/`](../tailtriage-tokio/examples/)
 - **Demo walkthrough and recommended first three demos:** [`getting-started-demo.md`](getting-started-demo.md)
 - **How to read diagnosis output:** [`diagnostics.md`](diagnostics.md)
+- **Split lifecycle API + shutdown semantics:** [`user-guide.md#request-lifecycle-correctness-required`](user-guide.md#request-lifecycle-correctness-required)
 
 ## Reference
 

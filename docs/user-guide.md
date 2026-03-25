@@ -36,14 +36,21 @@ The p95 share fields are independent percentile summaries and are not expected t
 
 ## Request lifecycle correctness (required)
 
-Every `RequestHandle` starts one lifecycle and must be finished **exactly once**.
+Every request lifecycle starts as a `StartedRequest` and must be finished **exactly once** through its `RequestCompletion`.
 
 ```rust
-let request = tailtriage.begin_request("/checkout").with_kind("http");
+use tailtriage_core::RequestOptions;
 
-// queue/stage/inflight instrumentation here
+let started = tailtriage.begin_request_with(
+    "/checkout",
+    RequestOptions::new().request_id("req-1").kind("http"),
+);
+let req = started.handle.clone();
 
-request.finish_ok();
+helper_a(&req).await?;
+helper_b(&req).await?;
+
+started.completion.finish_ok();
 ```
 
 Terminal methods:
@@ -52,7 +59,24 @@ Terminal methods:
 - `finish_ok()`
 - `finish_result(...)`
 
-`queue(...)`, `stage(...)`, and `inflight(...)` do not finish the request. `Drop` is only a debug-time misuse detector and does not record completion automatically.
+`queue(...)`, `stage(...)`, and `inflight(...)` on `RequestHandle` do not finish the request. `Drop` is only a debug-time misuse detector and does not record completion automatically.
+
+Helper-layer functions should take `&RequestHandle<'_>` so instrumentation can be spread across middleware/handlers/service helpers while completion remains single-owner:
+
+```rust
+async fn helper_a(req: &tailtriage_core::RequestHandle<'_>) -> Result<(), MyError> {
+    req.stage("helper_a").await_on(do_work_a()).await
+}
+```
+
+### Shutdown lifecycle semantics
+
+`tailtriage.shutdown()` only finalizes and writes the run. It does not complete pending requests.
+
+- `shutdown()` does **not** auto-finish requests.
+- `shutdown()` does **not** fabricate timings or outcomes.
+- unfinished requests are surfaced in run metadata warnings and unfinished-request samples.
+- `strict_lifecycle(true)` makes `shutdown()` fail when unfinished requests remain.
 
 ## RuntimeSampler (optional stronger attribution)
 

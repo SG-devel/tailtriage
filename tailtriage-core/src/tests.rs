@@ -36,12 +36,10 @@ fn rejects_blank_service_name() {
 #[test]
 fn started_request_records_request_event() {
     let tailtriage = build_for_test("payments", "tailtriage-core-request.json");
-    let started = tailtriage
-        .begin_request_with(
-            "/invoice",
-            RequestOptions::new().request_id("req-42").kind("http"),
-        )
-        .with_kind("http");
+    let started = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-42").kind("http"),
+    );
     let request = started.handle;
     assert_eq!(request.route(), "/invoice");
     assert_eq!(request.kind(), Some("http"));
@@ -65,6 +63,23 @@ fn generated_request_ids_are_unique() {
     assert_ne!(first.handle.request_id(), second.handle.request_id());
     first.completion.finish_ok();
     second.completion.finish_ok();
+}
+
+#[test]
+fn duplicate_explicit_request_ids_do_not_clobber_pending_lifecycles() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-duplicate-explicit-id.json");
+    let first =
+        tailtriage.begin_request_with("/invoice", RequestOptions::new().request_id("req-shared"));
+    let second =
+        tailtriage.begin_request_with("/invoice", RequestOptions::new().request_id("req-shared"));
+
+    first.completion.finish_ok();
+    second.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_eq!(snapshot.requests[0].request_id, "req-shared");
+    assert_eq!(snapshot.requests[1].request_id, "req-shared");
 }
 
 #[test]

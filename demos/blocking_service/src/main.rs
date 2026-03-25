@@ -85,10 +85,11 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let request = tailtriage.request_with(
+            let started = tailtriage.begin_request_with(
                 "/blocking-demo",
                 tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
             );
+            let request = started.handle.clone();
 
             {
                 let _inflight = request.inflight("blocking_service_inflight");
@@ -112,7 +113,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
                     .await;
                 pending_blocking.fetch_sub(1, Ordering::SeqCst);
             }
-            request.finish(tailtriage_core::Outcome::Ok);
+            started.completion.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
