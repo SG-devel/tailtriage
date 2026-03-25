@@ -5,35 +5,56 @@ use tailtriage_core::{Run, SCHEMA_VERSION};
 
 const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
 
+/// A validated run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
 pub struct LoadedArtifact {
+    /// Parsed run artifact data used by analyzer and renderer flows.
     pub run: Run,
+    /// Non-fatal loader findings that did not block loading.
     pub warnings: Vec<String>,
 }
 
+/// Errors returned when loading and validating run artifacts from disk.
 #[derive(Debug)]
 pub enum ArtifactLoadError {
+    /// The file could not be read from disk.
     Read {
+        /// Path that failed to read.
         path: PathBuf,
+        /// Underlying I/O failure.
         source: std::io::Error,
     },
+    /// JSON parsing or schema-shape decoding failed.
     Parse {
+        /// Path that failed to parse.
         path: PathBuf,
+        /// Human-readable parse or decoding error detail.
         message: String,
     },
+    /// `schema_version` did not match this binary's supported version.
     UnsupportedSchemaVersion {
+        /// Artifact path that contained the unsupported version.
         path: PathBuf,
+        /// Found schema version in the artifact.
         found: u64,
+        /// Supported schema version expected by this binary.
         supported: u64,
     },
+    /// Required top-level `schema_version` key was missing.
     MissingSchemaVersion {
+        /// Artifact path missing `schema_version`.
         path: PathBuf,
     },
+    /// Top-level `schema_version` existed but was not an integer.
     InvalidSchemaVersionType {
+        /// Artifact path with invalid `schema_version` type.
         path: PathBuf,
     },
+    /// Additional validation rejected the artifact contents.
     Validation {
+        /// Artifact path that failed validation.
         path: PathBuf,
+        /// Validation failure detail.
         message: String,
     },
 }
@@ -86,6 +107,13 @@ impl std::error::Error for ArtifactLoadError {
 }
 
 /// Loads and validates a tailtriage run artifact from disk.
+///
+/// Validation is strict:
+/// - top-level `schema_version` must exist and match this binary exactly
+/// - the decoded artifact must include at least one request event
+///
+/// Loader warnings are non-fatal findings and are returned in
+/// [`LoadedArtifact::warnings`].
 ///
 /// # Errors
 /// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,

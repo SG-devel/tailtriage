@@ -200,26 +200,35 @@ impl Tailtriage {
 }
 
 impl RequestContext<'_> {
+    /// Sets an optional semantic kind for this request (for example `http` or `job`).
+    ///
+    /// This is additional classification metadata and does not alter lifecycle semantics.
     pub fn with_kind(mut self, kind: impl Into<String>) -> Self {
         self.kind = Some(kind.into());
         self
     }
 
+    /// Returns the stable request ID for this request lifecycle.
     #[must_use]
     pub fn request_id(&self) -> &str {
         &self.request_id
     }
 
+    /// Returns the route or operation name associated with this request.
     #[must_use]
     pub fn route(&self) -> &str {
         &self.route
     }
 
+    /// Returns the optional semantic request kind.
     #[must_use]
     pub fn kind(&self) -> Option<&str> {
         self.kind.as_deref()
     }
 
+    /// Starts queue-wait timing instrumentation for `queue`.
+    ///
+    /// This records queue wait evidence only; it does **not** finish the request.
     #[must_use]
     pub fn queue(&self, queue: impl Into<String>) -> QueueTimer<'_> {
         QueueTimer {
@@ -230,6 +239,9 @@ impl RequestContext<'_> {
         }
     }
 
+    /// Starts stage timing instrumentation for `stage`.
+    ///
+    /// This records stage evidence only; it does **not** finish the request.
     #[must_use]
     pub fn stage(&self, stage: impl Into<String>) -> StageTimer<'_> {
         StageTimer {
@@ -239,6 +251,9 @@ impl RequestContext<'_> {
         }
     }
 
+    /// Increments in-flight gauge tracking for `gauge` until the returned guard drops.
+    ///
+    /// This records in-flight evidence only; it does **not** finish the request.
     #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         self.tailtriage.inflight(gauge)
@@ -246,14 +261,15 @@ impl RequestContext<'_> {
 
     /// Finishes this request with an explicit [`Outcome`].
     ///
-    /// Use this when you already know the terminal outcome.
+    /// Use this when you already know the terminal outcome. Each request context
+    /// must be finished exactly once.
     pub fn finish(mut self, outcome: Outcome) {
         self.finish_internal(outcome);
     }
 
     /// Convenience helper for successfully completed requests.
     ///
-    /// Equivalent to `finish(Outcome::Ok)`.
+    /// Equivalent to `finish(Outcome::Ok)`. Each request context must be finished exactly once.
     pub fn finish_ok(self) {
         self.finish(Outcome::Ok);
     }
@@ -262,12 +278,14 @@ impl RequestContext<'_> {
     ///
     /// Use this when your request handler already ends in a `Result` and you want
     /// a single terminal expression like `request.finish_result(result)`.
+    /// Each request context must be finished exactly once.
     ///
     /// Records `ok`/`error` based on `result` and returns it unchanged.
     ///
     /// # Errors
     ///
-    /// Returns `result` unchanged, including the original `Err(E)` value.
+    /// This method does not create new errors. It returns `result` unchanged,
+    /// including the original `Err(E)` value.
     pub fn finish_result<T, E>(self, result: Result<T, E>) -> Result<T, E> {
         let outcome = if result.is_ok() {
             Outcome::Ok

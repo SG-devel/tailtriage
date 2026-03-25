@@ -3,16 +3,25 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Serialize, Serializer};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
+/// Evidence-ranked diagnosis categories produced by heuristic triage.
+///
+/// These categories are leads for investigation and are not proof of root cause.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosisKind {
+    /// Queue wait dominates request latency, suggesting application-level queue pressure.
     ApplicationQueueSaturation,
+    /// Blocking pool backlog suggests pressure in `spawn_blocking`-backed work.
     BlockingPoolPressure,
+    /// Runtime scheduler queueing suggests potential executor pressure.
     ExecutorPressureSuspected,
+    /// One stage dominates aggregate latency, suggesting downstream slowdown.
     DownstreamStageDominates,
+    /// Captured signals are too sparse to rank stronger suspects.
     InsufficientEvidence,
 }
 
 impl DiagnosisKind {
+    /// Returns the stable machine-readable diagnosis kind label.
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -36,9 +45,15 @@ impl Serialize for DiagnosisKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+/// Confidence bucket derived from suspect score thresholds.
+///
+/// This is score-derived ranking confidence, not causal certainty.
 pub enum Confidence {
+    /// Weak signal quality relative to stronger suspects in the same report.
     Low,
+    /// Moderate signal quality for triage follow-up.
     Medium,
+    /// Strong signal quality for triage follow-up.
     High,
 }
 
@@ -54,12 +69,20 @@ impl Confidence {
     }
 }
 
+/// Evidence-ranked suspect produced by heuristic analysis.
+///
+/// Suspects are triage leads and should be validated with follow-up checks.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Suspect {
+    /// Ranked suspect category.
     pub kind: DiagnosisKind,
+    /// Relative ranking score in range `0..=100` (higher means stronger evidence).
     pub score: u8,
+    /// Score-derived confidence bucket for triage prioritization.
     pub confidence: Confidence,
+    /// Supporting evidence strings used to justify this suspect ranking.
     pub evidence: Vec<String>,
+    /// Recommended next checks to validate or falsify this suspect.
     pub next_checks: Vec<String>,
 }
 
@@ -80,30 +103,85 @@ impl Suspect {
     }
 }
 
+/// Summary of one dominant in-flight gauge trend over the run window.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct InflightTrend {
+    /// Gauge name chosen as the dominant trend candidate.
     pub gauge: String,
+    /// Number of snapshots seen for this gauge.
     pub sample_count: usize,
+    /// Peak in-flight count observed for this gauge.
     pub peak_count: u64,
+    /// p95 in-flight count for this gauge.
     pub p95_count: u64,
+    /// Net growth (`last - first`) across the sampled run window.
     pub growth_delta: i64,
+    /// Growth rate in milli-counts/sec, if timestamps permit calculation.
     pub growth_per_sec_milli: Option<i64>,
 }
 
+/// Rule-based triage report for one run artifact.
+///
+/// The report ranks evidence-backed suspects and suggests next checks.
+/// It does not prove root cause and should be used as triage guidance.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Report {
+    /// Number of request events considered in analysis.
     pub request_count: usize,
+    /// p50 request latency in microseconds.
     pub p50_latency_us: Option<u64>,
+    /// p95 request latency in microseconds.
     pub p95_latency_us: Option<u64>,
+    /// p99 request latency in microseconds.
     pub p99_latency_us: Option<u64>,
+    /// p95 queue-time share per request in permille (`0..=1000`).
     pub p95_queue_share_permille: Option<u64>,
+    /// p95 non-queue service-time share per request in permille (`0..=1000`).
     pub p95_service_share_permille: Option<u64>,
+    /// Dominant in-flight trend signal, if enough samples exist.
     pub inflight_trend: Option<InflightTrend>,
+    /// Non-fatal analysis warnings (for example, capture truncation notices).
     pub warnings: Vec<String>,
+    /// Highest-ranked suspect from this run.
     pub primary_suspect: Suspect,
+    /// Lower-ranked suspects retained for follow-up triage.
     pub secondary_suspects: Vec<Suspect>,
 }
 
+/// Analyzes one run artifact with rule-based heuristics and returns a triage report.
+///
+/// The analysis ranks evidence-backed suspects and next checks; it does not
+/// claim causal certainty or proven root cause.
+///
+/// # Examples
+///
+/// ```
+/// use tailtriage_cli::analyze::analyze_run;
+/// use tailtriage_core::{CaptureMode, Run, RunMetadata, SCHEMA_VERSION};
+///
+/// let run = Run {
+///     schema_version: SCHEMA_VERSION,
+///     metadata: RunMetadata {
+///         run_id: "run-1".to_string(),
+///         service_name: "svc".to_string(),
+///         service_version: None,
+///         started_at_unix_ms: 1,
+///         finished_at_unix_ms: 2,
+///         mode: CaptureMode::Light,
+///         host: None,
+///         pid: None,
+///     },
+///     requests: vec![],
+///     stages: vec![],
+///     queues: vec![],
+///     inflight: vec![],
+///     runtime_snapshots: vec![],
+///     truncation: Default::default(),
+/// };
+///
+/// let report = analyze_run(&run);
+/// assert_eq!(report.request_count, 0);
+/// ```
 #[must_use]
 pub fn analyze_run(run: &Run) -> Report {
     let request_latencies = run
@@ -525,6 +603,9 @@ fn percentile_sorted_u64(values: &[u64], numerator: usize, denominator: usize) -
 }
 
 #[must_use]
+/// Renders a compact text triage summary from a [`Report`].
+///
+/// The rendered output is guidance for follow-up checks, not proof of root cause.
 pub fn render_text(report: &Report) -> String {
     let inflight_line = match &report.inflight_trend {
         Some(trend) => format!(

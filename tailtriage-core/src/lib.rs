@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 //! Core run schema and request-context instrumentation API for tailtriage.
 //!
