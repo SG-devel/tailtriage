@@ -4,7 +4,7 @@ Demos provide deterministic triage exercises. They give reproducible evidence fo
 
 ## Demo tiers
 
-See [`../demos/README.md`](../demos/README.md) for scenario details.
+See [`../demos/README.md`](../demos/README.md) for scenario details
 
 ### Strongest public proof demos for first-time evaluation
 
@@ -23,10 +23,24 @@ If you only run three demos, run these three:
 
 ### More synthetic analyzer-contract demos
 
+Best treated as contract exercises for suspect behavior:
+
 - `blocking_service`
 - `executor_pressure_service`
 
-These are intentionally more synthetic and are best treated as contract exercises for suspect behavior.
+### Baseline diagnosis contract
+
+| Scenario      | Expected baseline primary suspect | Required supporting signal                               |
+| ------------- | --------------------------------- | -------------------------------------------------------- |
+| `queue`       | `application_queue_saturation`    | Queue evidence on primary suspect                        |
+| `downstream`  | `downstream_stage_dominates`      | Stage-dominance evidence on primary suspect              |
+| `db-pool`     | `application_queue_saturation`    | Queue pressure on DB admission path                      |
+| `shared-lock` | `application_queue_saturation`    | Queue wait/depth evidence from lock contention           |
+| `retry-storm` | `downstream_stage_dominates`      | Elevated service-share evidence from retry-heavy stage   |
+| `mixed`       | `application_queue_saturation`    | Downstream suspect also appears as secondary             |
+| `blocking`    | `blocking_pool_pressure`          | Blocking queue depth evidence remains visible            |
+| `cold-start`  | `application_queue_saturation`    | Evidence mentions `cold_start_stage` and/or queue impact |
+| `executor`    | `executor_pressure_suspected`     | Runtime snapshot pressure + executor suspect score       |
 
 ## CI validation coverage
 
@@ -70,3 +84,8 @@ python3 scripts/demo_tool.py validate blocking
 python3 scripts/demo_tool.py run executor
 python3 scripts/demo_tool.py validate executor --profile release
 ```
+
+## Artifact policy
+
+- `demos/*/artifacts/`: generated, untracked outputs
+- `demos/*/fixtures/`: committed deterministic references
