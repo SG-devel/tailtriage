@@ -30,7 +30,7 @@ This Code of Conduct applies in all repository spaces and in public spaces when 
 
 ## Reporting
 
-If you experience or witness unacceptable behavior, report it to the maintainers at **security@tailtriage.dev**.
+If you experience or witness unacceptable behavior, report it to the maintainers at **github.postage998@passinbox.com**.
 
 ## Enforcement
 
