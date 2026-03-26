@@ -19,6 +19,13 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
+## Which crates do I need?
+
+- `tailtriage-core` for manual instrumentation
+- `tailtriage-tokio` for runtime snapshots
+- `tailtriage-axum` for axum ergonomics
+- `tailtriage-cli` for offline analysis
+
 ## What you get from the output
 
 ### Four bottleneck families
