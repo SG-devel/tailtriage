@@ -12,6 +12,7 @@ The project focuses on producing **evidence-ranked suspects** and **next checks*
 
 - Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md).
 - For security vulnerabilities, follow the private reporting instructions in [SECURITY.md](SECURITY.md) and avoid opening public issues before a fix is available.
+- Commits must be signed (`--signoff` option)
 
 ## License for contributions
 
@@ -47,6 +48,7 @@ Please do not expand MVP scope in drive-by PRs. In particular, avoid adding:
 ## Docs updates expected
 
 If behavior or user workflows change, update the relevant public docs. Common files to check:
+
 - README.md
 - docs/README.md
 - docs/user-guide.md
