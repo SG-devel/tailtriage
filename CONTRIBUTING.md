@@ -1,6 +1,8 @@
 # Contributing to tailtriage
 
-Thanks for helping improve `tailtriage`. Please read and follow the [implementation plan](IMPLEMENTATION_PLAN.md) before proposing or submitting changes. Contributions should stay within the current product direction and scope.
+Thanks for helping improve `tailtriage`.
+
+Please read and follow the [implementation plan](IMPLEMENTATION_PLAN.md) before proposing or submitting changes that affect behavior, API shape, scope, diagnostics, demos, or public documentation. Contributions should stay within the current product direction and scope.
 
 ## What this project is
 

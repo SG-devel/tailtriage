@@ -42,7 +42,7 @@ The purpose remains the same:
 
 ### Tasks
 
-1. collect structured feedback from early users and reviewers
+1. collect structured feedback from early users and reviewers, including reproducible examples, run artifacts, confusing outputs, and onboarding pain points where possible
 2. note where onboarding, terminology, or output interpretation breaks down
 3. track recurring confusion around suspects, evidence, confidence, and next checks
 4. identify whether users can reach first value quickly from the current source/workspace path
@@ -61,6 +61,7 @@ Only treat something as a priority if it is one of the following:
 - a repeated blocker to adoption or correct use
 - a repeated source of misunderstanding about the project’s core purpose
 - a clearly high-leverage improvement that substantially boosts usefulness or adoption
+- a credible, reproducible severe correctness, reliability, or security issue that would materially undermine trust in the tool if left unresolved
 
 ---
 
@@ -136,6 +137,30 @@ For new PRs or issues:
 - do not accept “just one extra thing” additions that push the repo sideways
 - prefer cohesion over breadth
 - preserve the distinction between triage leads and proof of causality
+
+### Maintainer triage rubric
+
+When a new public issue or PR arrives, classify it into one of these buckets:
+
+1. **In scope now**
+   - directly improves Tokio tail-latency triage
+   - removes real user friction
+   - fixes correctness, reliability, or documentation gaps
+   - fits the current product story without broadening category
+
+2. **Needs evidence or reproduction**
+   - plausible and relevant, but missing a reproducer, run artifact, clearer expected behavior, or enough detail to act confidently
+
+3. **Defer**
+   - potentially useful, but not currently justified by repeated pain, severity, or leverage
+   - keep only if there is a clear future reason to revisit
+
+4. **Out of scope**
+   - pushes the repo into observability-platform territory
+   - adds adjacent but non-core capabilities
+   - creates a second product story or a competing onboarding path without strong justification
+
+Maintainers should state the bucket clearly when closing, deferring, or narrowing an issue or PR.
 
 ---
 

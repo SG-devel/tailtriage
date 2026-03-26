@@ -72,8 +72,11 @@ Only expand scope when at least one of these is true:
 
 1. the missing piece is clearly holding the MVP back in real usage
 2. the change provides a clearly high-leverage boost to usefulness, clarity, or adoption without changing the product category
+3. the change fixes a severe correctness, reliability, or security problem that would materially undermine trust in the tool if left unresolved
 
 Do not accept work just because it is adjacent, interesting, or requested once.
+
+Do not require repeated requests before acting on a credible, reproducible severe bug.
 
 When reviewing or implementing issues and PRs:
 
@@ -84,7 +87,7 @@ When reviewing or implementing issues and PRs:
 
 ## What this repository is NOT building
 
-Do not add these unless explicitly asked and clearly justified against the implementation plan:
+Do not add these unless explicitly approved by maintainers and clearly justified against the implementation plan:
 
 - distributed tracing backend
 - GUI / web UI
@@ -194,7 +197,7 @@ That usage story should have:
 - one lifecycle completion path
 - progressive disclosure for advanced tuning on the same conceptual surface
 
-Do not introduce a second competing onboarding path unless an issue explicitly asks for it and the reason is strong.
+Do not introduce a second competing onboarding path unless maintainers explicitly approve it in an accepted issue, PR plan, or implementation-plan update, and the reason is strong.
 
 ### Preferred public integration style
 
@@ -238,7 +241,7 @@ Leave room for future evolution such as:
 - parent/child work relationships
 - future propagation across boundaries
 
-Do not implement those features unless explicitly asked.
+Do not implement those features unless maintainers explicitly approve them.
 
 ## Build and test requirements
 
@@ -261,7 +264,7 @@ A task is done only if:
 2. code builds
 3. tests pass
 4. docs/comments are updated where needed
-5. public API changes are reflected in launch-facing docs
+5. public API changes are reflected in public-facing docs
 6. examples are updated where needed
 7. demos are updated where needed
 8. scope did not quietly expand
