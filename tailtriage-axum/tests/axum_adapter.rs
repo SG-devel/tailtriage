@@ -1,15 +1,17 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::body::Body;
 use axum::extract::State;
+use axum::http::Request;
 use axum::http::StatusCode;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 use axum::Router;
 use tailtriage_axum::TailtriageRequest;
 use tailtriage_core::Tailtriage;
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::Semaphore;
+use tower::ServiceExt;
 
 #[derive(Clone)]
 struct AppState {
@@ -61,44 +63,28 @@ async fn middleware_injects_request_handle_and_finishes_from_response_status() {
         ))
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .expect("bind should succeed");
-    let addr: SocketAddr = listener.local_addr().expect("addr should succeed");
-
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            })
-            .await
-    });
-
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .expect("client should build");
-
-    let ok = client
-        .get(format!("http://{addr}/ok"))
-        .send()
+    let ok = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/ok")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
         .await
         .expect("ok request should succeed");
     assert_eq!(ok.status(), StatusCode::OK);
 
-    let fail = client
-        .get(format!("http://{addr}/fail"))
-        .send()
+    let fail = app
+        .oneshot(
+            Request::builder()
+                .uri("/fail")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
         .await
         .expect("fail request should succeed");
     assert_eq!(fail.status(), StatusCode::INTERNAL_SERVER_ERROR);
-
-    let _ = shutdown_tx.send(());
-    server
-        .await
-        .expect("server task should join")
-        .expect("server should stop cleanly");
 
     tailtriage.shutdown().expect("shutdown should succeed");
 
