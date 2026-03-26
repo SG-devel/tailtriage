@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report suspected security vulnerabilities privately to **github.postage998@passinbox.com**.
+Please report suspected security vulnerabilities privately to **sg-devel.debug186@passinbox.com**.
 
 - Do **not** open public GitHub issues for unpatched security vulnerabilities.
 - Include reproduction steps, impact, and any suggested mitigation if available.
