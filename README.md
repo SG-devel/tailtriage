@@ -19,13 +19,6 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
-## Which crates do I need?
-
-- `tailtriage-core` for manual instrumentation
-- `tailtriage-tokio` for runtime snapshots
-- `tailtriage-axum` for axum ergonomics
-- `tailtriage-cli` for offline analysis
-
 ## What you get from the output
 
 ### Four bottleneck families
@@ -71,6 +64,30 @@ python3 scripts/demo_tool.py validate db-pool
 Use before/after comparisons as a reproducible mitigation confirmation loop, not causal proof.
 
 Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
+
+## Which crates do I need?
+
+#### Recommendation by use case
+
+| User type                                         | Recommendation                                                               |
+| ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| “I just want to try it”                           | Run workspace examples + workspace CLI from source                           |
+| “I have a Tokio service”                          | Start with `tailtriage-core`; add `tailtriage-cli` for analysis              |
+| “I need executor vs blocking evidence”            | Add `tailtriage-tokio`                                                       |
+| “I use axum”                                      | Add `tailtriage-axum`; add `tailtriage-tokio` only if runtime snapshots help |
+| “I only need to read artifacts from CI/incidents” | Install `tailtriage-cli` only                                                |
+
+
+#### Dependency / adoption matrix:
+
+| Goal                                                            | Add these crates                                         | Optional                             | Why                                                                                                                          |
+| --------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Instrument a Tokio service, no runtime snapshots                | `tailtriage-core`                                        | `tailtriage-cli`                     | Core request/queue/stage/inflight instrumentation and JSON artifact writing live in `tailtriage-core`                        |
+| Instrument a Tokio service and capture runtime pressure signals | `tailtriage-core`, `tailtriage-tokio`                    | `tailtriage-cli`                     | `tailtriage-tokio` provides `RuntimeSampler` and runtime snapshot capture on top of the core artifact model                  |
+| Use with axum                                                   | `tailtriage-core`, `tailtriage-axum`                     | `tailtriage-tokio`, `tailtriage-cli` | `tailtriage-axum` is the framework ergonomics layer: middleware + extractor. It depends on core, not on `tailtriage-tokio`   |
+| Use with axum plus runtime snapshots                            | `tailtriage-core`, `tailtriage-axum`, `tailtriage-tokio` | `tailtriage-cli`                     | Axum request-boundary wiring plus optional runtime evidence enrichment                                                       |
+| Analyze artifacts only                                          | `tailtriage-cli`                                         | none                                 | CLI loads run JSON, validates schema version, analyzes, and renders text/JSON reports                                        |
+| Minimal first run from repo                                     | none beyond workspace                                    | none                                 | Recommended launch path today is source/workspace use, not crates.io-first onboarding                                        |
 
 ## What this is not
 
