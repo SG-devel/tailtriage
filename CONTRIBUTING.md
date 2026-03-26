@@ -12,7 +12,7 @@ The project focuses on producing **evidence-ranked suspects** and **next checks*
 
 - Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md).
 - For security vulnerabilities, follow the private reporting instructions in [SECURITY.md](SECURITY.md) and avoid opening public issues before a fix is available.
-- Commits must be signed (`--signoff` option)
+- Commits must be signed (`--signoff` option).
 
 ## License for contributions
 
