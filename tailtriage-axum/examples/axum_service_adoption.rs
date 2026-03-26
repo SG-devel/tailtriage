@@ -1,15 +1,17 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::body::{to_bytes, Body};
 use axum::extract::State;
+use axum::http::Request;
 use axum::http::StatusCode;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 use axum::{Json, Router};
 use tailtriage_axum::TailtriageRequest;
 use tailtriage_core::Tailtriage;
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::Semaphore;
+use tower::ServiceExt;
 
 #[derive(Clone)]
 struct AppState {
@@ -90,45 +92,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
-    let addr: SocketAddr = listener.local_addr()?;
-
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            })
-            .await
-    });
-
-    let client = reqwest::Client::builder().no_proxy().build()?;
-    let health_url = format!("http://{addr}/health");
-    let checkout_url = format!("http://{addr}/checkout");
-
-    let health_status = client.get(health_url).send().await?.status();
+    let health_status = app
+        .clone()
+        .oneshot(Request::builder().uri("/health").body(Body::empty())?)
+        .await?
+        .status();
     if health_status != StatusCode::OK {
         return Err(format!("health request failed with {health_status}").into());
     }
 
+    // Drive concurrent checkout load in-process so queueing/inflight pressure
+    // remains visible without reintroducing localhost networking.
     let mut tasks = Vec::new();
     for _ in 0..8 {
-        let client = client.clone();
-        let url = checkout_url.clone();
+        let app = app.clone();
+        let request = Request::builder()
+            .uri("/checkout")
+            .body(Body::empty())
+            .expect("request should build");
         tasks.push(tokio::spawn(async move {
-            client.get(url).send().await.map(|resp| resp.status())
+            let response = app.oneshot(request).await?;
+            let status = response.status();
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let payload: serde_json::Value = serde_json::from_slice(&body)?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>((status, payload))
         }));
     }
 
     for task in tasks {
-        let status = task.await??;
+        let (status, payload) = task
+            .await
+            .map_err(|err| format!("checkout task join failed: {err}"))?
+            .map_err(|err| format!("checkout task failed: {err}"))?;
         if status != StatusCode::OK {
             return Err(format!("checkout request failed with {status}").into());
         }
+        if payload != serde_json::json!({ "status": "ok" }) {
+            return Err(format!("checkout payload mismatch: {payload}").into());
+        }
     }
-
-    let _ = shutdown_tx.send(());
-    server.await??;
 
     tailtriage.shutdown()?;
 

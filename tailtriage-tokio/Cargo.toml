@@ -12,13 +12,7 @@ categories = ["asynchronous", "development-tools::profiling", "development-tools
 
 [dependencies]
 tailtriage-core = { version = "0.1.0", path = "../tailtriage-core" }
-tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
-tracing = "0.1"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"

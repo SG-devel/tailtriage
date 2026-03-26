@@ -1,10 +1,12 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::body::Body;
+use axum::http::Request;
 use axum::{extract::State, http::StatusCode, routing::get, Router};
 use tailtriage_core::{RequestOptions, Tailtriage};
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::Semaphore;
+use tower::ServiceExt;
 
 #[derive(Clone)]
 struct AppState {
@@ -76,39 +78,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/checkout", get(checkout_handler))
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
-    let addr: SocketAddr = listener.local_addr()?;
-
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            })
-            .await
-    });
-
-    let base_url = format!("http://{addr}/checkout");
-    let client = reqwest::Client::builder().no_proxy().build()?;
-
+    // Simulate concurrent checkout load in-process.
     let mut tasks = Vec::new();
     for _ in 0..6 {
-        let client = client.clone();
-        let url = base_url.clone();
-        tasks.push(tokio::spawn(async move {
-            client.get(url).send().await.map(|resp| resp.status())
-        }));
+        let app = app.clone();
+        let request = Request::builder()
+            .uri("/checkout")
+            .body(Body::empty())
+            .expect("request should build");
+        tasks.push(tokio::spawn(async move { app.oneshot(request).await }));
     }
 
     for task in tasks {
-        let status = task.await??;
+        let status = task.await??.status();
         if status != StatusCode::OK {
             return Err(format!("request failed with status {status}").into());
         }
     }
-
-    let _ = shutdown_tx.send(());
-    server.await??;
 
     tailtriage.shutdown()?;
 
