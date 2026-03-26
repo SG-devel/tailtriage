@@ -4,7 +4,7 @@ Demos provide deterministic triage exercises. They give reproducible evidence fo
 
 ## Demo tiers
 
-See [`../demos/README.md`](../demos/README.md) for scenario details
+See [`../demos/README.md`](../demos/README.md) for scenario details.
 
 ### Strongest public proof demos for first-time evaluation
 
