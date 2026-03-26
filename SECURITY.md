@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report suspected security vulnerabilities privately to **security@tailtriage.dev**.
+Please report suspected security vulnerabilities privately to **github.postage998@passinbox.com**.
 
 - Do **not** open public GitHub issues for unpatched security vulnerabilities.
 - Include reproduction steps, impact, and any suggested mitigation if available.
