@@ -1,25 +1,22 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::body::Body;
 use axum::extract::State;
+use axum::http::Request;
 use axum::http::StatusCode;
 use axum::middleware::from_fn_with_state;
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::Router;
 use tailtriage_axum::TailtriageRequest;
 use tailtriage_core::Tailtriage;
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::Semaphore;
+use tower::ServiceExt;
 
 #[derive(Clone)]
 struct AppState {
     queue_gate: Arc<Semaphore>,
     queue_capacity: u64,
-}
-
-#[derive(serde::Serialize)]
-struct CheckoutResponse {
-    status: &'static str,
 }
 
 async fn health_handler() -> StatusCode {
@@ -29,7 +26,7 @@ async fn health_handler() -> StatusCode {
 async fn checkout_handler(
     TailtriageRequest(req): TailtriageRequest,
     State(state): State<AppState>,
-) -> Result<Json<CheckoutResponse>, StatusCode> {
+) -> Result<StatusCode, StatusCode> {
     let queue_depth = state
         .queue_capacity
         .saturating_sub(state.queue_gate.available_permits() as u64);
@@ -45,7 +42,7 @@ async fn checkout_handler(
     inventory_lookup(&req).await?;
     payment_gateway(&req).await?;
 
-    Ok(Json(CheckoutResponse { status: "ok" }))
+    Ok(StatusCode::OK)
 }
 
 async fn inventory_lookup(req: &tailtriage_core::OwnedRequestHandle) -> Result<(), StatusCode> {
@@ -90,45 +87,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
-    let addr: SocketAddr = listener.local_addr()?;
-
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            })
-            .await
-    });
-
-    let client = reqwest::Client::builder().no_proxy().build()?;
-    let health_url = format!("http://{addr}/health");
-    let checkout_url = format!("http://{addr}/checkout");
-
-    let health_status = client.get(health_url).send().await?.status();
+    let health_status = app
+        .clone()
+        .oneshot(Request::builder().uri("/health").body(Body::empty())?)
+        .await?
+        .status();
     if health_status != StatusCode::OK {
         return Err(format!("health request failed with {health_status}").into());
     }
 
-    let mut tasks = Vec::new();
     for _ in 0..8 {
-        let client = client.clone();
-        let url = checkout_url.clone();
-        tasks.push(tokio::spawn(async move {
-            client.get(url).send().await.map(|resp| resp.status())
-        }));
-    }
-
-    for task in tasks {
-        let status = task.await??;
+        let status = app
+            .clone()
+            .oneshot(Request::builder().uri("/checkout").body(Body::empty())?)
+            .await?
+            .status();
         if status != StatusCode::OK {
             return Err(format!("checkout request failed with {status}").into());
         }
     }
-
-    let _ = shutdown_tx.send(());
-    server.await??;
 
     tailtriage.shutdown()?;
 

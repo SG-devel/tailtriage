@@ -1,0 +1,30 @@
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# Keep the workspace permissive-only for MVP. This rejects copyleft and
+# unknown licenses by default unless explicitly added here.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "0BSD",
+  "CC0-1.0",
+]
+
+# Reject unlicensed/unknown entries so metadata regressions fail CI.
+unlicensed = "deny"
+allow-osi-fsf-free = "neither"
+default = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
