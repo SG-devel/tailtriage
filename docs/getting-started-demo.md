@@ -2,19 +2,13 @@
 
 Demos provide deterministic triage exercises. They give reproducible evidence for diagnosis behavior, not universal causality proof.
 
-## If you only run three demos, run these three
-
-```bash
-python3 scripts/demo_tool.py validate queue
-python3 scripts/demo_tool.py validate downstream
-python3 scripts/demo_tool.py validate db-pool
-```
-
-These are the strongest public proof surface for first-time evaluation.
-
 ## Demo tiers
 
-### Strongest public proof demos
+See [`../demos/README.md`](../demos/README.md) for scenario details.
+
+### Strongest public proof demos for first-time evaluation
+
+If you only run three demos, run these three:
 
 - `queue_service`
 - `downstream_service`
@@ -29,37 +23,36 @@ These are the strongest public proof surface for first-time evaluation.
 
 ### More synthetic analyzer-contract demos
 
+Best treated as contract exercises for suspect behavior:
+
 - `blocking_service`
 - `executor_pressure_service`
 
-`blocking_service` and `executor_pressure_service` are intentionally more synthetic and are best treated as contract exercises for suspect behavior.
+### Baseline diagnosis contract
 
-## Recommended progression
+| Scenario      | Expected baseline primary suspect | Required supporting signal                               |
+| ------------- | --------------------------------- | -------------------------------------------------------- |
+| `queue`       | `application_queue_saturation`    | Queue evidence on primary suspect                        |
+| `downstream`  | `downstream_stage_dominates`      | Stage-dominance evidence on primary suspect              |
+| `db-pool`     | `application_queue_saturation`    | Queue pressure on DB admission path                      |
+| `shared-lock` | `application_queue_saturation`    | Queue wait/depth evidence from lock contention           |
+| `retry-storm` | `downstream_stage_dominates`      | Elevated service-share evidence from retry-heavy stage   |
+| `mixed`       | `application_queue_saturation`    | Downstream suspect also appears as secondary             |
+| `blocking`    | `blocking_pool_pressure`          | Blocking queue depth evidence remains visible            |
+| `cold-start`  | `application_queue_saturation`    | Evidence mentions `cold_start_stage` and/or queue impact |
+| `executor`    | `executor_pressure_suspected`     | Runtime snapshot pressure + executor suspect score       |
 
-1. `queue_service`
-2. `downstream_service`
-3. `db_pool_saturation_service`
-4. `shared_state_lock_service`
-5. `retry_storm_service`
-6. `mixed_contention_service`
-7. `cold_start_burst_service`
-8. `blocking_service`
-9. `executor_pressure_service`
+## CI validation coverage
 
-## CI validation coverage (truthful to workflow)
+In `.github/workflows/ci.yml`, CI validates all demos, except `executor`, in **both** `dev` and `release` profiles. `executor` is validated in `release` only due to long runtime in `dev`.
 
-In `.github/workflows/ci.yml`, CI validates these demos in **both** `dev` and `release` profiles:
+## Before/after comparison guidance
 
-- `queue`
-- `downstream`
-- `db-pool`
-- `shared-lock`
-- `retry-storm`
-- `mixed`
-- `cold-start`
-- `blocking`
+Use fixture-backed before/after results as a reproducible mitigation comparison loop:
 
-`executor` is validated in **release only**.
+- compare one baseline run and one mitigated run
+- inspect p95 movement and suspect/evidence movement
+- treat it as evidence for the next decision, not proof of universal root cause
 
 ## Run + validate commands
 
@@ -92,12 +85,7 @@ python3 scripts/demo_tool.py run executor
 python3 scripts/demo_tool.py validate executor --profile release
 ```
 
-## Before/after comparison guidance
+## Artifact policy
 
-Use fixture-backed before/after results as a reproducible mitigation comparison loop:
-
-- compare one baseline run and one mitigated run
-- inspect p95 movement and suspect/evidence movement
-- treat it as evidence for the next decision, not proof of universal root cause
-
-See [`../demos/README.md`](../demos/README.md) for scenario details.
+- `demos/*/artifacts/`: generated, untracked outputs
+- `demos/*/fixtures/`: committed deterministic references

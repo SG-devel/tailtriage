@@ -113,7 +113,7 @@ Always call both shutdowns:
 - `sampler.shutdown().await`
 - `tailtriage.shutdown()?`
 
-Stable Tokio always captures `alive_tasks` and `global_queue_depth`. `local_queue_depth`, `blocking_queue_depth`, and `remote_schedule_count` require `tokio_unstable`.
+`RuntimeSampler` works on stable Tokio, but some runtime fields (`local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`) require `tokio_unstable`.
 
 ## Axum adapter surface (optional)
 
@@ -143,7 +143,7 @@ let app = Router::new()
 # }
 ```
 
-Truthful finish semantics at the framework boundary:
+Finish semantics at the framework boundary:
 
 - middleware starts one request per incoming axum request
 - middleware finishes with `Outcome::Ok` for non-5xx responses and `Outcome::Error` for 5xx responses
