@@ -1,6 +1,6 @@
 # Contributing to tailtriage
 
-Thanks for helping improve `tailtriage`.
+Thanks for helping improve `tailtriage`!
 
 ## What this project is
 
