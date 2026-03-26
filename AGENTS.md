@@ -4,39 +4,61 @@ This file tells coding agents how to work in this repository.
 
 ## Mission
 
-Build `tailtriage`, a small, useful Rust toolkit for **Tokio tail-latency triage** in real services.
+Maintain and improve `tailtriage`, a focused Rust toolkit for **Tokio tail-latency triage**.
 
-The repository exists to produce a **real developer tool**, not a toy lab and not a generic observability platform.
+The MVP is implemented. The current phase is to validate whether the tool is useful in real usage, learn from feedback, and improve it without losing cohesion or drifting into a different product.
+
+The repository exists to produce a **real developer tool** with a narrow purpose, not a toy lab and not a generic observability platform.
 
 ## Product definition
 
-`tailtriage` should answer:
+`tailtriage` should help answer:
 
 > Is this async Rust service slow because of application-level queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
 
 The tool should:
+
 - be easy to integrate
 - be useful with partial instrumentation
 - be low-overhead in light mode
 - produce a clear triage report with evidence-ranked suspects and next checks
+- support a practical capture -> analyze -> next check -> re-run workflow
+
+## Post-MVP operating mode
+
+The MVP is done.
+
+The main question now is not “what else can we add?” The main question is “does this survive real-world usage and help real Tokio developers?”
+
+In this phase:
+
+- prioritize real user pain over speculative expansion
+- keep scope narrow and coherent
+- improve adoption only where evidence justifies it
+- prefer a tighter product over a broader one
+- keep docs, demos, examples, and tests aligned with the actual product
 
 ## Product language and positioning guardrails
 
-When editing docs, prefer language that reinforces the MVP category:
+When editing docs, prefer language that reinforces the product category:
+
 - use **triage** for product/category language
 - use **diagnosis** for analyzer/report actions where natural
 - describe output as **evidence-ranked suspects** and **next checks**
 
 Always preserve the distinction:
+
 - suspects are leads
 - suspects are **not** proof of root cause
 
 Avoid wording drift toward:
+
 - vague “observability platform” framing
 - broad automated-causality claims
 - comparisons that imply `tailtriage` replaces tokio-console, tokio-metrics, or telemetry stacks
 
 Optimize docs for:
+
 - first-time users
 - non-expert readers
 - concrete workflows
@@ -44,9 +66,26 @@ Optimize docs for:
 - direct statements of fit and non-fit
 - narrow, honest claims over ambitious language
 
+## Scope guardrails
+
+Only expand scope when at least one of these is true:
+
+1. the missing piece is clearly holding the MVP back in real usage
+2. the change provides a clearly high-leverage boost to usefulness, clarity, or adoption without changing the product category
+
+Do not accept work just because it is adjacent, interesting, or requested once.
+
+When reviewing or implementing issues and PRs:
+
+- keep changes within reasonable bounds
+- keep related changes together cleanly
+- reject scattered additions that pull the project sideways
+- preserve one coherent product story across code, docs, demos, examples, and tests
+
 ## What this repository is NOT building
 
-Do not add these to the MVP unless explicitly asked:
+Do not add these unless explicitly asked and clearly justified against the implementation plan:
+
 - distributed tracing backend
 - GUI / web UI
 - Prometheus exporter
@@ -59,10 +98,12 @@ Do not add these to the MVP unless explicitly asked:
 - GPU support
 - non-Tokio runtime support
 - C or C++ components
+- general observability-platform features
 
 ## Technical direction
 
 Use:
+
 - Rust stable
 - Tokio
 - tracing
@@ -70,50 +111,95 @@ Use:
 - clap
 
 Prefer:
+
 - clear APIs
 - minimal dependencies
 - structured JSON outputs
 - small modules
 - explicit tests
+- deterministic demos and fixtures
+- simple examples that teach the intended workflow
 
 Avoid:
+
 - macro-heavy magic beyond what is strictly needed
 - unnecessary async trait abstraction
 - clever but opaque code
 - premature optimization
 - giant generic frameworks
+- dependency growth without strong justification
+
+## Dependency policy
+
+Be conservative when adding dependencies.
+
+Before adding a new dependency, ask:
+
+1. is it necessary for the current scoped problem?
+2. is there a simpler way to solve this with existing dependencies or std?
+3. is the dependency too heavy relative to the benefit it brings?
+4. does it increase compile time, binary size, maintenance burden, or conceptual weight too much?
+5. is the license permissive and acceptable for this repository?
+
+Only add a dependency when the value clearly outweighs the cost.
+
+Prefer:
+
+- small, well-maintained crates
+- widely used crates with clear ownership and stable maintenance
+- permissive licenses such as MIT, Apache-2.0, or BSD-style licenses
+
+Avoid or reject dependencies that are:
+
+- heavy for a narrow benefit
+- weakly maintained
+- unclear in license status
+- copyleft or otherwise not permissive unless explicitly approved
+- redundant with existing crates already in the workspace
+
+If a new dependency is added, document briefly in the PR or task summary:
+
+- why it is needed
+- why lighter alternatives were not used
+- what its license is
 
 ## Workspace structure
 
 Expected workspace members:
+
 - `tailtriage-core`
 - `tailtriage-tokio`
 - `tailtriage-cli`
+- `tailtriage-axum`
 
 Possible directories:
+
 - `demos/`
+- `examples/`
 - `benches/`
 - `scripts/`
 - `docs/`
 
-If the request macro crate becomes unnecessary, remove it instead of preserving extra surface area.
+If an extra crate or layer becomes unnecessary, remove it instead of preserving extra surface area.
 
 ## API design rules
 
-The repository is converging on **one unified public API**.
+The repository should keep **one coherent public usage story**.
 
-That unified public API should have:
+That usage story should have:
+
 - one builder/setup path
 - one request-context model
 - explicit queue/stage/inflight instrumentation on that request context
 - one lifecycle completion path
 - progressive disclosure for advanced tuning on the same conceptual surface
 
-Do not introduce a second competing onboarding path unless an issue explicitly asks for it.
+Do not introduce a second competing onboarding path unless an issue explicitly asks for it and the reason is strong.
 
 ### Preferred public integration style
 
 Preferred style:
+
 - one builder/init path
 - one request-context handle started per request/work item
 - small explicit wrappers around important awaits
@@ -122,6 +208,7 @@ Preferred style:
 - RAII guards where appropriate
 
 Do not design an API that forces developers to:
+
 - rewrite handlers around a custom framework
 - pack all request logic into one monolithic closure
 - manage manual request-ID plumbing in normal usage
@@ -130,6 +217,7 @@ Do not design an API that forces developers to:
 ### Fractured-code requirement
 
 The public API must work when request logic is spread across:
+
 - middleware
 - handlers
 - service layers
@@ -145,6 +233,7 @@ A convenience closure form may exist, but it must be sugar over the same reusabl
 Without expanding current scope into distributed tracing or cross-service diagnosis, do not paint the API into a corner.
 
 Leave room for future evolution such as:
+
 - richer correlation IDs
 - parent/child work relationships
 - future propagation across boundaries
@@ -154,17 +243,20 @@ Do not implement those features unless explicitly asked.
 ## Build and test requirements
 
 Before considering a task done, run:
+
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 
 If a task touches benchmarks or performance-sensitive code, also include:
+
 - benchmark notes
 - before/after evidence if behavior changed materially
 
 ## Definition of done
 
 A task is done only if:
+
 1. it satisfies the linked issue or task scope
 2. code builds
 3. tests pass
@@ -174,40 +266,96 @@ A task is done only if:
 7. demos are updated where needed
 8. scope did not quietly expand
 
-For public ergonomics changes, work is **not** done until the teaching surface moves too:
+For public ergonomics or behavior changes, work is **not** done until the teaching surface moves too:
+
 - `README.md`
 - `docs/user-guide.md`
 - relevant crate docs/readmes
 - `examples/`
-- `demos/` where public usage patterns are shown
+- `demos/`
+- relevant tests and fixtures
 
-## Hard-removal policy during private phase
+## Documentation, demos, examples, and tests are first-class
 
-The repository is not public yet.
+Keep the teaching and validation surface focused and current.
 
-If a new unified public API fully supersedes an older public API, hard removal is allowed and preferred over carrying legacy surface area forward.
+### Docs
 
-Do not keep old public APIs “just in case” unless the issue explicitly requires retention.
+Docs should:
 
-If a lower-level primitive is kept, there must be a clear reason that the unified API still cannot represent that capability cleanly.
+- teach the actual current workflow
+- reinforce the narrow product definition
+- avoid stale roadmap language
+- avoid teaching multiple conflicting onboarding paths
+- stay aligned with the implementation plan
+
+### Demos
+
+Demos are proof cases for the tool, not the product itself.
+
+Keep demos:
+
+- small
+- deterministic
+- runnable from scripts
+- honest about what they do and do not prove
+- focused on core tail-triage cases rather than side ambitions
+
+Do not let demos become a playground for unrelated features.
+
+### Examples
+
+Examples should:
+
+- be minimal
+- teach the intended integration path
+- help first-time users reach value quickly
+- stay close to realistic usage without becoming a framework of their own
+
+Do not keep stale examples that teach superseded APIs or broaden the story unnecessarily.
+
+### Tests
+
+Prefer:
+
+- focused unit tests
+- fixture-based tests for report generation
+- deterministic test inputs
+- tests that protect the narrow behavior contract
+
+For analyzer logic:
+
+- use explicit sample inputs
+- test diagnosis ranking and evidence generation
+- avoid brittle string matching unless intended output format is part of the contract
+
+For public API ergonomics:
+
+- test compact usage
+- test fractured-code usage
+- test parity of important behavior after API migration
+- test advanced knobs on the same unified surface
 
 ## Performance claims
 
 Do not make unmeasured performance claims.
 
 If the code changes runtime cost or diagnosis behavior:
-- add or update a benchmark or fixture
+
+- add or update a benchmark, fixture, or comparison artifact
 - explain expected trade-offs
 - prefer measured evidence over intuition
 
 ## Diagnostics philosophy
 
 `tailtriage` should produce:
+
 - ranked suspects
 - supporting evidence
 - recommended next checks
 
 It should NOT claim:
+
 - proven root cause
 - causal certainty
 - full distributed-system diagnosis
@@ -216,6 +364,7 @@ It should NOT claim:
 ## Existing ecosystem stance
 
 Assume the following are existing building blocks:
+
 - tracing handles spans/events
 - Tokio exposes runtime metrics
 - tokio-console is a local debugging/profiling tool
@@ -228,114 +377,92 @@ Assume the following are existing building blocks:
 Keep files small and readable.
 
 Prefer:
+
 - one responsibility per module
 - straightforward names
 - module-level docs for public modules
 
 If adding or changing a public API:
+
 - add rustdoc comments
 - add one example if practical
 - update public examples if the usage story changes
 
-## Tests
-
-Prefer:
-- focused unit tests
-- fixture-based tests for report generation
-- deterministic test inputs
-
-For analyzer logic:
-- use explicit sample inputs
-- test diagnosis ranking and evidence generation
-- avoid brittle string matching unless intended output format is part of the contract
-
-For public API ergonomics:
-- test compact usage
-- test fractured-code usage
-- test parity of important behavior after API migration
-- test advanced knobs on the same unified surface
-
-## Benchmarks
-
-For performance-sensitive components:
-- keep benchmark inputs simple and reproducible
-- store outputs in machine-readable form when useful
-- do not merge speculative optimization complexity without evidence
-
-## Demos
-
-Demos are proof cases for the tool, not the product itself.
-
-Keep demos:
-- small
-- deterministic
-- runnable from scripts
-- honest about what they do and do not prove
-
-If public integration ergonomics change, update demos that show public usage patterns so they do not teach stale APIs.
-
 ## Documentation expectations
 
-If behavior changes, update:
+If behavior, scope, or public guidance changes, update as needed:
+
 - `README.md`
 - `SPEC.md`
-- `IMPLEMENTATION_PLAN.md` if milestone or scope changed
+- `IMPLEMENTATION_PLAN.md` if milestones or operating mode changed
 - `docs/user-guide.md`
 - relevant crate docs/readmes
+- relevant demos/examples/tests
 
-Public docs should teach the unified public API first.
+Public docs should teach the intended current path first.
 
-Do not leave the repository teaching multiple competing onboarding paths after an ergonomics migration.
+Do not leave the repository teaching multiple competing onboarding stories after a change.
 
 ## How to approach tasks
 
 When given a task:
+
 1. read the issue/task carefully
 2. inspect `README.md`, `SPEC.md`, `IMPLEMENTATION_PLAN.md`, and this file
 3. make the smallest reasonable change that solves the actual problem
-4. add tests
+4. add or update tests
 5. update docs/examples/demos where needed
 6. run format/lint/test
 7. summarize what changed and any remaining limitations
 
 For larger tasks:
+
 - propose a short plan first
 - keep PRs reviewable
 - do not batch unrelated work
 
 ## Preferred implementation order
 
-For unified API work, prefer this order:
-1. `AGENTS.md` / repo guidance
-2. `tailtriage-core` public API shape
-3. `tailtriage-tokio` integration alignment
-4. `tailtriage-cli` adjustments if needed
+For most scoped work, prefer this order:
+
+1. repository guidance if scope/rules changed
+2. core implementation
+3. integration alignment
+4. tests and fixtures
 5. examples
 6. demos
 7. docs/readmes
-8. cleanup/removal of superseded APIs
+8. cleanup/removal of superseded surface area
 
 ## Public API stability
 
-During MVP:
-- prefer correctness and usability over premature stability
-- but do not churn names casually
+Post-MVP:
 
-Because the repository is still private, removing superseded APIs is acceptable if it leads to one cleaner final public API.
+- prefer correctness, clarity, and cohesion over accumulating compatibility baggage
+- do not churn names casually
+- do not preserve overlapping surfaces without a good reason
 
 If changing public APIs:
+
 - update examples and docs in the same change set
 - remove or clearly justify retained overlapping surfaces
 - do not leave both old and new paths equally endorsed
 
 ## If uncertain
 
-If unsure whether a change belongs in MVP:
+If unsure whether a change belongs:
+
 - default to the smaller scope
-- leave a note in docs or TODOs
+- default to the more cohesive option
+- check whether it aligns with the implementation plan
 - do not silently expand the product
 
-If unsure whether an old API should remain:
-- prefer the unified public path
-- retain old surface only if it still provides genuinely unique capability
-- otherwise remove it
+If unsure whether a dependency belongs:
+
+- default to not adding it until its value is clear
+- prefer lighter and more permissively licensed options
+- document the trade-off explicitly
+
+If unsure whether a doc/demo/example/test should be updated:
+
+- assume yes if user-facing behavior, guidance, or product understanding changed
