@@ -6,7 +6,7 @@ The demos are intentionally small services for Tokio tail-latency triage. They a
 
 Check out [`docs/getting-started-demo.md`](docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
 
-## Stronges public proof demos
+## Strongest public proof demos
 
 ### `queue_service`
 
