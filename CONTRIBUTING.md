@@ -11,8 +11,9 @@ The project focuses on producing **evidence-ranked suspects** and **next checks*
 ## Community and security policies
 
 - Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md).
-- For security vulnerabilities, follow the private reporting instructions in [SECURITY.md](SECURITY.md) and avoid opening public issues before a fix is available.
 - Commits must be signed (`--signoff` option).
+- Pull requests are merged using **Squash and merge** to keep project history clean and readable.
+- For security vulnerabilities, follow the private reporting instructions in [SECURITY.md](SECURITY.md) and avoid opening public issues before a fix is available.
 
 ## License for contributions
 
