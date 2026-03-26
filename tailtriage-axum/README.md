@@ -48,3 +48,10 @@ let app: Router<()> = Router::new()
 ```
 
 Suspects in analysis output are leads, not proof of root cause.
+
+## Related docs
+
+- Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>
+- Core crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-core>
+- Tokio integration crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-tokio>
+- CLI crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-cli>
