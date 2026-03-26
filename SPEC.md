@@ -42,14 +42,30 @@ MVP does **not** include:
 
 ## 4. Workspace layout
 
+Current workspace members include:
+
 - `tailtriage-core`
 - `tailtriage-tokio`
+- `tailtriage-axum`
 - `tailtriage-cli`
-- `demos/`
-- `scripts/`
-- `docs/`
+- `demos/demo_support`
+- `demos/queue_service`
+- `demos/blocking_service`
+- `demos/executor_pressure_service`
+- `demos/downstream_service`
+- `demos/mixed_contention_service`
+- `demos/cold_start_burst_service`
+- `demos/db_pool_saturation_service`
+- `demos/shared_state_lock_service`
+- `demos/retry_storm_service`
+- `demos/runtime_cost`
 
-## 5. Public API (current MVP)
+Supporting repository areas:
+
+- `docs/`
+- `scripts/`
+
+## 5. Public API
 
 ### 5.1 Initialization (`tailtriage-core`)
 
@@ -170,6 +186,23 @@ sampler.shutdown().await;
 tailtriage.shutdown()?;
 ```
 
+### 5.7 Axum adapter surface (`tailtriage-axum`)
+
+`tailtriage-axum` provides a narrow axum ergonomics layer for request-scoped triage:
+
+- middleware: `tailtriage_axum::middleware`
+- extractor: `tailtriage_axum::TailtriageRequest`
+
+This adapter reduces repeated framework-boundary wiring. It is an adoption helper, not automatic diagnosis magic.
+
+Middleware behavior:
+
+- starts one request lifecycle per incoming axum request
+- finishes with `Outcome::Ok` for non-5xx responses
+- finishes with `Outcome::Error` for 5xx responses
+
+Queue/stage/inflight instrumentation remains explicit in handlers/helpers via `TailtriageRequest`.
+
 ## 6. Run data model
 
 `tailtriage-core` emits one JSON run artifact with:
@@ -228,22 +261,35 @@ MVP categories:
 
 Important: these are evidence-ranked suspects, **not** proof of root cause.
 
-## 9. Demos (required)
+## 9. Demos and validation contract
 
-- `demos/queue_service`: should rank queue saturation as primary suspect
-- `demos/blocking_service`: should rank blocking-pool pressure as primary suspect
-- `demos/executor_pressure_service`: should rank executor pressure as primary suspect without relying on blocking-depth evidence
+The canonical demo run/validation surface is `python3 scripts/demo_tool.py`.
 
-Validation scripts in `scripts/` must pass for these demos.
+Supported scenarios:
 
-### 9.1 Additional runnable proof case
+- `queue`
+- `blocking`
+- `executor`
+- `downstream`
+- `mixed`
+- `cold-start`
+- `db-pool`
+- `shared-lock`
+- `retry-storm`
 
-- `demos/downstream_service`: deterministic downstream-stage dominance scenario that should rank `downstream_stage_dominates` as the primary suspect.
-- `demos/mixed_contention_service`: deterministic mixed queue + downstream contention scenario where both suspects should be present in ranked evidence and mitigation should shift rank and/or score when one bottleneck is reduced.
-- `demos/shared_state_lock_service`: deterministic shared-state lock contention scenario where lock wait is modeled as queue-like wait and lock-protected work is modeled as a service stage; mitigation should reduce queueing/serialization signals.
-- `demos/retry_storm_service`: deterministic retry-heavy downstream scenario with intermittently failing/slow calls; baseline should show downstream-stage dominance with elevated service share, and mitigated mode should improve p95 and lower suspect score via capped retries/jitter/circuit-break style behavior.
+Expected baseline diagnosis contract:
 
-This demo is intentionally small and single-purpose; it extends storytelling trust without expanding MVP scope.
+- `queue` -> `application_queue_saturation`
+- `blocking` -> `blocking_pool_pressure`
+- `executor` -> `executor_pressure_suspected`
+- `downstream` -> `downstream_stage_dominates`
+- `mixed` -> primary `application_queue_saturation`, with downstream suspect also present
+- `cold-start` -> `application_queue_saturation`
+- `db-pool` -> `application_queue_saturation`
+- `shared-lock` -> `application_queue_saturation`
+- `retry-storm` -> `downstream_stage_dominates`
+
+These demos are deterministic triage exercises and proof cases for diagnosis behavior. They do not claim universal causality proof.
 
 ## 10. Runtime-cost measurement
 
@@ -266,14 +312,17 @@ Metrics measured:
 
 ## 11. Documentation requirements
 
-When behavior changes, update as needed:
+When behavior or public guidance changes, update as needed:
 
 - `README.md`
 - `SPEC.md`
-- `IMPLEMENTATION_PLAN.md` (if scope/milestone changes)
-- `docs/architecture.md`
+- `IMPLEMENTATION_PLAN.md` (if scope or operating phase changes)
+- `docs/README.md`
+- `docs/user-guide.md`
+- `docs/getting-started-demo.md`
 - `docs/diagnostics.md`
 - `docs/runtime-cost.md`
+- relevant crate docs/readmes
 
 ## 12. Definition of done
 
