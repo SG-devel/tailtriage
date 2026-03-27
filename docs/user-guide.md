@@ -2,9 +2,9 @@
 
 Use this guide for a reliable capture → analyze → next-check loop.
 
-## Path A — Use from this repo now
+## Path A — Run from this repo workspace
 
-This is the recommended public path today.
+Use this path to run bundled examples, demos, and contributor workflows from this repository.
 
 ### 1) Capture one artifact
 
@@ -158,15 +158,15 @@ Example split:
 
 Add one queue wrapper and one stage wrapper around the most likely missing waits, rerun under comparable load, then compare suspects/evidence.
 
-## Path B — After crates are published (post-publish path)
+## Path B — Use published crates from crates.io
 
-Use this path only after crates are released. For launch-day public docs, Path A is the supported path.
+Use this path when adopting `tailtriage` in an external project.
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1"
-tailtriage-tokio = "0.1"
-tailtriage-axum = "0.1" # optional, only for axum middleware/extractor ergonomics
+tailtriage-core = "0.1.0"
+tailtriage-tokio = "0.1.0"
+tailtriage-axum = "0.1.0" # optional, only for axum middleware/extractor ergonomics
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 

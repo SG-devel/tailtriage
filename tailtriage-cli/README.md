@@ -2,15 +2,13 @@
 
 Command-line triage analyzer for one `tailtriage` run artifact.
 
-For the public repo launch, the primary path is running the CLI from source in this workspace. `cargo install` is post-publish guidance.
-
 ## Use from this repo now
 
 ```bash
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
-## Post-publish install (when released)
+## Install from crates.io
 
 ```bash
 cargo install tailtriage-cli
