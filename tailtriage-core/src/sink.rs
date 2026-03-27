@@ -80,6 +80,21 @@ fn create_temp_path(parent: &Path, final_path: &Path) -> PathBuf {
     ))
 }
 
+fn create_backup_path(final_path: &Path) -> PathBuf {
+    let parent = final_path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = final_path
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("tailtriage-run.json");
+    let epoch_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    parent.join(format!(
+        ".{file_name}.bak-{}-{epoch_nanos}",
+        std::process::id()
+    ))
+}
+
 fn finalize_temp_file(temp_path: &Path, final_path: &Path) -> Result<(), IoError> {
     #[cfg(unix)]
     {
@@ -90,16 +105,36 @@ fn finalize_temp_file(temp_path: &Path, final_path: &Path) -> Result<(), IoError
     {
         match fs::rename(temp_path, final_path) {
             Ok(()) => Ok(()),
-            Err(first_err) if final_path.exists() => {
+            Err(first_err) if final_path.is_file() && temp_path.is_file() => {
                 // Windows does not replace an existing destination on rename.
-                // We fall back to remove + rename to preserve the single-file UX.
-                // This fallback is not atomic across power loss/crash boundaries.
-                fs::remove_file(final_path)?;
-                fs::rename(temp_path, final_path).map_err(|second_err| {
-                    IoError::other(format!(
-                        "failed to finalize run output after removing existing destination: first rename error: {first_err}; second rename error: {second_err}"
-                    ))
-                })
+                // Preserve the existing destination by moving it aside first,
+                // then restore it if the second rename fails.
+                let backup_path = create_backup_path(final_path);
+                fs::rename(final_path, &backup_path)?;
+
+                match fs::rename(temp_path, final_path) {
+                    Ok(()) => {
+                        let _ = fs::remove_file(&backup_path);
+                        Ok(())
+                    }
+                    Err(second_err) => {
+                        let restore_result = fs::rename(&backup_path, final_path);
+                        match restore_result {
+                            Ok(()) => Err(IoError::new(
+                                second_err.kind(),
+                                format!(
+                                    "failed to finalize run output after preserving existing destination: first rename error: {first_err}; second rename error: {second_err}"
+                                ),
+                            )),
+                            Err(restore_err) => Err(IoError::new(
+                                second_err.kind(),
+                                format!(
+                                    "failed to finalize run output and failed to restore existing destination: first rename error: {first_err}; second rename error: {second_err}; restore error: {restore_err}"
+                                ),
+                            )),
+                        }
+                    }
+                }
             }
             Err(err) => Err(err),
         }
