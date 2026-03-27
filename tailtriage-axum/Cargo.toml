@@ -12,7 +12,9 @@ categories = ["asynchronous", "development-tools::profiling", "development-tools
 include = [
   "Cargo.toml",
   "README.md",
+  "LICENSE",
   "src/**",
+  "examples/**",
 ]
 
 [dependencies]

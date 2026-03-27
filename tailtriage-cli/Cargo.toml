@@ -12,6 +12,7 @@ categories = ["command-line-utilities", "development-tools::profiling", "develop
 include = [
   "Cargo.toml",
   "README.md",
+  "LICENSE",
   "src/**",
 ]
 
