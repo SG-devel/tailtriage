@@ -3,12 +3,16 @@ name = "runtime_cost"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [dependencies]
 anyhow = "1"
-tailtriage-core = { path = "../../tailtriage-core" }
+tailtriage-core.workspace = true
 tailtriage-tokio = { path = "../../tailtriage-tokio" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[lints]
+workspace = true
