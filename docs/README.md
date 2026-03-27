@@ -13,4 +13,3 @@
 
 - **Architecture and crate responsibilities:** [`architecture.md`](architecture.md)
 - **Runtime-cost measurement notes:** [`runtime-cost.md`](runtime-cost.md)
-- **Changelog:** [`changelog.md`](changelog.md)
