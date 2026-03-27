@@ -3,12 +3,17 @@ name = "tailtriage-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "CLI for tailtriage artifact loading, diagnosis, and report generation"
-repository = "https://github.com/SG-devel/tailtriage"
 documentation = "https://docs.rs/tailtriage-cli"
 readme = "README.md"
 keywords = ["tokio", "latency", "cli", "diagnostics", "triage"]
 categories = ["command-line-utilities", "development-tools::profiling", "development-tools::debugging"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "src/**",
+]
 
 [[bin]]
 name = "tailtriage"
@@ -18,7 +23,7 @@ path = "src/main.rs"
 clap = { version = "4.5.40", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-tailtriage-core = { version = "0.1.0", path = "../tailtriage-core" }
+tailtriage-core.workspace = true
 
 [lints]
 workspace = true

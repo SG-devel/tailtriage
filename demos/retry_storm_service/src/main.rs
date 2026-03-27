@@ -137,7 +137,8 @@ async fn main() -> anyhow::Result<()> {
 
     let tailtriage = init_collector("retry_storm_service_demo", &args.output_path)?;
 
-    let mut tasks = Vec::with_capacity(mode_settings.offered_requests as usize);
+    let capacity = usize::try_from(mode_settings.offered_requests)?;
+    let mut tasks = Vec::with_capacity(capacity);
 
     for request_number in 0..mode_settings.offered_requests {
         let tailtriage = Arc::clone(&tailtriage);

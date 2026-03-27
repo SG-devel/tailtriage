@@ -22,6 +22,7 @@ resolver = "2"
 edition = "2021"
 license = "MIT"
 version = "0.1.0"
+repository = "https://github.com/SG-devel/tailtriage"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -30,3 +31,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
 [workspace.lints.clippy]
 all = "warn"
 pedantic = "warn"
+
+[workspace.dependencies]
+tailtriage-core = { version = "0.1.0", path = "tailtriage-core" }

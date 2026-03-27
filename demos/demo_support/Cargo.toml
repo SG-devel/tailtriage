@@ -3,9 +3,13 @@ name = "demo-support"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [dependencies]
 anyhow = "1"
-tailtriage-core = { path = "../../tailtriage-core" }
+tailtriage-core.workspace = true
 tokio = { version = "1", features = ["sync", "time"] }
+
+[lints]
+workspace = true

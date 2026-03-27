@@ -49,7 +49,8 @@ async fn main() -> anyhow::Result<()> {
     let db_pool = Arc::new(Semaphore::new(settings.db_pool_size));
     let waiting_depth = Arc::new(AtomicU64::new(0));
 
-    let mut tasks = Vec::with_capacity(settings.offered_requests as usize);
+    let task_capacity = usize::try_from(settings.offered_requests)?;
+    let mut tasks = Vec::with_capacity(task_capacity);
 
     for request_number in 0..settings.offered_requests {
         let tailtriage = Arc::clone(&tailtriage);

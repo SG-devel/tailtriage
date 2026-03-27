@@ -3,16 +3,21 @@ name = "tailtriage-axum"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Axum adapter for tailtriage request-boundary triage wiring"
-repository = "https://github.com/SG-devel/tailtriage"
 documentation = "https://docs.rs/tailtriage-axum"
 readme = "README.md"
 keywords = ["axum", "tokio", "latency", "instrumentation", "triage"]
 categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "src/**",
+]
 
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "matched-path", "tokio"] }
-tailtriage-core = { version = "0.1.0", path = "../tailtriage-core" }
+tailtriage-core.workspace = true
 
 [lints]
 workspace = true
