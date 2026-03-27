@@ -2,7 +2,7 @@
 
 Tokio integration for `tailtriage`, including `RuntimeSampler` for periodic runtime snapshots.
 
-## Use from this repo now
+## Use from the repo
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
@@ -13,8 +13,8 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1.0"
-tailtriage-tokio = "0.1.0"
+tailtriage-core = "0.1.1"
+tailtriage-tokio = "0.1.1"
 ```
 
 ## What this crate provides
