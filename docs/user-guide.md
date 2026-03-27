@@ -164,9 +164,9 @@ Use this path when adopting `tailtriage` in an external project.
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1.0"
-tailtriage-tokio = "0.1.0"
-tailtriage-axum = "0.1.0" # optional, only for axum middleware/extractor ergonomics
+tailtriage-core = "0.1.1"
+tailtriage-tokio = "0.1.1" # optional, for RuntimeSampler and runtime-pressure evidence
+tailtriage-axum = "0.1.1" # optional, only for axum middleware/extractor ergonomics
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 

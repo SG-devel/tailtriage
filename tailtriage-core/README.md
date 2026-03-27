@@ -2,7 +2,7 @@
 
 Core run schema, split request lifecycle API, and instrumentation primitives for `tailtriage`.
 
-## Use from this repo now
+## Use from the repo
 
 From the workspace root, run examples and analysis directly:
 
@@ -15,7 +15,7 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1.0"
+tailtriage-core = "0.1.1"
 ```
 
 ## What this crate owns

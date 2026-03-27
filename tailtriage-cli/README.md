@@ -2,7 +2,7 @@
 
 Command-line triage analyzer for one `tailtriage` run artifact.
 
-## Use from this repo now
+## Use from the repo
 
 ```bash
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json

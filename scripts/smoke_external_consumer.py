@@ -60,11 +60,11 @@ def write_external_app(project_dir: Path) -> tuple[Path, Path]:
 
     cargo_toml = f"""[package]
 name = "external-tailtriage-smoke"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
-tailtriage-core = "0.1.0"
+tailtriage-core = "0.1.1"
 tokio = {{ version = "1", features = ["macros", "rt", "time"] }}
 """
     (app_dir / "Cargo.toml").write_text(cargo_toml, encoding="utf-8")
