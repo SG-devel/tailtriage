@@ -62,8 +62,8 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
     let runnable_backlog = Arc::new(AtomicU64::new(0));
     let hot_slice_local_depth = Arc::new(AtomicU64::new(0));
-    let warmup_count = settings.warmup_requests as usize;
-    let measured_count = measured_requests as usize;
+    let warmup_count = usize::try_from(settings.warmup_requests)?;
+    let measured_count = usize::try_from(measured_requests)?;
 
     run_warmup_then_measured(
         warmup_count,

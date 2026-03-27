@@ -9,7 +9,9 @@ use tokio::sync::Barrier;
 /// Demo profile selector used by before/after style demo binaries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DemoMode {
+    /// Run the baseline or "before" profile.
     Baseline,
+    /// Run the mitigated or "after" profile.
     Mitigated,
 }
 
@@ -21,10 +23,15 @@ impl DemoMode {
     /// - `mitigated` or `after`
     ///
     /// If omitted, defaults to `baseline`.
-    pub fn from_arg(value: Option<String>) -> anyhow::Result<Self> {
-        match value.as_deref() {
-            None | Some("baseline") | Some("before") => Ok(Self::Baseline),
-            Some("mitigated") | Some("after") => Ok(Self::Mitigated),
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `value` is present but is not one of:
+    /// `baseline`, `before`, `mitigated`, or `after`.
+    pub fn from_arg(value: Option<&String>) -> anyhow::Result<Self> {
+        match value.map(String::as_str) {
+            None | Some("baseline" | "before") => Ok(Self::Baseline),
+            Some("mitigated" | "after") => Ok(Self::Mitigated),
             Some(other) => anyhow::bail!(
                 "unsupported mode '{other}', expected one of: baseline, before, mitigated, after"
             ),
@@ -32,30 +39,51 @@ impl DemoMode {
     }
 }
 
+/// Parsed common demo CLI arguments.
 pub struct DemoArgs {
+    /// Output path for the generated demo artifact.
     pub output_path: PathBuf,
+    /// Selected demo mode.
     pub mode: DemoMode,
 }
 
 /// Parse common `<output_path> [mode]` demo arguments.
+///
+/// The first positional argument, if present, is parsed as the output path.
+/// Otherwise, `default_output_path` is used.
+///
+/// The second positional argument, if present, is parsed as the demo mode.
+/// Accepted values are `baseline`/`before` and `mitigated`/`after`.
+/// If omitted, the mode defaults to `baseline`.
+///
+/// # Errors
+///
+/// Returns an error if the mode argument is unsupported, or if preparing the
+/// parent directory for the output path fails.
 pub fn parse_demo_args(default_output_path: &str) -> anyhow::Result<DemoArgs> {
     let mut args = std::env::args().skip(1);
     let output_path = args
         .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(default_output_path));
-    let mode = DemoMode::from_arg(args.next())?;
+        .map_or_else(|| PathBuf::from(default_output_path), PathBuf::from);
+    let mode = DemoMode::from_arg(args.next().as_ref())?;
     ensure_parent_dir(&output_path)?;
 
     Ok(DemoArgs { output_path, mode })
 }
 
-/// Parse common `<output_path>` demo arguments.
+/// Parse a common `<output_path>` demo argument.
+///
+/// The first positional argument, if present, is used as the output path.
+/// Otherwise, `default_output_path` is used.
+///
+/// # Errors
+///
+/// Returns an error if preparing the parent directory for the resolved output
+/// path fails.
 pub fn parse_output_arg(default_output_path: &str) -> anyhow::Result<PathBuf> {
     let output_path = std::env::args()
         .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(default_output_path));
+        .map_or_else(|| PathBuf::from(default_output_path), PathBuf::from);
     ensure_parent_dir(&output_path)?;
     Ok(output_path)
 }
@@ -68,7 +96,14 @@ fn ensure_parent_dir(output_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Build a Tailtriage instance for a demo service name and output artifact path.
+/// Initialize a shared `Tailtriage` collector for the given service and output path.
+///
+/// The collector is configured with `service_name` and writes its output to
+/// `output_path`.
+///
+/// # Errors
+///
+/// Returns an error if building the `Tailtriage` collector fails.
 pub fn init_collector(service_name: &str, output_path: &Path) -> anyhow::Result<Arc<Tailtriage>> {
     let collector = Tailtriage::builder(service_name)
         .output(output_path)
@@ -87,6 +122,7 @@ pub struct CohortStart {
 
 impl CohortStart {
     /// Create a cohort barrier for `participant_count` async tasks.
+    #[must_use]
     pub fn new(participant_count: usize) -> Self {
         Self {
             barrier: Arc::new(Barrier::new(participant_count)),

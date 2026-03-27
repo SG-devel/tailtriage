@@ -34,7 +34,8 @@ async fn main() -> anyhow::Result<()> {
     let tailtriage = init_collector("downstream_service_demo", &output_path)?;
 
     let offered_requests = 80_u64;
-    let mut tasks = Vec::with_capacity(offered_requests as usize);
+    let task_capacity = usize::try_from(offered_requests)?;
+    let mut tasks = Vec::with_capacity(task_capacity);
 
     for request_number in 0..offered_requests {
         let tailtriage = Arc::clone(&tailtriage);
