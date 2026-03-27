@@ -29,6 +29,14 @@ impl Mode {
             _ => None,
         }
     }
+
+    fn capture_mode(self) -> Option<CaptureMode> {
+        match self {
+            Self::Baseline => None,
+            Self::Light => Some(CaptureMode::Light),
+            Self::Investigation => Some(CaptureMode::Investigation),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -52,42 +60,83 @@ struct Measurement {
     latency_p99_ms: f64,
 }
 
+struct Instrumentation {
+    tailtriage: Option<Arc<Tailtriage>>,
+    sampler: Option<RuntimeSampler>,
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> anyhow::Result<()> {
     let cli = parse_cli()?;
     std::fs::create_dir_all(&cli.output_dir)
         .with_context(|| format!("failed to create {}", cli.output_dir.display()))?;
 
-    let mut tailtriage = None;
-    let mut sampler = None;
+    let instrumentation = build_instrumentation(&cli)?;
+    let (mut latencies, elapsed) = run_requests(&cli, instrumentation.tailtriage.as_ref()).await?;
 
-    if cli.mode != Mode::Baseline {
-        let mode = match cli.mode {
-            Mode::Light => CaptureMode::Light,
-            Mode::Investigation => CaptureMode::Investigation,
-            Mode::Baseline => CaptureMode::Light,
-        };
-        let mut builder = Tailtriage::builder("runtime_cost_demo").output(
-            cli.output_dir
-                .join(format!("run-{:?}.json", cli.mode).to_lowercase()),
-        );
-        builder = match mode {
-            CaptureMode::Light => builder.light(),
-            CaptureMode::Investigation => builder.investigation(),
-        };
-
-        let instance = Arc::new(builder.build()?);
-
-        if cli.mode == Mode::Investigation {
-            sampler = Some(RuntimeSampler::start(
-                Arc::clone(&instance),
-                Duration::from_millis(2),
-            )?);
-        }
-
-        tailtriage = Some(instance);
+    if let Some(sampler) = instrumentation.sampler {
+        sampler.shutdown().await;
     }
 
+    if let Some(tailtriage) = instrumentation.tailtriage {
+        tailtriage.shutdown()?;
+    }
+
+    latencies.sort_unstable();
+
+    let measurement = Measurement {
+        mode: cli.mode,
+        requests: cli.requests,
+        concurrency: cli.concurrency,
+        work_ms: cli.work_ms,
+        throughput_rps: requests_per_second(cli.requests, elapsed)?,
+        latency_p50_ms: percentile_ms(&latencies, 50, 100)?,
+        latency_p95_ms: percentile_ms(&latencies, 95, 100)?,
+        latency_p99_ms: percentile_ms(&latencies, 99, 100)?,
+    };
+
+    println!("{}", serde_json::to_string(&measurement)?);
+
+    Ok(())
+}
+
+fn build_instrumentation(cli: &Cli) -> anyhow::Result<Instrumentation> {
+    let Some(capture_mode) = cli.mode.capture_mode() else {
+        return Ok(Instrumentation {
+            tailtriage: None,
+            sampler: None,
+        });
+    };
+
+    let mut builder = Tailtriage::builder("runtime_cost_demo").output(
+        cli.output_dir
+            .join(format!("run-{:?}.json", cli.mode).to_lowercase()),
+    );
+    builder = match capture_mode {
+        CaptureMode::Light => builder.light(),
+        CaptureMode::Investigation => builder.investigation(),
+    };
+
+    let tailtriage = Arc::new(builder.build()?);
+    let sampler = if cli.mode == Mode::Investigation {
+        Some(RuntimeSampler::start(
+            Arc::clone(&tailtriage),
+            Duration::from_millis(2),
+        )?)
+    } else {
+        None
+    };
+
+    Ok(Instrumentation {
+        tailtriage: Some(tailtriage),
+        sampler,
+    })
+}
+
+async fn run_requests(
+    cli: &Cli,
+    tailtriage: Option<&Arc<Tailtriage>>,
+) -> anyhow::Result<(Vec<u64>, Duration)> {
     let latencies_us = Arc::new(Mutex::new(Vec::<u64>::with_capacity(cli.requests)));
     let semaphore = Arc::new(Semaphore::new(cli.concurrency));
 
@@ -99,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
         let latencies = Arc::clone(&latencies_us);
         let mode = cli.mode;
         let work_duration = Duration::from_millis(cli.work_ms);
-        let tailtriage = tailtriage.as_ref().map(Arc::clone);
+        let tailtriage = tailtriage.map(Arc::clone);
 
         tasks.push(tokio::spawn(async move {
             let start = Instant::now();
@@ -140,6 +189,7 @@ async fn main() -> anyhow::Result<()> {
 
                         drop(permit);
                     }
+
                     started.completion.finish(tailtriage_core::Outcome::Ok);
                 }
                 (_, None) => unreachable!("instrumented modes require a collector"),
@@ -155,34 +205,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let elapsed = wall_start.elapsed();
-
-    if let Some(sampler) = sampler {
-        sampler.shutdown().await;
-    }
-
-    if let Some(ts) = tailtriage {
-        ts.shutdown()?;
-    }
-
-    let mut latencies = Arc::into_inner(latencies_us)
+    let latencies = Arc::into_inner(latencies_us)
         .expect("all task refs dropped")
         .into_inner();
-    latencies.sort_unstable();
 
-    let measurement = Measurement {
-        mode: cli.mode,
-        requests: cli.requests,
-        concurrency: cli.concurrency,
-        work_ms: cli.work_ms,
-        throughput_rps: cli.requests as f64 / elapsed.as_secs_f64(),
-        latency_p50_ms: percentile_ms(&latencies, 0.50),
-        latency_p95_ms: percentile_ms(&latencies, 0.95),
-        latency_p99_ms: percentile_ms(&latencies, 0.99),
-    };
-
-    println!("{}", serde_json::to_string(&measurement)?);
-
-    Ok(())
+    Ok((latencies, elapsed))
 }
 
 fn parse_cli() -> anyhow::Result<Cli> {
@@ -258,15 +285,34 @@ fn print_help() {
     );
 }
 
-fn percentile_ms(sorted_us: &[u64], percentile: f64) -> f64 {
-    let len = sorted_us.len();
-    if len == 0 {
-        return 0.0;
+fn requests_per_second(request_count: usize, elapsed: Duration) -> anyhow::Result<f64> {
+    let total_requests = u64::try_from(request_count)?;
+    let request_rate_input = total_requests.to_string().parse::<f64>()?;
+    Ok(request_rate_input / elapsed.as_secs_f64())
+}
+
+fn percentile_ms(sorted_us: &[u64], numerator: u64, denominator: u64) -> anyhow::Result<f64> {
+    if sorted_us.is_empty() {
+        return Ok(0.0);
     }
 
-    let max_index = len - 1;
-    let target = (max_index as f64 * percentile).round();
-    let index = target.clamp(0.0, max_index as f64) as usize;
+    anyhow::ensure!(denominator != 0, "percentile denominator must be non-zero");
+    anyhow::ensure!(
+        numerator <= denominator,
+        "percentile numerator must be <= denominator"
+    );
 
-    sorted_us[index] as f64 / 1_000.0
+    let max_index = sorted_us.len() - 1;
+    let max_index_u64 = u64::try_from(max_index)?;
+    let scaled = u128::from(max_index_u64) * u128::from(numerator);
+    let rounded = scaled + (u128::from(denominator) / 2);
+    let index_u128 = rounded / u128::from(denominator);
+    let index = usize::try_from(index_u128)?;
+
+    micros_to_millis_f64(sorted_us[index])
+}
+
+fn micros_to_millis_f64(micros: u64) -> anyhow::Result<f64> {
+    let micros_value = micros.to_string().parse::<f64>()?;
+    Ok(micros_value / 1_000.0)
 }

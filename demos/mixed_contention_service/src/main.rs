@@ -52,7 +52,8 @@ async fn main() -> anyhow::Result<()> {
     let semaphore = Arc::new(Semaphore::new(settings.service_capacity));
     let waiting_depth = Arc::new(AtomicU64::new(0));
 
-    let mut tasks = Vec::with_capacity(settings.offered_requests as usize);
+    let capacity = usize::try_from(settings.offered_requests)?;
+    let mut tasks = Vec::with_capacity(capacity);
 
     for request_number in 0..settings.offered_requests {
         let tailtriage = Arc::clone(&tailtriage);

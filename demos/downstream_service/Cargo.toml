@@ -3,10 +3,14 @@ name = "downstream_service"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [dependencies]
 anyhow = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-tailtriage-core = { path = "../../tailtriage-core" }
+tailtriage-core.workspace = true
 demo-support = { path = "../demo_support" }
+
+[lints]
+workspace = true

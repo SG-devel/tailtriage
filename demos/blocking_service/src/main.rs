@@ -76,7 +76,8 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
         })
     };
 
-    let mut tasks = Vec::with_capacity(settings.offered_requests as usize);
+    let capacity = usize::try_from(settings.offered_requests)?;
+    let mut tasks = Vec::with_capacity(capacity);
 
     for request_number in 0..settings.offered_requests {
         let tailtriage = Arc::clone(&tailtriage);
@@ -108,7 +109,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
                     .await_value(async {
                         handle
                             .await
-                            .expect("spawn_blocking workload should complete")
+                            .expect("spawn_blocking workload should complete");
                     })
                     .await;
                 pending_blocking.fetch_sub(1, Ordering::SeqCst);
