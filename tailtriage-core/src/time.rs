@@ -1,4 +1,11 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Converts a [`Duration`] since [`UNIX_EPOCH`] to unix epoch milliseconds,
+/// saturating at [`u64::MAX`].
+#[must_use]
+fn duration_to_unix_ms(duration: Duration) -> u64 {
+    duration.as_millis().try_into().unwrap_or(u64::MAX)
+}
 
 /// Converts a [`SystemTime`] to unix epoch milliseconds.
 ///
@@ -7,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[must_use]
 pub fn system_time_to_unix_ms(time: SystemTime) -> u64 {
     match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_millis().try_into().unwrap_or(u64::MAX),
+        Ok(duration) => duration_to_unix_ms(duration),
         Err(_) => 0,
     }
 }
@@ -20,7 +27,7 @@ pub fn unix_time_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::system_time_to_unix_ms;
+    use super::{duration_to_unix_ms, system_time_to_unix_ms};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -33,10 +40,7 @@ mod tests {
         let overflow_duration = Duration::from_millis(u64::MAX)
             .checked_add(Duration::from_millis(1))
             .expect("overflow test duration should be representable");
-        let overflow = UNIX_EPOCH
-            .checked_add(overflow_duration)
-            .expect("overflow test timestamp should be representable");
-        assert_eq!(system_time_to_unix_ms(overflow), u64::MAX);
+        assert_eq!(duration_to_unix_ms(overflow_duration), u64::MAX);
 
         assert_eq!(system_time_to_unix_ms(UNIX_EPOCH), 0);
         assert_eq!(
