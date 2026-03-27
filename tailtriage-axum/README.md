@@ -16,8 +16,8 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1.0"
-tailtriage-axum = "0.1.0"
+tailtriage-core = "0.1.1"
+tailtriage-axum = "0.1.1"
 ```
 
 ## What this crate provides

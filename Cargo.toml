@@ -21,7 +21,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.1.0"
+version = "0.1.1"
 repository = "https://github.com/SG-devel/tailtriage"
 
 [workspace.lints.rust]
@@ -33,6 +33,6 @@ all = "warn"
 pedantic = "warn"
 
 [workspace.dependencies]
-tailtriage-core = { version = "0.1.0", path = "tailtriage-core" }
-tailtriage-tokio = { version = "0.1.0", path = "tailtriage-tokio" }
-demo-support = { version = "0.1.0", path = "demos/demo_support" }
+tailtriage-core = { version = "0.1.1", path = "tailtriage-core" }
+tailtriage-tokio = { version = "0.1.1", path = "tailtriage-tokio" }
+demo-support = { version = "0.1.1", path = "demos/demo_support" }
