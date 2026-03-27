@@ -4,7 +4,7 @@ Axum adapter crate for `tailtriage` request-boundary triage wiring.
 
 This crate isolates framework-specific middleware and extractor ergonomics so `tailtriage-tokio` can stay framework-agnostic.
 
-## Use from this repo now
+## Use from the repo
 
 ```bash
 cargo run -p tailtriage-axum --example axum_minimal

@@ -2,7 +2,7 @@
 
 Core run schema, split request lifecycle API, and instrumentation primitives for `tailtriage`.
 
-## Use from this repo now
+## Use from the repo
 
 From the workspace root, run examples and analysis directly:
 
