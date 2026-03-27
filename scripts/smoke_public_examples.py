@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-validate launch-critical public examples.
+"""Smoke-validate public examples.
 
 This script validates the public onboarding flow for selected examples:
 1) run the example
@@ -129,10 +129,10 @@ def validate_example(package: str, name: str) -> None:
 
 
 def main() -> None:
-    print("Smoke-validating launch-critical public examples...")
+    print("Smoke-validating public examples...")
     for package, name in EXAMPLES:
         validate_example(package, name)
-    print("All launch-critical public examples passed smoke validation.")
+    print("All public examples passed smoke validation.")
 
 
 if __name__ == "__main__":

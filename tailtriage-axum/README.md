@@ -12,12 +12,12 @@ cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
-## Post-publish crate add (when released)
+## Add from crates.io
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1"
-tailtriage-axum = "0.1"
+tailtriage-core = "0.1.0"
+tailtriage-axum = "0.1.0"
 ```
 
 ## What this crate provides

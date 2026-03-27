@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Smoke-test an external consumer app outside the workspace.
+"""Smoke-test external crates.io adoption outside the workspace.
 
 This script creates a temporary Cargo app outside the repository, consumes
-`tailtriage-core` via path dependency, produces a run artifact, and analyzes it
+`tailtriage-core` from crates.io, produces a run artifact, and analyzes it
 with the workspace CLI.
 """
 
@@ -54,7 +54,7 @@ def assert_keys(payload: dict, expected: set[str], *, context: str) -> None:
         raise SystemExit(f"{context} missing top-level keys: {missing_list}")
 
 
-def write_external_app(project_dir: Path, root: Path) -> tuple[Path, Path]:
+def write_external_app(project_dir: Path) -> tuple[Path, Path]:
     app_dir = project_dir / "external-tailtriage-smoke"
     run_cmd(["cargo", "new", "--bin", app_dir.name], cwd=project_dir)
 
@@ -64,7 +64,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tailtriage-core = {{ path = \"{(root / 'tailtriage-core').as_posix()}\" }}
+tailtriage-core = "0.1.0"
 tokio = {{ version = "1", features = ["macros", "rt", "time"] }}
 """
     (app_dir / "Cargo.toml").write_text(cargo_toml, encoding="utf-8")
@@ -110,11 +110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 def main() -> None:
     root = repo_root()
-    print("Smoke-validating an external consumer app outside the workspace...")
+    print("Smoke-validating external crates.io consumer adoption outside the workspace...")
 
     with tempfile.TemporaryDirectory(prefix="tailtriage-external-consumer-") as temp_dir:
         external_root = Path(temp_dir)
-        app_dir, artifact_path = write_external_app(external_root, root)
+        app_dir, artifact_path = write_external_app(external_root)
 
         print(f"==> created external app: {app_dir}")
         run_cmd(["cargo", "run", "--quiet"], cwd=app_dir)

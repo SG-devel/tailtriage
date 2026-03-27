@@ -2,8 +2,6 @@
 
 Core run schema, split request lifecycle API, and instrumentation primitives for `tailtriage`.
 
-For the public repo launch, the primary path is workspace/source integration from this repository. Crates.io snippets below are post-publish guidance.
-
 ## Use from this repo now
 
 From the workspace root, run examples and analysis directly:
@@ -13,11 +11,11 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
-## Post-publish crate add (when released)
+## Add from crates.io
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1"
+tailtriage-core = "0.1.0"
 ```
 
 ## What this crate owns

@@ -10,13 +10,24 @@ When a Tokio service gets slow, `tailtriage` helps you answer a first practical 
 
 It produces **evidence-ranked suspects** with **next checks**. Suspects are leads, not proof of root cause.
 
-## Fastest first run
+## Fastest first run from this repo
 
-Use the source/workspace path from this public repository:
+Use the workspace/source path when you want to run bundled examples and hack on this repository:
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+```
+
+## Use published crates in your own project
+
+Use crates.io when adopting `tailtriage` in an external project:
+
+```bash
+cargo add tailtriage-core
+cargo add tailtriage-tokio
+cargo add tailtriage-axum # optional, only for axum middleware/extractor ergonomics
+cargo install tailtriage-cli
 ```
 
 ## What you get from the output
@@ -87,7 +98,7 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 | Use with axum                                                   | `tailtriage-core`, `tailtriage-axum`                     | `tailtriage-tokio`, `tailtriage-cli` | `tailtriage-axum` is the framework ergonomics layer: middleware + extractor. It depends on core, not on `tailtriage-tokio`   |
 | Use with axum plus runtime snapshots                            | `tailtriage-core`, `tailtriage-axum`, `tailtriage-tokio` | `tailtriage-cli`                     | Axum request-boundary wiring plus optional runtime evidence enrichment                                                       |
 | Analyze artifacts only                                          | `tailtriage-cli`                                         | none                                 | CLI loads run JSON, validates schema version, analyzes, and renders text/JSON reports                                        |
-| Minimal first run from repo                                     | none beyond workspace                                    | none                                 | Recommended launch path today is source/workspace use, not crates.io-first onboarding                                        |
+| Minimal first run from repo                                     | none beyond workspace                                    | none                                 | Fastest path for bundled examples, demo scripts, and contributor workflows                                                    |
 
 ## What this is not
 
@@ -117,9 +128,14 @@ Those tools are complementary building blocks. `tailtriage` is the triage layer 
 
 ## Current public status
 
-The repository is public and ready to use **from source/workspace now**.
+The repository is public, and the crates are available now on crates.io:
 
-Today, the recommended onboarding path is the source path in this repo. Crates.io install snippets are treated as **post-publish** guidance and are not the primary launch path yet.
+- <https://crates.io/crates/tailtriage-core>
+- <https://crates.io/crates/tailtriage-tokio>
+- <https://crates.io/crates/tailtriage-axum>
+- <https://crates.io/crates/tailtriage-cli>
+
+Use workspace/source onboarding for repository examples and contributor workflows, and use crates.io onboarding for external-project adoption.
 
 ## Documentation map
 
