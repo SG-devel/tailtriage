@@ -2,8 +2,6 @@
 
 Tokio integration for `tailtriage`, including `RuntimeSampler` for periodic runtime snapshots.
 
-For the public repo launch, use workspace/source integration first. Crates.io dependency snippets are post-publish guidance.
-
 ## Use from this repo now
 
 ```bash
@@ -11,12 +9,12 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
-## Post-publish crate add (when released)
+## Add from crates.io
 
 ```toml
 [dependencies]
-tailtriage-core = "0.1"
-tailtriage-tokio = "0.1"
+tailtriage-core = "0.1.0"
+tailtriage-tokio = "0.1.0"
 ```
 
 ## What this crate provides
