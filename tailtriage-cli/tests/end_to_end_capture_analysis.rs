@@ -59,7 +59,7 @@ async fn downstream_heavy_stage_is_ranked() {
         .build()
         .expect("build should succeed");
 
-    for index in 0..36 {
+    for index in 0..48 {
         let started = tailtriage.begin_request_with(
             "/invoice",
             tailtriage_core::RequestOptions::new()
@@ -67,23 +67,27 @@ async fn downstream_heavy_stage_is_ranked() {
                 .kind("http"),
         );
         let request = started.handle.clone();
+
         request
             .queue("ingress")
             .with_depth_at_start(1)
-            .await_on(tokio::time::sleep(std::time::Duration::from_millis(1)))
+            .await_on(tokio::time::sleep(std::time::Duration::from_micros(200)))
             .await;
+
         request
             .stage("downstream_db")
             .await_on(async {
-                tokio::time::sleep(std::time::Duration::from_millis(26)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(40)).await;
                 Ok::<(), &'static str>(())
             })
             .await
             .expect("stage should succeed");
+
         request
             .stage("render_response")
-            .await_value(tokio::time::sleep(std::time::Duration::from_millis(2)))
+            .await_value(tokio::time::sleep(std::time::Duration::from_millis(1)))
             .await;
+
         started.completion.finish(tailtriage_core::Outcome::Ok);
     }
 
@@ -94,6 +98,15 @@ async fn downstream_heavy_stage_is_ranked() {
     assert_eq!(
         report.primary_suspect.kind.as_str(),
         "downstream_stage_dominates"
+    );
+    assert!(
+        report
+            .primary_suspect
+            .evidence
+            .iter()
+            .any(|line| line.contains("downstream_db")),
+        "expected downstream_db evidence, got {:?}",
+        report.primary_suspect.evidence
     );
 }
 
