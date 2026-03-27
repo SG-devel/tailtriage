@@ -34,3 +34,5 @@ pedantic = "warn"
 
 [workspace.dependencies]
 tailtriage-core = { version = "0.1.0", path = "tailtriage-core" }
+tailtriage-tokio = { version = "0.1.0", path = "tailtriage-tokio" }
+demo-support = { version = "0.1.0", path = "demos/demo_support" }
