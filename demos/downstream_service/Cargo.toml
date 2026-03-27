@@ -10,7 +10,7 @@ publish = false
 anyhow = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 tailtriage-core.workspace = true
-demo-support = { path = "../demo_support" }
+demo-support.workspace = true
 
 [lints]
 workspace = true
