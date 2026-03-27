@@ -80,6 +80,7 @@ fn create_temp_path(parent: &Path, final_path: &Path) -> PathBuf {
     ))
 }
 
+#[cfg(windows)]
 fn create_backup_path(final_path: &Path) -> PathBuf {
     let parent = final_path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = final_path
