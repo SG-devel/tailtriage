@@ -70,8 +70,11 @@ jobs:
       - name: Cargo fmt
         run: cargo fmt --check
 
-      - name: Cargo clippy
+      - name: Rust lint (cargo clippy)
         run: cargo clippy --workspace --all-targets --locked ${{ matrix.profile == 'release' && '--release' || '' }} -- -D warnings
+      - name: Python unit tests
+        run: python3 -m unittest discover -s scripts/tests -p "test_*.py"
+
 
       - name: Cargo test
         run: cargo test --workspace --locked ${{ matrix.profile == 'release' && '--release' || '' }}
