@@ -10,6 +10,16 @@ When a Tokio service gets slow, `tailtriage` helps you answer a first practical 
 
 It produces **evidence-ranked suspects** with **next checks**. Suspects are leads, not proof of root cause.
 
+## Why not just tokio-console or tokio-metrics?
+
+Those tools are complementary building blocks. `tailtriage` fills a different gap: it gives you a run-level triage report that ranks likely bottleneck families and recommends concrete next checks from the evidence collected in that run.
+
+In short:
+
+- `tokio-console` helps you inspect live runtime/task behavior.
+- `tokio-metrics` gives you runtime/task metrics signals.
+- `tailtriage` helps you turn request lifecycle timing + optional runtime signals into a focused triage decision loop (`capture -> analyze -> next check -> re-run`).
+
 ## Fastest first run from this repo
 
 Use the workspace/source path when you want to run bundled examples and hack on this repository:
@@ -44,6 +54,36 @@ cargo install tailtriage-cli
 - Treat `primary_suspect` as the best lead, not proof.
 - Use `evidence[]` to choose one targeted experiment.
 - Re-run and compare p95 shares plus suspect evidence.
+
+### Example output (JSON)
+
+```json
+{
+  "primary_suspect": "application_queueing",
+  "suspects": [
+    {
+      "key": "application_queueing",
+      "score": 0.91,
+      "why": "Queue share p95 is high and dominates request time."
+    },
+    {
+      "key": "downstream_stage_latency",
+      "score": 0.34,
+      "why": "One downstream stage contributes a meaningful but smaller p95 share."
+    }
+  ],
+  "evidence": [
+    "request_count=1200",
+    "queue_share_p95=0.43",
+    "stage.db_p95_ms=38.7"
+  ],
+  "next_checks": [
+    "Confirm upstream/backlog source for queue growth under load.",
+    "Run the same workload after reducing queue depth or concurrency burst.",
+    "If queue share drops, compare suspect ranking changes."
+  ]
+}
+```
 
 ## Examples
 
@@ -107,10 +147,6 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 - a distributed tracing system
 - a general telemetry platform
 - a root-cause proof engine
-
-## Why not just tokio-console or tokio-metrics?
-
-Those tools are complementary building blocks. `tailtriage` is the triage layer that converts one run artifact into evidence-ranked suspects and next checks.
 
 ## RuntimeSampler note (short)
 
