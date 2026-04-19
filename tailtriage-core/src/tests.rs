@@ -306,6 +306,161 @@ fn limit_hit_flag_is_set_when_truncation_occurs() {
 }
 
 #[test]
+fn saturation_preserves_exact_drop_counts_across_sections() {
+    let tailtriage = Tailtriage::builder("payments")
+        .capture_limits(CaptureLimits {
+            max_requests: 1,
+            max_stages: 1,
+            max_queues: 1,
+            max_inflight_snapshots: 1,
+            max_runtime_snapshots: 1,
+        })
+        .build()
+        .expect("build should succeed");
+
+    let first = tailtriage.begin_request("/invoice");
+    futures_executor::block_on(first.handle.stage("db").await_value(ready(())));
+    futures_executor::block_on(first.handle.stage("cache").await_value(ready(())));
+    futures_executor::block_on(first.handle.stage("serialize").await_value(ready(())));
+    futures_executor::block_on(first.handle.queue("permit").await_on(ready(())));
+    futures_executor::block_on(first.handle.queue("backend").await_on(ready(())));
+    futures_executor::block_on(first.handle.queue("egress").await_on(ready(())));
+    {
+        let _inflight = first.handle.inflight("requests");
+    }
+    {
+        let _inflight = first.handle.inflight("requests");
+    }
+    {
+        let _inflight = first.handle.inflight("requests");
+    }
+    first.completion.finish_ok();
+
+    tailtriage.begin_request("/invoice").completion.finish_ok();
+    tailtriage.begin_request("/invoice").completion.finish_ok();
+
+    for i in 1..=3 {
+        tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+            at_unix_ms: crate::unix_time_ms(),
+            alive_tasks: Some(i),
+            global_queue_depth: Some(i),
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        });
+    }
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.truncation.limits_hit);
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.stages.len(), 1);
+    assert_eq!(snapshot.queues.len(), 1);
+    assert_eq!(snapshot.inflight.len(), 1);
+    assert_eq!(snapshot.runtime_snapshots.len(), 1);
+    assert_eq!(snapshot.truncation.dropped_requests, 2);
+    assert_eq!(snapshot.truncation.dropped_stages, 2);
+    assert_eq!(snapshot.truncation.dropped_queues, 2);
+    assert_eq!(snapshot.truncation.dropped_inflight_snapshots, 5);
+    assert_eq!(snapshot.truncation.dropped_runtime_snapshots, 2);
+}
+
+#[test]
+fn shutdown_artifact_includes_post_saturation_drops() {
+    let sink = Arc::new(RecordingSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .capture_limits(CaptureLimits {
+            max_requests: 1,
+            max_stages: 1,
+            max_queues: 1,
+            max_inflight_snapshots: 1,
+            max_runtime_snapshots: 1,
+        })
+        .sink(sink.clone())
+        .build()
+        .expect("build should succeed");
+
+    tailtriage.begin_request("/a").completion.finish_ok();
+    tailtriage.begin_request("/b").completion.finish_ok();
+    tailtriage.begin_request("/c").completion.finish_ok();
+
+    tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: crate::unix_time_ms(),
+        alive_tasks: Some(1),
+        global_queue_depth: Some(1),
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+    tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: crate::unix_time_ms(),
+        alive_tasks: Some(2),
+        global_queue_depth: Some(2),
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+    tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: crate::unix_time_ms(),
+        alive_tasks: Some(3),
+        global_queue_depth: Some(3),
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+
+    tailtriage.shutdown().expect("shutdown should succeed");
+    let artifact = sink
+        .run
+        .lock()
+        .expect("lock should succeed")
+        .clone()
+        .expect("run should be captured");
+
+    assert!(artifact.truncation.limits_hit);
+    assert_eq!(artifact.truncation.dropped_requests, 2);
+    assert_eq!(artifact.truncation.dropped_runtime_snapshots, 2);
+}
+
+#[test]
+fn unsaturated_runs_keep_zero_truncation_counters() {
+    let tailtriage = Tailtriage::builder("payments")
+        .capture_limits(CaptureLimits {
+            max_requests: 10,
+            max_stages: 10,
+            max_queues: 10,
+            max_inflight_snapshots: 10,
+            max_runtime_snapshots: 10,
+        })
+        .build()
+        .expect("build should succeed");
+
+    let started = tailtriage.begin_request("/ok");
+    futures_executor::block_on(started.handle.stage("db").await_value(ready(())));
+    futures_executor::block_on(started.handle.queue("permit").await_on(ready(())));
+    {
+        let _guard = started.handle.inflight("requests");
+    }
+    started.completion.finish_ok();
+    tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: crate::unix_time_ms(),
+        alive_tasks: Some(1),
+        global_queue_depth: Some(1),
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+
+    let snapshot = tailtriage.snapshot();
+    assert!(!snapshot.truncation.is_truncated());
+    assert!(!snapshot.truncation.limits_hit);
+    assert_eq!(snapshot.truncation.dropped_requests, 0);
+    assert_eq!(snapshot.truncation.dropped_stages, 0);
+    assert_eq!(snapshot.truncation.dropped_queues, 0);
+    assert_eq!(snapshot.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(snapshot.truncation.dropped_runtime_snapshots, 0);
+}
+
+#[test]
 fn mode_does_not_change_event_types_or_lifecycle_shape() {
     let light = Tailtriage::builder("payments")
         .light()
