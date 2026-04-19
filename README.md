@@ -161,6 +161,18 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 `shutdown()` validates unfinished pending requests and records warnings/metadata. It does not fabricate completion timing. With `strict_lifecycle(true)`, `shutdown()` fails when unfinished requests remain.
 
+## CaptureMode behavior in core (current)
+
+In `tailtriage-core`, `CaptureMode` currently controls **retention defaults only**.
+
+- `Light` defaults to lower retention limits.
+- `Investigation` defaults to higher retention limits.
+- Mode does not change event types or lifecycle semantics.
+- Mode does not change `strict_lifecycle`; your explicit `strict_lifecycle(...)` setting is preserved.
+
+Artifacts record both selected mode (`metadata.mode`) and resolved core config (`metadata.effective_core_config`).
+Older artifacts may have `metadata.effective_core_config = null` when effective config was not captured.
+
 ## Current public status
 
 The repository is public, and the crates are available now on crates.io:

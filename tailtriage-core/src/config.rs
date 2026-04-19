@@ -14,8 +14,36 @@ pub enum CaptureMode {
     Investigation,
 }
 
+impl CaptureMode {
+    /// Returns core-owned default capture limits for this mode.
+    ///
+    /// These mode defaults only affect retention limits in `tailtriage-core`.
+    /// They do not change event types or request lifecycle semantics.
+    #[must_use]
+    pub const fn core_defaults(self) -> CaptureLimits {
+        match self {
+            Self::Light => CaptureLimits {
+                max_requests: 100_000,
+                max_stages: 200_000,
+                max_queues: 200_000,
+                max_inflight_snapshots: 200_000,
+                // Runtime snapshot defaults are carried in core artifacts for schema
+                // consistency and are used by integration crates as needed.
+                max_runtime_snapshots: 100_000,
+            },
+            Self::Investigation => CaptureLimits {
+                max_requests: 300_000,
+                max_stages: 600_000,
+                max_queues: 600_000,
+                max_inflight_snapshots: 600_000,
+                max_runtime_snapshots: 300_000,
+            },
+        }
+    }
+}
+
 /// Limits that bound in-memory capture growth for each run section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureLimits {
     /// Maximum number of request events retained in-memory for the run.
     pub max_requests: usize,
@@ -31,14 +59,91 @@ pub struct CaptureLimits {
 
 impl Default for CaptureLimits {
     fn default() -> Self {
-        Self {
-            max_requests: 100_000,
-            max_stages: 200_000,
-            max_queues: 200_000,
-            max_inflight_snapshots: 200_000,
-            max_runtime_snapshots: 100_000,
+        CaptureMode::Light.core_defaults()
+    }
+}
+
+/// Field-level capture limit overrides applied on top of mode defaults.
+///
+/// This additive API preserves [`TailtriageBuilder::capture_limits`] as a
+/// full-override path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CaptureLimitsOverride {
+    /// Optional override for [`CaptureLimits::max_requests`].
+    pub max_requests: Option<usize>,
+    /// Optional override for [`CaptureLimits::max_stages`].
+    pub max_stages: Option<usize>,
+    /// Optional override for [`CaptureLimits::max_queues`].
+    pub max_queues: Option<usize>,
+    /// Optional override for [`CaptureLimits::max_inflight_snapshots`].
+    pub max_inflight_snapshots: Option<usize>,
+    /// Optional override for [`CaptureLimits::max_runtime_snapshots`].
+    pub max_runtime_snapshots: Option<usize>,
+}
+
+impl CaptureLimitsOverride {
+    /// Applies this override to an existing limit set and returns the result.
+    #[must_use]
+    pub const fn apply(self, base: CaptureLimits) -> CaptureLimits {
+        CaptureLimits {
+            max_requests: match self.max_requests {
+                Some(value) => value,
+                None => base.max_requests,
+            },
+            max_stages: match self.max_stages {
+                Some(value) => value,
+                None => base.max_stages,
+            },
+            max_queues: match self.max_queues {
+                Some(value) => value,
+                None => base.max_queues,
+            },
+            max_inflight_snapshots: match self.max_inflight_snapshots {
+                Some(value) => value,
+                None => base.max_inflight_snapshots,
+            },
+            max_runtime_snapshots: match self.max_runtime_snapshots {
+                Some(value) => value,
+                None => base.max_runtime_snapshots,
+            },
         }
     }
+
+    const fn merge(self, newer: Self) -> Self {
+        Self {
+            max_requests: match newer.max_requests {
+                Some(value) => Some(value),
+                None => self.max_requests,
+            },
+            max_stages: match newer.max_stages {
+                Some(value) => Some(value),
+                None => self.max_stages,
+            },
+            max_queues: match newer.max_queues {
+                Some(value) => Some(value),
+                None => self.max_queues,
+            },
+            max_inflight_snapshots: match newer.max_inflight_snapshots {
+                Some(value) => Some(value),
+                None => self.max_inflight_snapshots,
+            },
+            max_runtime_snapshots: match newer.max_runtime_snapshots {
+                Some(value) => Some(value),
+                None => self.max_runtime_snapshots,
+            },
+        }
+    }
+}
+
+/// Stable, resolved core configuration used by one capture run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EffectiveCoreConfig {
+    /// Selected capture mode.
+    pub mode: CaptureMode,
+    /// Effective resolved retention limits used for this run.
+    pub capture_limits: CaptureLimits,
+    /// Effective strict lifecycle behavior for this run.
+    pub strict_lifecycle: bool,
 }
 
 #[derive(Clone)]
@@ -48,19 +153,30 @@ pub(crate) struct Config {
     pub run_id: Option<String>,
     pub mode: CaptureMode,
     pub sink: Arc<dyn RunSink + Send + Sync>,
-    pub capture_limits: CaptureLimits,
+    pub effective_core: EffectiveCoreConfig,
     pub strict_lifecycle: bool,
 }
 
 impl Config {
     pub(crate) fn from_builder(builder: &TailtriageBuilder) -> Self {
+        let mode_defaults = builder.mode.core_defaults();
+        let effective_limits = match builder.capture_limits {
+            Some(full_override) => full_override,
+            None => builder.capture_limits_override.apply(mode_defaults),
+        };
+        let effective_core = EffectiveCoreConfig {
+            mode: builder.mode,
+            capture_limits: effective_limits,
+            strict_lifecycle: builder.strict_lifecycle,
+        };
+
         Self {
             service_name: builder.service_name.clone(),
             service_version: builder.service_version.clone(),
             run_id: builder.run_id.clone(),
             mode: builder.mode,
             sink: Arc::clone(&builder.sink),
-            capture_limits: builder.capture_limits,
+            effective_core,
             strict_lifecycle: builder.strict_lifecycle,
         }
     }
@@ -91,7 +207,8 @@ pub struct TailtriageBuilder {
     pub(crate) run_id: Option<String>,
     pub(crate) mode: CaptureMode,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
-    pub(crate) capture_limits: CaptureLimits,
+    pub(crate) capture_limits: Option<CaptureLimits>,
+    pub(crate) capture_limits_override: CaptureLimitsOverride,
     pub(crate) strict_lifecycle: bool,
 }
 
@@ -103,7 +220,8 @@ impl TailtriageBuilder {
             run_id: None,
             mode: CaptureMode::Light,
             sink: Arc::new(LocalJsonSink::new("tailtriage-run.json")),
-            capture_limits: CaptureLimits::default(),
+            capture_limits: None,
+            capture_limits_override: CaptureLimitsOverride::default(),
             strict_lifecycle: false,
         }
     }
@@ -165,7 +283,18 @@ impl TailtriageBuilder {
     /// Overrides default capture limits for bounded in-memory collection.
     #[must_use]
     pub fn capture_limits(mut self, limits: CaptureLimits) -> Self {
-        self.capture_limits = limits;
+        self.capture_limits = Some(limits);
+        self
+    }
+
+    /// Applies field-level capture limit overrides on top of mode defaults.
+    ///
+    /// This additive override path does not change full-override behavior from
+    /// [`Self::capture_limits`]. If both are provided, `capture_limits(...)`
+    /// remains authoritative.
+    #[must_use]
+    pub fn capture_limits_override(mut self, overrides: CaptureLimitsOverride) -> Self {
+        self.capture_limits_override = self.capture_limits_override.merge(overrides);
         self
     }
 

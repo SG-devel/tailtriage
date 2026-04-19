@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::CaptureMode;
+use crate::{CaptureMode, EffectiveCoreConfig};
 
 /// Current schema version for `Run` JSON artifacts.
 pub const SCHEMA_VERSION: u64 = 1;
@@ -92,6 +92,9 @@ impl Run {
 /// Per-section counters indicating dropped samples due to capture limits.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TruncationSummary {
+    /// Whether any capture limit was reached during this run.
+    #[serde(default)]
+    pub limits_hit: bool,
     /// Number of request events dropped after `max_requests` was reached.
     pub dropped_requests: u64,
     /// Number of stage events dropped after `max_stages` was reached.
@@ -108,7 +111,8 @@ impl TruncationSummary {
     /// Returns true when any capture section was truncated.
     #[must_use]
     pub const fn is_truncated(&self) -> bool {
-        self.dropped_requests > 0
+        self.limits_hit
+            || self.dropped_requests > 0
             || self.dropped_stages > 0
             || self.dropped_queues > 0
             || self.dropped_inflight_snapshots > 0
@@ -131,6 +135,11 @@ pub struct RunMetadata {
     pub finished_at_unix_ms: u64,
     /// Capture mode, such as "light" or "investigation".
     pub mode: CaptureMode,
+    /// Effective resolved core configuration after applying mode defaults and overrides.
+    ///
+    /// This field may be `None` for older artifacts that predate effective config capture.
+    #[serde(default)]
+    pub effective_core_config: Option<EffectiveCoreConfig>,
     /// Hostname if available.
     pub host: Option<String>,
     /// Process identifier if available.

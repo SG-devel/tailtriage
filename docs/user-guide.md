@@ -84,6 +84,11 @@ async fn helper_a(req: &tailtriage_core::RequestHandle<'_>) -> Result<(), MyErro
 
 ## RuntimeSampler (optional stronger attribution)
 
+`CaptureMode` in core sets retention defaults only. It does not auto-enable `RuntimeSampler`.
+When limits are hit, artifacts keep per-category drop counters and mark that limits were hit;
+analyzer warnings call out that dropped evidence can reduce completeness/confidence.
+Older artifacts may show `metadata.effective_core_config` as `null` (unknown).
+
 Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure.
 
 ```rust

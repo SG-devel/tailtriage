@@ -25,6 +25,39 @@ tailtriage-core = "0.1.1"
 - Queue/stage/in-flight instrumentation primitives
 - Explicit completion token lifecycle (`finish`, `finish_ok`, `finish_result`) and final artifact flush (`shutdown`)
 
+## `CaptureMode` defaults and overrides
+
+`CaptureMode` is a real core preset for **retention defaults** only.
+
+- It changes default `CaptureLimits` values.
+- It does **not** change event types.
+- It does **not** change lifecycle semantics.
+- It does **not** change `strict_lifecycle` unless you set `strict_lifecycle(...)` yourself.
+
+Concrete core defaults:
+
+- `CaptureMode::Light`
+  - `max_requests`: 100_000
+  - `max_stages`: 200_000
+  - `max_queues`: 200_000
+  - `max_inflight_snapshots`: 200_000
+  - `max_runtime_snapshots`: 100_000
+- `CaptureMode::Investigation`
+  - `max_requests`: 300_000
+  - `max_stages`: 600_000
+  - `max_queues`: 600_000
+  - `max_inflight_snapshots`: 600_000
+  - `max_runtime_snapshots`: 300_000
+
+Override precedence:
+
+1. `capture_limits(...)` full override
+2. `capture_limits_override(CaptureLimitsOverride { ... })` field-level override over mode defaults
+3. selected mode defaults
+
+Artifacts include both selected mode (`metadata.mode`) and resolved config (`metadata.effective_core_config`).
+For older artifacts that predate this field, `metadata.effective_core_config` is `null` (unknown).
+
 ## Minimal usage
 
 ```rust,no_run
