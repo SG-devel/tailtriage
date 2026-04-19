@@ -241,7 +241,7 @@ pub fn analyze_run(run: &Run) -> Report {
         ));
     }
 
-    suspects.sort_by(|left, right| right.score.cmp(&left.score));
+    suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
     let mut ranked = suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
@@ -449,11 +449,10 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .iter()
         .map(|request| request.latency_us)
         .fold(0_u64, u64::saturating_add);
-    let stage_share_permille = if total_request_latency == 0 {
-        0
-    } else {
-        total_latency.saturating_mul(1_000) / total_request_latency
-    };
+    let stage_share_permille = total_latency
+        .saturating_mul(1_000)
+        .checked_div(total_request_latency)
+        .unwrap_or(0);
     let share_bonus = (stage_share_permille / 40).min(25) as u8;
     let score = (55 + share_bonus).min(79);
 
