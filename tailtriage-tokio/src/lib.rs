@@ -49,6 +49,14 @@ pub struct RuntimeSampler {
 }
 
 /// Tokio-owned defaults for runtime sampler behavior by capture mode.
+///
+/// Numeric defaults:
+///
+/// - Light: `cadence = 500ms`, `max_runtime_snapshots = 5_000`
+/// - Investigation: `cadence = 100ms`, `max_runtime_snapshots = 50_000`
+///
+/// These Tokio defaults are applied only when [`RuntimeSampler`] is started.
+/// Selecting core [`CaptureMode`] never auto-starts runtime sampling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokioSamplerModeDefaults {
     /// Default periodic sampler cadence.
@@ -152,6 +160,17 @@ impl RuntimeSamplerBuilder {
     }
 
     /// Resolves configuration and starts periodic runtime metrics sampling.
+    ///
+    /// Resolution precedence:
+    ///
+    /// 1. inherited mode from the core-selected mode on [`Tailtriage`]
+    /// 2. optional explicit Tokio override via [`Self::mode`]
+    /// 3. optional cadence override via [`Self::interval`]
+    /// 4. optional runtime snapshot retention override via
+    ///    [`Self::max_runtime_snapshots`]
+    ///
+    /// Resolved runtime snapshot retention is clamped by the core run cap
+    /// (`effective_core_config.capture_limits.max_runtime_snapshots`).
     ///
     /// # Errors
     ///

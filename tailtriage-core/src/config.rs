@@ -9,8 +9,24 @@ use crate::{LocalJsonSink, RunSink};
 #[serde(rename_all = "snake_case")]
 pub enum CaptureMode {
     /// Low-overhead mode.
+    ///
+    /// Core-owned defaults in this mode are:
+    ///
+    /// - `max_requests = 100_000`
+    /// - `max_stages = 200_000`
+    /// - `max_queues = 200_000`
+    /// - `max_inflight_snapshots = 200_000`
+    /// - `max_runtime_snapshots = 100_000`
     Light,
     /// Higher-detail mode for incident investigation.
+    ///
+    /// Core-owned defaults in this mode are:
+    ///
+    /// - `max_requests = 300_000`
+    /// - `max_stages = 600_000`
+    /// - `max_queues = 600_000`
+    /// - `max_inflight_snapshots = 600_000`
+    /// - `max_runtime_snapshots = 300_000`
     Investigation,
 }
 
@@ -18,7 +34,8 @@ impl CaptureMode {
     /// Returns core-owned default capture limits for this mode.
     ///
     /// These mode defaults only affect retention limits in `tailtriage-core`.
-    /// They do not change event types or request lifecycle semantics.
+    /// They do not change event types or request lifecycle semantics, and they
+    /// do not auto-start Tokio runtime sampling.
     #[must_use]
     pub const fn core_defaults(self) -> CaptureLimits {
         match self {

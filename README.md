@@ -163,31 +163,47 @@ When you use `RuntimeSampler::builder(...)`, Tokio defaults are resolved from th
 
 `shutdown()` validates unfinished pending requests and records warnings/metadata. It does not fabricate completion timing. With `strict_lifecycle(true)`, `shutdown()` fails when unfinished requests remain.
 
-## CaptureMode behavior in core (current)
+## What mode changes in each crate
 
-In `tailtriage-core`, `CaptureMode` currently controls **retention defaults only**.
+In `tailtriage-core`, `CaptureMode` controls **retention defaults only**:
 
-- `Light` defaults to lower retention limits.
-- `Investigation` defaults to higher retention limits.
-- Mode does **not** auto-enable Tokio runtime sampling.
-- Mode does **not** require Tokio.
-- Mode does **not** change event types.
-- Mode does **not** change lifecycle semantics.
-- Mode does **not** change `strict_lifecycle`; your explicit `strict_lifecycle(...)` setting is preserved.
+- Light core defaults: `max_requests=100_000`, `max_stages=200_000`, `max_queues=200_000`, `max_inflight_snapshots=200_000`, `max_runtime_snapshots=100_000`
+- Investigation core defaults: `max_requests=300_000`, `max_stages=600_000`, `max_queues=600_000`, `max_inflight_snapshots=600_000`, `max_runtime_snapshots=300_000`
 
-For Tokio runtime sampling, config resolution precedence is:
+In `tailtriage-tokio`, mode affects Tokio sampler defaults **only when `RuntimeSampler` is started**:
+
+- Light Tokio defaults: `cadence=500ms`, `max_runtime_snapshots=5_000`
+- Investigation Tokio defaults: `cadence=100ms`, `max_runtime_snapshots=50_000`
+
+Precedence for Tokio sampler config resolution:
 
 1. inherited mode from selected core mode
 2. optional explicit Tokio mode override via `.mode(...)`
 3. optional explicit cadence override via `.interval(...)`
 4. optional explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
 
-`RuntimeSampler` must be started explicitly; mode selection never auto-starts sampler tasks.
+What mode does **not** do:
 
-Artifacts record both selected mode (`metadata.mode`) and resolved config:
+- does **not** auto-enable Tokio sampling (`CaptureMode` never auto-starts `RuntimeSampler`)
+- does **not** imply sampler cost by itself (core Investigation alone has no sampler startup cost)
+- does **not** require Tokio
+- does **not** change event types
+- does **not** change lifecycle semantics
+- does **not** change `strict_lifecycle`; your explicit `strict_lifecycle(...)` setting is preserved
 
-- core: `metadata.effective_core_config`
-- Tokio sampler (when started): `metadata.effective_tokio_sampler_config`
+Artifacts record both selected mode and effective resolved config:
+
+- selected mode: `metadata.mode`
+- core effective config: `metadata.effective_core_config`
+- Tokio sampler effective config (when sampler is started): `metadata.effective_tokio_sampler_config`
+
+Overhead terminology used in docs and scripts:
+
+- Core mode overhead
+- Tokio mode overhead
+- Incremental runtime sampler overhead
+- Baked-in overhead
+- Post-limit / drop-path overhead
 
 Older artifacts may have `metadata.effective_core_config = null` when effective config was not captured.
 
