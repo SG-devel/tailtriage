@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 use serde::Serialize;
-use tailtriage_core::{CaptureMode, Tailtriage};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 use tokio::sync::{Mutex, Semaphore};
 
@@ -16,26 +16,47 @@ const DEFAULT_WORK_MS: u64 = 3;
 #[serde(rename_all = "snake_case")]
 enum Mode {
     Baseline,
-    Light,
-    Investigation,
+    CoreLight,
+    CoreInvestigation,
+    CoreLightTokioSampler,
+    CoreInvestigationTokioSampler,
+    CoreLightDropPath,
 }
 
 impl Mode {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "baseline" => Some(Self::Baseline),
-            "light" => Some(Self::Light),
-            "investigation" => Some(Self::Investigation),
+            "core_light" => Some(Self::CoreLight),
+            "core_investigation" => Some(Self::CoreInvestigation),
+            "core_light_tokio_sampler" => Some(Self::CoreLightTokioSampler),
+            "core_investigation_tokio_sampler" => Some(Self::CoreInvestigationTokioSampler),
+            "core_light_drop_path" => Some(Self::CoreLightDropPath),
             _ => None,
         }
     }
 
-    fn capture_mode(self) -> Option<CaptureMode> {
+    fn core_mode(self) -> Option<CaptureMode> {
         match self {
             Self::Baseline => None,
-            Self::Light => Some(CaptureMode::Light),
-            Self::Investigation => Some(CaptureMode::Investigation),
+            Self::CoreLight | Self::CoreLightTokioSampler | Self::CoreLightDropPath => {
+                Some(CaptureMode::Light)
+            }
+            Self::CoreInvestigation | Self::CoreInvestigationTokioSampler => {
+                Some(CaptureMode::Investigation)
+            }
         }
+    }
+
+    fn uses_tokio_sampler(self) -> bool {
+        matches!(
+            self,
+            Self::CoreLightTokioSampler | Self::CoreInvestigationTokioSampler
+        )
+    }
+
+    fn uses_drop_path_limits(self) -> bool {
+        matches!(self, Self::CoreLightDropPath)
     }
 }
 
@@ -58,6 +79,17 @@ struct Measurement {
     latency_p50_ms: f64,
     latency_p95_ms: f64,
     latency_p99_ms: f64,
+    truncation: Option<TruncationMeasurement>,
+}
+
+#[derive(Debug, Serialize)]
+struct TruncationMeasurement {
+    dropped_requests: u64,
+    dropped_stages: u64,
+    dropped_queues: u64,
+    dropped_inflight_snapshots: u64,
+    dropped_runtime_snapshots: u64,
+    limits_reached: bool,
 }
 
 struct Instrumentation {
@@ -78,6 +110,21 @@ async fn main() -> anyhow::Result<()> {
         sampler.shutdown().await;
     }
 
+    let truncation = if let Some(tailtriage) = instrumentation.tailtriage.as_ref() {
+        let snapshot = tailtriage.snapshot();
+        let truncation = snapshot.truncation;
+        Some(TruncationMeasurement {
+            dropped_requests: truncation.dropped_requests,
+            dropped_stages: truncation.dropped_stages,
+            dropped_queues: truncation.dropped_queues,
+            dropped_inflight_snapshots: truncation.dropped_inflight_snapshots,
+            dropped_runtime_snapshots: truncation.dropped_runtime_snapshots,
+            limits_reached: truncation.limits_hit,
+        })
+    } else {
+        None
+    };
+
     if let Some(tailtriage) = instrumentation.tailtriage {
         tailtriage.shutdown()?;
     }
@@ -93,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
         latency_p50_ms: percentile_ms(&latencies, 50, 100)?,
         latency_p95_ms: percentile_ms(&latencies, 95, 100)?,
         latency_p99_ms: percentile_ms(&latencies, 99, 100)?,
+        truncation,
     };
 
     println!("{}", serde_json::to_string(&measurement)?);
@@ -101,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn build_instrumentation(cli: &Cli) -> anyhow::Result<Instrumentation> {
-    let Some(capture_mode) = cli.mode.capture_mode() else {
+    let Some(capture_mode) = cli.mode.core_mode() else {
         return Ok(Instrumentation {
             tailtriage: None,
             sampler: None,
@@ -117,12 +165,19 @@ fn build_instrumentation(cli: &Cli) -> anyhow::Result<Instrumentation> {
         CaptureMode::Investigation => builder.investigation(),
     };
 
+    if cli.mode.uses_drop_path_limits() {
+        builder = builder.capture_limits_override(CaptureLimitsOverride {
+            max_requests: Some(64),
+            max_stages: Some(64),
+            max_queues: Some(64),
+            max_inflight_snapshots: Some(64),
+            max_runtime_snapshots: Some(64),
+        });
+    }
+
     let tailtriage = Arc::new(builder.build()?);
-    let sampler = if cli.mode == Mode::Investigation {
-        Some(RuntimeSampler::start(
-            Arc::clone(&tailtriage),
-            Duration::from_millis(2),
-        )?)
+    let sampler = if cli.mode.uses_tokio_sampler() {
+        Some(RuntimeSampler::builder(Arc::clone(&tailtriage)).start()?)
     } else {
         None
     };
@@ -175,13 +230,6 @@ async fn run_requests(
                             .await
                             .expect("semaphore closed");
 
-                        if mode == Mode::Investigation {
-                            request
-                                .stage("pre_work_marker")
-                                .await_value(tokio::time::sleep(Duration::from_micros(300)))
-                                .await;
-                        }
-
                         request
                             .stage("simulated_work")
                             .await_value(tokio::time::sleep(work_duration))
@@ -226,7 +274,9 @@ fn parse_cli() -> anyhow::Result<Cli> {
                 let value = args.next().context("missing value for --mode")?;
                 mode = Mode::parse(&value);
                 if mode.is_none() {
-                    bail!("invalid --mode {value}; expected baseline|light|investigation");
+                    bail!(
+                        "invalid --mode {value}; expected baseline|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path"
+                    );
                 }
             }
             "--requests" => {
@@ -278,10 +328,10 @@ fn parse_cli() -> anyhow::Result<Cli> {
 
 fn print_help() {
     eprintln!(
-        "runtime_cost --mode <baseline|light|investigation> [--requests N] [--concurrency N] [--work-ms N] [--output-dir DIR]"
+        "runtime_cost --mode <baseline|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path> [--requests N] [--concurrency N] [--work-ms N] [--output-dir DIR]"
     );
     eprintln!(
-        "note: investigation mode models a richer investigation profile (dense runtime sampling + extra pre_work_marker stage work)."
+        "mode semantics: core_* changes only core retention defaults; *_tokio_sampler additionally starts RuntimeSampler; *_drop_path intentionally hits capture limits."
     );
 }
 

@@ -89,6 +89,22 @@ When limits are hit, artifacts keep per-category drop counters and mark that lim
 analyzer warnings call out that dropped evidence can reduce completeness/confidence.
 Older artifacts may show `metadata.effective_core_config` as `null` (unknown).
 
+What mode changes in core:
+
+- default core retention limits (`CaptureLimits`)
+
+What mode changes in Tokio (only if sampler is started):
+
+- default runtime sampler cadence
+- default runtime snapshot retention target (clamped by the core cap)
+
+What mode does **not** do:
+
+- does **not** auto-enable Tokio sampling
+- does **not** require Tokio
+- does **not** change `strict_lifecycle`
+- does **not** change event types
+
 Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure.
 
 `RuntimeSampler` resolves Tokio config from:
@@ -101,6 +117,13 @@ Use runtime snapshots when request-level signals are not enough to separate queu
 `CaptureMode` does not auto-start runtime sampling.
 Resolved runtime snapshot retention is clamped to the core collector limit for
 `max_runtime_snapshots`.
+
+Override precedence is:
+
+1. inherited mode from selected core mode
+2. explicit Tokio override via `.mode(...)`
+3. explicit cadence override via `.interval(...)`
+4. explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
 
 ```rust
 use std::sync::Arc;

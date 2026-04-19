@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure and summarize runtime overhead for tailtriage modes."""
+"""Measure and summarize runtime overhead for runtime-cost demo scenarios."""
 
 from __future__ import annotations
 
@@ -11,8 +11,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-
-MODES = ("baseline", "light", "investigation")
+MODES = (
+    "baseline",
+    "core_light",
+    "core_investigation",
+    "core_light_tokio_sampler",
+    "core_investigation_tokio_sampler",
+    "core_light_drop_path",
+)
 METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms")
 DEFAULT_REQUESTS = 6000
 DEFAULT_CONCURRENCY = 64
@@ -65,7 +71,7 @@ def summarize_values(values: list[float]) -> dict[str, float]:
     }
 
 
-def paired_overhead_rows(measured_rounds: list[dict], mode: str, metric: str) -> list[float]:
+def paired_delta_rows(measured_rounds: list[dict], mode: str, metric: str) -> list[float]:
     values = []
     for round_rows in measured_rounds:
         baseline = round_rows["baseline"][metric]
@@ -81,6 +87,49 @@ def paired_overhead_rows(measured_rounds: list[dict], mode: str, metric: str) ->
         values.append(delta)
 
     return values
+
+
+def paired_incremental_rows(
+    measured_rounds: list[dict],
+    base_mode: str,
+    sampler_mode: str,
+    metric: str,
+) -> list[float]:
+    values = []
+    for round_rows in measured_rounds:
+        base_value = round_rows[base_mode][metric]
+        sampler_value = round_rows[sampler_mode][metric]
+        if base_value <= 0:
+            continue
+
+        if metric == "throughput_rps":
+            delta = ((base_value - sampler_value) / base_value) * 100.0
+        else:
+            delta = ((sampler_value - base_value) / base_value) * 100.0
+
+        values.append(delta)
+
+    return values
+
+
+def summarize_mode_metrics(by_mode: dict[str, list[dict]], mode: str) -> dict:
+    metrics = {key: [row[key] for row in by_mode[mode]] for key in METRIC_KEYS}
+    truncations = [row.get("truncation") for row in by_mode[mode] if row.get("truncation") is not None]
+    summary = {metric: summarize_values(values) for metric, values in metrics.items()}
+    if truncations:
+        summary["truncation"] = {
+            "dropped_requests": summarize_values([entry["dropped_requests"] for entry in truncations]),
+            "dropped_stages": summarize_values([entry["dropped_stages"] for entry in truncations]),
+            "dropped_queues": summarize_values([entry["dropped_queues"] for entry in truncations]),
+            "dropped_inflight_snapshots": summarize_values(
+                [entry["dropped_inflight_snapshots"] for entry in truncations]
+            ),
+            "dropped_runtime_snapshots": summarize_values(
+                [entry["dropped_runtime_snapshots"] for entry in truncations]
+            ),
+            "limit_reached_rounds": sum(1 for entry in truncations if entry["limits_reached"]),
+        }
+    return summary
 
 
 def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, list[str]]:
@@ -99,8 +148,8 @@ def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, lis
     reasons: list[str] = []
 
     for mode in MODES:
-        throughput_cv = summary["modes"][mode]["throughput_rps"]["cv"]
-        p95_cv = summary["modes"][mode]["latency_p95_ms"]["cv"]
+        throughput_cv = summary["absolute_metrics"][mode]["throughput_rps"]["cv"]
+        p95_cv = summary["absolute_metrics"][mode]["latency_p95_ms"]["cv"]
         if throughput_cv >= 0.10:
             reasons.append(f"{mode} throughput CV is high ({throughput_cv:.3f} >= 0.100)")
         elif throughput_cv >= 0.05:
@@ -110,8 +159,15 @@ def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, lis
         elif p95_cv >= 0.08:
             reasons.append(f"{mode} p95 CV is elevated ({p95_cv:.3f} >= 0.080)")
 
-    for mode in ("light", "investigation"):
-        throughput_deltas = paired_overhead_rows(measured_rounds, mode, "throughput_rps")
+    core_mode_pairs = (
+        ("core_light", "Core mode overhead"),
+        ("core_investigation", "Core mode overhead"),
+        ("core_light_tokio_sampler", "Tokio mode overhead"),
+        ("core_investigation_tokio_sampler", "Tokio mode overhead"),
+        ("core_light_drop_path", "Post-limit / drop-path overhead"),
+    )
+    for mode, _heading in core_mode_pairs:
+        throughput_deltas = paired_delta_rows(measured_rounds, mode, "throughput_rps")
         crossing = 0
         for idx in range(1, len(throughput_deltas)):
             prev, cur = throughput_deltas[idx - 1], throughput_deltas[idx]
@@ -162,23 +218,57 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "minimum_rounds_for_stable": MIN_ROUNDS_FOR_STABLE,
         "round_ordering": "interleaved_rotating",
         "execution_profile": "release_binary",
-        "modes": {},
-        "paired_overhead_pct_vs_baseline": {},
+        "absolute_metrics": {},
+        "delta_vs_baseline_pct": {
+            "Core mode overhead": {},
+            "Tokio mode overhead": {},
+            "Post-limit / drop-path overhead": {},
+        },
+        "incremental_runtime_sampler_overhead_pct": {
+            "Incremental runtime sampler overhead": {},
+        },
     }
 
     for mode in MODES:
-        metrics = {key: [row[key] for row in by_mode[mode]] for key in METRIC_KEYS}
-        summary["modes"][mode] = {
-            metric: summarize_values(values) for metric, values in metrics.items()
+        summary["absolute_metrics"][mode] = summarize_mode_metrics(by_mode, mode)
+
+    def baseline_delta(mode: str) -> dict:
+        return {
+            metric: summarize_values(paired_delta_rows(measured_rounds, mode, metric))
+            for metric in METRIC_KEYS
         }
 
-    for mode in ("light", "investigation"):
-        summary["paired_overhead_pct_vs_baseline"][mode] = {
-            "throughput_rps": summarize_values(paired_overhead_rows(measured_rounds, mode, "throughput_rps")),
-            "latency_p50_ms": summarize_values(paired_overhead_rows(measured_rounds, mode, "latency_p50_ms")),
-            "latency_p95_ms": summarize_values(paired_overhead_rows(measured_rounds, mode, "latency_p95_ms")),
-            "latency_p99_ms": summarize_values(paired_overhead_rows(measured_rounds, mode, "latency_p99_ms")),
-        }
+    summary["delta_vs_baseline_pct"]["Core mode overhead"]["core_light"] = baseline_delta("core_light")
+    summary["delta_vs_baseline_pct"]["Core mode overhead"]["core_investigation"] = baseline_delta("core_investigation")
+    summary["delta_vs_baseline_pct"]["Tokio mode overhead"]["core_light_tokio_sampler"] = baseline_delta(
+        "core_light_tokio_sampler"
+    )
+    summary["delta_vs_baseline_pct"]["Tokio mode overhead"]["core_investigation_tokio_sampler"] = baseline_delta(
+        "core_investigation_tokio_sampler"
+    )
+    summary["delta_vs_baseline_pct"]["Post-limit / drop-path overhead"]["core_light_drop_path"] = baseline_delta(
+        "core_light_drop_path"
+    )
+
+    summary["incremental_runtime_sampler_overhead_pct"]["Incremental runtime sampler overhead"] = {
+        "light_mode": {
+            metric: summarize_values(
+                paired_incremental_rows(measured_rounds, "core_light", "core_light_tokio_sampler", metric)
+            )
+            for metric in METRIC_KEYS
+        },
+        "investigation_mode": {
+            metric: summarize_values(
+                paired_incremental_rows(
+                    measured_rounds,
+                    "core_investigation",
+                    "core_investigation_tokio_sampler",
+                    metric,
+                )
+            )
+            for metric in METRIC_KEYS
+        },
+    }
 
     quality, reasons = assess_quality(summary, measured_rounds)
     summary["measurement_quality"] = quality
@@ -210,7 +300,7 @@ def build_release_binary(root_dir: Path) -> Path:
     return binary_path
 
 
-def rotating_mode_order(round_number: int) -> tuple[str, str, str]:
+def rotating_mode_order(round_number: int) -> tuple[str, ...]:
     offset = round_number % len(MODES)
     return MODES[offset:] + MODES[:offset]
 
