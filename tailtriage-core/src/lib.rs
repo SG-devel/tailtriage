@@ -37,7 +37,10 @@ pub use collector::{
     OwnedRequestCompletion, OwnedRequestHandle, OwnedStartedRequest, RequestCompletion,
     RequestHandle, StartedRequest, Tailtriage,
 };
-pub use config::{BuildError, CaptureLimits, CaptureMode, RequestOptions, TailtriageBuilder};
+pub use config::{
+    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveCoreConfig,
+    RequestOptions, TailtriageBuilder,
+};
 pub use events::{
     InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot,
     StageEvent, TruncationSummary, UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,

@@ -158,7 +158,7 @@ pub struct Report {
 /// ```
 /// use tailtriage_cli::analyze::analyze_run;
 /// use tailtriage_core::{
-///     CaptureMode, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION,
+///     CaptureMode, EffectiveCoreConfig, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION,
 /// };
 ///
 /// let run = Run {
@@ -170,6 +170,11 @@ pub struct Report {
 ///         started_at_unix_ms: 1,
 ///         finished_at_unix_ms: 2,
 ///         mode: CaptureMode::Light,
+///         effective_core_config: Some(EffectiveCoreConfig {
+///             mode: CaptureMode::Light,
+///             capture_limits: CaptureMode::Light.core_defaults(),
+///             strict_lifecycle: false,
+///         }),
 ///         host: None,
 ///         pid: None,
 ///         lifecycle_warnings: Vec::new(),
@@ -236,7 +241,7 @@ pub fn analyze_run(run: &Run) -> Report {
         ));
     }
 
-    suspects.sort_by(|left, right| right.score.cmp(&left.score));
+    suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
     let mut ranked = suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
@@ -264,33 +269,39 @@ pub fn analyze_run(run: &Run) -> Report {
 
 fn truncation_warnings(run: &Run) -> Vec<String> {
     let mut warnings = Vec::new();
+    if run.truncation.limits_hit || run.truncation.is_truncated() {
+        warnings.push(
+            "Capture limits were hit during this run; dropped evidence can reduce diagnosis completeness and confidence."
+                .to_string(),
+        );
+    }
     if run.truncation.dropped_requests > 0 {
         warnings.push(format!(
-            "Capture truncated requests: dropped {} request events after reaching the configured max_requests limit.",
+            "Capture truncated requests: dropped {} request events after reaching the configured max_requests limit. This dropped evidence can reduce diagnosis completeness and confidence.",
             run.truncation.dropped_requests
         ));
     }
     if run.truncation.dropped_stages > 0 {
         warnings.push(format!(
-            "Capture truncated stages: dropped {} stage events after reaching the configured max_stages limit.",
+            "Capture truncated stages: dropped {} stage events after reaching the configured max_stages limit. This dropped evidence can reduce diagnosis completeness and confidence.",
             run.truncation.dropped_stages
         ));
     }
     if run.truncation.dropped_queues > 0 {
         warnings.push(format!(
-            "Capture truncated queues: dropped {} queue events after reaching the configured max_queues limit.",
+            "Capture truncated queues: dropped {} queue events after reaching the configured max_queues limit. This dropped evidence can reduce diagnosis completeness and confidence.",
             run.truncation.dropped_queues
         ));
     }
     if run.truncation.dropped_inflight_snapshots > 0 {
         warnings.push(format!(
-            "Capture truncated in-flight snapshots: dropped {} entries after reaching max_inflight_snapshots.",
+            "Capture truncated in-flight snapshots: dropped {} entries after reaching max_inflight_snapshots. This dropped evidence can reduce diagnosis completeness and confidence.",
             run.truncation.dropped_inflight_snapshots
         ));
     }
     if run.truncation.dropped_runtime_snapshots > 0 {
         warnings.push(format!(
-            "Capture truncated runtime snapshots: dropped {} entries after reaching max_runtime_snapshots.",
+            "Capture truncated runtime snapshots: dropped {} entries after reaching max_runtime_snapshots. This dropped evidence can reduce diagnosis completeness and confidence.",
             run.truncation.dropped_runtime_snapshots
         ));
     }
@@ -438,11 +449,10 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .iter()
         .map(|request| request.latency_us)
         .fold(0_u64, u64::saturating_add);
-    let stage_share_permille = if total_request_latency == 0 {
-        0
-    } else {
-        total_latency.saturating_mul(1_000) / total_request_latency
-    };
+    let stage_share_permille = total_latency
+        .saturating_mul(1_000)
+        .checked_div(total_request_latency)
+        .unwrap_or(0);
     let share_bonus = (stage_share_permille / 40).min(25) as u8;
     let score = (55 + share_bonus).min(79);
 
@@ -673,7 +683,8 @@ pub fn render_text(report: &Report) -> String {
 #[cfg(test)]
 mod tests {
     use tailtriage_core::{
-        CaptureMode, RequestEvent, Run, RunMetadata, StageEvent, SCHEMA_VERSION,
+        CaptureMode, EffectiveCoreConfig, RequestEvent, Run, RunMetadata, StageEvent,
+        SCHEMA_VERSION,
     };
 
     use crate::analyze::{
@@ -690,6 +701,11 @@ mod tests {
                 started_at_unix_ms: 1,
                 finished_at_unix_ms: 2,
                 mode: CaptureMode::Light,
+                effective_core_config: Some(EffectiveCoreConfig {
+                    mode: CaptureMode::Light,
+                    capture_limits: CaptureMode::Light.core_defaults(),
+                    strict_lifecycle: false,
+                }),
                 host: None,
                 pid: Some(1),
                 lifecycle_warnings: Vec::new(),
@@ -917,9 +933,13 @@ mod tests {
         let mut run = test_run();
         run.truncation.dropped_requests = 2;
         run.truncation.dropped_runtime_snapshots = 1;
+        run.truncation.limits_hit = true;
 
         let report = analyze_run(&run);
-        assert_eq!(report.warnings.len(), 2);
+        assert_eq!(report.warnings.len(), 3);
+        assert!(report.warnings.iter().any(|warning| {
+            warning.contains("dropped evidence can reduce diagnosis completeness and confidence")
+        }));
         assert!(report
             .warnings
             .iter()
