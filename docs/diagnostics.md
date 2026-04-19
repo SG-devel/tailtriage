@@ -22,6 +22,12 @@ Loader behavior is strict:
 - non-integer `schema_version` is rejected
 - unsupported `schema_version` is rejected
 
+Mode/config metadata in artifacts:
+
+- `metadata.mode` stores the selected core capture mode.
+- `metadata.effective_core_config` stores resolved core settings used for the run.
+- `metadata.effective_tokio_sampler_config` stores resolved Tokio sampler settings when `RuntimeSampler` was started.
+
 ## Report contents
 
 `tailtriage analyze <run.json>` outputs:
