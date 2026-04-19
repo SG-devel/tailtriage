@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{RequestOptions, Tailtriage};
+use tailtriage_tokio::RuntimeSampler;
 
 #[derive(Clone)]
 struct CheckoutRequest {
@@ -96,10 +97,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
 
+    // No explicit Tokio mode override here: sampler inherits Investigation mode
+    // from core and uses Tokio-side Investigation defaults.
+    let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage)).start()?;
+
     for request in requests {
         handle_checkout(Arc::clone(&tailtriage), request).await?;
     }
 
+    sampler.shutdown().await;
     tailtriage.shutdown()?;
 
     println!("Wrote {output_path}");

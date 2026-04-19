@@ -152,6 +152,8 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 `RuntimeSampler` works on stable Tokio, but some runtime fields (`local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`) require `tokio_unstable`. See [`docs/user-guide.md`](docs/user-guide.md) for details.
 
+When you use `RuntimeSampler::builder(...)`, Tokio defaults are resolved from the core-selected mode by default (inherited mode), and you can provide an explicit Tokio override with `.mode(...)`. CaptureMode never auto-starts the sampler.
+
 ## Request lifecycle shape (public API)
 
 `Tailtriage::begin_request(...)` / `begin_request_with(...)` returns `StartedRequest { handle, completion }`:
