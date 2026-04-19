@@ -22,6 +22,11 @@ fn base_run() -> Run {
             started_at_unix_ms: 1,
             finished_at_unix_ms: 2,
             mode: CaptureMode::Light,
+            effective_core_config: tailtriage_core::EffectiveCoreConfig {
+                mode: CaptureMode::Light,
+                capture_limits: CaptureMode::Light.core_defaults(),
+                strict_lifecycle: false,
+            },
             host: None,
             pid: Some(7),
             lifecycle_warnings: Vec::new(),

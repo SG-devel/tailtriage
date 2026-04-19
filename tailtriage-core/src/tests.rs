@@ -3,7 +3,10 @@ use std::future::ready;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
-use crate::{BuildError, CaptureLimits, Outcome, RequestOptions, SinkError, Tailtriage};
+use crate::{
+    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, Outcome, RequestOptions,
+    SinkError, Tailtriage,
+};
 
 #[derive(Debug, Default)]
 struct RecordingSink {
@@ -121,6 +124,11 @@ fn shutdown_writes_artifact() {
     let run: crate::Run = serde_json::from_slice(&bytes).expect("artifact should deserialize");
     assert_eq!(run.schema_version, crate::SCHEMA_VERSION);
     assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.metadata.mode, CaptureMode::Light);
+    assert_eq!(
+        run.metadata.effective_core_config.capture_limits,
+        CaptureMode::Light.core_defaults()
+    );
 }
 
 #[test]
@@ -174,6 +182,159 @@ fn capture_limits_apply_to_all_sections() {
     assert_eq!(snapshot.queues.len(), 1);
     assert_eq!(snapshot.inflight.len(), 1);
     assert_eq!(snapshot.runtime_snapshots.len(), 1);
+}
+
+#[test]
+fn mode_defaults_differ_between_light_and_investigation() {
+    assert_ne!(
+        CaptureMode::Light.core_defaults(),
+        CaptureMode::Investigation.core_defaults()
+    );
+}
+
+#[test]
+fn capture_limits_remains_full_override() {
+    let full_override = CaptureLimits {
+        max_requests: 10,
+        max_stages: 20,
+        max_queues: 30,
+        max_inflight_snapshots: 40,
+        max_runtime_snapshots: 50,
+    };
+    let tailtriage = Tailtriage::builder("payments")
+        .investigation()
+        .capture_limits_override(CaptureLimitsOverride {
+            max_requests: Some(999),
+            ..CaptureLimitsOverride::default()
+        })
+        .capture_limits(full_override)
+        .build()
+        .expect("build should succeed");
+
+    assert_eq!(
+        tailtriage.effective_core_config().capture_limits,
+        full_override
+    );
+}
+
+#[test]
+fn capture_limits_override_applies_selected_fields_on_mode_defaults() {
+    let tailtriage = Tailtriage::builder("payments")
+        .investigation()
+        .capture_limits_override(CaptureLimitsOverride {
+            max_requests: Some(12_345),
+            max_runtime_snapshots: Some(88),
+            ..CaptureLimitsOverride::default()
+        })
+        .build()
+        .expect("build should succeed");
+
+    let mut expected = CaptureMode::Investigation.core_defaults();
+    expected.max_requests = 12_345;
+    expected.max_runtime_snapshots = 88;
+    assert_eq!(tailtriage.effective_core_config().capture_limits, expected);
+}
+
+#[test]
+fn strict_lifecycle_is_unchanged_by_mode() {
+    let light = Tailtriage::builder("payments")
+        .light()
+        .strict_lifecycle(true)
+        .build()
+        .expect("build should succeed");
+    let investigation = Tailtriage::builder("payments")
+        .investigation()
+        .strict_lifecycle(true)
+        .build()
+        .expect("build should succeed");
+
+    assert!(light.effective_core_config().strict_lifecycle);
+    assert!(investigation.effective_core_config().strict_lifecycle);
+}
+
+#[test]
+fn selected_mode_and_effective_config_are_preserved_in_metadata() {
+    let tailtriage = Tailtriage::builder("payments")
+        .investigation()
+        .capture_limits_override(CaptureLimitsOverride {
+            max_queues: Some(7),
+            ..CaptureLimitsOverride::default()
+        })
+        .build()
+        .expect("build should succeed");
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(tailtriage.selected_mode(), CaptureMode::Investigation);
+    assert_eq!(snapshot.metadata.mode, CaptureMode::Investigation);
+    assert_eq!(
+        snapshot.metadata.effective_core_config,
+        tailtriage.effective_core_config()
+    );
+    assert_eq!(
+        snapshot
+            .metadata
+            .effective_core_config
+            .capture_limits
+            .max_queues,
+        7
+    );
+}
+
+#[test]
+fn limit_hit_flag_is_set_when_truncation_occurs() {
+    let tailtriage = Tailtriage::builder("payments")
+        .capture_limits(CaptureLimits {
+            max_requests: 1,
+            max_stages: 1,
+            max_queues: 1,
+            max_inflight_snapshots: 1,
+            max_runtime_snapshots: 1,
+        })
+        .build()
+        .expect("build should succeed");
+
+    tailtriage.begin_request("/a").completion.finish_ok();
+    tailtriage.begin_request("/b").completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.truncation.limits_hit);
+    assert!(snapshot.truncation.dropped_requests > 0);
+}
+
+#[test]
+fn mode_does_not_change_event_types_or_lifecycle_shape() {
+    let light = Tailtriage::builder("payments")
+        .light()
+        .build()
+        .expect("build should succeed");
+    let investigation = Tailtriage::builder("payments")
+        .investigation()
+        .build()
+        .expect("build should succeed");
+
+    let started_light = light.begin_request("/same");
+    futures_executor::block_on(started_light.handle.queue("q").await_on(ready(())));
+    futures_executor::block_on(started_light.handle.stage("s").await_value(ready(())));
+    started_light.completion.finish_ok();
+
+    let started_investigation = investigation.begin_request("/same");
+    futures_executor::block_on(started_investigation.handle.queue("q").await_on(ready(())));
+    futures_executor::block_on(
+        started_investigation
+            .handle
+            .stage("s")
+            .await_value(ready(())),
+    );
+    started_investigation.completion.finish_ok();
+
+    let light_snapshot = light.snapshot();
+    let investigation_snapshot = investigation.snapshot();
+    assert_eq!(light_snapshot.requests.len(), 1);
+    assert_eq!(light_snapshot.queues.len(), 1);
+    assert_eq!(light_snapshot.stages.len(), 1);
+    assert_eq!(investigation_snapshot.requests.len(), 1);
+    assert_eq!(investigation_snapshot.queues.len(), 1);
+    assert_eq!(investigation_snapshot.stages.len(), 1);
 }
 
 #[test]
