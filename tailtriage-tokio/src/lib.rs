@@ -174,7 +174,7 @@ impl RuntimeSamplerBuilder {
                     _ = &mut stop_rx => break,
                     _ = ticker.tick() => {
                         if captured >= max_runtime_snapshots {
-                            continue;
+                            break;
                         }
 
                         tailtriage.record_runtime_snapshot(capture_runtime_snapshot(&handle));
@@ -476,6 +476,37 @@ mod tests {
             .expect("tokio config should be recorded");
         assert_eq!(config.resolved_runtime_snapshot_retention, 1);
         assert_eq!(snapshot.runtime_snapshots.len(), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sampler_stops_task_after_reaching_resolved_cap() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_cap_stops_task.json"))
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(1))
+            .max_runtime_snapshots(1)
+            .start()
+            .expect("sampler should start");
+
+        tokio::time::sleep(Duration::from_millis(12)).await;
+        assert!(
+            sampler.task.is_finished(),
+            "sampler task should exit at cap"
+        );
+
+        let before = tailtriage.snapshot().runtime_snapshots.len();
+        tokio::time::sleep(Duration::from_millis(12)).await;
+        let after = tailtriage.snapshot().runtime_snapshots.len();
+        assert_eq!(before, 1);
+        assert_eq!(after, 1);
+
+        // shutdown remains safe after the task has already exited at cap.
+        sampler.shutdown().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
