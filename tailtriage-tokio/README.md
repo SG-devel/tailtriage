@@ -57,6 +57,11 @@ When `tokio_unstable` is not enabled, unstable-only fields are recorded as `None
 3. optional cadence override via `.interval(...)`
 4. optional retention override via `.max_runtime_snapshots(...)`
 
+Tokio mode defaults (applied only if sampler is started):
+
+- Light: `cadence = 500ms`, `max_runtime_snapshots = 5_000`
+- Investigation: `cadence = 100ms`, `max_runtime_snapshots = 50_000`
+
 `CaptureMode` never auto-starts runtime sampling; you must call `.start()`.
 `CaptureMode` does not change core event types or `strict_lifecycle`.
 Resolved runtime snapshot retention is clamped to the core run's

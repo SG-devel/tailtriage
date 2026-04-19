@@ -89,21 +89,46 @@ When limits are hit, artifacts keep per-category drop counters and mark that lim
 analyzer warnings call out that dropped evidence can reduce completeness/confidence.
 Older artifacts may show `metadata.effective_core_config` as `null` (unknown).
 
-What mode changes in core:
+### What mode changes in each crate
 
-- default core retention limits (`CaptureLimits`)
+Core defaults (`tailtriage-core`):
 
-What mode changes in Tokio (only if sampler is started):
+- Light: `max_requests=100_000`, `max_stages=200_000`, `max_queues=200_000`, `max_inflight_snapshots=200_000`, `max_runtime_snapshots=100_000`
+- Investigation: `max_requests=300_000`, `max_stages=600_000`, `max_queues=600_000`, `max_inflight_snapshots=600_000`, `max_runtime_snapshots=300_000`
 
-- default runtime sampler cadence
-- default runtime snapshot retention target (clamped by the core cap)
+Tokio defaults (`tailtriage-tokio`, only when sampler is started):
+
+- Light: `cadence=500ms`, `max_runtime_snapshots=5_000`
+- Investigation: `cadence=100ms`, `max_runtime_snapshots=50_000`
+
+Tokio sampler override precedence:
+
+1. inherited mode from selected core mode
+2. explicit Tokio override via `.mode(...)`
+3. explicit cadence override via `.interval(...)`
+4. explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
 
 What mode does **not** do:
 
 - does **not** auto-enable Tokio sampling
+- does **not** imply sampler cost by itself (core Investigation alone does not start a sampler)
 - does **not** require Tokio
 - does **not** change `strict_lifecycle`
 - does **not** change event types
+
+Artifacts record both selected mode and effective resolved config:
+
+- selected mode: `metadata.mode`
+- core effective config: `metadata.effective_core_config`
+- Tokio sampler effective config (when sampler starts): `metadata.effective_tokio_sampler_config`
+
+Overhead terminology used in docs and scripts:
+
+- Core mode overhead
+- Tokio mode overhead
+- Incremental runtime sampler overhead
+- Baked-in overhead
+- Post-limit / drop-path overhead
 
 Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure.
 
@@ -117,13 +142,6 @@ Use runtime snapshots when request-level signals are not enough to separate queu
 `CaptureMode` does not auto-start runtime sampling.
 Resolved runtime snapshot retention is clamped to the core collector limit for
 `max_runtime_snapshots`.
-
-Override precedence is:
-
-1. inherited mode from selected core mode
-2. explicit Tokio override via `.mode(...)`
-3. explicit cadence override via `.interval(...)`
-4. explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
 
 ```rust
 use std::sync::Arc;
