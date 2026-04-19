@@ -121,6 +121,7 @@ impl Tailtriage {
             finished_at_unix_ms: now,
             mode: config.mode,
             effective_core_config: Some(config.effective_core),
+            effective_tokio_sampler_config: None,
             host: None,
             pid: Some(std::process::id()),
             lifecycle_warnings: Vec::new(),
@@ -280,6 +281,16 @@ impl Tailtriage {
         } else {
             run.runtime_snapshots.push(snapshot);
         }
+    }
+
+    /// Records effective resolved Tokio sampler configuration in run metadata.
+    ///
+    /// Integration crates call this when they configure and start optional runtime
+    /// sampling so artifacts can show inherited mode, explicit overrides, and
+    /// resolved sampler settings used for the run.
+    pub fn record_tokio_sampler_config(&self, config: crate::EffectiveTokioSamplerConfig) {
+        let mut run = lock_run(&self.run);
+        run.metadata.effective_tokio_sampler_config = Some(config);
     }
 
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
