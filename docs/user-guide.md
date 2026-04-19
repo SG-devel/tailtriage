@@ -99,6 +99,8 @@ Use runtime snapshots when request-level signals are not enough to separate queu
 4. optional explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
 
 `CaptureMode` does not auto-start runtime sampling.
+Resolved runtime snapshot retention is clamped to the core collector limit for
+`max_runtime_snapshots`.
 
 ```rust
 use std::sync::Arc;

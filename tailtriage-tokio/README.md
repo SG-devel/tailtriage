@@ -58,6 +58,8 @@ When `tokio_unstable` is not enabled, unstable-only fields are recorded as `None
 4. optional retention override via `.max_runtime_snapshots(...)`
 
 `CaptureMode` never auto-starts runtime sampling; you must call `.start()`.
+Resolved runtime snapshot retention is clamped to the core run's
+`max_runtime_snapshots` cap so artifact metadata matches actual retention.
 
 ## Minimal usage
 

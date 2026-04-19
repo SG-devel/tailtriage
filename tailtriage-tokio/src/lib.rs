@@ -199,14 +199,22 @@ impl RuntimeSamplerBuilder {
             return Err(SamplerStartError::ZeroInterval);
         }
 
+        let requested_retention = self
+            .max_runtime_snapshots_override
+            .unwrap_or(mode_defaults.max_runtime_snapshots);
+        let core_runtime_snapshot_cap = self
+            .tailtriage
+            .effective_core_config()
+            .capture_limits
+            .max_runtime_snapshots;
+        let resolved_max_runtime_snapshots = requested_retention.min(core_runtime_snapshot_cap);
+
         Ok(ResolvedRuntimeSamplerConfig {
             inherited_mode,
             explicit_mode_override: self.explicit_mode_override,
             resolved_mode,
             resolved_interval,
-            resolved_max_runtime_snapshots: self
-                .max_runtime_snapshots_override
-                .unwrap_or(mode_defaults.max_runtime_snapshots),
+            resolved_max_runtime_snapshots,
         })
     }
 }
@@ -468,6 +476,39 @@ mod tests {
             .expect("tokio config should be recorded");
         assert_eq!(config.resolved_runtime_snapshot_retention, 1);
         assert_eq!(snapshot.runtime_snapshots.len(), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tokio_retention_override_is_clamped_by_core_limit() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_retention_clamp.json"))
+                .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                    max_runtime_snapshots: Some(3),
+                    ..tailtriage_core::CaptureLimitsOverride::default()
+                })
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(1))
+            .max_runtime_snapshots(50)
+            .start()
+            .expect("sampler should start");
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        sampler.shutdown().await;
+
+        let snapshot = tailtriage.snapshot();
+        let config = snapshot
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("tokio config should be recorded");
+
+        assert_eq!(config.resolved_runtime_snapshot_retention, 3);
+        assert_eq!(snapshot.runtime_snapshots.len(), 3);
+        assert_eq!(snapshot.truncation.dropped_runtime_snapshots, 0);
     }
 
     #[tokio::test(flavor = "current_thread")]
