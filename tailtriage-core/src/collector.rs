@@ -120,7 +120,7 @@ impl Tailtriage {
             started_at_unix_ms: now,
             finished_at_unix_ms: now,
             mode: config.mode,
-            effective_core_config: config.effective_core,
+            effective_core_config: Some(config.effective_core),
             host: None,
             pid: Some(std::process::id()),
             lifecycle_warnings: Vec::new(),

@@ -56,6 +56,7 @@ Override precedence:
 3. selected mode defaults
 
 Artifacts include both selected mode (`metadata.mode`) and resolved config (`metadata.effective_core_config`).
+For older artifacts that predate this field, `metadata.effective_core_config` is `null` (unknown).
 
 ## Minimal usage
 

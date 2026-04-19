@@ -171,6 +171,7 @@ In `tailtriage-core`, `CaptureMode` currently controls **retention defaults only
 - Mode does not change `strict_lifecycle`; your explicit `strict_lifecycle(...)` setting is preserved.
 
 Artifacts record both selected mode (`metadata.mode`) and resolved core config (`metadata.effective_core_config`).
+Older artifacts may have `metadata.effective_core_config = null` when effective config was not captured.
 
 ## Current public status
 

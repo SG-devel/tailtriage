@@ -136,8 +136,10 @@ pub struct RunMetadata {
     /// Capture mode, such as "light" or "investigation".
     pub mode: CaptureMode,
     /// Effective resolved core configuration after applying mode defaults and overrides.
-    #[serde(default = "default_effective_core_config")]
-    pub effective_core_config: EffectiveCoreConfig,
+    ///
+    /// This field may be `None` for older artifacts that predate effective config capture.
+    #[serde(default)]
+    pub effective_core_config: Option<EffectiveCoreConfig>,
     /// Hostname if available.
     pub host: Option<String>,
     /// Process identifier if available.
@@ -148,14 +150,6 @@ pub struct RunMetadata {
     /// Incomplete request summary captured at shutdown.
     #[serde(default)]
     pub unfinished_requests: UnfinishedRequests,
-}
-
-fn default_effective_core_config() -> EffectiveCoreConfig {
-    EffectiveCoreConfig {
-        mode: CaptureMode::Light,
-        capture_limits: CaptureMode::Light.core_defaults(),
-        strict_lifecycle: false,
-    }
 }
 
 /// Summary of unfinished requests detected at shutdown.

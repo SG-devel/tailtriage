@@ -170,11 +170,11 @@ pub struct Report {
 ///         started_at_unix_ms: 1,
 ///         finished_at_unix_ms: 2,
 ///         mode: CaptureMode::Light,
-///         effective_core_config: EffectiveCoreConfig {
+///         effective_core_config: Some(EffectiveCoreConfig {
 ///             mode: CaptureMode::Light,
 ///             capture_limits: CaptureMode::Light.core_defaults(),
 ///             strict_lifecycle: false,
-///         },
+///         }),
 ///         host: None,
 ///         pid: None,
 ///         lifecycle_warnings: Vec::new(),
@@ -702,11 +702,11 @@ mod tests {
                 started_at_unix_ms: 1,
                 finished_at_unix_ms: 2,
                 mode: CaptureMode::Light,
-                effective_core_config: EffectiveCoreConfig {
+                effective_core_config: Some(EffectiveCoreConfig {
                     mode: CaptureMode::Light,
                     capture_limits: CaptureMode::Light.core_defaults(),
                     strict_lifecycle: false,
-                },
+                }),
                 host: None,
                 pid: Some(1),
                 lifecycle_warnings: Vec::new(),

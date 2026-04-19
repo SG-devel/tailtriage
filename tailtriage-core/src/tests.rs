@@ -126,7 +126,10 @@ fn shutdown_writes_artifact() {
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.metadata.mode, CaptureMode::Light);
     assert_eq!(
-        run.metadata.effective_core_config.capture_limits,
+        run.metadata
+            .effective_core_config
+            .expect("effective core config should be present for new runs")
+            .capture_limits,
         CaptureMode::Light.core_defaults()
     );
 }
@@ -268,12 +271,13 @@ fn selected_mode_and_effective_config_are_preserved_in_metadata() {
     assert_eq!(snapshot.metadata.mode, CaptureMode::Investigation);
     assert_eq!(
         snapshot.metadata.effective_core_config,
-        tailtriage.effective_core_config()
+        Some(tailtriage.effective_core_config())
     );
     assert_eq!(
         snapshot
             .metadata
             .effective_core_config
+            .expect("effective core config should be present for new runs")
             .capture_limits
             .max_queues,
         7
@@ -335,6 +339,44 @@ fn mode_does_not_change_event_types_or_lifecycle_shape() {
     assert_eq!(investigation_snapshot.requests.len(), 1);
     assert_eq!(investigation_snapshot.queues.len(), 1);
     assert_eq!(investigation_snapshot.stages.len(), 1);
+}
+
+#[test]
+fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
+    let legacy = serde_json::json!({
+        "schema_version": crate::SCHEMA_VERSION,
+        "metadata": {
+            "run_id": "run-legacy",
+            "service_name": "payments",
+            "service_version": null,
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "mode": "investigation",
+            "host": null,
+            "pid": 123,
+            "lifecycle_warnings": [],
+            "unfinished_requests": {
+                "count": 0,
+                "sample": []
+            }
+        },
+        "requests": [],
+        "stages": [],
+        "queues": [],
+        "inflight": [],
+        "runtime_snapshots": [],
+        "truncation": {
+            "dropped_requests": 0,
+            "dropped_stages": 0,
+            "dropped_queues": 0,
+            "dropped_inflight_snapshots": 0,
+            "dropped_runtime_snapshots": 0
+        }
+    });
+
+    let parsed: crate::Run = serde_json::from_value(legacy).expect("legacy run should parse");
+    assert_eq!(parsed.metadata.mode, CaptureMode::Investigation);
+    assert!(parsed.metadata.effective_core_config.is_none());
 }
 
 #[test]
