@@ -85,9 +85,17 @@ async fn helper_a(req: &tailtriage_core::RequestHandle<'_>) -> Result<(), MyErro
 ## RuntimeSampler (optional stronger attribution)
 
 `CaptureMode` in core sets retention defaults only. It does not auto-enable `RuntimeSampler`.
+Light mode remains lower retention defaults, not sparse evidence before saturation.
 When limits are hit, artifacts keep per-category drop counters and mark that limits were hit;
 analyzer warnings call out that dropped evidence can reduce completeness/confidence.
 Older artifacts may show `metadata.effective_core_config` as `null` (unknown).
+
+Post-limit behavior (issue #252 scope):
+
+- the cheaper drop path improves saturated-run overhead without changing `CaptureMode` semantics;
+- after saturation, dropped events skip the normal append/retention path;
+- drop counters and `limits_hit` bookkeeping still happen;
+- residual overhead remains from branch checks and drop-accounting state updates.
 
 ### What mode changes in each crate
 
@@ -129,6 +137,8 @@ Overhead terminology used in docs and scripts:
 - Incremental runtime sampler overhead
 - Baked-in overhead
 - Post-limit / drop-path overhead
+
+Decision note: issue #252 is resolved by post-limit optimization alone for the current scope; no new evidence-density policy is required in this change set.
 
 Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure. For runtime-cost attribution categories and measurement workflow, see [runtime-cost.md](runtime-cost.md).
 
