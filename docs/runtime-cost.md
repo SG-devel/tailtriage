@@ -19,6 +19,11 @@ The runtime-cost demo benchmarks these categories:
 - `core_light_drop_path`: core light with intentionally tiny capture limits to exercise post-limit drop behavior.
 - `core_investigation_drop_path`: core investigation with intentionally tiny capture limits to exercise post-limit drop behavior.
 
+Interpret these as two saturation states on the same shared scenario family:
+
+- **Unsaturated steady-state**: `core_light`, `core_investigation`
+- **Saturated / post-limit drop-path**: `core_light_drop_path`, `core_investigation_drop_path`
+
 Important attribution rules for this benchmark:
 
 - Core mode overhead is measured without sampler startup.
