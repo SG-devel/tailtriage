@@ -21,6 +21,9 @@ MODES = (
     "core_light_drop_path",
     "core_investigation_drop_path",
 )
+UNSATURATED_CORE_MODES = ("core_light", "core_investigation")
+SATURATED_DROP_PATH_MODES = ("core_light_drop_path", "core_investigation_drop_path")
+TOKIO_SAMPLER_MODES = ("core_light_tokio_sampler", "core_investigation_tokio_sampler")
 METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms")
 DEFAULT_REQUESTS = 6000
 DEFAULT_CONCURRENCY = 64
@@ -32,6 +35,13 @@ QUALITY_NOISY = "noisy"
 QUALITY_UNSTABLE = "unstable"
 QUALITY_INSUFFICIENT_DATA = "insufficient_data"
 MIN_ROUNDS_FOR_STABLE = 4
+
+DELTA_VS_BASELINE_MODE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Baked-in overhead", ("baked_in_no_request_context",)),
+    ("Core mode overhead", UNSATURATED_CORE_MODES),
+    ("Tokio mode overhead", TOKIO_SAMPLER_MODES),
+    ("Post-limit / drop-path overhead", SATURATED_DROP_PATH_MODES),
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -161,28 +171,20 @@ def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, lis
         elif p95_cv >= 0.08:
             reasons.append(f"{mode} p95 CV is elevated ({p95_cv:.3f} >= 0.080)")
 
-    core_mode_pairs = (
-        ("baked_in_no_request_context", "Baked-in overhead"),
-        ("core_light", "Core mode overhead"),
-        ("core_investigation", "Core mode overhead"),
-        ("core_light_tokio_sampler", "Tokio mode overhead"),
-        ("core_investigation_tokio_sampler", "Tokio mode overhead"),
-        ("core_light_drop_path", "Post-limit / drop-path overhead"),
-        ("core_investigation_drop_path", "Post-limit / drop-path overhead"),
-    )
-    for mode, _heading in core_mode_pairs:
-        throughput_deltas = paired_delta_rows(measured_rounds, mode, "throughput_rps")
-        crossing = 0
-        for idx in range(1, len(throughput_deltas)):
-            prev, cur = throughput_deltas[idx - 1], throughput_deltas[idx]
-            if prev == 0 or cur == 0:
-                continue
-            if (prev < 0 < cur) or (prev > 0 > cur):
-                crossing += 1
-        if throughput_deltas and crossing / len(throughput_deltas) >= 0.4:
-            reasons.append(
-                f"{mode} paired throughput overhead crosses zero frequently ({crossing}/{len(throughput_deltas)})"
-            )
+    for _heading, modes in DELTA_VS_BASELINE_MODE_GROUPS:
+        for mode in modes:
+            throughput_deltas = paired_delta_rows(measured_rounds, mode, "throughput_rps")
+            crossing = 0
+            for idx in range(1, len(throughput_deltas)):
+                prev, cur = throughput_deltas[idx - 1], throughput_deltas[idx]
+                if prev == 0 or cur == 0:
+                    continue
+                if (prev < 0 < cur) or (prev > 0 > cur):
+                    crossing += 1
+            if throughput_deltas and crossing / len(throughput_deltas) >= 0.4:
+                reasons.append(
+                    f"{mode} paired throughput overhead crosses zero frequently ({crossing}/{len(throughput_deltas)})"
+                )
 
     if any("high" in reason for reason in reasons):
         return QUALITY_UNSTABLE, reasons
@@ -223,12 +225,7 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "round_ordering": "interleaved_rotating",
         "execution_profile": "release_binary",
         "absolute_metrics": {},
-        "delta_vs_baseline_pct": {
-            "Baked-in overhead": {},
-            "Core mode overhead": {},
-            "Tokio mode overhead": {},
-            "Post-limit / drop-path overhead": {},
-        },
+        "delta_vs_baseline_pct": {heading: {} for heading, _modes in DELTA_VS_BASELINE_MODE_GROUPS},
         "incremental_runtime_sampler_overhead_pct": {
             "Incremental runtime sampler overhead": {},
         },
@@ -243,23 +240,9 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
             for metric in METRIC_KEYS
         }
 
-    summary["delta_vs_baseline_pct"]["Baked-in overhead"]["baked_in_no_request_context"] = baseline_delta(
-        "baked_in_no_request_context"
-    )
-    summary["delta_vs_baseline_pct"]["Core mode overhead"]["core_light"] = baseline_delta("core_light")
-    summary["delta_vs_baseline_pct"]["Core mode overhead"]["core_investigation"] = baseline_delta("core_investigation")
-    summary["delta_vs_baseline_pct"]["Tokio mode overhead"]["core_light_tokio_sampler"] = baseline_delta(
-        "core_light_tokio_sampler"
-    )
-    summary["delta_vs_baseline_pct"]["Tokio mode overhead"]["core_investigation_tokio_sampler"] = baseline_delta(
-        "core_investigation_tokio_sampler"
-    )
-    summary["delta_vs_baseline_pct"]["Post-limit / drop-path overhead"]["core_light_drop_path"] = baseline_delta(
-        "core_light_drop_path"
-    )
-    summary["delta_vs_baseline_pct"]["Post-limit / drop-path overhead"]["core_investigation_drop_path"] = baseline_delta(
-        "core_investigation_drop_path"
-    )
+    for heading, modes in DELTA_VS_BASELINE_MODE_GROUPS:
+        for mode in modes:
+            summary["delta_vs_baseline_pct"][heading][mode] = baseline_delta(mode)
 
     summary["incremental_runtime_sampler_overhead_pct"]["Incremental runtime sampler overhead"] = {
         "light_mode": {
