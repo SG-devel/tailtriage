@@ -11,17 +11,21 @@ All measurements use the same shared request scenario (same request shape, concu
 The runtime-cost demo benchmarks these categories:
 
 - `baseline`: no `tailtriage` instrumentation.
+- `baked_in_no_request_context`: `tailtriage` is initialized in light mode, but request-context instrumentation is intentionally skipped (near-no-op baked-in state).
 - `core_light`: `tailtriage-core` in `CaptureMode::Light`, no Tokio sampler.
 - `core_investigation`: `tailtriage-core` in `CaptureMode::Investigation`, no Tokio sampler.
 - `core_light_tokio_sampler`: core light plus `RuntimeSampler` (Tokio-mode defaults inherited from light).
 - `core_investigation_tokio_sampler`: core investigation plus `RuntimeSampler` (Tokio-mode defaults inherited from investigation).
 - `core_light_drop_path`: core light with intentionally tiny capture limits to exercise post-limit drop behavior.
+- `core_investigation_drop_path`: core investigation with intentionally tiny capture limits to exercise post-limit drop behavior.
 
 Important attribution rules for this benchmark:
 
 - Core mode overhead is measured without sampler startup.
 - Tokio sampler overhead is measured in sampler-enabled modes, not attributed to core-only modes.
+- Baked-in overhead is measured only from `baked_in_no_request_context` versus `baseline`.
 - Investigation mode in this demo does not add synthetic stage sleeps or extra fake work.
+- “Sampler configured but not started” is not a meaningful supported state in this API, so it is intentionally reported as N/A instead of benchmarked as a separate mode.
 
 ## Canonical command
 
@@ -66,14 +70,22 @@ Written to `demos/runtime_cost/artifacts/`:
 - `runtime-cost-summary.json`
   - Includes absolute metrics for each mode.
   - Includes explicit deltas from baseline under these headings:
+    - `Baked-in overhead`
     - `Core mode overhead`
     - `Tokio mode overhead`
     - `Post-limit / drop-path overhead`
   - Includes explicit incremental sampler deltas under:
     - `Incremental runtime sampler overhead`
-  - The current matrix does **not** include a distinct baked-in / near-no-op mode, so no separate `Baked-in overhead` section is reported.
   - Includes machine-readable measurement quality and optional stability warning reasons.
   - Includes sample-count context (`measured_rounds`, `samples_per_mode`, and minimum rounds required for `stable`).
+
+## Interpretation guidance
+
+- Use `Baked-in overhead` to isolate “collector present but request context omitted” cost from fully instrumented request paths.
+- Use `Core mode overhead` to compare request-context instrumentation cost in light vs investigation without runtime sampler effects.
+- Use `Tokio mode overhead` to evaluate full mode cost when runtime sampling is enabled.
+- Use `Incremental runtime sampler overhead` to isolate sampler-on deltas against their same-mode core-only baselines.
+- Use `Post-limit / drop-path overhead` only for saturated-limit behavior; these modes are intentionally non-comparable to unsaturated steady-state runs except as drop-path evidence.
 
 ## Reading noisy-machine results
 

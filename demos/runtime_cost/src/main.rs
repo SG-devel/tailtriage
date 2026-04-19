@@ -16,22 +16,26 @@ const DEFAULT_WORK_MS: u64 = 3;
 #[serde(rename_all = "snake_case")]
 enum Mode {
     Baseline,
+    BakedInNoRequestContext,
     CoreLight,
     CoreInvestigation,
     CoreLightTokioSampler,
     CoreInvestigationTokioSampler,
     CoreLightDropPath,
+    CoreInvestigationDropPath,
 }
 
 impl Mode {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "baseline" => Some(Self::Baseline),
+            "baked_in_no_request_context" => Some(Self::BakedInNoRequestContext),
             "core_light" => Some(Self::CoreLight),
             "core_investigation" => Some(Self::CoreInvestigation),
             "core_light_tokio_sampler" => Some(Self::CoreLightTokioSampler),
             "core_investigation_tokio_sampler" => Some(Self::CoreInvestigationTokioSampler),
             "core_light_drop_path" => Some(Self::CoreLightDropPath),
+            "core_investigation_drop_path" => Some(Self::CoreInvestigationDropPath),
             _ => None,
         }
     }
@@ -39,12 +43,13 @@ impl Mode {
     fn core_mode(self) -> Option<CaptureMode> {
         match self {
             Self::Baseline => None,
-            Self::CoreLight | Self::CoreLightTokioSampler | Self::CoreLightDropPath => {
-                Some(CaptureMode::Light)
-            }
-            Self::CoreInvestigation | Self::CoreInvestigationTokioSampler => {
-                Some(CaptureMode::Investigation)
-            }
+            Self::BakedInNoRequestContext
+            | Self::CoreLight
+            | Self::CoreLightTokioSampler
+            | Self::CoreLightDropPath => Some(CaptureMode::Light),
+            Self::CoreInvestigation
+            | Self::CoreInvestigationTokioSampler
+            | Self::CoreInvestigationDropPath => Some(CaptureMode::Investigation),
         }
     }
 
@@ -56,7 +61,14 @@ impl Mode {
     }
 
     fn uses_drop_path_limits(self) -> bool {
-        matches!(self, Self::CoreLightDropPath)
+        matches!(
+            self,
+            Self::CoreLightDropPath | Self::CoreInvestigationDropPath
+        )
+    }
+
+    fn omits_request_context(self) -> bool {
+        matches!(self, Self::BakedInNoRequestContext)
     }
 }
 
@@ -214,6 +226,11 @@ async fn run_requests(
                     tokio::time::sleep(work_duration).await;
                     drop(permit);
                 }
+                (mode, Some(_)) if mode.omits_request_context() => {
+                    let permit = sem.acquire().await.expect("semaphore closed");
+                    tokio::time::sleep(work_duration).await;
+                    drop(permit);
+                }
                 (_, Some(ts)) => {
                     let request_id = format!("request-{idx}");
                     let started = ts.begin_request_with(
@@ -275,7 +292,7 @@ fn parse_cli() -> anyhow::Result<Cli> {
                 mode = Mode::parse(&value);
                 if mode.is_none() {
                     bail!(
-                        "invalid --mode {value}; expected baseline|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path"
+                        "invalid --mode {value}; expected baseline|baked_in_no_request_context|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path|core_investigation_drop_path"
                     );
                 }
             }
@@ -328,10 +345,10 @@ fn parse_cli() -> anyhow::Result<Cli> {
 
 fn print_help() {
     eprintln!(
-        "runtime_cost --mode <baseline|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path> [--requests N] [--concurrency N] [--work-ms N] [--output-dir DIR]"
+        "runtime_cost --mode <baseline|baked_in_no_request_context|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path|core_investigation_drop_path> [--requests N] [--concurrency N] [--work-ms N] [--output-dir DIR]"
     );
     eprintln!(
-        "mode semantics: core_* changes only core retention defaults; *_tokio_sampler additionally starts RuntimeSampler; *_drop_path intentionally hits capture limits."
+        "mode semantics: baked_in_no_request_context starts tailtriage but skips request-context instrumentation; core_* adds request-context instrumentation; *_tokio_sampler additionally starts RuntimeSampler; *_drop_path intentionally hits capture limits."
     );
 }
 
