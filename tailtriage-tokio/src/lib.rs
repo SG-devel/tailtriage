@@ -116,7 +116,7 @@ impl RuntimeSampler {
     ///
     /// Use this during incident triage when runtime pressure evidence is needed
     /// to rank suspects (for example: global queue growth or alive-task spikes).
-    /// For minimal-overhead capture, skip sampler startup.
+    /// For lower runtime-cost core-only capture categories, skip sampler startup (see `docs/runtime-cost.md`).
     ///
     /// # Errors
     ///

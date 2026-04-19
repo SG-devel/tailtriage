@@ -130,7 +130,7 @@ Overhead terminology used in docs and scripts:
 - Baked-in overhead
 - Post-limit / drop-path overhead
 
-Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure.
+Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure. For runtime-cost attribution categories and measurement workflow, see [runtime-cost.md](runtime-cost.md).
 
 `RuntimeSampler` resolves Tokio config from:
 
