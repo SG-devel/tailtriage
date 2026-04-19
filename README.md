@@ -222,5 +222,6 @@ Use workspace/source onboarding for repository examples and contributor workflow
 
 - Docs index: [`docs/README.md`](docs/README.md)
 - Detailed onboarding and lifecycle rules: [`docs/user-guide.md`](docs/user-guide.md)
+- Runtime-cost categories and benchmark interpretation: [`docs/runtime-cost.md`](docs/runtime-cost.md)
 - Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 - Diagnostics field contract and interpretation: [`docs/diagnostics.md`](docs/diagnostics.md)
