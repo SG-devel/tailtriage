@@ -32,6 +32,36 @@ Important attribution rules for this benchmark:
 - Investigation mode in this demo does not add synthetic stage sleeps or extra fake work.
 - “Sampler configured but not started” is not a meaningful supported state in this API, so it is intentionally reported as N/A instead of benchmarked as a separate mode.
 
+## Post-limit behavior model (issue #252)
+
+Core mode semantics are unchanged:
+
+- `CaptureMode::Light` still means lower core retention defaults than investigation mode.
+- `CaptureMode::Light` does **not** mean sparse evidence before limits are hit.
+- Unsaturated `core_light` and unsaturated `core_investigation` still capture the same evidence kinds; only retention ceilings differ.
+
+The stronger low-overhead story in this change set comes from the cheaper **post-limit** path:
+
+- After a section saturates, capture keeps exact dropped counters and `limits_hit=true`.
+- The collector no longer performs the same pre-saturation append path for events that must be dropped.
+- This lowers saturated-path runtime overhead without redefining mode semantics or adding a second evidence-density policy.
+
+What still happens after saturation:
+
+- request flow and completion semantics stay the same;
+- per-category dropped counters continue increasing;
+- artifacts and analyzer warnings keep calling out that dropped evidence can reduce diagnosis completeness/confidence.
+
+What no longer happens after saturation:
+
+- dropped events do not continue through the normal append/retention path once the section is known saturated.
+
+Residual overhead that remains after saturation:
+
+- branch/check cost on each attempted capture call;
+- atomic/drop-counter accounting and `limits_hit` state updates;
+- synchronization and surrounding request instrumentation overhead that is independent of storage append.
+
 ## Canonical command
 
 ```bash
@@ -91,6 +121,12 @@ Written to `demos/runtime_cost/artifacts/`:
 - Use `Tokio mode overhead` to evaluate full mode cost when runtime sampling is enabled.
 - Use `Incremental runtime sampler overhead` to isolate sampler-on deltas against their same-mode core-only baselines.
 - Use `Post-limit / drop-path overhead` only for saturated-limit behavior; these modes are intentionally non-comparable to unsaturated steady-state runs except as drop-path evidence.
+
+## Decision note for issue #252
+
+Based on this benchmark model, issue #252 is resolved by post-limit optimization alone for the scoped goal: stronger low-overhead behavior after saturation without changing capture-mode meaning.
+
+A future explicit evidence-density policy is optional product exploration, not required to resolve #252.
 
 ## Reading noisy-machine results
 

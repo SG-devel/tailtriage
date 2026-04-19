@@ -191,6 +191,13 @@ What mode does **not** do:
 - does **not** change lifecycle semantics
 - does **not** change `strict_lifecycle`; your explicit `strict_lifecycle(...)` setting is preserved
 
+Saturation behavior note:
+
+- Light remains “lower retention defaults,” not “lower evidence density before saturation.”
+- The low-overhead improvement for saturated runs comes from a cheaper post-limit drop path, not from collecting fewer evidence types up front.
+- After saturation, tailtriage still records exact drop counters and `limits_hit`, and analyzer warnings still state that dropped evidence can reduce completeness/confidence.
+- After saturation, dropped events no longer pay the full append/retention path cost; residual cost is mainly branch checks plus truncation/drop accounting.
+
 Artifacts record both selected mode and effective resolved config:
 
 - selected mode: `metadata.mode`
