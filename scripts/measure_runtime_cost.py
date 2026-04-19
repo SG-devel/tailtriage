@@ -13,11 +13,13 @@ from pathlib import Path
 
 MODES = (
     "baseline",
+    "baked_in_no_request_context",
     "core_light",
     "core_investigation",
     "core_light_tokio_sampler",
     "core_investigation_tokio_sampler",
     "core_light_drop_path",
+    "core_investigation_drop_path",
 )
 METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms")
 DEFAULT_REQUESTS = 6000
@@ -160,11 +162,13 @@ def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, lis
             reasons.append(f"{mode} p95 CV is elevated ({p95_cv:.3f} >= 0.080)")
 
     core_mode_pairs = (
+        ("baked_in_no_request_context", "Baked-in overhead"),
         ("core_light", "Core mode overhead"),
         ("core_investigation", "Core mode overhead"),
         ("core_light_tokio_sampler", "Tokio mode overhead"),
         ("core_investigation_tokio_sampler", "Tokio mode overhead"),
         ("core_light_drop_path", "Post-limit / drop-path overhead"),
+        ("core_investigation_drop_path", "Post-limit / drop-path overhead"),
     )
     for mode, _heading in core_mode_pairs:
         throughput_deltas = paired_delta_rows(measured_rounds, mode, "throughput_rps")
@@ -220,6 +224,7 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "execution_profile": "release_binary",
         "absolute_metrics": {},
         "delta_vs_baseline_pct": {
+            "Baked-in overhead": {},
             "Core mode overhead": {},
             "Tokio mode overhead": {},
             "Post-limit / drop-path overhead": {},
@@ -238,6 +243,9 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
             for metric in METRIC_KEYS
         }
 
+    summary["delta_vs_baseline_pct"]["Baked-in overhead"]["baked_in_no_request_context"] = baseline_delta(
+        "baked_in_no_request_context"
+    )
     summary["delta_vs_baseline_pct"]["Core mode overhead"]["core_light"] = baseline_delta("core_light")
     summary["delta_vs_baseline_pct"]["Core mode overhead"]["core_investigation"] = baseline_delta("core_investigation")
     summary["delta_vs_baseline_pct"]["Tokio mode overhead"]["core_light_tokio_sampler"] = baseline_delta(
@@ -248,6 +256,9 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
     )
     summary["delta_vs_baseline_pct"]["Post-limit / drop-path overhead"]["core_light_drop_path"] = baseline_delta(
         "core_light_drop_path"
+    )
+    summary["delta_vs_baseline_pct"]["Post-limit / drop-path overhead"]["core_investigation_drop_path"] = baseline_delta(
+        "core_investigation_drop_path"
     )
 
     summary["incremental_runtime_sampler_overhead_pct"]["Incremental runtime sampler overhead"] = {
