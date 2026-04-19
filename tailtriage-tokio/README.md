@@ -48,11 +48,21 @@ Requires `tokio_unstable`:
 
 When `tokio_unstable` is not enabled, unstable-only fields are recorded as `None`.
 
+## `RuntimeSampler` mode inheritance and overrides
+
+`RuntimeSampler::builder(...)` resolves sampler config in this order:
+
+1. **inherited mode** from `Tailtriage` selected mode (`light` / `investigation`)
+2. optional **explicit Tokio override** via `.mode(...)`
+3. optional cadence override via `.interval(...)`
+4. optional retention override via `.max_runtime_snapshots(...)`
+
+`CaptureMode` never auto-starts runtime sampling; you must call `.start()`.
+
 ## Minimal usage
 
 ```rust,no_run
 use std::sync::Arc;
-use std::time::Duration;
 
 use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
@@ -61,10 +71,13 @@ use tailtriage_tokio::RuntimeSampler;
 let tailtriage = Arc::new(
     Tailtriage::builder("checkout-service")
         .output("tailtriage-run.json")
+        .investigation()
         .build()?,
 );
 
-let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
+let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+    // inherits Investigation mode from core when mode(...) is omitted
+    .start()?;
 
 // ... run workload ...
 

@@ -140,6 +140,12 @@ pub struct RunMetadata {
     /// This field may be `None` for older artifacts that predate effective config capture.
     #[serde(default)]
     pub effective_core_config: Option<EffectiveCoreConfig>,
+    /// Effective resolved Tokio runtime sampler configuration for this run.
+    ///
+    /// This field is set only when a Tokio sampler is configured and started.
+    /// It may be `None` for runs without Tokio sampling and for older artifacts.
+    #[serde(default)]
+    pub effective_tokio_sampler_config: Option<EffectiveTokioSamplerConfig>,
     /// Hostname if available.
     pub host: Option<String>,
     /// Process identifier if available.
@@ -150,6 +156,21 @@ pub struct RunMetadata {
     /// Incomplete request summary captured at shutdown.
     #[serde(default)]
     pub unfinished_requests: UnfinishedRequests,
+}
+
+/// Stable, resolved Tokio runtime sampler configuration used by one run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EffectiveTokioSamplerConfig {
+    /// Capture mode selected in `tailtriage-core` that Tokio can inherit from.
+    pub inherited_mode: CaptureMode,
+    /// Optional explicit Tokio-side mode override.
+    pub explicit_mode_override: Option<CaptureMode>,
+    /// Effective mode used to resolve Tokio sampler defaults.
+    pub resolved_mode: CaptureMode,
+    /// Effective runtime sampler cadence in milliseconds.
+    pub resolved_sampler_cadence_ms: u64,
+    /// Effective runtime snapshot retention used by Tokio sampler.
+    pub resolved_runtime_snapshot_retention: usize,
 }
 
 /// Summary of unfinished requests detected at shutdown.

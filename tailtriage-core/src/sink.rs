@@ -216,6 +216,7 @@ mod tests {
                 capture_limits: CaptureMode::Light.core_defaults(),
                 strict_lifecycle: false,
             }),
+            effective_tokio_sampler_config: None,
             host: None,
             pid: Some(123),
             lifecycle_warnings: Vec::new(),

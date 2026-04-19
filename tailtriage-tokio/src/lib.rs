@@ -11,7 +11,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{unix_time_ms, RuntimeSnapshot, Tailtriage};
+use tailtriage_core::{
+    unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, RuntimeSnapshot, Tailtriage,
+};
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -46,7 +48,62 @@ pub struct RuntimeSampler {
     task: JoinHandle<()>,
 }
 
+/// Tokio-owned defaults for runtime sampler behavior by capture mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokioSamplerModeDefaults {
+    /// Default periodic sampler cadence.
+    pub cadence: Duration,
+    /// Default maximum number of runtime snapshots this sampler should record.
+    pub max_runtime_snapshots: usize,
+}
+
+impl TokioSamplerModeDefaults {
+    /// Returns Tokio-owned runtime sampler defaults for one capture mode.
+    #[must_use]
+    pub const fn for_mode(mode: CaptureMode) -> Self {
+        match mode {
+            CaptureMode::Light => Self {
+                cadence: Duration::from_millis(500),
+                max_runtime_snapshots: 5_000,
+            },
+            CaptureMode::Investigation => Self {
+                cadence: Duration::from_millis(100),
+                max_runtime_snapshots: 50_000,
+            },
+        }
+    }
+}
+
+/// Builder for configuring and starting [`RuntimeSampler`].
+#[derive(Debug)]
+pub struct RuntimeSamplerBuilder {
+    tailtriage: Arc<Tailtriage>,
+    explicit_mode_override: Option<CaptureMode>,
+    interval_override: Option<Duration>,
+    max_runtime_snapshots_override: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResolvedRuntimeSamplerConfig {
+    inherited_mode: CaptureMode,
+    explicit_mode_override: Option<CaptureMode>,
+    resolved_mode: CaptureMode,
+    resolved_interval: Duration,
+    resolved_max_runtime_snapshots: usize,
+}
+
 impl RuntimeSampler {
+    /// Creates a builder for configuring runtime sampling.
+    #[must_use]
+    pub fn builder(tailtriage: Arc<Tailtriage>) -> RuntimeSamplerBuilder {
+        RuntimeSamplerBuilder {
+            tailtriage,
+            explicit_mode_override: None,
+            interval_override: None,
+            max_runtime_snapshots_override: None,
+        }
+    }
+
     /// Starts periodic runtime metrics sampling on the current Tokio runtime.
     ///
     /// Use this during incident triage when runtime pressure evidence is needed
@@ -60,29 +117,7 @@ impl RuntimeSampler {
         tailtriage: Arc<Tailtriage>,
         interval: Duration,
     ) -> Result<Self, SamplerStartError> {
-        if interval.is_zero() {
-            return Err(SamplerStartError::ZeroInterval);
-        }
-
-        let handle = Handle::current();
-        let (stop_tx, mut stop_rx) = oneshot::channel();
-        let mut ticker = tokio::time::interval(interval);
-
-        let task = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = &mut stop_rx => break,
-                    _ = ticker.tick() => {
-                        tailtriage.record_runtime_snapshot(capture_runtime_snapshot(&handle));
-                    }
-                }
-            }
-        });
-
-        Ok(Self {
-            stop_tx: Some(stop_tx),
-            task,
-        })
+        Self::builder(tailtriage).interval(interval).start()
     }
 
     /// Requests sampler shutdown and waits for task completion.
@@ -91,6 +126,104 @@ impl RuntimeSampler {
             let _ = stop_tx.send(());
         }
         let _ = self.task.await;
+    }
+}
+
+impl RuntimeSamplerBuilder {
+    /// Overrides mode inheritance with an explicit Tokio-side capture mode.
+    #[must_use]
+    pub fn mode(mut self, mode: CaptureMode) -> Self {
+        self.explicit_mode_override = Some(mode);
+        self
+    }
+
+    /// Overrides resolved sampler cadence.
+    #[must_use]
+    pub fn interval(mut self, interval: Duration) -> Self {
+        self.interval_override = Some(interval);
+        self
+    }
+
+    /// Overrides resolved runtime snapshot retention for Tokio sampling.
+    #[must_use]
+    pub fn max_runtime_snapshots(mut self, max_runtime_snapshots: usize) -> Self {
+        self.max_runtime_snapshots_override = Some(max_runtime_snapshots);
+        self
+    }
+
+    /// Resolves configuration and starts periodic runtime metrics sampling.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SamplerStartError::ZeroInterval`] when resolved cadence is zero.
+    pub fn start(self) -> Result<RuntimeSampler, SamplerStartError> {
+        let resolved = self.resolve_config()?;
+        self.tailtriage
+            .record_tokio_sampler_config(resolved.into_effective_metadata());
+
+        let tailtriage = Arc::clone(&self.tailtriage);
+        let handle = Handle::current();
+        let (stop_tx, mut stop_rx) = oneshot::channel();
+        let mut ticker = tokio::time::interval(resolved.resolved_interval);
+        let mut captured: usize = 0;
+        let max_runtime_snapshots = resolved.resolved_max_runtime_snapshots;
+
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut stop_rx => break,
+                    _ = ticker.tick() => {
+                        if captured >= max_runtime_snapshots {
+                            continue;
+                        }
+
+                        tailtriage.record_runtime_snapshot(capture_runtime_snapshot(&handle));
+                        captured = captured.saturating_add(1);
+                    }
+                }
+            }
+        });
+
+        Ok(RuntimeSampler {
+            stop_tx: Some(stop_tx),
+            task,
+        })
+    }
+
+    fn resolve_config(&self) -> Result<ResolvedRuntimeSamplerConfig, SamplerStartError> {
+        let inherited_mode = self.tailtriage.selected_mode();
+        let resolved_mode = self.explicit_mode_override.unwrap_or(inherited_mode);
+        let mode_defaults = TokioSamplerModeDefaults::for_mode(resolved_mode);
+        let resolved_interval = self.interval_override.unwrap_or(mode_defaults.cadence);
+        if resolved_interval.is_zero() {
+            return Err(SamplerStartError::ZeroInterval);
+        }
+
+        Ok(ResolvedRuntimeSamplerConfig {
+            inherited_mode,
+            explicit_mode_override: self.explicit_mode_override,
+            resolved_mode,
+            resolved_interval,
+            resolved_max_runtime_snapshots: self
+                .max_runtime_snapshots_override
+                .unwrap_or(mode_defaults.max_runtime_snapshots),
+        })
+    }
+}
+
+impl ResolvedRuntimeSamplerConfig {
+    fn into_effective_metadata(self) -> EffectiveTokioSamplerConfig {
+        let resolved_sampler_cadence_ms = self.resolved_interval.as_millis();
+        let resolved_sampler_cadence_ms =
+            u64::try_from(resolved_sampler_cadence_ms).unwrap_or(u64::MAX);
+
+        EffectiveTokioSamplerConfig {
+            inherited_mode: self.inherited_mode,
+            explicit_mode_override: self.explicit_mode_override,
+            resolved_mode: self.resolved_mode,
+            resolved_sampler_cadence_ms,
+            resolved_runtime_snapshot_retention: self.resolved_max_runtime_snapshots,
+        }
     }
 }
 
@@ -138,7 +271,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use tailtriage_core::Tailtriage;
+    use tailtriage_core::{CaptureMode, Tailtriage};
 
     use super::crate_name;
     use super::{RuntimeSampler, SamplerStartError};
@@ -161,7 +294,9 @@ mod tests {
                 .build()
                 .expect("build should succeed"),
         );
-        let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(5))
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(5))
+            .start()
             .expect("sampler should start");
 
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -190,6 +325,163 @@ mod tests {
         let err = RuntimeSampler::start(tailtriage, Duration::ZERO)
             .expect_err("zero interval should fail");
         assert_eq!(err, SamplerStartError::ZeroInterval);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn core_light_inherits_tokio_light_defaults() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_inherit_light.json"))
+                .light()
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .start()
+            .expect("sampler should start");
+        sampler.shutdown().await;
+
+        let snapshot = tailtriage.snapshot();
+        let config = snapshot
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("tokio config should be recorded");
+        let defaults = super::TokioSamplerModeDefaults::for_mode(CaptureMode::Light);
+        assert_eq!(config.inherited_mode, CaptureMode::Light);
+        assert_eq!(config.explicit_mode_override, None);
+        assert_eq!(config.resolved_mode, CaptureMode::Light);
+        let cadence_ms = u64::try_from(defaults.cadence.as_millis()).expect("cadence fits in u64");
+        assert_eq!(config.resolved_sampler_cadence_ms, cadence_ms);
+        assert_eq!(
+            config.resolved_runtime_snapshot_retention,
+            defaults.max_runtime_snapshots
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn core_investigation_inherits_tokio_investigation_defaults() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_inherit_investigation.json"))
+                .investigation()
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .start()
+            .expect("sampler should start");
+        sampler.shutdown().await;
+
+        let snapshot = tailtriage.snapshot();
+        let config = snapshot
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("tokio config should be recorded");
+        let defaults = super::TokioSamplerModeDefaults::for_mode(CaptureMode::Investigation);
+        assert_eq!(config.inherited_mode, CaptureMode::Investigation);
+        assert_eq!(config.explicit_mode_override, None);
+        assert_eq!(config.resolved_mode, CaptureMode::Investigation);
+        let cadence_ms = u64::try_from(defaults.cadence.as_millis()).expect("cadence fits in u64");
+        assert_eq!(config.resolved_sampler_cadence_ms, cadence_ms);
+        assert_eq!(
+            config.resolved_runtime_snapshot_retention,
+            defaults.max_runtime_snapshots
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn explicit_tokio_mode_override_beats_inherited_core_mode() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_mode_override.json"))
+                .light()
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .mode(CaptureMode::Investigation)
+            .start()
+            .expect("sampler should start");
+        sampler.shutdown().await;
+
+        let snapshot = tailtriage.snapshot();
+        let config = snapshot
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("tokio config should be recorded");
+        assert_eq!(config.inherited_mode, CaptureMode::Light);
+        assert_eq!(
+            config.explicit_mode_override,
+            Some(CaptureMode::Investigation)
+        );
+        assert_eq!(config.resolved_mode, CaptureMode::Investigation);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn explicit_cadence_override_beats_mode_default() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_interval_override.json"))
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(17))
+            .start()
+            .expect("sampler should start");
+        sampler.shutdown().await;
+
+        let snapshot = tailtriage.snapshot();
+        let config = snapshot
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("tokio config should be recorded");
+        assert_eq!(config.resolved_sampler_cadence_ms, 17);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn explicit_retention_override_beats_mode_default() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_retention_override.json"))
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(1))
+            .max_runtime_snapshots(1)
+            .start()
+            .expect("sampler should start");
+
+        tokio::time::sleep(Duration::from_millis(12)).await;
+        sampler.shutdown().await;
+
+        let snapshot = tailtriage.snapshot();
+        let config = snapshot
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("tokio config should be recorded");
+        assert_eq!(config.resolved_runtime_snapshot_retention, 1);
+        assert_eq!(snapshot.runtime_snapshots.len(), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sampler_does_not_autostart_from_capture_mode() {
+        let tailtriage = Tailtriage::builder("runtime-test")
+            .output(std::env::temp_dir().join("tailtriage_tokio_no_autostart.json"))
+            .investigation()
+            .build()
+            .expect("build should succeed");
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let snapshot = tailtriage.snapshot();
+        assert!(snapshot.runtime_snapshots.is_empty());
+        assert!(snapshot.metadata.effective_tokio_sampler_config.is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]

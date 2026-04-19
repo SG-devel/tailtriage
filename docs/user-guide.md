@@ -91,19 +91,33 @@ Older artifacts may show `metadata.effective_core_config` as `null` (unknown).
 
 Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure.
 
+`RuntimeSampler` resolves Tokio config from:
+
+1. inherited mode from `Tailtriage` selected mode
+2. optional explicit Tokio override via `.mode(...)`
+3. optional explicit cadence override via `.interval(...)`
+4. optional explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
+
+`CaptureMode` does not auto-start runtime sampling.
+
 ```rust
 use std::sync::Arc;
-use std::time::Duration;
 use tailtriage_core::Tailtriage;
+use tailtriage_core::CaptureMode;
 use tailtriage_tokio::RuntimeSampler;
 
 # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 let tailtriage = Arc::new(
     Tailtriage::builder("checkout-service")
         .output("tailtriage-run.json")
+        .light()
         .build()?,
 );
-let sampler = RuntimeSampler::start(Arc::clone(&tailtriage), Duration::from_millis(200))?;
+let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+    .mode(CaptureMode::Investigation)
+    .interval(std::time::Duration::from_millis(200))
+    .max_runtime_snapshots(25_000)
+    .start()?;
 
 // run workload
 
