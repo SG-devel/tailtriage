@@ -119,11 +119,7 @@ async fn main() -> anyhow::Result<()> {
             dropped_queues: truncation.dropped_queues,
             dropped_inflight_snapshots: truncation.dropped_inflight_snapshots,
             dropped_runtime_snapshots: truncation.dropped_runtime_snapshots,
-            limits_reached: truncation.dropped_requests > 0
-                || truncation.dropped_stages > 0
-                || truncation.dropped_queues > 0
-                || truncation.dropped_inflight_snapshots > 0
-                || truncation.dropped_runtime_snapshots > 0,
+            limits_reached: truncation.limits_hit,
         })
     } else {
         None

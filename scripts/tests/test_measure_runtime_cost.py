@@ -64,7 +64,6 @@ class RuntimeCostSummaryTests(unittest.TestCase):
 
             self.assertIn("Core mode overhead", summary["delta_vs_baseline_pct"])
             self.assertIn("Tokio mode overhead", summary["delta_vs_baseline_pct"])
-            self.assertIn("Baked-in overhead", summary["delta_vs_baseline_pct"])
             self.assertIn("Post-limit / drop-path overhead", summary["delta_vs_baseline_pct"])
             self.assertIn(
                 "Incremental runtime sampler overhead",

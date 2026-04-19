@@ -222,7 +222,6 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "delta_vs_baseline_pct": {
             "Core mode overhead": {},
             "Tokio mode overhead": {},
-            "Baked-in overhead": {},
             "Post-limit / drop-path overhead": {},
         },
         "incremental_runtime_sampler_overhead_pct": {
@@ -245,12 +244,6 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "core_light_tokio_sampler"
     )
     summary["delta_vs_baseline_pct"]["Tokio mode overhead"]["core_investigation_tokio_sampler"] = baseline_delta(
-        "core_investigation_tokio_sampler"
-    )
-    summary["delta_vs_baseline_pct"]["Baked-in overhead"]["core_plus_tokio_light"] = baseline_delta(
-        "core_light_tokio_sampler"
-    )
-    summary["delta_vs_baseline_pct"]["Baked-in overhead"]["core_plus_tokio_investigation"] = baseline_delta(
         "core_investigation_tokio_sampler"
     )
     summary["delta_vs_baseline_pct"]["Post-limit / drop-path overhead"]["core_light_drop_path"] = baseline_delta(

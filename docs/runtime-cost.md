@@ -68,10 +68,10 @@ Written to `demos/runtime_cost/artifacts/`:
   - Includes explicit deltas from baseline under these headings:
     - `Core mode overhead`
     - `Tokio mode overhead`
-    - `Baked-in overhead`
     - `Post-limit / drop-path overhead`
   - Includes explicit incremental sampler deltas under:
     - `Incremental runtime sampler overhead`
+  - The current matrix does **not** include a distinct baked-in / near-no-op mode, so no separate `Baked-in overhead` section is reported.
   - Includes machine-readable measurement quality and optional stability warning reasons.
   - Includes sample-count context (`measured_rounds`, `samples_per_mode`, and minimum rounds required for `stable`).
 
