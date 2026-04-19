@@ -99,6 +99,9 @@ tailtriage.shutdown()?;
 - unfinished requests are surfaced in run metadata warnings and unfinished-request samples.
 - `strict_lifecycle(true)` makes `shutdown()` return an error when unfinished requests remain.
 
+
+Runtime-cost attribution categories and measurement workflow are documented in [`docs/runtime-cost.md`](../docs/runtime-cost.md).
+
 ## Related docs
 
 - Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>

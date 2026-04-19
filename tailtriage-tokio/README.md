@@ -95,6 +95,9 @@ tailtriage.shutdown()?;
 # }
 ```
 
+
+For runtime-cost attribution categories (including incremental sampler cost), see [`docs/runtime-cost.md`](../docs/runtime-cost.md).
+
 ## Related docs
 
 - Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>
