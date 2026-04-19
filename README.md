@@ -152,7 +152,7 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 `RuntimeSampler` works on stable Tokio, but some runtime fields (`local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`) require `tokio_unstable`. See [`docs/user-guide.md`](docs/user-guide.md) for details.
 
-When you use `RuntimeSampler::builder(...)`, Tokio defaults are resolved from the core-selected mode by default (inherited mode), and you can provide an explicit Tokio override with `.mode(...)`. CaptureMode never auto-starts the sampler.
+When you use `RuntimeSampler::builder(...)`, Tokio defaults are resolved from the core-selected mode by default (inherited mode), and you can provide an explicit Tokio override with `.mode(...)`.
 
 ## Request lifecycle shape (public API)
 
@@ -169,10 +169,26 @@ In `tailtriage-core`, `CaptureMode` currently controls **retention defaults only
 
 - `Light` defaults to lower retention limits.
 - `Investigation` defaults to higher retention limits.
-- Mode does not change event types or lifecycle semantics.
-- Mode does not change `strict_lifecycle`; your explicit `strict_lifecycle(...)` setting is preserved.
+- Mode does **not** auto-enable Tokio runtime sampling.
+- Mode does **not** require Tokio.
+- Mode does **not** change event types.
+- Mode does **not** change lifecycle semantics.
+- Mode does **not** change `strict_lifecycle`; your explicit `strict_lifecycle(...)` setting is preserved.
 
-Artifacts record both selected mode (`metadata.mode`) and resolved core config (`metadata.effective_core_config`).
+For Tokio runtime sampling, config resolution precedence is:
+
+1. inherited mode from selected core mode
+2. optional explicit Tokio mode override via `.mode(...)`
+3. optional explicit cadence override via `.interval(...)`
+4. optional explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
+
+`RuntimeSampler` must be started explicitly; mode selection never auto-starts sampler tasks.
+
+Artifacts record both selected mode (`metadata.mode`) and resolved config:
+
+- core: `metadata.effective_core_config`
+- Tokio sampler (when started): `metadata.effective_tokio_sampler_config`
+
 Older artifacts may have `metadata.effective_core_config = null` when effective config was not captured.
 
 ## Current public status

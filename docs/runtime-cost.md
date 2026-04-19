@@ -2,13 +2,26 @@
 
 This document covers the reproducible local benchmark path for tailtriage runtime-cost triage.
 
-## Modes
+## Scenario family
+
+All measurements use the same shared request scenario (same request shape, concurrency model, and simulated work) so comparisons stay interpretable.
+
+## Modes and attribution
+
+The runtime-cost demo benchmarks these categories:
 
 - `baseline`: no `tailtriage` instrumentation.
-- `light`: request + queue + stage + inflight instrumentation.
-- `investigation`: light mode + dense runtime sampling + an additional `pre_work_marker` stage sleep (`300 µs`) that models richer investigation profile depth.
+- `core_light`: `tailtriage-core` in `CaptureMode::Light`, no Tokio sampler.
+- `core_investigation`: `tailtriage-core` in `CaptureMode::Investigation`, no Tokio sampler.
+- `core_light_tokio_sampler`: core light plus `RuntimeSampler` (Tokio-mode defaults inherited from light).
+- `core_investigation_tokio_sampler`: core investigation plus `RuntimeSampler` (Tokio-mode defaults inherited from investigation).
+- `core_light_drop_path`: core light with intentionally tiny capture limits to exercise post-limit drop behavior.
 
-`investigation` is intentionally **not** a pure collector toggle. Treat it as an investigation-profile cost measurement, not proof of isolated instrumentation overhead.
+Important attribution rules for this benchmark:
+
+- Core mode overhead is measured without sampler startup.
+- Tokio sampler overhead is measured in sampler-enabled modes, not attributed to core-only modes.
+- Investigation mode in this demo does not add synthetic stage sleeps or extra fake work.
 
 ## Canonical command
 
@@ -40,7 +53,7 @@ Equivalent environment variables are also supported:
 
 - Modes are sampled in interleaved rounds with rotating order.
 - Warmup rounds run first and are excluded from overhead summaries.
-- Overhead is computed from per-round paired deltas versus baseline (same round), then summarized.
+- Overhead is computed from per-round paired deltas.
 - Output includes dispersion (mean/median/min/max/stdev/CV), not only means.
 
 ## Output files
@@ -49,12 +62,18 @@ Written to `demos/runtime_cost/artifacts/`:
 
 - `runtime-cost-raw.jsonl`
   - Includes `round`, `phase`, and `is_warmup` metadata for each sample.
+  - Includes per-run truncation/drop counters for instrumented modes.
 - `runtime-cost-summary.json`
-  - Includes per-mode dispersion metrics.
-  - Includes paired overhead deltas vs baseline.
+  - Includes absolute metrics for each mode.
+  - Includes explicit deltas from baseline under these headings:
+    - `Core mode overhead`
+    - `Tokio mode overhead`
+    - `Post-limit / drop-path overhead`
+  - Includes explicit incremental sampler deltas under:
+    - `Incremental runtime sampler overhead`
+  - The current matrix does **not** include a distinct baked-in / near-no-op mode, so no separate `Baked-in overhead` section is reported.
   - Includes machine-readable measurement quality and optional stability warning reasons.
   - Includes sample-count context (`measured_rounds`, `samples_per_mode`, and minimum rounds required for `stable`).
-- Per-mode run JSON files for instrumented runs.
 
 ## Reading noisy-machine results
 

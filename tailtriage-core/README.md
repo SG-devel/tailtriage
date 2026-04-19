@@ -30,6 +30,8 @@ tailtriage-core = "0.1.1"
 `CaptureMode` is a real core preset for **retention defaults** only.
 
 - It changes default `CaptureLimits` values.
+- It does **not** require Tokio.
+- It does **not** auto-enable `RuntimeSampler`.
 - It does **not** change event types.
 - It does **not** change lifecycle semantics.
 - It does **not** change `strict_lifecycle` unless you set `strict_lifecycle(...)` yourself.
