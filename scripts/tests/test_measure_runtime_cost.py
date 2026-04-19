@@ -18,6 +18,33 @@ import measure_runtime_cost  # noqa: E402
 
 
 class RuntimeCostSummaryTests(unittest.TestCase):
+    def test_mode_matrix_preserves_unsaturated_saturated_and_sampler_scenarios(self) -> None:
+        self.assertEqual(
+            measure_runtime_cost.UNSATURATED_CORE_MODES,
+            ("core_light", "core_investigation"),
+        )
+        self.assertEqual(
+            measure_runtime_cost.SATURATED_DROP_PATH_MODES,
+            ("core_light_drop_path", "core_investigation_drop_path"),
+        )
+        self.assertEqual(
+            measure_runtime_cost.TOKIO_SAMPLER_MODES,
+            ("core_light_tokio_sampler", "core_investigation_tokio_sampler"),
+        )
+        self.assertEqual(
+            measure_runtime_cost.MODES,
+            (
+                "baseline",
+                "baked_in_no_request_context",
+                "core_light",
+                "core_investigation",
+                "core_light_tokio_sampler",
+                "core_investigation_tokio_sampler",
+                "core_light_drop_path",
+                "core_investigation_drop_path",
+            ),
+        )
+
     def test_summary_includes_required_overhead_headings_and_drop_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             raw_path = Path(tmp) / "runtime-cost-raw.jsonl"
@@ -65,6 +92,19 @@ class RuntimeCostSummaryTests(unittest.TestCase):
             self.assertIn("Core mode overhead", summary["delta_vs_baseline_pct"])
             self.assertIn("Tokio mode overhead", summary["delta_vs_baseline_pct"])
             self.assertIn("Post-limit / drop-path overhead", summary["delta_vs_baseline_pct"])
+            self.assertIn("baked_in_no_request_context", summary["delta_vs_baseline_pct"]["Baked-in overhead"])
+            self.assertEqual(
+                set(summary["delta_vs_baseline_pct"]["Core mode overhead"]),
+                set(measure_runtime_cost.UNSATURATED_CORE_MODES),
+            )
+            self.assertEqual(
+                set(summary["delta_vs_baseline_pct"]["Tokio mode overhead"]),
+                set(measure_runtime_cost.TOKIO_SAMPLER_MODES),
+            )
+            self.assertEqual(
+                set(summary["delta_vs_baseline_pct"]["Post-limit / drop-path overhead"]),
+                set(measure_runtime_cost.SATURATED_DROP_PATH_MODES),
+            )
             self.assertIn(
                 "Incremental runtime sampler overhead",
                 summary["incremental_runtime_sampler_overhead_pct"],
