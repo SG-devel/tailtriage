@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -23,6 +23,68 @@ pub struct Tailtriage {
     pub(crate) effective_core_config: crate::EffectiveCoreConfig,
     pub(crate) limits: crate::CaptureLimits,
     pub(crate) strict_lifecycle: bool,
+    truncation_state: TruncationState,
+}
+
+#[derive(Debug, Default)]
+struct SectionSaturationState {
+    saturated: AtomicBool,
+    dropped_after_saturation: AtomicU64,
+}
+
+impl SectionSaturationState {
+    fn is_saturated(&self) -> bool {
+        self.saturated.load(Ordering::Relaxed)
+    }
+
+    fn mark_saturated(&self) {
+        self.saturated.store(true, Ordering::Relaxed);
+    }
+
+    fn increment_drop(&self) {
+        self.dropped_after_saturation
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn dropped_after_saturation(&self) -> u64 {
+        self.dropped_after_saturation.load(Ordering::Relaxed)
+    }
+}
+
+#[derive(Debug, Default)]
+struct TruncationState {
+    limits_hit: AtomicBool,
+    requests: SectionSaturationState,
+    stages: SectionSaturationState,
+    queues: SectionSaturationState,
+    inflight: SectionSaturationState,
+    runtime_snapshots: SectionSaturationState,
+}
+
+impl TruncationState {
+    fn mark_limits_hit(&self) {
+        self.limits_hit.store(true, Ordering::Relaxed);
+    }
+
+    fn merge_into(&self, truncation: &mut crate::TruncationSummary) {
+        truncation.dropped_requests = truncation
+            .dropped_requests
+            .saturating_add(self.requests.dropped_after_saturation());
+        truncation.dropped_stages = truncation
+            .dropped_stages
+            .saturating_add(self.stages.dropped_after_saturation());
+        truncation.dropped_queues = truncation
+            .dropped_queues
+            .saturating_add(self.queues.dropped_after_saturation());
+        truncation.dropped_inflight_snapshots = truncation
+            .dropped_inflight_snapshots
+            .saturating_add(self.inflight.dropped_after_saturation());
+        truncation.dropped_runtime_snapshots = truncation
+            .dropped_runtime_snapshots
+            .saturating_add(self.runtime_snapshots.dropped_after_saturation());
+        truncation.limits_hit |=
+            self.limits_hit.load(Ordering::Relaxed) || truncation.is_truncated();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +199,7 @@ impl Tailtriage {
             effective_core_config: config.effective_core,
             limits: config.effective_core.capture_limits,
             strict_lifecycle: config.strict_lifecycle,
+            truncation_state: TruncationState::default(),
         })
     }
 
@@ -211,7 +274,9 @@ impl Tailtriage {
     /// Returns a clone of the current in-memory run state.
     #[must_use]
     pub fn snapshot(&self) -> Run {
-        lock_run(&self.run).clone()
+        let mut run = lock_run(&self.run).clone();
+        self.truncation_state.merge_into(&mut run.truncation);
+        run
     }
 
     /// Writes the current run artifact and finishes the run lifecycle.
@@ -245,6 +310,7 @@ impl Tailtriage {
             }
         }
 
+        self.truncation_state.merge_into(&mut guard.truncation);
         self.sink.write(&guard)
     }
 
@@ -273,11 +339,19 @@ impl Tailtriage {
 
     /// Records one runtime metrics sample captured by an integration crate.
     pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+        if self.truncation_state.runtime_snapshots.is_saturated() {
+            self.truncation_state.runtime_snapshots.increment_drop();
+            self.truncation_state.mark_limits_hit();
+            return;
+        }
+
         let mut run = lock_run(&self.run);
         if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
             run.truncation.limits_hit = true;
             run.truncation.dropped_runtime_snapshots =
                 run.truncation.dropped_runtime_snapshots.saturating_add(1);
+            self.truncation_state.runtime_snapshots.mark_saturated();
+            self.truncation_state.mark_limits_hit();
         } else {
             run.runtime_snapshots.push(snapshot);
         }
@@ -294,41 +368,73 @@ impl Tailtriage {
     }
 
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
+        if self.truncation_state.stages.is_saturated() {
+            self.truncation_state.stages.increment_drop();
+            self.truncation_state.mark_limits_hit();
+            return;
+        }
+
         let mut run = lock_run(&self.run);
         if run.stages.len() >= self.limits.max_stages {
             run.truncation.limits_hit = true;
             run.truncation.dropped_stages = run.truncation.dropped_stages.saturating_add(1);
+            self.truncation_state.stages.mark_saturated();
+            self.truncation_state.mark_limits_hit();
         } else {
             run.stages.push(event);
         }
     }
 
     pub(crate) fn record_queue_event(&self, event: QueueEvent) {
+        if self.truncation_state.queues.is_saturated() {
+            self.truncation_state.queues.increment_drop();
+            self.truncation_state.mark_limits_hit();
+            return;
+        }
+
         let mut run = lock_run(&self.run);
         if run.queues.len() >= self.limits.max_queues {
             run.truncation.limits_hit = true;
             run.truncation.dropped_queues = run.truncation.dropped_queues.saturating_add(1);
+            self.truncation_state.queues.mark_saturated();
+            self.truncation_state.mark_limits_hit();
         } else {
             run.queues.push(event);
         }
     }
 
     pub(crate) fn record_inflight_snapshot(&self, snapshot: InFlightSnapshot) {
+        if self.truncation_state.inflight.is_saturated() {
+            self.truncation_state.inflight.increment_drop();
+            self.truncation_state.mark_limits_hit();
+            return;
+        }
+
         let mut run = lock_run(&self.run);
         if run.inflight.len() >= self.limits.max_inflight_snapshots {
             run.truncation.limits_hit = true;
             run.truncation.dropped_inflight_snapshots =
                 run.truncation.dropped_inflight_snapshots.saturating_add(1);
+            self.truncation_state.inflight.mark_saturated();
+            self.truncation_state.mark_limits_hit();
         } else {
             run.inflight.push(snapshot);
         }
     }
 
     fn record_request_event(&self, event: RequestEvent) {
+        if self.truncation_state.requests.is_saturated() {
+            self.truncation_state.requests.increment_drop();
+            self.truncation_state.mark_limits_hit();
+            return;
+        }
+
         let mut run = lock_run(&self.run);
         if run.requests.len() >= self.limits.max_requests {
             run.truncation.limits_hit = true;
             run.truncation.dropped_requests = run.truncation.dropped_requests.saturating_add(1);
+            self.truncation_state.requests.mark_saturated();
+            self.truncation_state.mark_limits_hit();
         } else {
             run.requests.push(event);
         }
