@@ -139,7 +139,7 @@ Artifacts record both selected mode and effective resolved config:
 
 - selected mode: `metadata.mode`
 - core effective config: `metadata.effective_core_config`
-- Tokio sampler effective config (when sampler starts): `metadata.effective_tokio_sampler_config`
+- Tokio sampler effective config (recorded only by successful sampler startup): `metadata.effective_tokio_sampler_config`
 
 Overhead terminology used in docs and scripts:
 
@@ -163,6 +163,8 @@ Use runtime snapshots when request-level signals are not enough to separate queu
 `CaptureMode` does not auto-start runtime sampling.
 Resolved runtime snapshot retention is clamped to the core collector limit for
 `max_runtime_snapshots`.
+Sampler startup requires an active Tokio runtime, and each `Tailtriage` run
+accepts only one successful `RuntimeSampler::start()` registration.
 
 ```rust
 use std::sync::Arc;

@@ -66,6 +66,8 @@ Tokio mode defaults (applied only if sampler is started):
 `CaptureMode` does not change core event types or `strict_lifecycle`.
 Resolved runtime snapshot retention is clamped to the core run's
 `max_runtime_snapshots` cap so artifact metadata matches actual retention.
+Startup requires an active Tokio runtime, and each `Tailtriage` run allows only
+one successful sampler start.
 
 ## Minimal usage
 

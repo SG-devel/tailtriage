@@ -26,7 +26,7 @@ Mode/config metadata in artifacts:
 
 - `metadata.mode` stores the selected core capture mode.
 - `metadata.effective_core_config` stores resolved core settings used for the run.
-- `metadata.effective_tokio_sampler_config` stores resolved Tokio sampler settings when `RuntimeSampler` was started.
+- `metadata.effective_tokio_sampler_config` stores resolved Tokio sampler settings recorded by successful `RuntimeSampler` startup.
 
 ## Report contents
 
