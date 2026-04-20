@@ -782,7 +782,10 @@ name = "tailtriage-controller"
 version = "0.1.1"
 dependencies = [
  "serde",
+ "serde_json",
  "tailtriage-core",
+ "tailtriage-tokio",
+ "tokio",
  "toml",
 ]
 
