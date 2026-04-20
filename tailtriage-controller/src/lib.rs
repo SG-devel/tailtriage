@@ -165,6 +165,7 @@ impl TailtriageControllerBuilder {
         let inner = Arc::new(ControllerInner {
             template: Mutex::new(template),
             lifecycle: Mutex::new(ControllerLifecycle::Disabled { next_generation: 1 }),
+            inert_request_seq: AtomicU64::new(1),
         });
 
         let controller = TailtriageController { inner };
@@ -188,6 +189,7 @@ pub struct TailtriageController {
 struct ControllerInner {
     template: Mutex<TailtriageControllerTemplate>,
     lifecycle: Mutex<ControllerLifecycle>,
+    inert_request_seq: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -216,7 +218,7 @@ impl ActiveGenerationRuntime {
             last_finalize_error: self
                 .last_finalize_error
                 .lock()
-                .expect("generation finalize error lock poisoned")
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone(),
             activation_config: self.state.activation_config.clone(),
         }
@@ -226,7 +228,7 @@ impl ActiveGenerationRuntime {
         let mut last_error = self
             .last_finalize_error
             .lock()
-            .expect("generation finalize error lock poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *last_error = None;
     }
 
@@ -234,12 +236,34 @@ impl ActiveGenerationRuntime {
         let mut last_error = self
             .last_finalize_error
             .lock()
-            .expect("generation finalize error lock poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *last_error = Some(error.to_string());
     }
 }
 
 impl TailtriageController {
+    fn validate_template(template: &TailtriageControllerTemplate) -> Result<(), BuildError> {
+        let artifact_path = generated_artifact_path(&template.sink_template, 1);
+        let run_id = format!("{}-generation-1", template.service_name);
+
+        let mut builder = Tailtriage::builder(template.service_name.clone())
+            .run_id(run_id)
+            .output(&artifact_path);
+        builder = match template.selected_mode {
+            CaptureMode::Light => builder.light(),
+            CaptureMode::Investigation => builder.investigation(),
+        };
+        builder = builder.capture_limits_override(template.capture_limits_override);
+        builder = builder.strict_lifecycle(template.strict_lifecycle);
+        let _ = builder.build()?;
+        Ok(())
+    }
+
+    fn next_inert_request_id(&self) -> String {
+        let id = self.inner.inert_request_seq.fetch_add(1, Ordering::Relaxed);
+        format!("inert-{id}")
+    }
+
     /// Creates a builder for controller-level scaffolding.
     #[must_use]
     pub fn builder(service_name: impl Into<String>) -> TailtriageControllerBuilder {
@@ -264,21 +288,18 @@ impl TailtriageController {
 
     /// Returns a status snapshot of controller lifecycle and template state.
     ///
-    /// # Panics
-    ///
-    /// Panics if controller internal mutexes are poisoned.
     #[must_use]
     pub fn status(&self) -> TailtriageControllerStatus {
         let template = self
             .inner
             .template
             .lock()
-            .expect("controller template lock poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let lifecycle = self
             .inner
             .lifecycle
             .lock()
-            .expect("controller lifecycle lock poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         TailtriageControllerStatus {
             template: template.clone(),
@@ -288,16 +309,40 @@ impl TailtriageController {
 
     /// Replaces the template used to create the next activation generation.
     ///
+    /// This compatibility helper validates `next_template` and then applies it.
+    ///
     /// # Panics
     ///
-    /// Panics if the controller template mutex is poisoned.
+    /// Panics when template validation fails. Prefer
+    /// [`TailtriageController::try_reload_template`] to handle validation errors explicitly.
     pub fn reload_template(&self, next_template: TailtriageControllerTemplate) {
+        self.try_reload_template(next_template)
+            .expect("invalid template for reload_template");
+    }
+
+    /// Replaces the template used to create the next activation generation.
+    ///
+    /// Unlike [`TailtriageController::reload_template`], this method returns
+    /// validation errors instead of panicking.
+    ///
+    /// Validation matches the build-time checks done by [`TailtriageController::enable`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReloadTemplateError`] when `service_name` is blank or when
+    /// building a run with this template would fail.
+    pub fn try_reload_template(
+        &self,
+        next_template: TailtriageControllerTemplate,
+    ) -> Result<(), ReloadTemplateError> {
+        Self::validate_template(&next_template).map_err(ReloadTemplateError::Validate)?;
         let mut template = self
             .inner
             .template
             .lock()
-            .expect("controller template lock poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *template = next_template;
+        Ok(())
     }
 
     /// Reloads controller config from the configured template file path.
@@ -310,16 +355,13 @@ impl TailtriageController {
     /// Returns [`ReloadConfigError`] when the controller has no `config_path` or when
     /// loading/parsing/validating the TOML file fails.
     ///
-    /// # Panics
-    ///
-    /// Panics if the controller template mutex is poisoned.
     pub fn reload_config(&self) -> Result<(), ReloadConfigError> {
         let (config_path, service_name) = {
             let template = self
                 .inner
                 .template
                 .lock()
-                .expect("controller template lock poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(config_path) = template.config_path.clone() else {
                 return Err(ReloadConfigError::MissingConfigPath);
             };
@@ -329,19 +371,25 @@ impl TailtriageController {
         let loaded = TailtriageController::load_config_from_path(&config_path)
             .map_err(ReloadConfigError::Load)?;
         let activation = loaded.activation_template;
+        let validated = TailtriageControllerTemplate {
+            service_name: loaded.service_name.unwrap_or(service_name),
+            config_path: Some(config_path),
+            sink_template: activation.sink_template,
+            selected_mode: activation.selected_mode,
+            capture_limits_override: activation.capture_limits_override,
+            strict_lifecycle: activation.strict_lifecycle,
+            runtime_sampler: activation.runtime_sampler,
+            run_end_policy: activation.run_end_policy,
+        };
+
+        Self::validate_template(&validated).map_err(ReloadConfigError::Validate)?;
 
         let mut template = self
             .inner
             .template
             .lock()
-            .expect("controller template lock poisoned");
-        template.service_name = loaded.service_name.unwrap_or(service_name);
-        template.sink_template = activation.sink_template;
-        template.selected_mode = activation.selected_mode;
-        template.capture_limits_override = activation.capture_limits_override;
-        template.strict_lifecycle = activation.strict_lifecycle;
-        template.runtime_sampler = activation.runtime_sampler;
-        template.run_end_policy = activation.run_end_policy;
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *template = validated;
 
         Ok(())
     }
@@ -353,22 +401,19 @@ impl TailtriageController {
     /// Returns [`EnableError::AlreadyActive`] when another generation is already active,
     /// and [`EnableError::Build`] when the run cannot be constructed.
     ///
-    /// # Panics
-    ///
-    /// Panics if controller internal mutexes are poisoned.
     pub fn enable(&self) -> Result<ActiveGenerationState, EnableError> {
         let template = self
             .inner
             .template
             .lock()
-            .expect("controller template lock poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
 
         let mut lifecycle = self
             .inner
             .lifecycle
             .lock()
-            .expect("controller lifecycle lock poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let next_generation = match *lifecycle {
             ControllerLifecycle::Disabled { next_generation } => next_generation,
@@ -450,7 +495,7 @@ impl TailtriageController {
             let mut sampler_slot = runtime
                 .runtime_sampler
                 .lock()
-                .expect("generation runtime sampler lock poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             *sampler_slot = Some(runtime_sampler);
         }
 
@@ -472,16 +517,13 @@ impl TailtriageController {
     ///
     /// Returns [`DisableError::Finalize`] when final artifact writing fails.
     ///
-    /// # Panics
-    ///
-    /// Panics if controller internal mutexes are poisoned.
     pub fn disable(&self) -> Result<DisableOutcome, DisableError> {
         let (active, next_generation, generation_id) = {
             let lifecycle = self
                 .inner
                 .lifecycle
                 .lock()
-                .expect("controller lifecycle lock poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
             let ControllerLifecycle::Active {
                 ref active,
@@ -511,11 +553,9 @@ impl TailtriageController {
             }
         };
 
-        Self::finalize_active(
-            &self.inner,
-            &active.expect("checked above"),
-            next_generation.expect("checked above"),
-        )?;
+        if let (Some(active), Some(next_generation)) = (active, next_generation) {
+            Self::finalize_active(&self.inner, &active, next_generation)?;
+        }
 
         Ok(DisableOutcome::Finalized { generation_id })
     }
@@ -528,9 +568,10 @@ impl TailtriageController {
     /// When controller capture is disabled (or an active generation is closing), this
     /// returns inert/no-op request tokens.
     ///
-    /// # Panics
+    /// Inert handles preserve explicit metadata from [`RequestOptions`] (`request_id` and
+    /// `kind`). When `request_id` is omitted, the controller assigns a local fallback ID in
+    /// `inert-{N}` form for predictable non-empty metadata.
     ///
-    /// Panics if controller lifecycle mutex is poisoned.
     pub fn begin_request_with(
         &self,
         route: impl Into<String>,
@@ -543,7 +584,9 @@ impl TailtriageController {
 
         ControllerStartedRequest {
             handle: ControllerRequestHandle::Inert(InertControllerRequestHandle::new(
-                route, options,
+                route,
+                options,
+                self.next_inert_request_id(),
             )),
             completion: ControllerRequestCompletion {
                 kind: ControllerCompletionKind::Inert,
@@ -566,9 +609,6 @@ impl TailtriageController {
     ///
     /// Prefer [`TailtriageController::begin_request_with`] for the primary non-branching API.
     ///
-    /// # Panics
-    ///
-    /// Panics if controller lifecycle mutex is poisoned.
     #[must_use]
     pub fn try_begin_request_with(
         &self,
@@ -580,7 +620,7 @@ impl TailtriageController {
                 .inner
                 .lifecycle
                 .lock()
-                .expect("controller lifecycle lock poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
             match *lifecycle {
                 ControllerLifecycle::Active { ref active, .. } => Arc::clone(active),
@@ -651,16 +691,13 @@ impl TailtriageController {
     ///
     /// Returns [`ShutdownError::Finalize`] if artifact writing fails.
     ///
-    /// # Panics
-    ///
-    /// Panics if controller lifecycle mutex is poisoned.
     pub fn shutdown(&self) -> Result<(), ShutdownError> {
         let maybe_active = {
             let lifecycle = self
                 .inner
                 .lifecycle
                 .lock()
-                .expect("controller lifecycle lock poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             match *lifecycle {
                 ControllerLifecycle::Active { ref active, .. } => Some(Arc::clone(active)),
                 ControllerLifecycle::Disabled { .. } => None,
@@ -695,7 +732,7 @@ impl TailtriageController {
             let lifecycle = inner
                 .lifecycle
                 .lock()
-                .expect("controller lifecycle lock poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             match *lifecycle {
                 ControllerLifecycle::Active {
                     active: ref current_active,
@@ -735,7 +772,7 @@ impl TailtriageController {
         let mut lifecycle = inner
             .lifecycle
             .lock()
-            .expect("controller lifecycle lock poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if matches!(
             *lifecycle,
@@ -754,7 +791,7 @@ impl TailtriageController {
         let sampler = active
             .runtime_sampler
             .lock()
-            .expect("generation runtime sampler lock poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
         if let Some(sampler) = sampler {
             let shutdown_thread = std::thread::spawn(move || {
@@ -1004,9 +1041,9 @@ pub struct InertControllerRequestHandle {
 }
 
 impl InertControllerRequestHandle {
-    fn new(route: String, options: RequestOptions) -> Self {
+    fn new(route: String, options: RequestOptions, fallback_request_id: String) -> Self {
         Self {
-            request_id: options.request_id.unwrap_or_default(),
+            request_id: options.request_id.unwrap_or(fallback_request_id),
             route,
             kind: options.kind,
         }
@@ -1425,6 +1462,8 @@ pub enum ReloadConfigError {
     MissingConfigPath,
     /// Loading/parsing TOML config failed.
     Load(ConfigLoadError),
+    /// Parsed config produced an invalid activation template.
+    Validate(BuildError),
 }
 
 impl std::fmt::Display for ReloadConfigError {
@@ -1432,6 +1471,9 @@ impl std::fmt::Display for ReloadConfigError {
         match self {
             Self::MissingConfigPath => write!(f, "controller has no config_path; cannot reload"),
             Self::Load(err) => write!(f, "failed to reload controller config: {err}"),
+            Self::Validate(err) => {
+                write!(f, "reloaded config did not produce a valid template: {err}")
+            }
         }
     }
 }
@@ -1441,6 +1483,30 @@ impl std::error::Error for ReloadConfigError {
         match self {
             Self::MissingConfigPath => None,
             Self::Load(err) => Some(err),
+            Self::Validate(err) => Some(err),
+        }
+    }
+}
+
+/// Errors emitted while replacing controller activation templates directly.
+#[derive(Debug)]
+pub enum ReloadTemplateError {
+    /// Template failed validation against run build checks.
+    Validate(BuildError),
+}
+
+impl std::fmt::Display for ReloadTemplateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Validate(err) => write!(f, "template is invalid: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ReloadTemplateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Validate(err) => Some(err),
         }
     }
 }
@@ -1561,8 +1627,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        DisableOutcome, EnableError, GenerationState, RunEndPolicy, RuntimeSamplerTemplate,
-        TailtriageController,
+        ControllerSinkTemplate, DisableOutcome, EnableError, GenerationState, ReloadConfigError,
+        ReloadTemplateError, RunEndPolicy, RuntimeSamplerTemplate, TailtriageController,
+        TailtriageControllerTemplate,
     };
     use tailtriage_core::{
         CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RuntimeSnapshot,
@@ -2144,6 +2211,62 @@ kind = "auto_seal_on_limits_hit"
     }
 
     #[test]
+    fn inert_disabled_request_id_contract_preserves_explicit_and_generates_fallback() {
+        let output = test_output("inert-disabled-request-id");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let explicit = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-disabled-explicit"),
+        );
+        assert_eq!(explicit.handle.request_id(), "req-disabled-explicit");
+
+        let implicit_a = controller.begin_request("/checkout");
+        let implicit_b = controller.begin_request("/checkout");
+        assert!(implicit_a.handle.request_id().starts_with("inert-"));
+        assert!(implicit_b.handle.request_id().starts_with("inert-"));
+        assert_ne!(
+            implicit_a.handle.request_id(),
+            implicit_b.handle.request_id()
+        );
+    }
+
+    #[test]
+    fn inert_closing_request_id_contract_preserves_explicit_and_generates_fallback() {
+        let output = test_output("inert-closing-request-id");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let admitted = controller.begin_request("/checkout");
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing { .. })
+        ));
+
+        let explicit = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-closing-explicit"),
+        );
+        assert_eq!(explicit.handle.request_id(), "req-closing-explicit");
+
+        let implicit = controller.begin_request("/checkout");
+        assert!(implicit.handle.request_id().starts_with("inert-"));
+
+        admitted.completion.finish_ok();
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { .. }
+        ));
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
     fn rapid_enable_disable_boundaries_keep_generation_isolation() {
         let output = test_output("rapid-boundaries");
         let controller = TailtriageController::builder("checkout-service")
@@ -2439,6 +2562,106 @@ kind = "auto_seal_on_limits_hit"
         );
 
         fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn try_reload_template_validates_before_enable() {
+        let output = test_output("try-reload-template-validate");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let invalid = TailtriageControllerTemplate {
+            service_name: String::new(),
+            config_path: None,
+            sink_template: ControllerSinkTemplate::LocalJson {
+                output_path: output,
+            },
+            selected_mode: CaptureMode::Light,
+            capture_limits_override: CaptureLimitsOverride::default(),
+            strict_lifecycle: false,
+            runtime_sampler: RuntimeSamplerTemplate::default(),
+            run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
+        };
+
+        assert!(matches!(
+            controller.try_reload_template(invalid),
+            Err(ReloadTemplateError::Validate(_))
+        ));
+    }
+
+    #[test]
+    fn reload_config_validates_template_before_enable() {
+        let output = test_output("reload-config-validate");
+        let config = test_config_path("reload-config-validate");
+        write_config(&config, &output, "light", false, false);
+
+        let controller = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+
+        fs::write(
+            &config,
+            r#"[controller]
+service_name = ""
+
+[controller.activation]
+mode = "light"
+strict_lifecycle = false
+
+[controller.activation.capture_limits_override]
+max_requests = 17
+max_stages = 18
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.runtime_sampler]
+enabled_for_armed_runs = false
+
+[controller.activation.run_end_policy]
+kind = "continue_after_limits_hit"
+"#,
+        )
+        .expect("invalid config write should succeed");
+
+        assert!(matches!(
+            controller.reload_config(),
+            Err(ReloadConfigError::Validate(_))
+        ));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn controller_recovers_after_poisoned_lifecycle_lock() {
+        let output = test_output("poisoned-lock-recovery");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let _ = std::panic::catch_unwind({
+            let controller = controller.clone();
+            move || {
+                let _guard = controller
+                    .inner
+                    .lifecycle
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                panic!("intentional poison");
+            }
+        });
+
+        let status = controller.status();
+        assert_eq!(status.template.service_name, "checkout-service");
+        assert!(matches!(
+            status.generation,
+            GenerationState::Disabled { .. }
+        ));
     }
 
     #[test]
