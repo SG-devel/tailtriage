@@ -146,10 +146,8 @@ interval_ms = 200                # optional
 max_runtime_snapshots = 100000   # optional
 
 [controller.activation.run_end_policy]
-# "manual" | "max_requests" | "max_duration_ms" | "first_limit_hit"
-kind = "manual"
-# max_requests = 50000      # for kind = "max_requests"
-# max_duration_ms = 30000   # for kind = "max_duration_ms"
+# "continue_after_limits_hit" | "auto_seal_on_limits_hit"
+kind = "continue_after_limits_hit"
 ```
 
 Reload in v1 is explicit and manual:
@@ -163,13 +161,13 @@ Reload in v1 is explicit and manual:
 
 `[controller.activation.run_end_policy]` controls what happens when capture limits are hit:
 
-- `kind = "manual"`: keep the generation active; additional data can be dropped after saturation
+- `kind = "continue_after_limits_hit"`: keep the generation active; additional data can be dropped after saturation
   until manual disarm/shutdown.
-- `kind = "max_requests"` / `kind = "max_duration_ms"` / `kind = "first_limit_hit"`: on the first
-  transition to `limits_hit` in any capture path (request events, runtime snapshots, stage events,
-  queue events, or in-flight snapshots), controller immediately stops new admissions and moves the
-  current generation into sealing/finalization. If admitted requests are still in flight, the
-  generation remains closing and finalizes as soon as those admitted requests drain.
+- `kind = "auto_seal_on_limits_hit"`: on the first transition to `limits_hit` in any capture path
+  (request events, runtime snapshots, stage events, queue events, or in-flight snapshots),
+  controller immediately stops new admissions and moves the current generation into
+  sealing/finalization. If admitted requests are still in flight, the generation remains closing
+  and finalizes as soon as those admitted requests drain.
 
 ## What this feature does not do
 
