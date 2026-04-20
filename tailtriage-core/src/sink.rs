@@ -221,6 +221,7 @@ mod tests {
             pid: Some(123),
             lifecycle_warnings: Vec::new(),
             unfinished_requests: UnfinishedRequests::default(),
+            run_end_reason: None,
         })
     }
 

@@ -9,8 +9,8 @@ use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
     unix_time_ms, BuildError, InFlightSnapshot, Outcome, QueueEvent, QueueTimer, RequestEvent,
-    RequestOptions, Run, RunMetadata, RuntimeSnapshot, SinkError, StageEvent, StageTimer,
-    UnfinishedRequestSample,
+    RequestOptions, Run, RunEndReason, RunMetadata, RuntimeSnapshot, SinkError, StageEvent,
+    StageTimer, UnfinishedRequestSample,
 };
 
 /// Per-run collector that records request events and writes the final artifact.
@@ -188,6 +188,7 @@ impl Tailtriage {
             pid: Some(std::process::id()),
             lifecycle_warnings: Vec::new(),
             unfinished_requests: crate::UnfinishedRequests::default(),
+            run_end_reason: None,
         });
 
         Ok(Self {
@@ -312,6 +313,14 @@ impl Tailtriage {
 
         self.truncation_state.merge_into(&mut guard.truncation);
         self.sink.write(&guard)
+    }
+
+    /// Sets the run-end reason if not already set.
+    pub fn set_run_end_reason_if_absent(&self, reason: RunEndReason) {
+        let mut run = lock_run(&self.run);
+        if run.metadata.run_end_reason.is_none() {
+            run.metadata.run_end_reason = Some(reason);
+        }
     }
 
     /// Creates an in-flight guard for `gauge`.
