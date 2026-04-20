@@ -18,7 +18,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tailtriage_core::{
     BuildError, CaptureLimitsOverride, CaptureMode, InflightGuard, Outcome, OwnedRequestCompletion,
-    OwnedRequestHandle, QueueTimer, RequestOptions, StageTimer, Tailtriage,
+    OwnedRequestHandle, QueueTimer, RequestOptions, RunEndReason, StageTimer, Tailtriage,
 };
 use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
@@ -49,7 +49,7 @@ impl TailtriageControllerBuilder {
             capture_limits_override: CaptureLimitsOverride::default(),
             strict_lifecycle: false,
             runtime_sampler: RuntimeSamplerTemplate::default(),
-            run_end_policy: RunEndPolicy::Manual,
+            run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
         }
     }
 
@@ -455,6 +455,9 @@ impl TailtriageController {
                 return Ok(DisableOutcome::AlreadyDisabled);
             };
 
+            active
+                .run
+                .set_run_end_reason_if_absent(RunEndReason::ManualDisarm);
             active.accepting_new.store(false, Ordering::Relaxed);
             active.closing.store(true, Ordering::Relaxed);
 
@@ -552,6 +555,20 @@ impl TailtriageController {
             return None;
         }
 
+        if active.state.activation_config.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit
+            && active.run.snapshot().truncation.limits_hit
+        {
+            active
+                .run
+                .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
+            active.accepting_new.store(false, Ordering::Release);
+            active.closing.store(true, Ordering::Release);
+            if active.inflight_captured.load(Ordering::Acquire) == 0 {
+                let _ = self.force_finalize_generation(&active);
+            }
+            return None;
+        }
+
         active.inflight_captured.fetch_add(1, Ordering::AcqRel);
         if !active.accepting_new.load(Ordering::Acquire) {
             active.inflight_captured.fetch_sub(1, Ordering::AcqRel);
@@ -562,6 +579,7 @@ impl TailtriageController {
         // The completion token keeps a weak reference to this runtime so finish
         // bookkeeping cannot drift into a later generation.
         let started = active.run.begin_request_with_owned(route, options);
+        Self::apply_run_end_policy_if_limits_hit(&active);
 
         Some(ControllerStartedRequest {
             handle: ControllerRequestHandle::Active(started.handle),
@@ -571,6 +589,7 @@ impl TailtriageController {
                     admission_generation_id: active.state.generation_id,
                     admitted_generation: Arc::downgrade(&active),
                     inner: Arc::downgrade(&self.inner),
+                    run_end_policy: active.state.activation_config.run_end_policy,
                     inflight_recorded: true,
                 }),
             },
@@ -612,6 +631,9 @@ impl TailtriageController {
         };
 
         if let Some(active) = maybe_active {
+            active
+                .run
+                .set_run_end_reason_if_absent(RunEndReason::Shutdown);
             active.accepting_new.store(false, Ordering::Relaxed);
             active.closing.store(true, Ordering::Relaxed);
             self.force_finalize_generation(&active)
@@ -693,6 +715,22 @@ impl TailtriageController {
             let _ = shutdown_thread.join();
         }
     }
+
+    fn apply_run_end_policy_if_limits_hit(active: &Arc<ActiveGenerationRuntime>) {
+        if active.state.activation_config.run_end_policy != RunEndPolicy::AutoSealOnLimitsHit {
+            return;
+        }
+
+        if !active.run.snapshot().truncation.limits_hit {
+            return;
+        }
+
+        active
+            .run
+            .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
+        active.accepting_new.store(false, Ordering::Release);
+        active.closing.store(true, Ordering::Release);
+    }
 }
 
 /// Result of trying to begin one captured request in a generation.
@@ -771,6 +809,7 @@ struct ActiveControllerCompletion {
     /// advanced to a newer generation.
     admitted_generation: Weak<ActiveGenerationRuntime>,
     inner: Weak<ControllerInner>,
+    run_end_policy: RunEndPolicy,
     inflight_recorded: bool,
 }
 
@@ -790,6 +829,16 @@ impl ActiveControllerCompletion {
             active.state.generation_id, self.admission_generation_id,
             "controller completion generation binding should remain stable"
         );
+
+        if self.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit
+            && active.run.snapshot().truncation.limits_hit
+        {
+            active
+                .run
+                .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
+            active.accepting_new.store(false, Ordering::Release);
+            active.closing.store(true, Ordering::Release);
+        }
 
         let remaining = active
             .inflight_captured
@@ -1051,20 +1100,10 @@ pub struct RuntimeSamplerTemplate {
 /// Policy for bounded activation run completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunEndPolicy {
-    /// End only when the caller disarms/stops capture.
-    Manual,
-    /// End after this many completed requests.
-    MaxRequests {
-        /// Maximum completed requests before ending a generation.
-        max_requests: u64,
-    },
-    /// End after this wall-clock duration.
-    MaxDuration {
-        /// Maximum wall-clock duration before ending a generation.
-        max_duration: Duration,
-    },
-    /// End when any capture section reaches limits.
-    FirstLimitHit,
+    /// Keep cheap-dropping after limits are hit until manual disarm or shutdown.
+    ContinueAfterLimitsHit,
+    /// Stop admissions and seal the run once limits are hit.
+    AutoSealOnLimitsHit,
 }
 
 /// Public status snapshot for reporting controller state.
@@ -1231,27 +1270,15 @@ impl ControllerSinkTemplateToml {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum RunEndPolicyConfigToml {
     #[default]
-    Manual,
-    MaxRequests {
-        max_requests: u64,
-    },
-    MaxDurationMs {
-        max_duration_ms: u64,
-    },
-    FirstLimitHit,
+    ContinueAfterLimitsHit,
+    AutoSealOnLimitsHit,
 }
 
 impl From<RunEndPolicyConfigToml> for RunEndPolicy {
     fn from(value: RunEndPolicyConfigToml) -> Self {
         match value {
-            RunEndPolicyConfigToml::Manual => Self::Manual,
-            RunEndPolicyConfigToml::MaxRequests { max_requests } => {
-                Self::MaxRequests { max_requests }
-            }
-            RunEndPolicyConfigToml::MaxDurationMs { max_duration_ms } => Self::MaxDuration {
-                max_duration: Duration::from_millis(max_duration_ms),
-            },
-            RunEndPolicyConfigToml::FirstLimitHit => Self::FirstLimitHit,
+            RunEndPolicyConfigToml::ContinueAfterLimitsHit => Self::ContinueAfterLimitsHit,
+            RunEndPolicyConfigToml::AutoSealOnLimitsHit => Self::AutoSealOnLimitsHit,
         }
     }
 }
@@ -1538,8 +1565,7 @@ interval_ms = 250
 max_runtime_snapshots = 123
 
 [controller.activation.run_end_policy]
-kind = "max_duration_ms"
-max_duration_ms = 5000
+kind = "auto_seal_on_limits_hit"
 "#,
             output.display()
         );
@@ -1691,6 +1717,113 @@ max_duration_ms = 5000
 
         started.completion.finish_ok();
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn default_policy_preserves_cheap_drop_after_saturation() {
+        let output = test_output("default-policy-cheap-drop");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(1),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        controller.begin_request("/checkout").completion.finish_ok();
+        controller.begin_request("/checkout").completion.finish_ok();
+        controller.begin_request("/checkout").completion.finish_ok();
+
+        let status = controller.status();
+        let GenerationState::Active(active_status) = status.generation else {
+            panic!("default policy should keep generation active after saturation");
+        };
+        assert!(active_status.accepting_new_admissions);
+        assert!(!active_status.closing);
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+
+        let run = read_run(&active.artifact_path);
+        assert!(run.truncation.limits_hit);
+        assert_eq!(run.truncation.dropped_requests, 2);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::ManualDisarm)
+        );
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn auto_seal_policy_ends_generation_after_limits_hit() {
+        let output = test_output("auto-seal-policy");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .run_end_policy(RunEndPolicy::AutoSealOnLimitsHit)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(1),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        controller.begin_request("/checkout").completion.finish_ok();
+        controller.begin_request("/checkout").completion.finish_ok();
+
+        let status = controller.status();
+        assert!(matches!(
+            status.generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+
+        let run = read_run(&active.artifact_path);
+        assert!(run.truncation.limits_hit);
+        assert!(run.truncation.dropped_requests > 0);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::AutoSealOnLimitsHit)
+        );
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn auto_seal_then_next_enable_creates_fresh_generation() {
+        let output = test_output("auto-seal-next-generation");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .run_end_policy(RunEndPolicy::AutoSealOnLimitsHit)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(1),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let first = controller.enable().expect("first enable should succeed");
+        controller.begin_request("/checkout").completion.finish_ok();
+        controller.begin_request("/checkout").completion.finish_ok();
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+
+        let second = controller.enable().expect("second enable should succeed");
+        assert_eq!(second.generation_id, first.generation_id + 1);
+        controller.begin_request("/checkout").completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == second.generation_id
+        ));
+
+        fs::remove_file(first.artifact_path).expect("cleanup first should succeed");
+        fs::remove_file(second.artifact_path).expect("cleanup second should succeed");
     }
 
     #[test]
@@ -1944,9 +2077,7 @@ max_duration_ms = 5000
         );
         assert_eq!(
             loaded.activation_template.run_end_policy,
-            RunEndPolicy::MaxDuration {
-                max_duration: Duration::from_secs(5)
-            }
+            RunEndPolicy::AutoSealOnLimitsHit
         );
 
         fs::write(&config, "[controller\n").expect("invalid TOML write should succeed");
@@ -1979,9 +2110,7 @@ max_duration_ms = 5000
         assert!(status.template.strict_lifecycle);
         assert_eq!(
             status.template.run_end_policy,
-            RunEndPolicy::MaxDuration {
-                max_duration: Duration::from_secs(5)
-            }
+            RunEndPolicy::AutoSealOnLimitsHit
         );
 
         fs::remove_file(config).expect("config cleanup should succeed");
