@@ -769,6 +769,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tailtriage-controller"
+version = "0.1.1"
+dependencies = [
+ "tailtriage-core",
+]
+
+[[package]]
 name = "tailtriage-core"
 version = "0.1.1"
 dependencies = [
