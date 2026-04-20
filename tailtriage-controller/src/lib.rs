@@ -94,7 +94,18 @@ impl TailtriageControllerBuilder {
         let inner = Arc::new(ControllerInner {
             template: Mutex::new(template),
             lifecycle: Mutex::new(ControllerLifecycle::Disabled { next_generation: 1 }),
+            inert_run: Arc::new(
+                Tailtriage::builder("tailtriage-controller-disabled")
+                    .output(std::env::temp_dir().join(format!(
+                        "tailtriage-controller-disabled-{}-{}.json",
+                        std::process::id(),
+                        tailtriage_core::unix_time_ms()
+                    )))
+                    .build()
+                    .map_err(ControllerBuildError::InertRunBuild)?,
+            ),
         });
+        inner.inert_run.set_capture_enabled(false);
 
         let controller = TailtriageController { inner };
         if self.initially_enabled {
@@ -117,6 +128,7 @@ pub struct TailtriageController {
 struct ControllerInner {
     template: Mutex<TailtriageControllerTemplate>,
     lifecycle: Mutex<ControllerLifecycle>,
+    inert_run: Arc<Tailtriage>,
 }
 
 #[derive(Debug)]
@@ -317,13 +329,57 @@ impl TailtriageController {
         Ok(DisableOutcome::Finalized { generation_id })
     }
 
-    /// Begins a captured request when an active generation is still admitting requests.
+    /// Begins one request through the controller.
+    ///
+    /// When an active generation is still admitting requests, the returned tokens are
+    /// bound to that generation.
+    ///
+    /// When controller capture is disabled (or an active generation is closing), this
+    /// returns inert/no-op request tokens.
+    ///
+    /// # Panics
+    ///
+    /// Panics if controller lifecycle mutex is poisoned.
+    pub fn begin_request_with(
+        &self,
+        route: impl Into<String>,
+        options: RequestOptions,
+    ) -> ControllerStartedRequest {
+        let route = route.into();
+        if let Some(started) = self.try_begin_request_with(route.clone(), options.clone()) {
+            return started;
+        }
+
+        let started = self
+            .inner
+            .inert_run
+            .begin_request_with_owned(route, options);
+        ControllerStartedRequest {
+            handle: started.handle,
+            completion: ControllerRequestCompletion {
+                completion: Some(started.completion),
+                admission_generation_id: None,
+                admitted_generation: Weak::new(),
+                inner: Weak::new(),
+                inflight_recorded: false,
+            },
+        }
+    }
+
+    /// Convenience helper using default request options.
+    pub fn begin_request(&self, route: impl Into<String>) -> ControllerStartedRequest {
+        self.begin_request_with(route, RequestOptions::new())
+    }
+
+    /// Tries to begin a captured request when an active generation is still admitting requests.
     ///
     /// The returned handle and completion are generation-bound at admission time.
     /// They remain attached to that admitted generation even if the controller is
     /// disabled and re-enabled before completion finishes.
     ///
     /// Returns `None` when controller is disabled or when active generation is closing.
+    ///
+    /// Prefer [`TailtriageController::begin_request_with`] for the primary non-branching API.
     ///
     /// # Panics
     ///
@@ -366,7 +422,7 @@ impl TailtriageController {
             handle: started.handle,
             completion: ControllerRequestCompletion {
                 completion: Some(started.completion),
-                admission_generation_id: active.state.generation_id,
+                admission_generation_id: Some(active.state.generation_id),
                 admitted_generation: Arc::downgrade(&active),
                 inner: Arc::downgrade(&self.inner),
                 inflight_recorded: true,
@@ -374,7 +430,9 @@ impl TailtriageController {
         })
     }
 
-    /// Convenience helper using default request options.
+    /// Compatibility helper using default request options.
+    ///
+    /// Prefer [`TailtriageController::begin_request`] for the primary non-branching API.
     #[must_use]
     pub fn try_begin_request(&self, route: impl Into<String>) -> Option<ControllerStartedRequest> {
         self.try_begin_request_with(route, RequestOptions::new())
@@ -491,7 +549,7 @@ pub struct ControllerRequestCompletion {
     /// This binding is immutable for the life of the completion token so that
     /// request finalization cannot migrate to a later generation during rapid
     /// enable/disable/re-enable transitions.
-    admission_generation_id: u64,
+    admission_generation_id: Option<u64>,
     /// Weak reference to the exact runtime generation that admitted the request.
     ///
     /// Keeping this pointer ensures inflight accounting and close/finalize checks
@@ -545,10 +603,12 @@ impl ControllerRequestCompletion {
             return;
         };
 
-        debug_assert_eq!(
-            active.state.generation_id, self.admission_generation_id,
-            "controller completion generation binding should remain stable"
-        );
+        if let Some(admission_generation_id) = self.admission_generation_id {
+            debug_assert_eq!(
+                active.state.generation_id, admission_generation_id,
+                "controller completion generation binding should remain stable"
+            );
+        }
 
         let remaining = active
             .inflight_captured
@@ -712,6 +772,8 @@ impl ControllerLifecycle {
 pub enum ControllerBuildError {
     /// Service name was empty.
     EmptyServiceName,
+    /// Building the disabled-path inert run failed.
+    InertRunBuild(BuildError),
     /// Initially-enabled controller failed to create first generation.
     InitialEnable(EnableError),
 }
@@ -720,6 +782,7 @@ impl std::fmt::Display for ControllerBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::InertRunBuild(err) => write!(f, "failed to build disabled-path inert run: {err}"),
             Self::InitialEnable(err) => write!(f, "failed to start initial generation: {err}"),
         }
     }
@@ -855,9 +918,7 @@ mod tests {
             .expect("build should succeed");
 
         let active = controller.enable().expect("enable should succeed");
-        let started = controller
-            .try_begin_request("/checkout")
-            .expect("request should be admitted while enabled");
+        let started = controller.begin_request("/checkout");
         started.completion.finish_ok();
 
         let disable = controller.disable().expect("disable should succeed");
@@ -916,9 +977,7 @@ mod tests {
             .expect("build should succeed");
 
         let active = controller.enable().expect("enable should succeed");
-        let started = controller
-            .try_begin_request("/checkout")
-            .expect("request should be admitted while enabled");
+        let started = controller.begin_request("/checkout");
 
         let disable = controller.disable().expect("disable should succeed");
         assert!(matches!(
@@ -950,13 +1009,11 @@ mod tests {
             .expect("build should succeed");
 
         let active = controller.enable().expect("enable should succeed");
-        let started = controller
-            .try_begin_request("/checkout")
-            .expect("first request should be admitted");
+        let started = controller.begin_request("/checkout");
 
         let _ = controller.disable().expect("disable should succeed");
 
-        assert!(controller.try_begin_request("/checkout").is_none());
+        controller.begin_request("/checkout").completion.finish_ok();
 
         started.completion.finish_ok();
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
@@ -996,12 +1053,10 @@ mod tests {
             .expect("build should succeed");
 
         let gen_a = controller.enable().expect("generation A should enable");
-        let started_a = controller
-            .try_begin_request_with(
-                "/checkout",
-                RequestOptions::new().request_id("req-generation-a"),
-            )
-            .expect("generation A request should be admitted");
+        let started_a = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-generation-a"),
+        );
 
         assert!(matches!(
             controller.disable(),
@@ -1014,12 +1069,10 @@ mod tests {
         started_a.completion.finish_ok();
 
         let gen_b = controller.enable().expect("generation B should enable");
-        let started_b = controller
-            .try_begin_request_with(
-                "/checkout",
-                RequestOptions::new().request_id("req-generation-b"),
-            )
-            .expect("generation B request should be admitted");
+        let started_b = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-generation-b"),
+        );
         started_b.completion.finish_ok();
         assert!(matches!(
             controller.disable(),
@@ -1039,27 +1092,23 @@ mod tests {
     }
 
     #[test]
-    fn request_started_while_disabled_never_joins_later_generation() {
+    fn disabled_begin_request_is_inert_and_never_joins_later_generation() {
         let output = test_output("disabled-admission");
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
             .build()
             .expect("build should succeed");
 
-        assert!(
-            controller
-                .try_begin_request_with(
-                    "/checkout",
-                    RequestOptions::new().request_id("req-disabled")
-                )
-                .is_none(),
-            "disabled controller should return no request token"
+        let disabled_started = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-disabled"),
         );
+        assert_eq!(disabled_started.handle.request_id(), "");
+        disabled_started.completion.finish_ok();
 
         let active = controller.enable().expect("enable should succeed");
         let started = controller
-            .try_begin_request_with("/checkout", RequestOptions::new().request_id("req-enabled"))
-            .expect("enabled request should be admitted");
+            .begin_request_with("/checkout", RequestOptions::new().request_id("req-enabled"));
         started.completion.finish_ok();
         assert!(matches!(
             controller.disable(),
@@ -1069,6 +1118,49 @@ mod tests {
         let run = read_artifact(&active.artifact_path);
         assert!(run.contains("req-enabled"));
         assert!(!run.contains("req-disabled"));
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn disabled_handle_and_completion_operations_are_noop() {
+        let output = test_output("disabled-noop");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let started = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new()
+                .request_id("req-disabled-noop")
+                .kind("http"),
+        );
+
+        assert_eq!(started.handle.request_id(), "");
+        assert_eq!(started.handle.route(), "/checkout");
+        assert_eq!(started.handle.kind(), Some("http"));
+        let request = started.handle.clone();
+        let _inflight = request.inflight("inflight-disabled");
+        let _queue = request.queue("queue-disabled");
+        let _stage = request.stage("stage-disabled");
+        started
+            .completion
+            .finish_result::<(), &str>(Err("disabled-result"))
+            .expect_err("disabled result should pass through unchanged");
+
+        let active = controller.enable().expect("enable should succeed");
+        let enabled_started = controller
+            .begin_request_with("/checkout", RequestOptions::new().request_id("req-enabled"));
+        enabled_started.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+
+        let run = read_artifact(&active.artifact_path);
+        assert!(run.contains("req-enabled"));
+        assert!(!run.contains("req-disabled-noop"));
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
@@ -1086,12 +1178,10 @@ mod tests {
             let active = controller.enable().expect("enable should succeed");
             assert_eq!(active.generation_id, generation);
 
-            let started = controller
-                .try_begin_request_with(
-                    "/checkout",
-                    RequestOptions::new().request_id(format!("req-gen-{generation}")),
-                )
-                .expect("request should be admitted");
+            let started = controller.begin_request_with(
+                "/checkout",
+                RequestOptions::new().request_id(format!("req-gen-{generation}")),
+            );
 
             assert!(matches!(
                 controller.disable(),
@@ -1130,8 +1220,7 @@ mod tests {
 
         let active = controller.enable().expect("enable should succeed");
         let started = controller
-            .try_begin_request_with("/checkout", RequestOptions::new().request_id("req-once"))
-            .expect("request should be admitted");
+            .begin_request_with("/checkout", RequestOptions::new().request_id("req-once"));
 
         assert!(matches!(
             controller.disable(),
