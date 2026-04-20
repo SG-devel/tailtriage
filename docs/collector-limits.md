@@ -4,16 +4,16 @@ This document describes the dedicated **collector-stress** path introduced for i
 
 ## Why this path exists
 
-`runtime_cost` and `collector_stress` answer different questions:
+`runtime_cost` and collector-limits stress measurement answer different questions:
 
 - `runtime_cost` is for compact, comparable **overhead attribution** across fixed modes on one shared scenario.
-- `collector_stress` is for **sustained-load operating limits** under higher concurrency and denser per-request event shapes.
+- `collector_limits` is for **sustained-load operating limits** under higher concurrency and denser per-request event shapes.
 
 This separation keeps one coherent triage-oriented measurement path per question, rather than growing a generic benchmark framework.
 
 ## What it measures
 
-The `collector_stress` binary and orchestrator focus on measured output for:
+The `collector_stress` binary and `scripts/measure_collector_limits.py` orchestrator focus on measured output for:
 
 - collector behavior at higher concurrency than the runtime-cost path
 - queue/stage/inflight-heavy request shapes
@@ -21,7 +21,7 @@ The `collector_stress` binary and orchestrator focus on measured output for:
 - sustained run behavior over configurable duration (and optional request cap)
 - retained event growth and drop/truncation counters
 - run artifact size growth
-- Linux process memory readings via `/proc/self/status` (`VmRSS`, `VmHWM`)
+- memory behavior using a preferred Linux peak-RSS path when available (`/usr/bin/time -v`) with explicit in-process fallback
 
 Supported modes in this path:
 
@@ -31,6 +31,18 @@ Supported modes in this path:
 - `core_light_tokio_sampler`
 - `core_investigation_tokio_sampler`
 
+## Default matrix (documented, manageable)
+
+The default orchestrator profile keeps one manageable matrix with named stress dimensions:
+
+1. `baseline_shape`: reference shape across all modes
+2. `high_concurrency`: higher concurrency with the same shape
+3. `heavy_event_shape`: denser queue/stage/inflight event shape
+4. `longer_run`: larger event volume through longer duration
+5. `sampler_dense`: higher runtime sampler density for sampler-enabled modes only
+
+For routine validation and CI, run `--profile smoke` (small bounded matrix) instead of the default profile.
+
 ## What it does not prove
 
 - It does **not** prove root cause.
@@ -38,7 +50,7 @@ Supported modes in this path:
 - It does **not** redesign collector internals.
 - It is **not** a portability benchmark suite for all platforms.
 
-Memory behavior is primarily supported on Linux through `/proc/self/status`. On non-Linux environments, memory fields are intentionally reported as unavailable with explicit notes.
+Memory behavior is machine-scoped. If preferred external RSS measurement is unavailable, the summary records fallback behavior and caveats explicitly.
 
 ## Structured output model
 
@@ -46,41 +58,44 @@ Each binary run emits one JSON record with these fields:
 
 - `mode`
 - `concurrency`
-- `duration_secs` and optional `max_requests`
-- `event_shape` (`queues_per_request`, `stages_per_request`, `inflight_transitions_per_request`, `work_ms`)
+- `duration_secs` and optional `request_limit`
+- `event_shape` (`queues_per_request`, `stages_per_request`, `inflight_cycles_per_request`, `work_ms`/`work_us`)
 - `sampler_settings`
 - `throughput_rps`
 - `latency` summary (`count`, `p50_ms`, `p95_ms`, `p99_ms`, `max_ms`)
-- `retained_events`
-- `truncation` (dropped counters + `limits_hit`)
+- `retained_counts`
+- `truncation_counts` (dropped counters + `limits_hit`)
 - `artifact` (`artifact_path`, `artifact_size_bytes`)
-- `memory`
+- `peak_memory`
 - `measurement_notes`
 
-The Python orchestrator writes:
+The orchestrator writes:
 
-- `demos/collector_stress/artifacts/collector-stress-raw.jsonl`
-- `demos/collector_stress/artifacts/collector-stress-summary.json`
+- raw JSONL per run, e.g. `demos/collector_stress/artifacts/collector-limits-default-raw.jsonl`
+- summary JSON, e.g. `demos/collector_stress/artifacts/collector-limits-default-summary.json`
+
+Summary sections include:
+
+- absolute metrics (throughput/latency/request completion)
+- artifact-size summaries (binary-reported and script-measured bytes)
+- memory summaries (peak/end RSS and path usage)
+- truncation/limits-hit context
+- mode + sampler + event-shape metadata
+- measurement-quality caveats and conservative interpretation notes
+- derived stress signals (including sampler-density impact)
 
 ## Commands
 
-Run a single stress case directly:
+Run matrix orchestration (default matrix):
 
 ```bash
-cargo run --release --manifest-path demos/collector_stress/Cargo.toml -- \
-  --mode core_light \
-  --duration-secs 30 \
-  --concurrency 256 \
-  --queues-per-request 6 \
-  --stages-per-request 4 \
-  --inflight-transitions-per-request 6 \
-  --work-ms 2
+python3 scripts/measure_collector_limits.py --profile default
 ```
 
-Run matrix orchestration and summary:
+Run bounded smoke validation matrix:
 
 ```bash
-python3 scripts/measure_collector_stress.py
+python3 scripts/measure_collector_limits.py --profile smoke
 ```
 
 ## Policy reminder
