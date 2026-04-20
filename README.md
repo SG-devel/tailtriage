@@ -68,28 +68,48 @@ cargo add tailtriage-axum # optional
 
 ```json
 {
-  "primary_suspect": "application_queueing",
-  "suspects": [
+  "request_count": 1200,
+  "p50_latency_us": 41200,
+  "p95_latency_us": 108900,
+  "p99_latency_us": 144300,
+  "p95_queue_share_permille": 732,
+  "p95_service_share_permille": 418,
+  "inflight_trend": {
+    "gauge": "checkout_inflight",
+    "sample_count": 320,
+    "peak_count": 74,
+    "p95_count": 69,
+    "growth_delta": 12,
+    "growth_per_sec_milli": 153
+  },
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "score": 89,
+    "confidence": "high",
+    "evidence": [
+      "Queue wait at p95 consumes 73.2% of request time.",
+      "Observed queue depth sample up to 68."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  },
+  "secondary_suspects": [
     {
-      "key": "application_queueing",
-      "score": 0.91,
-      "why": "Queue share p95 is high and dominates request time."
-    },
-    {
-      "key": "downstream_stage_latency",
-      "score": 0.34,
-      "why": "One downstream stage contributes a meaningful but smaller p95 share."
+      "kind": "downstream_stage_dominates",
+      "score": 54,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'db' has p95 latency 38700 us across 1200 samples.",
+        "Stage 'db' contributes 241 permille of cumulative request latency."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'db'.",
+        "Collect downstream service timings and retry behavior during tail windows."
+      ]
     }
-  ],
-  "evidence": [
-    "request_count=1200",
-    "queue_share_p95=0.43",
-    "stage.db_p95_ms=38.7"
-  ],
-  "next_checks": [
-    "Confirm upstream/backlog source for queue growth under load.",
-    "Run the same workload after reducing queue depth or concurrency burst.",
-    "If queue share drops, compare suspect ranking changes."
   ]
 }
 ```
