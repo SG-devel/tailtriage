@@ -28,7 +28,6 @@
 
 mod collector;
 mod config;
-mod controller;
 mod events;
 mod sink;
 mod time;
@@ -41,11 +40,6 @@ pub use collector::{
 pub use config::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveCoreConfig,
     RequestOptions, TailtriageBuilder,
-};
-pub use controller::{
-    ActiveGenerationState, ControllerBuildError, ControllerSinkTemplate, GenerationState,
-    RunEndPolicy, StartGenerationError, TailtriageController, TailtriageControllerBuilder,
-    TailtriageControllerStatus, TailtriageControllerTemplate,
 };
 pub use events::{
     EffectiveTokioSamplerConfig, InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run,

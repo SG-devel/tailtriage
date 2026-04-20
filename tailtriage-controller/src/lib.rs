@@ -1,12 +1,23 @@
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
+//! Long-lived capture control layer for repeated bounded tailtriage activations.
+//!
+//! Layering:
+//!
+//! - [`tailtriage_core`] remains the per-run collector and artifact model.
+//! - `tailtriage-controller` provides control-layer scaffolding for live arm/disarm
+//!   workflows that will create fresh bounded runs on activation.
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::{unix_time_ms, CaptureMode};
+use tailtriage_core::{unix_time_ms, CaptureMode};
 
 /// Builder for a long-lived [`TailtriageController`].
 ///
-/// Unlike [`crate::TailtriageBuilder`], this builder configures controller-level
+/// Unlike [`tailtriage_core::TailtriageBuilder`], this builder configures controller-level
 /// scaffolding for repeated bounded capture activations over process lifetime.
 #[derive(Debug, Clone)]
 pub struct TailtriageControllerBuilder {
@@ -162,7 +173,7 @@ impl TailtriageController {
     /// Marks the start of one activation generation in controller state.
     ///
     /// This scaffolding method enforces the one-active-generation invariant but
-    /// intentionally does not create or manage a [`crate::Tailtriage`] run yet.
+    /// intentionally does not create or manage a [`tailtriage_core::Tailtriage`] run yet.
     ///
     /// # Errors
     ///
@@ -411,7 +422,7 @@ mod tests {
         let status = controller.status();
         assert_eq!(status.service_name, "checkout-service");
         assert_eq!(status.config_path, None);
-        assert_eq!(status.selected_mode, crate::CaptureMode::Light);
+        assert_eq!(status.selected_mode, tailtriage_core::CaptureMode::Light);
         assert_eq!(status.run_end_policy, RunEndPolicy::Manual);
         assert_eq!(
             status.sink_template,
