@@ -23,7 +23,7 @@ DEFAULT_CONCURRENCY = "128,256"
 DEFAULT_DURATION_SECS = "30"
 DEFAULT_QUEUES_PER_REQUEST = "3,6"
 DEFAULT_STAGES_PER_REQUEST = "4"
-DEFAULT_INFLIGHT_TRANSITIONS = "6"
+DEFAULT_INFLIGHT_CYCLES = "6"
 DEFAULT_WORK_MS = "2"
 DEFAULT_REPEATS = 2
 
@@ -77,9 +77,9 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated stage events per request.",
     )
     parser.add_argument(
-        "--inflight-transitions-matrix",
-        default=os.environ.get("COLLECTOR_STRESS_INFLIGHT", DEFAULT_INFLIGHT_TRANSITIONS),
-        help="Comma-separated inflight transition counts per request.",
+        "--inflight-cycles-matrix",
+        default=os.environ.get("COLLECTOR_STRESS_INFLIGHT_CYCLES", DEFAULT_INFLIGHT_CYCLES),
+        help="Comma-separated inflight cycle counts per request.",
     )
     parser.add_argument(
         "--work-ms-matrix",
@@ -93,7 +93,7 @@ def parse_args() -> argparse.Namespace:
         help="Explicit queue slots for all matrix runs; defaults to max(concurrency/2,1) in binary.",
     )
     parser.add_argument(
-        "--max-requests",
+        "--requests",
         type=int,
         default=None,
         help="Optional hard stop for requests per run.",
@@ -142,7 +142,7 @@ def run_case(
     duration_secs: int,
     queues_per_request: int,
     stages_per_request: int,
-    inflight_transitions: int,
+    inflight_cycles: int,
     work_ms: int,
     queue_slots: int | None,
     max_requests: int | None,
@@ -159,8 +159,8 @@ def run_case(
         str(queues_per_request),
         "--stages-per-request",
         str(stages_per_request),
-        "--inflight-transitions-per-request",
-        str(inflight_transitions),
+        "--inflight-cycles-per-request",
+        str(inflight_cycles),
         "--work-ms",
         str(work_ms),
         "--output-dir",
@@ -169,7 +169,7 @@ def run_case(
     if queue_slots is not None:
         cmd.extend(["--queue-slots", str(queue_slots)])
     if max_requests is not None:
-        cmd.extend(["--max-requests", str(max_requests)])
+        cmd.extend(["--requests", str(max_requests)])
 
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     output_lines = [line for line in result.stdout.splitlines() if line.strip()]
@@ -202,9 +202,9 @@ def summarize(rows: list[dict]) -> dict:
     for row in rows:
         event_shape = row["event_shape"]
         key = (
-            f"mode={row['mode']};concurrency={row['concurrency']};duration_secs={row['duration_secs']};"
+            f"mode={row['mode']};concurrency={row['concurrency']};duration_secs={row.get('configured_duration_secs', row.get('duration_secs'))};"
             f"queues={event_shape['queues_per_request']};stages={event_shape['stages_per_request']};"
-            f"inflight={event_shape['inflight_transitions_per_request']};work_ms={event_shape['work_ms']}"
+            f"inflight={event_shape.get('inflight_cycles_per_request', event_shape.get('inflight_transitions_per_request'))};work_ms={event_shape.get('work_ms')}"
         )
         grouped.setdefault(key, []).append(row)
 
@@ -222,43 +222,43 @@ def summarize(rows: list[dict]) -> dict:
                 ]
             ),
             "retained_events": {
-                "requests": summarize_values([float(entry["retained_events"]["requests"]) for entry in case_rows]),
-                "stages": summarize_values([float(entry["retained_events"]["stages"]) for entry in case_rows]),
-                "queues": summarize_values([float(entry["retained_events"]["queues"]) for entry in case_rows]),
+                "requests": summarize_values([float(entry.get("retained_counts", entry.get("retained_events", {}))["requests"]) for entry in case_rows]),
+                "stages": summarize_values([float(entry.get("retained_counts", entry.get("retained_events", {}))["stages"]) for entry in case_rows]),
+                "queues": summarize_values([float(entry.get("retained_counts", entry.get("retained_events", {}))["queues"]) for entry in case_rows]),
                 "inflight_snapshots": summarize_values(
-                    [float(entry["retained_events"]["inflight_snapshots"]) for entry in case_rows]
+                    [float(entry.get("retained_counts", entry.get("retained_events", {}))["inflight_snapshots"]) for entry in case_rows]
                 ),
                 "runtime_snapshots": summarize_values(
-                    [float(entry["retained_events"]["runtime_snapshots"]) for entry in case_rows]
+                    [float(entry.get("retained_counts", entry.get("retained_events", {}))["runtime_snapshots"]) for entry in case_rows]
                 ),
             },
             "dropped_events": {
                 "dropped_requests": summarize_values(
-                    [float(entry["truncation"]["dropped_requests"]) for entry in case_rows]
+                    [float(entry.get("truncation_counts", entry.get("truncation", {}))["dropped_requests"]) for entry in case_rows]
                 ),
-                "dropped_stages": summarize_values([float(entry["truncation"]["dropped_stages"]) for entry in case_rows]),
-                "dropped_queues": summarize_values([float(entry["truncation"]["dropped_queues"]) for entry in case_rows]),
+                "dropped_stages": summarize_values([float(entry.get("truncation_counts", entry.get("truncation", {}))["dropped_stages"]) for entry in case_rows]),
+                "dropped_queues": summarize_values([float(entry.get("truncation_counts", entry.get("truncation", {}))["dropped_queues"]) for entry in case_rows]),
                 "dropped_inflight_snapshots": summarize_values(
-                    [float(entry["truncation"]["dropped_inflight_snapshots"]) for entry in case_rows]
+                    [float(entry.get("truncation_counts", entry.get("truncation", {}))["dropped_inflight_snapshots"]) for entry in case_rows]
                 ),
                 "dropped_runtime_snapshots": summarize_values(
-                    [float(entry["truncation"]["dropped_runtime_snapshots"]) for entry in case_rows]
+                    [float(entry.get("truncation_counts", entry.get("truncation", {}))["dropped_runtime_snapshots"]) for entry in case_rows]
                 ),
-                "limits_hit_runs": sum(1 for entry in case_rows if entry["truncation"]["limits_hit"]),
+                "limits_hit_runs": sum(1 for entry in case_rows if entry.get("truncation_counts", entry.get("truncation", {}))["limits_hit"]),
             },
             "memory": {
                 "collector_end_rss_bytes": summarize_values(
                     [
-                        float(entry["memory"]["collector_end_rss_bytes"])
+                        float(entry.get("peak_memory", entry.get("memory", {}))["collector_end_rss_bytes"])
                         for entry in case_rows
-                        if entry["memory"]["collector_end_rss_bytes"] is not None
+                        if entry.get("peak_memory", entry.get("memory", {}))["collector_end_rss_bytes"] is not None
                     ]
                 ),
                 "collector_peak_rss_bytes": summarize_values(
                     [
-                        float(entry["memory"]["collector_peak_rss_bytes"])
+                        float(entry.get("peak_memory", entry.get("memory", {}))["collector_peak_rss_bytes"])
                         for entry in case_rows
-                        if entry["memory"]["collector_peak_rss_bytes"] is not None
+                        if entry.get("peak_memory", entry.get("memory", {}))["collector_peak_rss_bytes"] is not None
                     ]
                 ),
             },
@@ -283,8 +283,8 @@ def main() -> None:
         raise SystemExit("--repeats must be > 0")
     if args.queue_slots is not None and args.queue_slots <= 0:
         raise SystemExit("--queue-slots must be > 0")
-    if args.max_requests is not None and args.max_requests <= 0:
-        raise SystemExit("--max-requests must be > 0")
+    if args.requests is not None and args.requests <= 0:
+        raise SystemExit("--requests must be > 0")
 
     root_dir = Path(__file__).resolve().parent.parent
     artifact_dir = Path(args.artifact_dir)
@@ -297,7 +297,7 @@ def main() -> None:
     durations = parse_csv_ints(args.duration_secs_matrix, "duration-secs-matrix")
     queues = parse_csv_ints(args.queues_per_request_matrix, "queues-per-request-matrix")
     stages = parse_csv_ints(args.stages_per_request_matrix, "stages-per-request-matrix")
-    inflights = parse_csv_ints(args.inflight_transitions_matrix, "inflight-transitions-matrix")
+    inflights = parse_csv_ints(args.inflight_cycles_matrix, "inflight-cycles-matrix")
     work_values = parse_csv_ints(args.work_ms_matrix, "work-ms-matrix")
 
     raw_path = artifact_dir / "collector-stress-raw.jsonl"
@@ -335,7 +335,7 @@ def main() -> None:
                                         inflight_count,
                                         work_ms,
                                         args.queue_slots,
-                                        args.max_requests,
+                                        args.requests,
                                     )
                                     row["repeat"] = repeat
                                     all_rows.append(row)
