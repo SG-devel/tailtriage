@@ -15,6 +15,7 @@ README_PATH = REPO_ROOT / "README.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sample-analysis.json"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
+CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
 PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
 
 STALE_CONTROLLER_POLICY_NAMES = (
@@ -188,11 +189,36 @@ def validate_no_stale_controller_policy_names() -> None:
         raise ValueError(f"stale controller run_end_policy docs found:\n{joined}")
 
 
+def validate_controller_example_usage_contract() -> None:
+    readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
+    misleading_tokens = (
+        "cargo add tailtriage-controller",
+        "cargo run --example controller_minimal",
+    )
+    if all(token in readme_text for token in misleading_tokens):
+        raise ValueError(
+            "controller README contains a misleading dependency-example flow: "
+            "`cargo add tailtriage-controller` + "
+            "`cargo run --example controller_minimal`."
+        )
+
+
+def validate_no_public_sampler_forge_method() -> None:
+    source = CORE_COLLECTOR_SOURCE_PATH.read_text(encoding="utf-8")
+    if "__tailtriage_internal_register_tokio_runtime_sampler" in source:
+        raise ValueError(
+            "collector source still exposes __tailtriage_internal_register_tokio_runtime_sampler; "
+            "public sampler metadata forge methods are not allowed"
+        )
+
+
 def main() -> int:
     _ = parse_args()
     validate_readme_analyzer_example()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
+    validate_controller_example_usage_contract()
+    validate_no_public_sampler_forge_method()
     print("docs contracts validated successfully")
     return 0
 
