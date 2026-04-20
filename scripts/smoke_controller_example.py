@@ -6,7 +6,7 @@ Validation steps:
 2) verify artifact exists
 3) verify artifact has expected top-level schema keys
 4) verify artifact recorded exactly one request
-5) verify packaged crate contents do not include repository examples
+5) verify public example-bearing crates package their examples
 """
 
 from __future__ import annotations
@@ -49,25 +49,38 @@ def assert_keys(payload: dict, expected: set[str], *, context: str) -> None:
         raise SystemExit(f"{context} missing top-level keys: {missing_list}")
 
 
-def assert_packaged_contract(root: Path) -> None:
+def assert_packaged_examples(root: Path, crate_dir: str) -> list[str]:
     package_listing = run_cmd(
         [
             "cargo",
             "package",
             "--allow-dirty",
             "--manifest-path",
-            str(root / "tailtriage-controller/Cargo.toml"),
+            str(root / crate_dir / "Cargo.toml"),
             "--list",
         ],
         cwd=root,
     )
     packaged_paths = [line.strip() for line in package_listing.stdout.splitlines() if line.strip()]
-    example_paths = [path for path in packaged_paths if path.startswith("examples/")]
-    if example_paths:
-        rendered = ", ".join(sorted(example_paths))
+    return sorted(path for path in packaged_paths if path.startswith("examples/"))
+
+
+def assert_example_packaging_policy(root: Path) -> None:
+    public_crates_with_examples = [
+        "tailtriage-controller",
+        "tailtriage-tokio",
+        "tailtriage-axum",
+    ]
+    missing_examples: list[str] = []
+    for crate_dir in public_crates_with_examples:
+        packaged_examples = assert_packaged_examples(root, crate_dir)
+        if not packaged_examples:
+            missing_examples.append(crate_dir)
+    if missing_examples:
+        rendered = ", ".join(missing_examples)
         raise SystemExit(
-            "tailtriage-controller packaged crate unexpectedly includes examples: "
-            f"{rendered}"
+            "example packaging contract drifted; these crates no longer package "
+            f"examples/**: {rendered}"
         )
 
 
@@ -120,11 +133,14 @@ def main() -> None:
                 f"found {len(requests)}"
             )
 
-        assert_packaged_contract(root)
+        assert_example_packaging_policy(root)
 
         print("validated: tailtriage-controller::controller_minimal")
         print(f"  artifact: {artifact_path}")
-        print("validated: packaged crate excludes repository/workspace examples")
+        print(
+            "validated: examples/** is packaged for tailtriage-controller, "
+            "tailtriage-tokio, and tailtriage-axum"
+        )
 
 
 if __name__ == "__main__":
