@@ -34,7 +34,7 @@ Treat this as the canonical collector-limits measurement path for issue #107.
 
 ### Workload shape and measured dimensions
 
-The default matrix now includes an explicit pressure progression, plus two orthogonal stress checks:
+The default matrix includes an explicit pressure progression, plus two orthogonal stress checks:
 
 1. `low_concurrency` (lower-pressure point)
 2. `baseline_shape` (mid-pressure reference)
@@ -44,6 +44,15 @@ The default matrix now includes an explicit pressure progression, plus two ortho
 6. `sampler_dense` (sampler-enabled modes only; cadence stress check)
 
 This keeps one coherent measurement path while making onset/range interpretation practical.
+
+To characterize artifact-size scaling before truncation dominates, there is also a bounded profile:
+
+- `--profile artifact_scaling`
+  - request-volume axis: `artifact_scale_volume_low` -> `artifact_scale_volume_mid` -> `artifact_scale_volume_high`
+  - event-density axis: `artifact_scale_density_low` -> `artifact_scale_density_mid` -> `artifact_scale_density_high`
+  - sampler cadence axis (sampler modes only): `artifact_scale_density_mid` -> `artifact_scale_sampler_dense`
+
+This profile intentionally uses bounded request counts and shorter duration so at least part of each progression can remain mostly unsaturated on many hosts, while still allowing later points to cross into truncation.
 
 Across supported modes:
 
@@ -79,6 +88,12 @@ From this path, we measure these dimensions directly:
    - first case where each dropped category becomes non-zero
    - first case where artifact growth crosses the configured threshold (currently +25% vs `baseline_shape`)
    - first case where memory growth crosses the configured threshold (currently +25% vs `baseline_shape`)
+6. **Derived artifact-scaling view** in `artifact_scaling`:
+   - `mode_comparisons` summarizes request-volume and event-density growth progression where scaling cases exist
+   - each point is labeled as:
+     - `mostly_unsaturated` (`limits_hit_runs == 0` and dropped means are zero), or
+     - `actively_truncated` (limits hit and/or dropped means non-zero)
+   - `growth_by_regime` separates data points by those two regimes
 
 ## Regime interpretation model (comfortable vs onset vs stressed)
 
@@ -113,6 +128,20 @@ Interpretation for this machine/run:
 - onset signals are still useful because they localize which retained categories begin dropping earliest;
 - this run supports practical onset-marker guidance, but does **not** provide a comfortable unsaturated bound for this mode on this host.
 
+## How to interpret artifact growth without over-claiming
+
+Artifact-size growth is directly interpretable when comparing points that are mostly unsaturated:
+
+- use `artifact_scaling.mode_comparisons.<mode>.<axis>.points[*].regime == "mostly_unsaturated"`
+- compare `artifact_size_bytes_mean` together with `requests_completed_mean`
+- keep conclusions scoped to the measured mode/axis/profile
+
+Artifact-size growth becomes potentially misleading once truncation is active:
+
+- if any compared point has `regime == "actively_truncated"`, raw artifact bytes can flatten or invert because dropped events cap retained output
+- in that regime, treat artifact-byte comparisons as lower-bound/retention-limited signals, not total-event-volume signals
+- rely on truncation context (`limits_hit_runs`, dropped counters) before claiming a growth trend
+
 ## What these results do **not** prove
 
 These measurements do **not** prove:
@@ -142,6 +171,12 @@ Default matrix:
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile default
+```
+
+Bounded artifact-scaling matrix:
+
+```bash
+python3 scripts/measure_collector_limits.py --profile artifact_scaling
 ```
 
 Quick smoke matrix:

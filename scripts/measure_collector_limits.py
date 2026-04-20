@@ -28,6 +28,7 @@ SAMPLER_MODES: tuple[str, ...] = (
 )
 ONSET_ARTIFACT_GROWTH_THRESHOLD_PCT = 25.0
 ONSET_MEMORY_GROWTH_THRESHOLD_PCT = 25.0
+MOSTLY_UNSATURATED_DROPS_MAX = 0.0
 
 
 @dataclass(frozen=True)
@@ -157,6 +158,88 @@ SMOKE_CASES: tuple[Case, ...] = (
     ),
 )
 
+ARTIFACT_SCALING_CASES: tuple[Case, ...] = (
+    Case(
+        case_id="artifact_scale_volume_low",
+        description="Bounded lower-volume reference for artifact growth before truncation dominates.",
+        concurrency=24,
+        duration_secs=8,
+        queues_per_request=2,
+        stages_per_request=2,
+        inflight_cycles_per_request=2,
+        work_ms=1,
+        requests=300,
+    ),
+    Case(
+        case_id="artifact_scale_volume_mid",
+        description="Bounded mid-volume point on same event shape for request-volume growth.",
+        concurrency=24,
+        duration_secs=8,
+        queues_per_request=2,
+        stages_per_request=2,
+        inflight_cycles_per_request=2,
+        work_ms=1,
+        requests=800,
+    ),
+    Case(
+        case_id="artifact_scale_volume_high",
+        description="Bounded higher-volume point to capture growth near truncation onset.",
+        concurrency=24,
+        duration_secs=8,
+        queues_per_request=2,
+        stages_per_request=2,
+        inflight_cycles_per_request=2,
+        work_ms=1,
+        requests=1400,
+    ),
+    Case(
+        case_id="artifact_scale_density_low",
+        description="Bounded low-density event shape for event-density artifact scaling.",
+        concurrency=24,
+        duration_secs=8,
+        queues_per_request=2,
+        stages_per_request=2,
+        inflight_cycles_per_request=2,
+        work_ms=1,
+        requests=800,
+    ),
+    Case(
+        case_id="artifact_scale_density_mid",
+        description="Bounded mid-density event shape for event-density artifact scaling.",
+        concurrency=24,
+        duration_secs=8,
+        queues_per_request=4,
+        stages_per_request=4,
+        inflight_cycles_per_request=5,
+        work_ms=1,
+        requests=800,
+    ),
+    Case(
+        case_id="artifact_scale_density_high",
+        description="Bounded high-density event shape to expose growth where truncation may become active.",
+        concurrency=24,
+        duration_secs=8,
+        queues_per_request=7,
+        stages_per_request=7,
+        inflight_cycles_per_request=9,
+        work_ms=1,
+        requests=800,
+    ),
+    Case(
+        case_id="artifact_scale_sampler_dense",
+        description="Bounded denser sampler cadence check for sampler-enabled modes in scaling path.",
+        concurrency=24,
+        duration_secs=8,
+        queues_per_request=2,
+        stages_per_request=2,
+        inflight_cycles_per_request=2,
+        work_ms=1,
+        requests=800,
+        sampler_interval_ms=30,
+        modes=SAMPLER_MODES,
+    ),
+)
+
 
 def parse_args() -> argparse.Namespace:
     root_dir = Path(__file__).resolve().parent.parent
@@ -168,9 +251,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        choices=("default", "smoke"),
+        choices=("default", "smoke", "artifact_scaling"),
         default="default",
-        help="default runs the full documented matrix; smoke runs a bounded quick matrix for CI/dev checks.",
+        help="default runs the full documented matrix; smoke runs a bounded quick matrix for CI/dev checks; artifact_scaling runs a bounded artifact-growth matrix.",
     )
     parser.add_argument(
         "--repeats",
@@ -354,6 +437,18 @@ def pct_delta(base: float | None, observed: float | None) -> float | None:
     if base is None or observed is None or base == 0:
         return None
     return ((observed - base) / base) * 100.0
+
+
+def is_mostly_unsaturated(summary: dict[str, Any]) -> bool:
+    trunc = summary["truncation"]
+    return (
+        trunc["limits_hit_runs"] == 0
+        and (trunc["dropped_requests"]["mean"] or 0.0) <= MOSTLY_UNSATURATED_DROPS_MAX
+        and (trunc["dropped_stages"]["mean"] or 0.0) <= MOSTLY_UNSATURATED_DROPS_MAX
+        and (trunc["dropped_queues"]["mean"] or 0.0) <= MOSTLY_UNSATURATED_DROPS_MAX
+        and (trunc["dropped_inflight_snapshots"]["mean"] or 0.0) <= MOSTLY_UNSATURATED_DROPS_MAX
+        and (trunc["dropped_runtime_snapshots"]["mean"] or 0.0) <= MOSTLY_UNSATURATED_DROPS_MAX
+    )
 
 
 def signal_for_mode(summary_by_case_mode: dict[str, Any], mode: str) -> dict[str, Any]:
@@ -684,6 +779,91 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
             "dense_sampler_cadence_ms": dense["sampler_settings"].get("cli_interval_ms_override") if dense["sampler_settings"] else None,
         }
 
+    artifact_scaling_case_groups = {
+        "request_volume": [
+            "artifact_scale_volume_low",
+            "artifact_scale_volume_mid",
+            "artifact_scale_volume_high",
+        ],
+        "event_density": [
+            "artifact_scale_density_low",
+            "artifact_scale_density_mid",
+            "artifact_scale_density_high",
+        ],
+    }
+
+    artifact_scaling_summary: dict[str, Any] = {
+        "modes_with_scaling_cases": [],
+        "mode_comparisons": {},
+        "growth_by_regime": {
+            "mostly_unsaturated": [],
+            "actively_truncated": [],
+        },
+        "regime_definition": {
+            "mostly_unsaturated": "limits_hit_runs == 0 and all dropped_* means are 0",
+            "actively_truncated": "limits_hit_runs > 0 or any dropped_* mean > 0",
+        },
+    }
+
+    for mode in selected_modes:
+        mode_summary: dict[str, Any] = {}
+        for axis, case_ids in artifact_scaling_case_groups.items():
+            available = [by_case_mode.get(f"{case_id}::{mode}") for case_id in case_ids]
+            available = [entry for entry in available if entry is not None]
+            if len(available) < 2:
+                continue
+
+            artifact_values = [
+                entry["artifact_size"]["size_bytes_measured_by_script"]["mean"]
+                for entry in available
+            ]
+            if any(value is None for value in artifact_values):
+                continue
+
+            case_points = []
+            for entry in available:
+                case_points.append(
+                    {
+                        "case_id": entry["case_id"],
+                        "artifact_size_bytes_mean": entry["artifact_size"]["size_bytes_measured_by_script"]["mean"],
+                        "requests_completed_mean": entry["absolute_metrics"]["requests_completed"]["mean"],
+                        "limits_hit_runs": entry["truncation"]["limits_hit_runs"],
+                        "dropped_means": {
+                            "dropped_requests": entry["truncation"]["dropped_requests"]["mean"],
+                            "dropped_stages": entry["truncation"]["dropped_stages"]["mean"],
+                            "dropped_queues": entry["truncation"]["dropped_queues"]["mean"],
+                            "dropped_inflight_snapshots": entry["truncation"]["dropped_inflight_snapshots"]["mean"],
+                            "dropped_runtime_snapshots": entry["truncation"]["dropped_runtime_snapshots"]["mean"],
+                        },
+                        "regime": "mostly_unsaturated" if is_mostly_unsaturated(entry) else "actively_truncated",
+                    }
+                )
+
+            first = case_points[0]
+            last = case_points[-1]
+            mode_summary[axis] = {
+                "case_ids": [point["case_id"] for point in case_points],
+                "artifact_growth_first_to_last_pct": pct_delta(
+                    first["artifact_size_bytes_mean"], last["artifact_size_bytes_mean"]
+                ),
+                "points": case_points,
+            }
+
+            for point in case_points:
+                artifact_scaling_summary["growth_by_regime"][point["regime"]].append(
+                    {
+                        "mode": mode,
+                        "axis": axis,
+                        "case_id": point["case_id"],
+                        "artifact_size_bytes_mean": point["artifact_size_bytes_mean"],
+                        "requests_completed_mean": point["requests_completed_mean"],
+                    }
+                )
+
+        if mode_summary:
+            artifact_scaling_summary["modes_with_scaling_cases"].append(mode)
+            artifact_scaling_summary["mode_comparisons"][mode] = mode_summary
+
     mode_signals = [signal_for_mode(by_case_mode, mode) for mode in selected_modes]
     onset_markers = [onset_markers_for_mode(by_case_mode, mode) for mode in selected_modes]
 
@@ -767,6 +947,7 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
                 "sections": [
                     "absolute metrics",
                     "artifact size summaries",
+                    "artifact scaling by request volume/event density and truncation regime",
                     "memory summaries",
                     "truncation context",
                     "metadata and caveats",
@@ -781,6 +962,7 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
         },
         "cases_by_mode": by_case_mode,
         "sampler_density_impact": sampler_density_impact,
+        "artifact_scaling": artifact_scaling_summary,
         "collector_stress_signals": {
             "per_mode": mode_signals,
             "collector_bottleneck_indicators": [
@@ -817,7 +999,12 @@ def main() -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     selected_modes = parse_modes(args.modes)
-    profile_cases = DEFAULT_CASES if args.profile == "default" else SMOKE_CASES
+    if args.profile == "default":
+        profile_cases = DEFAULT_CASES
+    elif args.profile == "smoke":
+        profile_cases = SMOKE_CASES
+    else:
+        profile_cases = ARTIFACT_SCALING_CASES
 
     cases = tuple(
         Case(**{**case.__dict__, "modes": tuple(mode for mode in case.modes if mode in selected_modes)})
