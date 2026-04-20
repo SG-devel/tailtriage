@@ -199,6 +199,7 @@ struct ActiveGenerationRuntime {
     closing: AtomicBool,
     inflight_captured: AtomicU64,
     finalize_started: AtomicBool,
+    last_finalize_error: Mutex<Option<String>>,
     runtime_sampler: Mutex<Option<RuntimeSampler>>,
 }
 
@@ -211,8 +212,30 @@ impl ActiveGenerationRuntime {
             accepting_new_admissions: self.accepting_new.load(Ordering::Relaxed),
             closing: self.closing.load(Ordering::Relaxed),
             inflight_captured_requests: self.inflight_captured.load(Ordering::Relaxed),
+            finalization_in_progress: self.finalize_started.load(Ordering::Relaxed),
+            last_finalize_error: self
+                .last_finalize_error
+                .lock()
+                .expect("generation finalize error lock poisoned")
+                .clone(),
             activation_config: self.state.activation_config.clone(),
         }
+    }
+
+    fn clear_finalize_error(&self) {
+        let mut last_error = self
+            .last_finalize_error
+            .lock()
+            .expect("generation finalize error lock poisoned");
+        *last_error = None;
+    }
+
+    fn record_finalize_error(&self, error: &DisableError) {
+        let mut last_error = self
+            .last_finalize_error
+            .lock()
+            .expect("generation finalize error lock poisoned");
+        *last_error = Some(error.to_string());
     }
 }
 
@@ -400,6 +423,8 @@ impl TailtriageController {
                 accepting_new_admissions: true,
                 closing: false,
                 inflight_captured_requests: 0,
+                finalization_in_progress: false,
+                last_finalize_error: None,
                 activation_config: ControllerActivationTemplate {
                     sink_template: template.sink_template.clone(),
                     selected_mode: template.selected_mode,
@@ -415,6 +440,7 @@ impl TailtriageController {
             closing: AtomicBool::new(false),
             inflight_captured: AtomicU64::new(0),
             finalize_started: AtomicBool::new(false),
+            last_finalize_error: Mutex::new(None),
             runtime_sampler: Mutex::new(runtime_sampler),
         });
 
@@ -475,7 +501,8 @@ impl TailtriageController {
             }
         };
 
-        self.finalize_active(
+        Self::finalize_active(
+            &self.inner,
             &active.expect("checked above"),
             next_generation.expect("checked above"),
         )?;
@@ -647,9 +674,15 @@ impl TailtriageController {
         &self,
         active: &Arc<ActiveGenerationRuntime>,
     ) -> Result<(), DisableError> {
+        Self::finalize_generation_shared(&self.inner, active)
+    }
+
+    fn finalize_generation_shared(
+        inner: &Arc<ControllerInner>,
+        active: &Arc<ActiveGenerationRuntime>,
+    ) -> Result<(), DisableError> {
         let next_generation = {
-            let lifecycle = self
-                .inner
+            let lifecycle = inner
                 .lifecycle
                 .lock()
                 .expect("controller lifecycle lock poisoned");
@@ -664,23 +697,32 @@ impl TailtriageController {
             }
         };
 
-        self.finalize_active(active, next_generation)
+        Self::finalize_active(inner, active, next_generation)
     }
 
     fn finalize_active(
-        &self,
+        inner: &Arc<ControllerInner>,
         active: &Arc<ActiveGenerationRuntime>,
         next_generation: u64,
     ) -> Result<(), DisableError> {
-        if active.finalize_started.swap(true, Ordering::AcqRel) {
+        if active
+            .finalize_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             return Ok(());
         }
 
+        active.clear_finalize_error();
         Self::stop_runtime_sampler(active);
-        active.run.shutdown().map_err(DisableError::Finalize)?;
+        if let Err(source) = active.run.shutdown() {
+            let error = DisableError::Finalize(source);
+            active.record_finalize_error(&error);
+            active.finalize_started.store(false, Ordering::Release);
+            return Err(error);
+        }
 
-        let mut lifecycle = self
-            .inner
+        let mut lifecycle = inner
             .lifecycle
             .lock()
             .expect("controller lifecycle lock poisoned");
@@ -854,30 +896,7 @@ impl ActiveControllerCompletion {
         let Some(inner) = self.inner.upgrade() else {
             return;
         };
-
-        if active.finalize_started.swap(true, Ordering::AcqRel) {
-            return;
-        }
-
-        TailtriageController::stop_runtime_sampler(active);
-        if active.run.shutdown().is_err() {
-            return;
-        }
-
-        let mut lifecycle = inner
-            .lifecycle
-            .lock()
-            .expect("controller lifecycle lock poisoned");
-
-        if let ControllerLifecycle::Active {
-            active: ref current_active,
-            next_generation,
-        } = *lifecycle
-        {
-            if current_active.state.generation_id == active.state.generation_id {
-                *lifecycle = ControllerLifecycle::Disabled { next_generation };
-            }
-        }
+        let _ = TailtriageController::finalize_generation_shared(&inner, active);
     }
 }
 
@@ -1142,6 +1161,14 @@ pub struct ActiveGenerationState {
     pub closing: bool,
     /// Number of admitted captured requests still in-flight.
     pub inflight_captured_requests: u64,
+    /// Whether a generation finalization attempt is currently in progress.
+    pub finalization_in_progress: bool,
+    /// Last finalization error observed for this generation, if any.
+    ///
+    /// When present, generation remains active-but-closing and callers can retry
+    /// finalization via [`TailtriageController::disable`] or
+    /// [`TailtriageController::shutdown`].
+    pub last_finalize_error: Option<String>,
     /// Effective activation settings fixed for this generation.
     pub activation_config: ControllerActivationTemplate,
 }
@@ -1500,6 +1527,7 @@ fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use super::{
@@ -1524,6 +1552,18 @@ mod tests {
     fn read_run(path: &std::path::Path) -> Run {
         let artifact = read_artifact(path);
         serde_json::from_str(&artifact).expect("artifact should parse as Run")
+    }
+
+    fn active_runtime(controller: &TailtriageController) -> Arc<super::ActiveGenerationRuntime> {
+        let lifecycle = controller
+            .inner
+            .lifecycle
+            .lock()
+            .expect("controller lifecycle lock poisoned");
+        let super::ControllerLifecycle::Active { active, .. } = &*lifecycle else {
+            panic!("expected active generation");
+        };
+        Arc::clone(active)
     }
 
     fn test_config_path(base: &str) -> std::path::PathBuf {
@@ -2048,6 +2088,160 @@ kind = "auto_seal_on_limits_hit"
         assert_eq!(run.matches("req-once").count(), 1);
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn drain_finalization_sink_failure_is_observable_and_retriable() {
+        let output = std::env::temp_dir().join(format!(
+            "tailtriage-controller-missing-dir-{}-{}",
+            std::process::id(),
+            tailtriage_core::unix_time_ms()
+        ));
+        let missing_output = output.join("artifact.json");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&missing_output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request("/checkout");
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == active.generation_id
+        ));
+
+        started.completion.finish_ok();
+
+        let status = controller.status();
+        let GenerationState::Active(active_state) = status.generation else {
+            panic!("generation should stay active after failed drain finalization");
+        };
+        assert!(active_state.closing);
+        assert!(!active_state.accepting_new_admissions);
+        assert!(!active_state.finalization_in_progress);
+        let first_error = active_state
+            .last_finalize_error
+            .expect("failed drain finalization should be recorded");
+        assert!(
+            first_error.contains("failed to finalize generation"),
+            "unexpected error message: {first_error}"
+        );
+
+        let disable_retry = controller.disable();
+        assert!(
+            matches!(disable_retry, Err(super::DisableError::Finalize(_))),
+            "disable should return finalization failure after prior failed drain finalization"
+        );
+
+        let shutdown_retry = controller.shutdown();
+        assert!(
+            matches!(
+                shutdown_retry,
+                Err(super::ShutdownError::Finalize(
+                    super::DisableError::Finalize(_)
+                ))
+            ),
+            "shutdown should return finalization failure after prior failed drain finalization"
+        );
+    }
+
+    #[test]
+    fn drain_finalization_strict_lifecycle_failure_is_observable_and_retriable() {
+        let output = test_output("strict-drain-failure");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .strict_lifecycle(true)
+            .build()
+            .expect("build should succeed");
+        let active = controller.enable().expect("enable should succeed");
+
+        let runtime = active_runtime(&controller);
+        let leaked = runtime.run.begin_request("/leaked");
+        let started = controller.begin_request("/checkout");
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == active.generation_id
+        ));
+
+        started.completion.finish_ok();
+
+        let status = controller.status();
+        let GenerationState::Active(active_state) = status.generation else {
+            panic!("strict lifecycle drain failure should keep generation active");
+        };
+        assert!(active_state.closing);
+        assert_eq!(active_state.inflight_captured_requests, 0);
+        let error = active_state
+            .last_finalize_error
+            .expect("strict lifecycle error should be reported");
+        assert!(
+            error.contains("strict lifecycle validation failed"),
+            "unexpected strict lifecycle error message: {error}"
+        );
+
+        assert!(matches!(
+            controller.disable(),
+            Err(super::DisableError::Finalize(
+                tailtriage_core::SinkError::Lifecycle {
+                    unfinished_count: 1
+                }
+            ))
+        ));
+
+        leaked.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn drain_finalization_failure_allows_recovery_after_environment_fix() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "tailtriage-controller-recovery-dir-{}-{}",
+            std::process::id(),
+            tailtriage_core::unix_time_ms()
+        ));
+        let output = output_dir.join("artifact.json");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request("/checkout");
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == active.generation_id
+        ));
+        started.completion.finish_ok();
+
+        let status_before_retry = controller.status();
+        let GenerationState::Active(active_before_retry) = status_before_retry.generation else {
+            panic!("failed drain finalization should keep generation active");
+        };
+        assert!(active_before_retry.last_finalize_error.is_some());
+
+        fs::create_dir_all(&output_dir).expect("create output directory for retry should succeed");
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+        assert!(output_dir.join("artifact-generation-1.json").exists());
+        fs::remove_file(output_dir.join("artifact-generation-1.json"))
+            .expect("cleanup artifact should succeed");
+        fs::remove_dir(output_dir).expect("cleanup output dir should succeed");
     }
 
     #[test]
