@@ -16,6 +16,31 @@ This crate provides:
 - run-end policy modeling
 - controller-owned inert request wrappers for disabled/closing periods
 
+## When to use the controller vs `Tailtriage::builder(...)`
+
+Use ordinary `tailtriage-core` builder usage when you want one process-scoped run lifecycle:
+
+- build one `Tailtriage`
+- run workload
+- call `shutdown()`
+
+Use `tailtriage-controller` when your service should stay up while you repeatedly arm/disarm
+bounded capture runs for triage windows.
+
+The controller is a control layer on top of core; it does not replace direct builder usage.
+
+## Live controller semantics
+
+- At most one active generation can exist at a time.
+- `enable()` starts a fresh generation with its own run ID/artifact path.
+- `disable()` stops new admissions for that generation.
+  - If no admitted requests remain, finalize now.
+  - If admitted requests are still in flight, generation enters closing state and finalizes after drain.
+- Requests admitted into a generation remain bound to that generation for completion.
+  - They do not migrate into later generations during disable/re-enable churn.
+- Requests started while disabled/closing are inert controller-owned wrappers and are never later
+  attached to a new generation.
+
 ## Minimal usage
 
 ```rust
@@ -37,10 +62,54 @@ let _ = controller.disable()?;
 # }
 ```
 
+### Disabled-path expectations
+
 When the controller is disabled (or an active generation is closing), `begin_request(...)`
 and `begin_request_with(...)` still return request tokens with the same non-branching
-ergonomics, but those tokens are inert/no-op wrappers owned by this crate. They do not
-interact with `tailtriage-core` state until a generation is actively admitting requests.
+ergonomics, but those tokens are inert/no-op wrappers owned by this crate.
+
+- queue/stage/inflight wrappers are no-op
+- completion methods are no-op lifecycle markers on the inert wrapper
+- inert requests do not write capture events and do not join later generations
+
+This path is intended to be cheap and predictable, but users should still validate overhead in
+their own workload/environment.
+
+## Enable/disable/reload/status snippet
+
+```rust
+use tailtriage_controller::TailtriageController;
+
+fn controller_demo() -> Result<(), Box<dyn std::error::Error>> {
+    let controller = TailtriageController::builder("checkout-service")
+        .output("tailtriage-run.json")
+        .config_path("tailtriage-controller.toml")
+        .initially_enabled(false)
+        .build()?;
+
+    // Arm one bounded generation.
+    let active = controller.enable()?;
+
+    let started = controller.begin_request("/checkout");
+    started.completion.finish_ok();
+
+    // Status reports template + generation snapshot.
+    let _status_during_run = controller.status();
+
+    // Disarm (finalizes immediately or after in-flight drain).
+    let _disable = controller.disable()?;
+
+    // Reload updates template for NEXT activation only.
+    controller.reload_config()?;
+    let _status_after_reload = controller.status();
+
+    // Next enable uses reloaded template.
+    let _next = controller.enable()?;
+
+    # let _ = active;
+    # Ok(())
+    # }
+```
 
 ## TOML config and manual reload
 
@@ -87,3 +156,20 @@ Reload in v1 is explicit and manual:
 - Reload updates only the controller template for **future** activations.
 - If a generation is already active, that generation keeps the exact activation config it started with.
 - The reloaded template is applied the next time `enable()` starts a new generation.
+
+### Run-end policy behavior on limits hit
+
+`[controller.activation.run_end_policy]` controls what happens when capture limits are hit:
+
+- `kind = "manual"`: keep the generation active; additional data can be dropped after saturation
+  until manual disarm/shutdown.
+- `kind = "max_requests"` / `kind = "max_duration_ms"` / `kind = "first_limit_hit"`: controller
+  auto-seals the generation according to the chosen threshold/condition.
+
+## What this feature does not do
+
+- Does **not** mutate an already-active generation when config is reloaded.
+- Does **not** move admitted requests between generations.
+- Does **not** auto-prove root cause; it preserves the same evidence-ranked suspect model.
+- Does **not** force runtime sampling by default; sampler startup is still explicit via
+  `enabled_for_armed_runs`.
