@@ -25,6 +25,7 @@ pub struct Tailtriage {
     pub(crate) strict_lifecycle: bool,
     truncation_state: TruncationState,
     runtime_sampler_registered: AtomicBool,
+    limits_hit_listener: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Debug, Default)]
@@ -63,8 +64,10 @@ struct TruncationState {
 }
 
 impl TruncationState {
-    fn mark_limits_hit(&self) {
-        self.limits_hit.store(true, Ordering::Relaxed);
+    fn mark_limits_hit(&self) -> bool {
+        self.limits_hit
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 
     fn merge_into(&self, truncation: &mut crate::TruncationSummary) {
@@ -210,6 +213,7 @@ impl Tailtriage {
             strict_lifecycle: config.strict_lifecycle,
             truncation_state: TruncationState::default(),
             runtime_sampler_registered: AtomicBool::new(false),
+            limits_hit_listener: Mutex::new(None),
         })
     }
 
@@ -332,6 +336,22 @@ impl Tailtriage {
         }
     }
 
+    /// Registers or clears a callback fired on the first transition to `limits_hit`.
+    ///
+    /// The callback is invoked at most once per run, exactly when truncation first
+    /// transitions from `false` to `true`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the limits-hit listener mutex is poisoned.
+    pub fn set_limits_hit_listener(&self, listener: Option<Arc<dyn Fn() + Send + Sync>>) {
+        let mut guard = self
+            .limits_hit_listener
+            .lock()
+            .expect("limits-hit listener lock poisoned");
+        *guard = listener;
+    }
+
     /// Creates an in-flight guard for `gauge`.
     #[must_use]
     pub(crate) fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
@@ -360,19 +380,25 @@ impl Tailtriage {
     pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
         if self.truncation_state.runtime_snapshots.is_saturated() {
             self.truncation_state.runtime_snapshots.increment_drop();
-            self.truncation_state.mark_limits_hit();
+            self.notify_limits_hit_transition();
             return;
         }
 
-        let mut run = lock_run(&self.run);
-        if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
-            run.truncation.limits_hit = true;
-            run.truncation.dropped_runtime_snapshots =
-                run.truncation.dropped_runtime_snapshots.saturating_add(1);
-            self.truncation_state.runtime_snapshots.mark_saturated();
-            self.truncation_state.mark_limits_hit();
-        } else {
-            run.runtime_snapshots.push(snapshot);
+        let mut notify_limits_hit = false;
+        {
+            let mut run = lock_run(&self.run);
+            if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
+                run.truncation.limits_hit = true;
+                run.truncation.dropped_runtime_snapshots =
+                    run.truncation.dropped_runtime_snapshots.saturating_add(1);
+                self.truncation_state.runtime_snapshots.mark_saturated();
+                notify_limits_hit = true;
+            } else {
+                run.runtime_snapshots.push(snapshot);
+            }
+        }
+        if notify_limits_hit {
+            self.notify_limits_hit_transition();
         }
     }
 
@@ -404,73 +430,111 @@ impl Tailtriage {
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
         if self.truncation_state.stages.is_saturated() {
             self.truncation_state.stages.increment_drop();
-            self.truncation_state.mark_limits_hit();
+            self.notify_limits_hit_transition();
             return;
         }
 
-        let mut run = lock_run(&self.run);
-        if run.stages.len() >= self.limits.max_stages {
-            run.truncation.limits_hit = true;
-            run.truncation.dropped_stages = run.truncation.dropped_stages.saturating_add(1);
-            self.truncation_state.stages.mark_saturated();
-            self.truncation_state.mark_limits_hit();
-        } else {
-            run.stages.push(event);
+        let mut notify_limits_hit = false;
+        {
+            let mut run = lock_run(&self.run);
+            if run.stages.len() >= self.limits.max_stages {
+                run.truncation.limits_hit = true;
+                run.truncation.dropped_stages = run.truncation.dropped_stages.saturating_add(1);
+                self.truncation_state.stages.mark_saturated();
+                notify_limits_hit = true;
+            } else {
+                run.stages.push(event);
+            }
+        }
+        if notify_limits_hit {
+            self.notify_limits_hit_transition();
         }
     }
 
     pub(crate) fn record_queue_event(&self, event: QueueEvent) {
         if self.truncation_state.queues.is_saturated() {
             self.truncation_state.queues.increment_drop();
-            self.truncation_state.mark_limits_hit();
+            self.notify_limits_hit_transition();
             return;
         }
 
-        let mut run = lock_run(&self.run);
-        if run.queues.len() >= self.limits.max_queues {
-            run.truncation.limits_hit = true;
-            run.truncation.dropped_queues = run.truncation.dropped_queues.saturating_add(1);
-            self.truncation_state.queues.mark_saturated();
-            self.truncation_state.mark_limits_hit();
-        } else {
-            run.queues.push(event);
+        let mut notify_limits_hit = false;
+        {
+            let mut run = lock_run(&self.run);
+            if run.queues.len() >= self.limits.max_queues {
+                run.truncation.limits_hit = true;
+                run.truncation.dropped_queues = run.truncation.dropped_queues.saturating_add(1);
+                self.truncation_state.queues.mark_saturated();
+                notify_limits_hit = true;
+            } else {
+                run.queues.push(event);
+            }
+        }
+        if notify_limits_hit {
+            self.notify_limits_hit_transition();
         }
     }
 
     pub(crate) fn record_inflight_snapshot(&self, snapshot: InFlightSnapshot) {
         if self.truncation_state.inflight.is_saturated() {
             self.truncation_state.inflight.increment_drop();
-            self.truncation_state.mark_limits_hit();
+            self.notify_limits_hit_transition();
             return;
         }
 
-        let mut run = lock_run(&self.run);
-        if run.inflight.len() >= self.limits.max_inflight_snapshots {
-            run.truncation.limits_hit = true;
-            run.truncation.dropped_inflight_snapshots =
-                run.truncation.dropped_inflight_snapshots.saturating_add(1);
-            self.truncation_state.inflight.mark_saturated();
-            self.truncation_state.mark_limits_hit();
-        } else {
-            run.inflight.push(snapshot);
+        let mut notify_limits_hit = false;
+        {
+            let mut run = lock_run(&self.run);
+            if run.inflight.len() >= self.limits.max_inflight_snapshots {
+                run.truncation.limits_hit = true;
+                run.truncation.dropped_inflight_snapshots =
+                    run.truncation.dropped_inflight_snapshots.saturating_add(1);
+                self.truncation_state.inflight.mark_saturated();
+                notify_limits_hit = true;
+            } else {
+                run.inflight.push(snapshot);
+            }
+        }
+        if notify_limits_hit {
+            self.notify_limits_hit_transition();
         }
     }
 
     fn record_request_event(&self, event: RequestEvent) {
         if self.truncation_state.requests.is_saturated() {
             self.truncation_state.requests.increment_drop();
-            self.truncation_state.mark_limits_hit();
+            self.notify_limits_hit_transition();
             return;
         }
 
-        let mut run = lock_run(&self.run);
-        if run.requests.len() >= self.limits.max_requests {
-            run.truncation.limits_hit = true;
-            run.truncation.dropped_requests = run.truncation.dropped_requests.saturating_add(1);
-            self.truncation_state.requests.mark_saturated();
-            self.truncation_state.mark_limits_hit();
-        } else {
-            run.requests.push(event);
+        let mut notify_limits_hit = false;
+        {
+            let mut run = lock_run(&self.run);
+            if run.requests.len() >= self.limits.max_requests {
+                run.truncation.limits_hit = true;
+                run.truncation.dropped_requests = run.truncation.dropped_requests.saturating_add(1);
+                self.truncation_state.requests.mark_saturated();
+                notify_limits_hit = true;
+            } else {
+                run.requests.push(event);
+            }
+        }
+        if notify_limits_hit {
+            self.notify_limits_hit_transition();
+        }
+    }
+
+    fn notify_limits_hit_transition(&self) {
+        if !self.truncation_state.mark_limits_hit() {
+            return;
+        }
+        let listener = self
+            .limits_hit_listener
+            .lock()
+            .expect("limits-hit listener lock poisoned")
+            .clone();
+        if let Some(listener) = listener {
+            listener();
         }
     }
 

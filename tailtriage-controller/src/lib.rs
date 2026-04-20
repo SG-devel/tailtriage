@@ -394,27 +394,6 @@ impl TailtriageController {
         builder = builder.strict_lifecycle(template.strict_lifecycle);
 
         let run = Arc::new(builder.build().map_err(EnableError::Build)?);
-        let runtime_sampler = if template.runtime_sampler.enabled_for_armed_runs {
-            let _ = tokio::runtime::Handle::try_current()
-                .map_err(|_| EnableError::MissingTokioRuntimeForSampler)?;
-            let mut sampler_builder = RuntimeSampler::builder(Arc::clone(&run));
-            if let Some(mode_override) = template.runtime_sampler.mode_override {
-                sampler_builder = sampler_builder.mode(mode_override);
-            }
-            if let Some(interval_ms) = template.runtime_sampler.interval_ms {
-                sampler_builder = sampler_builder.interval(Duration::from_millis(interval_ms));
-            }
-            if let Some(max_runtime_snapshots) = template.runtime_sampler.max_runtime_snapshots {
-                sampler_builder = sampler_builder.max_runtime_snapshots(max_runtime_snapshots);
-            }
-            Some(
-                sampler_builder
-                    .start()
-                    .map_err(EnableError::StartRuntimeSampler)?,
-            )
-        } else {
-            None
-        };
         let runtime = Arc::new(ActiveGenerationRuntime {
             state: ActiveGenerationState {
                 generation_id: next_generation,
@@ -435,14 +414,45 @@ impl TailtriageController {
                 },
             },
             artifact_path,
-            run,
+            run: Arc::clone(&run),
             accepting_new: AtomicBool::new(true),
             closing: AtomicBool::new(false),
             inflight_captured: AtomicU64::new(0),
             finalize_started: AtomicBool::new(false),
             last_finalize_error: Mutex::new(None),
-            runtime_sampler: Mutex::new(runtime_sampler),
+            runtime_sampler: Mutex::new(None),
         });
+        if template.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit {
+            let active = Arc::downgrade(&runtime);
+            let inner = Arc::downgrade(&self.inner);
+            let listener: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                TailtriageController::on_limits_hit_signal(&inner, &active);
+            });
+            runtime.run.set_limits_hit_listener(Some(listener));
+        }
+
+        if template.runtime_sampler.enabled_for_armed_runs {
+            let _ = tokio::runtime::Handle::try_current()
+                .map_err(|_| EnableError::MissingTokioRuntimeForSampler)?;
+            let mut sampler_builder = RuntimeSampler::builder(Arc::clone(&run));
+            if let Some(mode_override) = template.runtime_sampler.mode_override {
+                sampler_builder = sampler_builder.mode(mode_override);
+            }
+            if let Some(interval_ms) = template.runtime_sampler.interval_ms {
+                sampler_builder = sampler_builder.interval(Duration::from_millis(interval_ms));
+            }
+            if let Some(max_runtime_snapshots) = template.runtime_sampler.max_runtime_snapshots {
+                sampler_builder = sampler_builder.max_runtime_snapshots(max_runtime_snapshots);
+            }
+            let runtime_sampler = sampler_builder
+                .start()
+                .map_err(EnableError::StartRuntimeSampler)?;
+            let mut sampler_slot = runtime
+                .runtime_sampler
+                .lock()
+                .expect("generation runtime sampler lock poisoned");
+            *sampler_slot = Some(runtime_sampler);
+        }
 
         *lifecycle = ControllerLifecycle::Active {
             active: Arc::clone(&runtime),
@@ -772,6 +782,26 @@ impl TailtriageController {
             .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
         active.accepting_new.store(false, Ordering::Release);
         active.closing.store(true, Ordering::Release);
+    }
+
+    fn on_limits_hit_signal(inner: &Weak<ControllerInner>, active: &Weak<ActiveGenerationRuntime>) {
+        let Some(active) = active.upgrade() else {
+            return;
+        };
+        active
+            .run
+            .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
+        active.accepting_new.store(false, Ordering::Release);
+        active.closing.store(true, Ordering::Release);
+
+        if active.inflight_captured.load(Ordering::Acquire) > 0 {
+            return;
+        }
+
+        let Some(inner) = inner.upgrade() else {
+            return;
+        };
+        let _ = TailtriageController::finalize_generation_shared(&inner, &active);
     }
 }
 
@@ -1121,7 +1151,7 @@ pub struct RuntimeSamplerTemplate {
 pub enum RunEndPolicy {
     /// Keep cheap-dropping after limits are hit until manual disarm or shutdown.
     ContinueAfterLimitsHit,
-    /// Stop admissions and seal the run once limits are hit.
+    /// On first transition to `limits_hit`, stop admissions and seal/finalize the run.
     AutoSealOnLimitsHit,
 }
 
@@ -1534,7 +1564,9 @@ mod tests {
         DisableOutcome, EnableError, GenerationState, RunEndPolicy, RuntimeSamplerTemplate,
         TailtriageController,
     };
-    use tailtriage_core::{CaptureLimitsOverride, CaptureMode, RequestOptions, Run};
+    use tailtriage_core::{
+        CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RuntimeSnapshot,
+    };
 
     fn test_output(base: &str) -> std::path::PathBuf {
         let unique = format!(
@@ -1825,6 +1857,105 @@ kind = "auto_seal_on_limits_hit"
         let run = read_run(&active.artifact_path);
         assert!(run.truncation.limits_hit);
         assert!(run.truncation.dropped_requests > 0);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::AutoSealOnLimitsHit)
+        );
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn runtime_snapshot_saturation_triggers_auto_seal() {
+        let output = test_output("auto-seal-runtime-snapshot");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .run_end_policy(RunEndPolicy::AutoSealOnLimitsHit)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_runtime_snapshots: Some(1),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let runtime = active_runtime(&controller);
+
+        runtime.run.record_runtime_snapshot(RuntimeSnapshot {
+            at_unix_ms: tailtriage_core::unix_time_ms(),
+            alive_tasks: Some(1),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: Some(1),
+        });
+        runtime.run.record_runtime_snapshot(RuntimeSnapshot {
+            at_unix_ms: tailtriage_core::unix_time_ms(),
+            alive_tasks: Some(2),
+            global_queue_depth: Some(2),
+            local_queue_depth: Some(2),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: Some(2),
+        });
+
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let run = read_run(&active.artifact_path);
+        assert!(run.truncation.limits_hit);
+        assert!(run.truncation.dropped_runtime_snapshots > 0);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::AutoSealOnLimitsHit)
+        );
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn queue_saturation_triggers_auto_seal_and_waits_for_inflight_drain() {
+        let output = test_output("auto-seal-queue-saturation");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .run_end_policy(RunEndPolicy::AutoSealOnLimitsHit)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_queues: Some(1),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request("/checkout");
+        let request = started.handle.clone();
+        request
+            .queue("primary")
+            .with_depth_at_start(1)
+            .await_on(async {})
+            .await;
+        request
+            .queue("primary")
+            .with_depth_at_start(2)
+            .await_on(async {})
+            .await;
+
+        let status = controller.status();
+        let GenerationState::Active(active_status) = status.generation else {
+            panic!("generation should remain active while admitted request is still in-flight");
+        };
+        assert!(active_status.closing);
+        assert!(!active_status.accepting_new_admissions);
+
+        started.completion.finish_ok();
+
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let run = read_run(&active.artifact_path);
+        assert!(run.truncation.limits_hit);
+        assert!(run.truncation.dropped_queues > 0);
         assert_eq!(
             run.metadata.run_end_reason,
             Some(tailtriage_core::RunEndReason::AutoSealOnLimitsHit)
