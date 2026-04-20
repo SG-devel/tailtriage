@@ -1,0 +1,33 @@
+[package]
+name = "tailtriage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Official facade crate and umbrella entry point for tailtriage Tokio tail-latency triage"
+documentation = "https://docs.rs/tailtriage"
+readme = "README.md"
+keywords = ["tokio", "latency", "diagnostics", "performance", "triage"]
+categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "src/**",
+]
+
+[features]
+default = ["controller"]
+controller = ["dep:tailtriage-controller"]
+tokio = ["dep:tailtriage-tokio"]
+axum = ["dep:tailtriage-axum"]
+full = ["controller", "tokio", "axum"]
+
+[dependencies]
+tailtriage-core.workspace = true
+tailtriage-controller = { workspace = true, optional = true }
+tailtriage-tokio = { workspace = true, optional = true }
+tailtriage-axum = { workspace = true, optional = true }
+
+[lints]
+workspace = true

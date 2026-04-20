@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "tailtriage",
   "tailtriage-core",
   "tailtriage-controller",
   "tailtriage-tokio",
@@ -35,7 +36,9 @@ all = "warn"
 pedantic = "warn"
 
 [workspace.dependencies]
+tailtriage = { version = "0.1.1", path = "tailtriage" }
 tailtriage-core = { version = "0.1.1", path = "tailtriage-core" }
 tailtriage-controller = { version = "0.1.1", path = "tailtriage-controller" }
 tailtriage-tokio = { version = "0.1.1", path = "tailtriage-tokio" }
+tailtriage-axum = { version = "0.1.1", path = "tailtriage-axum" }
 demo-support = { version = "0.1.1", path = "demos/demo_support" }

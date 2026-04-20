@@ -34,11 +34,19 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 Use crates.io when adopting `tailtriage` in an external project:
 
 ```bash
-cargo add tailtriage-core
-cargo add tailtriage-tokio # optional, for RuntimeSampler and runtime-pressure evidence
-cargo add tailtriage-axum # optional, only for axum middleware/extractor ergonomics
-cargo add tailtriage-controller # optional, for live arm/disarm bounded capture windows
+cargo add tailtriage
+cargo add tailtriage --features tokio # optional runtime-pressure evidence
+cargo add tailtriage --features "tokio,axum" # optional axum + runtime integrations
 cargo install tailtriage-cli
+```
+
+For tighter dependency control, you can still add focused crates directly:
+
+```bash
+cargo add tailtriage-core
+cargo add tailtriage-controller # optional, enabled by default in facade
+cargo add tailtriage-tokio # optional
+cargo add tailtriage-axum # optional
 ```
 
 ## What you get from the output
@@ -124,7 +132,7 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 | User type                                         | Recommendation                                                               |
 | ------------------------------------------------- | ---------------------------------------------------------------------------- |
 | “I just want to try it”                           | Run workspace examples + workspace CLI from source                           |
-| “I have a Tokio service”                          | Start with `tailtriage-core`; add `tailtriage-cli` for analysis              |
+| “I have a Tokio service”                          | Start with `tailtriage`; add `tailtriage-cli` for analysis                   |
 | “I need executor vs blocking evidence”            | Add `tailtriage-tokio`                                                       |
 | “I use axum”                                      | Add `tailtriage-axum`; add `tailtriage-tokio` only if runtime snapshots help |
 | “I only need to read artifacts from CI/incidents” | Install `tailtriage-cli` only                                                |
@@ -133,6 +141,7 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 | Goal                                                            | Add these crates                                         | Optional                             | Why                                                                                                                        |
 | --------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Simplest canonical onboarding                                   | `tailtriage`                                             | `tailtriage-cli`                     | Facade re-exports `tailtriage-core` and includes controller convenience by default while keeping integrations feature-gated |
 | Instrument a Tokio service, no runtime snapshots                | `tailtriage-core`                                        | `tailtriage-cli`                     | Core request/queue/stage/inflight instrumentation and JSON artifact writing live in `tailtriage-core`                      |
 | Instrument a Tokio service and capture runtime pressure signals | `tailtriage-core`, `tailtriage-tokio`                    | `tailtriage-cli`                     | `tailtriage-tokio` provides `RuntimeSampler` and runtime snapshot capture on top of the core artifact model                |
 | Use with axum                                                   | `tailtriage-core`, `tailtriage-axum`                     | `tailtriage-tokio`, `tailtriage-cli` | `tailtriage-axum` is the framework ergonomics layer: middleware + extractor. It depends on core, not on `tailtriage-tokio` |
