@@ -26,6 +26,8 @@ SAMPLER_MODES: tuple[str, ...] = (
     "core_light_tokio_sampler",
     "core_investigation_tokio_sampler",
 )
+ONSET_ARTIFACT_GROWTH_THRESHOLD_PCT = 25.0
+ONSET_MEMORY_GROWTH_THRESHOLD_PCT = 25.0
 
 
 @dataclass(frozen=True)
@@ -65,8 +67,18 @@ def case_payload(case: Case) -> dict[str, Any]:
 
 DEFAULT_CASES: tuple[Case, ...] = (
     Case(
+        case_id="low_concurrency",
+        description="Clearly lower-pressure concurrency point for unsaturated operating-range checks.",
+        concurrency=32,
+        duration_secs=20,
+        queues_per_request=3,
+        stages_per_request=4,
+        inflight_cycles_per_request=6,
+        work_ms=2,
+    ),
+    Case(
         case_id="baseline_shape",
-        description="Reference shape for cross-mode comparison.",
+        description="Mid-pressure reference shape for cross-mode comparison.",
         concurrency=128,
         duration_secs=20,
         queues_per_request=3,
@@ -345,6 +357,7 @@ def pct_delta(base: float | None, observed: float | None) -> float | None:
 
 
 def signal_for_mode(summary_by_case_mode: dict[str, Any], mode: str) -> dict[str, Any]:
+    low_key = f"low_concurrency::{mode}"
     base_key = f"baseline_shape::{mode}"
     high_key = f"high_concurrency::{mode}"
     heavy_key = f"heavy_event_shape::{mode}"
@@ -363,8 +376,10 @@ def signal_for_mode(summary_by_case_mode: dict[str, Any], mode: str) -> dict[str
             return float(value)
         return None
 
+    low_tp = get_metric(low_key, ("absolute_metrics", "throughput_rps", "mean"))
     base_tp = get_metric(base_key, ("absolute_metrics", "throughput_rps", "mean"))
     high_tp = get_metric(high_key, ("absolute_metrics", "throughput_rps", "mean"))
+    low_p95 = get_metric(low_key, ("absolute_metrics", "latency_p95_ms", "mean"))
     base_p95 = get_metric(base_key, ("absolute_metrics", "latency_p95_ms", "mean"))
     high_p95 = get_metric(high_key, ("absolute_metrics", "latency_p95_ms", "mean"))
 
@@ -375,6 +390,7 @@ def signal_for_mode(summary_by_case_mode: dict[str, Any], mode: str) -> dict[str
     long_mem = get_metric(long_key, ("memory", "peak_rss_bytes", "mean"))
 
     trunc_limits = {
+        "low_concurrency": get_metric(low_key, ("truncation", "limits_hit_runs")),
         "baseline_shape": get_metric(base_key, ("truncation", "limits_hit_runs")),
         "high_concurrency": get_metric(high_key, ("truncation", "limits_hit_runs")),
         "heavy_event_shape": get_metric(heavy_key, ("truncation", "limits_hit_runs")),
@@ -383,11 +399,159 @@ def signal_for_mode(summary_by_case_mode: dict[str, Any], mode: str) -> dict[str
 
     return {
         "mode": mode,
+        "throughput_delta_low_to_mid_pct": pct_delta(low_tp, base_tp),
+        "throughput_delta_mid_to_high_pct": pct_delta(base_tp, high_tp),
+        "latency_p95_delta_low_to_mid_pct": pct_delta(low_p95, base_p95),
+        "latency_p95_delta_mid_to_high_pct": pct_delta(base_p95, high_p95),
         "throughput_delta_high_concurrency_pct": pct_delta(base_tp, high_tp),
         "latency_p95_delta_high_concurrency_pct": pct_delta(base_p95, high_p95),
         "artifact_growth_heavy_event_shape_pct": pct_delta(base_art, heavy_art),
         "peak_rss_growth_longer_run_pct": pct_delta(base_mem, long_mem),
         "limits_hit_runs_by_case": trunc_limits,
+    }
+
+
+def first_case_meeting(
+    ordered_case_ids: list[str],
+    mode: str,
+    summary_by_case_mode: dict[str, Any],
+    metric_path: tuple[str, ...],
+    predicate: Any,
+) -> str | None:
+    for case_id in ordered_case_ids:
+        key = f"{case_id}::{mode}"
+        node = summary_by_case_mode.get(key)
+        if node is None:
+            continue
+        value: Any = node
+        for item in metric_path:
+            value = value.get(item)
+            if value is None:
+                break
+        if value is None:
+            continue
+        if predicate(value):
+            return case_id
+    return None
+
+
+def onset_markers_for_mode(summary_by_case_mode: dict[str, Any], mode: str) -> dict[str, Any]:
+    ordered_cases = ["low_concurrency", "baseline_shape", "high_concurrency", "heavy_event_shape", "longer_run"]
+    artifact_growth_case_order = ["baseline_shape", "heavy_event_shape", "longer_run"]
+
+    first_limits_hit_case = first_case_meeting(
+        ordered_cases,
+        mode,
+        summary_by_case_mode,
+        ("truncation", "limits_hit_runs"),
+        lambda value: value > 0,
+    )
+    first_dropped_case = {
+        "dropped_requests": first_case_meeting(
+            ordered_cases,
+            mode,
+            summary_by_case_mode,
+            ("truncation", "dropped_requests", "mean"),
+            lambda value: value > 0.0,
+        ),
+        "dropped_stages": first_case_meeting(
+            ordered_cases,
+            mode,
+            summary_by_case_mode,
+            ("truncation", "dropped_stages", "mean"),
+            lambda value: value > 0.0,
+        ),
+        "dropped_queues": first_case_meeting(
+            ordered_cases,
+            mode,
+            summary_by_case_mode,
+            ("truncation", "dropped_queues", "mean"),
+            lambda value: value > 0.0,
+        ),
+        "dropped_inflight_snapshots": first_case_meeting(
+            ordered_cases,
+            mode,
+            summary_by_case_mode,
+            ("truncation", "dropped_inflight_snapshots", "mean"),
+            lambda value: value > 0.0,
+        ),
+        "dropped_runtime_snapshots": first_case_meeting(
+            ordered_cases,
+            mode,
+            summary_by_case_mode,
+            ("truncation", "dropped_runtime_snapshots", "mean"),
+            lambda value: value > 0.0,
+        ),
+    }
+
+    baseline_artifact = summary_by_case_mode.get(f"baseline_shape::{mode}", {}).get("artifact_size", {}).get(
+        "size_bytes_measured_by_script", {}
+    ).get("mean")
+    baseline_memory = summary_by_case_mode.get(f"baseline_shape::{mode}", {}).get("memory", {}).get(
+        "peak_rss_bytes", {}
+    ).get("mean")
+
+    def crosses_growth_threshold(case_id: str, field_path: tuple[str, ...], baseline: float | None, threshold_pct: float) -> bool:
+        if baseline is None or baseline <= 0:
+            return False
+        node = summary_by_case_mode.get(f"{case_id}::{mode}")
+        if node is None:
+            return False
+        value: Any = node
+        for part in field_path:
+            value = value.get(part)
+            if value is None:
+                return False
+        growth_pct = pct_delta(baseline, value)
+        return growth_pct is not None and growth_pct >= threshold_pct
+
+    first_artifact_growth_case = next(
+        (
+            case_id
+            for case_id in artifact_growth_case_order
+            if crosses_growth_threshold(
+                case_id,
+                ("artifact_size", "size_bytes_measured_by_script", "mean"),
+                baseline_artifact,
+                ONSET_ARTIFACT_GROWTH_THRESHOLD_PCT,
+            )
+        ),
+        None,
+    )
+    first_memory_growth_case = next(
+        (
+            case_id
+            for case_id in artifact_growth_case_order
+            if crosses_growth_threshold(
+                case_id,
+                ("memory", "peak_rss_bytes", "mean"),
+                baseline_memory,
+                ONSET_MEMORY_GROWTH_THRESHOLD_PCT,
+            )
+        ),
+        None,
+    )
+
+    return {
+        "mode": mode,
+        "progression_axis": {
+            "concurrency_cases": ordered_cases,
+            "concurrency_values": {
+                case_id: summary_by_case_mode.get(f"{case_id}::{mode}", {}).get("workload_shape", {}).get("concurrency")
+                for case_id in ordered_cases
+                if summary_by_case_mode.get(f"{case_id}::{mode}") is not None
+            },
+        },
+        "first_limits_hit_case": first_limits_hit_case,
+        "first_nonzero_dropped_case_by_category": first_dropped_case,
+        "growth_thresholds": {
+            "artifact_growth_pct": ONSET_ARTIFACT_GROWTH_THRESHOLD_PCT,
+            "memory_growth_pct": ONSET_MEMORY_GROWTH_THRESHOLD_PCT,
+        },
+        "first_growth_threshold_crossing_case": {
+            "artifact_size": first_artifact_growth_case,
+            "peak_rss_memory": first_memory_growth_case,
+        },
     }
 
 
@@ -401,6 +565,11 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
             "case_id": first["case_id"],
             "mode": first["mode"],
             "event_shape": first["event_shape"],
+            "workload_shape": {
+                "concurrency": first["concurrency"],
+                "configured_duration_secs": first["configured_duration_secs"],
+                "request_limit": first["request_limit"],
+            },
             "sampler_settings": first.get("sampler_settings"),
             "absolute_metrics": {
                 "requests_completed": summarize_values([float(entry["requests_completed"]) for entry in entries]),
@@ -516,6 +685,7 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
         }
 
     mode_signals = [signal_for_mode(by_case_mode, mode) for mode in selected_modes]
+    onset_markers = [onset_markers_for_mode(by_case_mode, mode) for mode in selected_modes]
 
     interpretation_notes = [
         "Machine-scoped measurements only; do not generalize these values to other hosts or workloads.",
@@ -601,6 +771,7 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
                     "truncation context",
                     "metadata and caveats",
                     "derived stress signals",
+                    "onset markers",
                 ]
             },
         },
@@ -618,6 +789,15 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
                 "Look for peak RSS growth in longer_run relative to baseline_shape.",
                 "Look for sampler_dense deltas versus sampler baseline; do not assume direction without measured output.",
                 "Look for limits_hit or persistent dropped_* counters across repeats/cases.",
+            ],
+        },
+        "collector_pressure_onset_markers": {
+            "per_mode": onset_markers,
+            "intended_interpretation": [
+                "low_concurrency should represent an unsaturated or lower-pressure reference where possible.",
+                "baseline_shape should represent a mid-pressure operating point.",
+                "high_concurrency and longer_run should expose clearly stressed behavior if collector pressure is reachable on the current machine.",
+                "Use first_* markers as measured onset evidence; absence of a marker means this run did not cross that threshold.",
             ],
         },
         "measurement_quality": {
