@@ -116,18 +116,20 @@ cargo add tailtriage-axum # optional
 
 ## Examples
 
-Four public examples to start with:
+Five public examples to start with:
 
 - `minimal_checkout` — fastest capture→analyze loop
 - `axum_minimal` — smallest axum framework starter (adapter crate)
 - `axum_service_adoption` — service-shaped axum adoption example using the adapter surface
 - `mini_service_integration` — helper-layer/fractured-code instrumentation shape
+- `controller_minimal` — arm/disarm controller lifecycle starter
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-axum --example axum_minimal
 cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
+cargo run -p tailtriage-controller --example controller_minimal
 python3 scripts/smoke_public_examples.py
 ```
 

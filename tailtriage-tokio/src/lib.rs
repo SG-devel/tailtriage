@@ -205,7 +205,9 @@ impl RuntimeSamplerBuilder {
         let resolved = self.resolve_config()?;
         let handle = Handle::try_current().map_err(|_| SamplerStartError::MissingRuntime)?;
         self.tailtriage
-            .register_tokio_runtime_sampler(resolved.into_effective_metadata())
+            .__tailtriage_internal_register_tokio_runtime_sampler(
+                resolved.into_effective_metadata(),
+            )
             .map_err(|err| match err {
                 RuntimeSamplerRegistrationError::DuplicateStart => {
                     SamplerStartError::DuplicateStart

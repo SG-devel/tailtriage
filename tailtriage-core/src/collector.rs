@@ -410,7 +410,7 @@ impl Tailtriage {
     ///
     /// Returns [`RuntimeSamplerRegistrationError::DuplicateStart`] when a sampler
     /// was already registered for this run.
-    pub fn register_tokio_runtime_sampler(
+    pub(crate) fn register_tokio_runtime_sampler(
         &self,
         config: crate::EffectiveTokioSamplerConfig,
     ) -> Result<(), RuntimeSamplerRegistrationError> {
@@ -425,6 +425,18 @@ impl Tailtriage {
         let mut run = lock_run(&self.run);
         run.metadata.effective_tokio_sampler_config = Some(config);
         Ok(())
+    }
+
+    /// Internal integration path used by `tailtriage-tokio` to register
+    /// sampler metadata only after successful real startup preconditions.
+    ///
+    /// This is not a stable public API surface.
+    #[doc(hidden)]
+    pub fn __tailtriage_internal_register_tokio_runtime_sampler(
+        &self,
+        config: crate::EffectiveTokioSamplerConfig,
+    ) -> Result<(), RuntimeSamplerRegistrationError> {
+        self.register_tokio_runtime_sampler(config)
     }
 
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
