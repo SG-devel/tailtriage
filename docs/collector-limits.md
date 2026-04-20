@@ -113,20 +113,42 @@ Interpret each mode using the derived onset markers:
 
 ## Machine-scoped example (April 20, 2026 run)
 
-A bounded default run (`--profile default --modes core_light`) produced onset markers in summary output:
+A bounded default run (`--profile default --modes core_light,core_light_tokio_sampler`) plus a bounded artifact-scaling run (`--profile artifact_scaling --modes core_light,core_light_tokio_sampler`) produced these machine-scoped findings:
 
-- `first_limits_hit_case = low_concurrency`
-- first non-zero dropped category:
-  - `dropped_inflight_snapshots = low_concurrency`
-  - `dropped_requests/stages/queues = baseline_shape`
-  - `dropped_runtime_snapshots = null`
-- no +25% threshold crossing for artifact-size or peak-RSS growth in this bounded run.
+1. **Where collector pressure first appeared (reference path):**
+   - in both measured modes, `collector_pressure_onset_markers.per_mode[].first_limits_hit_case = low_concurrency` (configured `concurrency=32`).
+   - in both measured modes, the first non-zero drop category was `dropped_inflight_snapshots` at `low_concurrency`, while `dropped_requests`, `dropped_stages`, and `dropped_queues` first became non-zero at `baseline_shape`.
 
-Interpretation for this machine/run:
+2. **Earliest practical warning signals in this run set:**
+   - `truncation.limits_hit_runs > 0` at low-concurrency.
+   - `truncation.dropped_inflight_snapshots.mean > 0` before request/stage/queue drops.
+   - then `truncation.dropped_requests|dropped_stages|dropped_queues.mean > 0` at `baseline_shape`.
+   - Treat these summary fields as the earliest practical warning signals in this reference path.
 
-- the configured `low_concurrency=32` point is already in **onset/stressed** territory for core-light capture (not comfortable/unsaturated);
-- onset signals are still useful because they localize which retained categories begin dropping earliest;
-- this run supports practical onset-marker guidance, but does **not** provide a comfortable unsaturated bound for this mode on this host.
+3. **How memory grew across the measured progression (`default` profile):**
+   - `core_light` peak RSS (in-process fallback path): ~114 MB (`low_concurrency`) -> ~208 MB (`baseline_shape`) -> ~209 MB (`high_concurrency`) -> ~185 MB (`heavy_event_shape`) -> ~209 MB (`longer_run`).
+   - `core_light_tokio_sampler` followed the same pattern (~113 MB -> ~208 MB -> ~209 MB -> ~185 MB -> ~209 MB).
+   - `first_growth_threshold_crossing_case.peak_rss_memory = null` in both modes for the configured +25% threshold against `baseline_shape`.
+
+4. **How artifact size grew in interpretable cases:**
+   - in the bounded `artifact_scaling` profile, all request-volume and event-density comparison points were `mostly_unsaturated` (no limits-hit and no dropped means).
+   - request-volume axis (`core_light`): ~469 KB (`300` requests) -> ~1.25 MB (`800`) -> ~2.19 MB (`1400`) (~+366% first-to-last).
+   - event-density axis (`core_light`): ~1.25 MB (low density) -> ~2.48 MB (mid) -> ~4.25 MB (high) (~+240% first-to-last).
+   - sampler mode showed nearly identical scaling patterns.
+
+5. **Observed runtime sampler density impact (reference path):**
+   - `sampler_density_impact.core_light_tokio_sampler` (500ms baseline cadence vs 50ms dense cadence) showed:
+     - throughput delta ≈ `-0.35%`
+     - p95 latency delta ≈ `+0.51%`
+     - runtime snapshot drop delta = `null` (no runtime snapshot drops in either case).
+   - This run indicates small measured impact for this machine/workload shape, not a general guarantee.
+
+Interpretation for this machine/run set:
+
+- in the reference path, pressure first appears when `low_concurrency` (32) is already limits-hit for both measured modes;
+- treat `limits_hit_runs` and early non-zero dropped counters as practical earliest warning fields;
+- the default profile did not provide a comfortable unsaturated point on this machine, while the artifact-scaling profile did provide unsaturated interpretable growth points;
+- this matrix did **not** support a stronger universal range claim, and should not be used as production guarantees.
 
 ## How to interpret artifact growth without over-claiming
 
