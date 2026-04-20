@@ -4,8 +4,8 @@ use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, Outcome, RequestOptions,
-    SinkError, Tailtriage,
+    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveTokioSamplerConfig,
+    Outcome, RequestOptions, RuntimeSamplerRegistrationError, SinkError, Tailtriage,
 };
 
 #[derive(Debug, Default)]
@@ -309,6 +309,41 @@ fn selected_mode_and_effective_config_are_preserved_in_metadata() {
             .capture_limits
             .max_queues,
         7
+    );
+}
+
+#[test]
+fn runtime_sampler_registration_is_single_start_and_metadata_cannot_be_overwritten() {
+    let tailtriage = Tailtriage::builder("payments")
+        .build()
+        .expect("build should succeed");
+    let first = EffectiveTokioSamplerConfig {
+        inherited_mode: CaptureMode::Light,
+        explicit_mode_override: None,
+        resolved_mode: CaptureMode::Light,
+        resolved_sampler_cadence_ms: 500,
+        resolved_runtime_snapshot_retention: 5_000,
+    };
+    let second = EffectiveTokioSamplerConfig {
+        inherited_mode: CaptureMode::Light,
+        explicit_mode_override: Some(CaptureMode::Investigation),
+        resolved_mode: CaptureMode::Investigation,
+        resolved_sampler_cadence_ms: 100,
+        resolved_runtime_snapshot_retention: 50_000,
+    };
+
+    tailtriage
+        .register_tokio_runtime_sampler(first)
+        .expect("first sampler registration should succeed");
+    let err = tailtriage
+        .register_tokio_runtime_sampler(second)
+        .expect_err("duplicate registration should fail");
+    assert_eq!(err, RuntimeSamplerRegistrationError::DuplicateStart);
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(
+        snapshot.metadata.effective_tokio_sampler_config,
+        Some(first)
     );
 }
 

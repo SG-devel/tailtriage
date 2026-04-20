@@ -35,7 +35,7 @@ mod timers;
 
 pub use collector::{
     OwnedRequestCompletion, OwnedRequestHandle, OwnedStartedRequest, RequestCompletion,
-    RequestHandle, StartedRequest, Tailtriage,
+    RequestHandle, RuntimeSamplerRegistrationError, StartedRequest, Tailtriage,
 };
 pub use config::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveCoreConfig,

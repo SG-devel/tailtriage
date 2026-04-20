@@ -24,6 +24,7 @@ pub struct Tailtriage {
     pub(crate) limits: crate::CaptureLimits,
     pub(crate) strict_lifecycle: bool,
     truncation_state: TruncationState,
+    runtime_sampler_registered: AtomicBool,
 }
 
 #[derive(Debug, Default)]
@@ -162,6 +163,13 @@ pub struct OwnedRequestCompletion {
     finished: bool,
 }
 
+/// Error returned when registering Tokio runtime sampler metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeSamplerRegistrationError {
+    /// A runtime sampler was already registered for this run.
+    DuplicateStart,
+}
+
 impl Tailtriage {
     /// Creates a builder-based setup path for one service run.
     #[must_use]
@@ -201,6 +209,7 @@ impl Tailtriage {
             limits: config.effective_core.capture_limits,
             strict_lifecycle: config.strict_lifecycle,
             truncation_state: TruncationState::default(),
+            runtime_sampler_registered: AtomicBool::new(false),
         })
     }
 
@@ -367,14 +376,29 @@ impl Tailtriage {
         }
     }
 
-    /// Records effective resolved Tokio sampler configuration in run metadata.
+    /// Registers one Tokio sampler startup and records effective sampler metadata.
     ///
-    /// Integration crates call this when they configure and start optional runtime
-    /// sampling so artifacts can show inherited mode, explicit overrides, and
-    /// resolved sampler settings used for the run.
-    pub fn record_tokio_sampler_config(&self, config: crate::EffectiveTokioSamplerConfig) {
+    /// This method succeeds at most once per run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeSamplerRegistrationError::DuplicateStart`] when a sampler
+    /// was already registered for this run.
+    pub fn register_tokio_runtime_sampler(
+        &self,
+        config: crate::EffectiveTokioSamplerConfig,
+    ) -> Result<(), RuntimeSamplerRegistrationError> {
+        if self
+            .runtime_sampler_registered
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(RuntimeSamplerRegistrationError::DuplicateStart);
+        }
+
         let mut run = lock_run(&self.run);
         run.metadata.effective_tokio_sampler_config = Some(config);
+        Ok(())
     }
 
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
