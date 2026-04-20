@@ -82,6 +82,17 @@ async fn helper_a(req: &tailtriage_core::RequestHandle<'_>) -> Result<(), MyErro
 - unfinished requests are surfaced in run metadata warnings and unfinished-request samples.
 - `strict_lifecycle(true)` makes `shutdown()` return an error when unfinished requests remain.
 
+## Live arm/disarm controller (optional)
+
+Use direct `Tailtriage::builder(...)` for the standard single-run lifecycle.
+
+Use `tailtriage-controller` only when you need repeated enable/disable triage windows in one
+long-lived process. Its controller surface keeps disabled/closing request calls non-branching via
+inert wrappers, and applies config reloads only to later activations (not to already-active runs).
+
+See [`../tailtriage-controller/README.md`](../tailtriage-controller/README.md) for lifecycle,
+generation isolation, TOML shape, and reload semantics.
+
 ## RuntimeSampler (optional stronger attribution)
 
 `CaptureMode` in core sets retention defaults only. It does not auto-enable `RuntimeSampler`.
