@@ -7,18 +7,18 @@
 //!
 //! - [`tailtriage_core`] remains the per-run collector and artifact model.
 //! - `tailtriage-controller` provides control-layer scaffolding for live arm/disarm
-//!   workflows that will create fresh bounded runs on activation.
+//!   workflows that create fresh bounded runs on every activation.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use tailtriage_core::{unix_time_ms, CaptureMode};
+use tailtriage_core::{
+    BuildError, CaptureMode, OwnedRequestCompletion, OwnedRequestHandle, RequestOptions, Tailtriage,
+};
 
 /// Builder for a long-lived [`TailtriageController`].
-///
-/// Unlike [`tailtriage_core::TailtriageBuilder`], this builder configures controller-level
-/// scaffolding for repeated bounded capture activations over process lifetime.
 #[derive(Debug, Clone)]
 pub struct TailtriageControllerBuilder {
     service_name: String,
@@ -50,14 +50,14 @@ impl TailtriageControllerBuilder {
         self
     }
 
-    /// Sets whether the controller starts in an enabled state.
+    /// Sets whether the controller starts with an active generation.
     #[must_use]
     pub const fn initially_enabled(mut self, initially_enabled: bool) -> Self {
         self.initially_enabled = initially_enabled;
         self
     }
 
-    /// Sets the output location for future activation runs.
+    /// Sets the output location template for future activation runs.
     #[must_use]
     pub fn output(mut self, output_path: impl AsRef<Path>) -> Self {
         self.sink_template = ControllerSinkTemplate::LocalJson {
@@ -73,9 +73,7 @@ impl TailtriageControllerBuilder {
         self
     }
 
-    /// Builds the controller scaffolding.
-    ///
-    /// This method intentionally does not start any capture run.
+    /// Builds the controller.
     ///
     /// # Errors
     ///
@@ -85,39 +83,64 @@ impl TailtriageControllerBuilder {
             return Err(ControllerBuildError::EmptyServiceName);
         }
 
-        let next_generation = 1;
-        let lifecycle = if self.initially_enabled {
-            ControllerLifecycle::EnabledIdle { next_generation }
-        } else {
-            ControllerLifecycle::Disabled { next_generation }
+        let template = TailtriageControllerTemplate {
+            service_name: self.service_name,
+            config_path: self.config_path,
+            sink_template: self.sink_template,
+            selected_mode: CaptureMode::Light,
+            run_end_policy: self.run_end_policy,
         };
 
-        Ok(TailtriageController {
-            template: Mutex::new(TailtriageControllerTemplate {
-                service_name: self.service_name,
-                config_path: self.config_path,
-                sink_template: self.sink_template,
-                selected_mode: CaptureMode::Light,
-                run_end_policy: self.run_end_policy,
-            }),
-            lifecycle: Mutex::new(lifecycle),
-        })
+        let inner = Arc::new(ControllerInner {
+            template: Mutex::new(template),
+            lifecycle: Mutex::new(ControllerLifecycle::Disabled { next_generation: 1 }),
+        });
+
+        let controller = TailtriageController { inner };
+        if self.initially_enabled {
+            controller
+                .enable()
+                .map_err(ControllerBuildError::InitialEnable)?;
+        }
+
+        Ok(controller)
     }
 }
 
-/// Long-lived live-capture controller scaffolding.
-///
-/// Lifecycle intent:
-///
-/// - The controller object is long-lived.
-/// - Each activation is expected to start a fresh bounded capture run.
-/// - At most one generation may be active at a time.
-/// - Reload updates controller template for the *next* activation only.
-///   It does not mutate active-generation config.
-#[derive(Debug)]
+/// Long-lived live-capture controller for arm/disarm workflows.
+#[derive(Debug, Clone)]
 pub struct TailtriageController {
+    inner: Arc<ControllerInner>,
+}
+
+#[derive(Debug)]
+struct ControllerInner {
     template: Mutex<TailtriageControllerTemplate>,
     lifecycle: Mutex<ControllerLifecycle>,
+}
+
+#[derive(Debug)]
+struct ActiveGenerationRuntime {
+    state: ActiveGenerationState,
+    artifact_path: PathBuf,
+    run: Arc<Tailtriage>,
+    accepting_new: AtomicBool,
+    closing: AtomicBool,
+    inflight_captured: AtomicU64,
+    finalize_started: AtomicBool,
+}
+
+impl ActiveGenerationRuntime {
+    fn snapshot(&self) -> ActiveGenerationState {
+        ActiveGenerationState {
+            generation_id: self.state.generation_id,
+            started_at_unix_ms: self.state.started_at_unix_ms,
+            artifact_path: self.artifact_path.clone(),
+            accepting_new_admissions: self.accepting_new.load(Ordering::Relaxed),
+            closing: self.closing.load(Ordering::Relaxed),
+            inflight_captured_requests: self.inflight_captured.load(Ordering::Relaxed),
+        }
+    }
 }
 
 impl TailtriageController {
@@ -131,14 +154,16 @@ impl TailtriageController {
     ///
     /// # Panics
     ///
-    /// Panics if the internal controller mutexes are poisoned.
+    /// Panics if controller internal mutexes are poisoned.
     #[must_use]
     pub fn status(&self) -> TailtriageControllerStatus {
         let template = self
+            .inner
             .template
             .lock()
             .expect("controller template lock poisoned");
         let lifecycle = self
+            .inner
             .lifecycle
             .lock()
             .expect("controller lifecycle lock poisoned");
@@ -155,97 +180,383 @@ impl TailtriageController {
 
     /// Replaces the template used to create the next activation generation.
     ///
-    /// Reload is intentionally non-invasive for an active run: active generation
-    /// state remains unchanged and new template values apply only to future
-    /// activations.
-    ///
     /// # Panics
     ///
-    /// Panics if the internal template mutex is poisoned.
+    /// Panics if the controller template mutex is poisoned.
     pub fn reload_template(&self, next_template: TailtriageControllerTemplate) {
         let mut template = self
+            .inner
             .template
             .lock()
             .expect("controller template lock poisoned");
         *template = next_template;
     }
 
-    /// Marks the start of one activation generation in controller state.
-    ///
-    /// This scaffolding method enforces the one-active-generation invariant but
-    /// intentionally does not create or manage a [`tailtriage_core::Tailtriage`] run yet.
+    /// Arms capture by creating a fresh active generation with a bounded run.
     ///
     /// # Errors
     ///
-    /// Returns [`StartGenerationError::ControllerDisabled`] when disarmed, and
-    /// [`StartGenerationError::AlreadyActive`] when a generation is already active.
+    /// Returns [`EnableError::AlreadyActive`] when another generation is already active,
+    /// and [`EnableError::Build`] when the run cannot be constructed.
     ///
     /// # Panics
     ///
-    /// Panics if the internal lifecycle mutex is poisoned.
-    pub fn start_generation(&self) -> Result<GenerationState, StartGenerationError> {
+    /// Panics if controller internal mutexes are poisoned.
+    pub fn enable(&self) -> Result<ActiveGenerationState, EnableError> {
+        let template = self
+            .inner
+            .template
+            .lock()
+            .expect("controller template lock poisoned")
+            .clone();
+
         let mut lifecycle = self
+            .inner
             .lifecycle
             .lock()
             .expect("controller lifecycle lock poisoned");
 
-        let started = match *lifecycle {
-            ControllerLifecycle::Disabled { .. } => {
-                return Err(StartGenerationError::ControllerDisabled);
-            }
-            ControllerLifecycle::EnabledIdle {
-                ref mut next_generation,
-            } => {
-                let generation_id = *next_generation;
-                *next_generation = next_generation.saturating_add(1);
-                let active = ActiveGenerationState {
-                    generation_id,
-                    started_at_unix_ms: unix_time_ms(),
-                };
-                *lifecycle = ControllerLifecycle::Active {
-                    active,
-                    next_generation: *next_generation,
-                };
-                GenerationState::Active(active)
-            }
-            ControllerLifecycle::Active { active, .. } => {
-                return Err(StartGenerationError::AlreadyActive {
-                    generation_id: active.generation_id,
+        let next_generation = match *lifecycle {
+            ControllerLifecycle::Disabled { next_generation } => next_generation,
+            ControllerLifecycle::Active { ref active, .. } => {
+                return Err(EnableError::AlreadyActive {
+                    generation_id: active.state.generation_id,
                 });
             }
         };
 
-        Ok(started)
+        let artifact_path = generated_artifact_path(&template.sink_template, next_generation);
+        let run_id = format!("{}-generation-{next_generation}", template.service_name);
+
+        let mut builder = Tailtriage::builder(template.service_name.clone())
+            .run_id(run_id)
+            .output(&artifact_path);
+
+        builder = match template.selected_mode {
+            CaptureMode::Light => builder.light(),
+            CaptureMode::Investigation => builder.investigation(),
+        };
+
+        let run = Arc::new(builder.build().map_err(EnableError::Build)?);
+        let runtime = Arc::new(ActiveGenerationRuntime {
+            state: ActiveGenerationState {
+                generation_id: next_generation,
+                started_at_unix_ms: tailtriage_core::unix_time_ms(),
+                artifact_path: artifact_path.clone(),
+                accepting_new_admissions: true,
+                closing: false,
+                inflight_captured_requests: 0,
+            },
+            artifact_path,
+            run,
+            accepting_new: AtomicBool::new(true),
+            closing: AtomicBool::new(false),
+            inflight_captured: AtomicU64::new(0),
+            finalize_started: AtomicBool::new(false),
+        });
+
+        *lifecycle = ControllerLifecycle::Active {
+            active: Arc::clone(&runtime),
+            next_generation: next_generation.saturating_add(1),
+        };
+
+        Ok(runtime.snapshot())
     }
 
-    /// Marks the active generation as finished when IDs match.
+    /// Disarms capture for the active generation.
     ///
-    /// Returns `true` when an active generation was cleared.
+    /// This stops new request admissions immediately. If no admitted captured requests
+    /// remain in flight, disarm finalizes immediately. Otherwise the generation is marked
+    /// closing and finalization happens after the admitted captured requests drain.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DisableError::Finalize`] when final artifact writing fails.
     ///
     /// # Panics
     ///
-    /// Panics if the internal lifecycle mutex is poisoned.
+    /// Panics if controller internal mutexes are poisoned.
+    pub fn disable(&self) -> Result<DisableOutcome, DisableError> {
+        let (active, next_generation, generation_id) = {
+            let lifecycle = self
+                .inner
+                .lifecycle
+                .lock()
+                .expect("controller lifecycle lock poisoned");
+
+            let ControllerLifecycle::Active {
+                ref active,
+                next_generation,
+            } = *lifecycle
+            else {
+                return Ok(DisableOutcome::AlreadyDisabled);
+            };
+
+            active.accepting_new.store(false, Ordering::Relaxed);
+            active.closing.store(true, Ordering::Relaxed);
+
+            if active.inflight_captured.load(Ordering::Relaxed) == 0 {
+                (
+                    Some(Arc::clone(active)),
+                    Some(next_generation),
+                    active.state.generation_id,
+                )
+            } else {
+                return Ok(DisableOutcome::Closing {
+                    generation_id: active.state.generation_id,
+                    inflight_captured_requests: active.inflight_captured.load(Ordering::Relaxed),
+                });
+            }
+        };
+
+        self.finalize_active(
+            &active.expect("checked above"),
+            next_generation.expect("checked above"),
+        )?;
+
+        Ok(DisableOutcome::Finalized { generation_id })
+    }
+
+    /// Begins a captured request when an active generation is still admitting requests.
+    ///
+    /// Returns `None` when controller is disabled or when active generation is closing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if controller lifecycle mutex is poisoned.
     #[must_use]
-    pub fn finish_generation(&self, generation_id: u64) -> bool {
+    pub fn try_begin_request_with(
+        &self,
+        route: impl Into<String>,
+        options: RequestOptions,
+    ) -> Option<ControllerStartedRequest> {
+        let active = {
+            let lifecycle = self
+                .inner
+                .lifecycle
+                .lock()
+                .expect("controller lifecycle lock poisoned");
+
+            match *lifecycle {
+                ControllerLifecycle::Active { ref active, .. } => Arc::clone(active),
+                ControllerLifecycle::Disabled { .. } => return None,
+            }
+        };
+
+        if !active.accepting_new.load(Ordering::Acquire) {
+            return None;
+        }
+
+        active.inflight_captured.fetch_add(1, Ordering::AcqRel);
+        if !active.accepting_new.load(Ordering::Acquire) {
+            active.inflight_captured.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+
+        let started = active.run.begin_request_with_owned(route, options);
+
+        Some(ControllerStartedRequest {
+            handle: started.handle,
+            completion: ControllerRequestCompletion {
+                completion: Some(started.completion),
+                active_generation_id: active.state.generation_id,
+                inner: Arc::downgrade(&self.inner),
+                inflight_recorded: true,
+            },
+        })
+    }
+
+    /// Convenience helper using default request options.
+    #[must_use]
+    pub fn try_begin_request(&self, route: impl Into<String>) -> Option<ControllerStartedRequest> {
+        self.try_begin_request_with(route, RequestOptions::new())
+    }
+
+    /// Finalizes controller state for process shutdown.
+    ///
+    /// Shutdown makes lifecycle behavior explicit: it immediately stops new admissions and
+    /// writes any active generation artifact, even if unfinished requests remain.
+    /// That behavior matches [`tailtriage_core::Tailtriage::shutdown`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ShutdownError::Finalize`] if artifact writing fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if controller lifecycle mutex is poisoned.
+    pub fn shutdown(&self) -> Result<(), ShutdownError> {
+        let maybe_active = {
+            let lifecycle = self
+                .inner
+                .lifecycle
+                .lock()
+                .expect("controller lifecycle lock poisoned");
+            match *lifecycle {
+                ControllerLifecycle::Active { ref active, .. } => Some(Arc::clone(active)),
+                ControllerLifecycle::Disabled { .. } => None,
+            }
+        };
+
+        if let Some(active) = maybe_active {
+            active.accepting_new.store(false, Ordering::Relaxed);
+            active.closing.store(true, Ordering::Relaxed);
+            self.force_finalize_generation(&active)
+                .map_err(ShutdownError::Finalize)?;
+        }
+
+        Ok(())
+    }
+
+    fn force_finalize_generation(
+        &self,
+        active: &Arc<ActiveGenerationRuntime>,
+    ) -> Result<(), DisableError> {
+        let next_generation = {
+            let lifecycle = self
+                .inner
+                .lifecycle
+                .lock()
+                .expect("controller lifecycle lock poisoned");
+            match *lifecycle {
+                ControllerLifecycle::Active {
+                    active: ref current_active,
+                    next_generation,
+                } if current_active.state.generation_id == active.state.generation_id => {
+                    next_generation
+                }
+                _ => return Ok(()),
+            }
+        };
+
+        self.finalize_active(active, next_generation)
+    }
+
+    fn finalize_active(
+        &self,
+        active: &Arc<ActiveGenerationRuntime>,
+        next_generation: u64,
+    ) -> Result<(), DisableError> {
+        if active.finalize_started.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+
+        active.run.shutdown().map_err(DisableError::Finalize)?;
+
         let mut lifecycle = self
+            .inner
+            .lifecycle
+            .lock()
+            .expect("controller lifecycle lock poisoned");
+
+        if matches!(
+            *lifecycle,
+            ControllerLifecycle::Active {
+                active: ref current_active,
+                next_generation: ng,
+            } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
+        ) {
+            *lifecycle = ControllerLifecycle::Disabled { next_generation };
+        }
+
+        Ok(())
+    }
+}
+
+/// Result of trying to begin one captured request in a generation.
+#[must_use = "request completion must be finished explicitly"]
+#[derive(Debug)]
+pub struct ControllerStartedRequest {
+    /// Instrumentation handle for queue/stage/inflight timing.
+    pub handle: OwnedRequestHandle,
+    /// Completion token bound to one generation.
+    pub completion: ControllerRequestCompletion,
+}
+
+/// Completion token for a request admitted through [`TailtriageController`].
+#[must_use = "request completion must be finished explicitly"]
+#[derive(Debug)]
+pub struct ControllerRequestCompletion {
+    completion: Option<OwnedRequestCompletion>,
+    active_generation_id: u64,
+    inner: Weak<ControllerInner>,
+    inflight_recorded: bool,
+}
+
+impl ControllerRequestCompletion {
+    /// Finishes this request with an explicit outcome.
+    pub fn finish(mut self, outcome: tailtriage_core::Outcome) {
+        if let Some(completion) = self.completion.take() {
+            completion.finish(outcome);
+            self.mark_finished();
+        }
+    }
+
+    /// Convenience helper for successful completion.
+    pub fn finish_ok(self) {
+        self.finish(tailtriage_core::Outcome::Ok);
+    }
+
+    /// Finishes from `result` and returns `result` unchanged.
+    ///
+    /// # Errors
+    ///
+    /// This method does not create new errors. It returns `result` unchanged,
+    /// including the original `Err(E)` value.
+    pub fn finish_result<T, E>(mut self, result: Result<T, E>) -> Result<T, E> {
+        if let Some(completion) = self.completion.take() {
+            completion.finish(if result.is_ok() {
+                tailtriage_core::Outcome::Ok
+            } else {
+                tailtriage_core::Outcome::Error
+            });
+            self.mark_finished();
+        }
+        result
+    }
+
+    fn mark_finished(&mut self) {
+        if !self.inflight_recorded {
+            return;
+        }
+
+        self.inflight_recorded = false;
+
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+
+        let mut lifecycle = inner
             .lifecycle
             .lock()
             .expect("controller lifecycle lock poisoned");
 
         let ControllerLifecycle::Active {
-            active,
+            ref active,
             next_generation,
         } = *lifecycle
         else {
-            return false;
+            return;
         };
 
-        if active.generation_id != generation_id {
-            return false;
+        if active.state.generation_id != self.active_generation_id {
+            return;
         }
 
-        *lifecycle = ControllerLifecycle::EnabledIdle { next_generation };
-        true
+        let remaining = active
+            .inflight_captured
+            .fetch_sub(1, Ordering::AcqRel)
+            .saturating_sub(1);
+
+        if remaining == 0
+            && active.closing.load(Ordering::Acquire)
+            && !active.finalize_started.swap(true, Ordering::AcqRel)
+        {
+            let shutdown_result = active.run.shutdown();
+            if shutdown_result.is_ok() {
+                *lifecycle = ControllerLifecycle::Disabled { next_generation };
+            }
+        }
     }
 }
 
@@ -269,7 +580,7 @@ pub struct TailtriageControllerTemplate {
 pub enum ControllerSinkTemplate {
     /// Write each generated run to a local JSON file.
     LocalJson {
-        /// Destination artifact path for each generated run.
+        /// Base destination artifact path for generated runs.
         output_path: PathBuf,
     },
 }
@@ -311,7 +622,7 @@ pub struct TailtriageControllerStatus {
 }
 
 /// Current generation state for a controller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenerationState {
     /// Controller is disarmed and has no active generation.
     Disabled {
@@ -328,156 +639,316 @@ pub enum GenerationState {
 }
 
 /// Metadata for one active generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveGenerationState {
     /// Monotonic generation identifier.
     pub generation_id: u64,
     /// Activation start timestamp.
     pub started_at_unix_ms: u64,
+    /// Artifact path assigned to this generation.
+    pub artifact_path: PathBuf,
+    /// Whether this generation currently accepts new admissions.
+    pub accepting_new_admissions: bool,
+    /// Whether this generation is marked closing.
+    pub closing: bool,
+    /// Number of admitted captured requests still in-flight.
+    pub inflight_captured_requests: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 enum ControllerLifecycle {
     Disabled {
-        /// Next generation ID that would be assigned on activation.
-        next_generation: u64,
-    },
-    EnabledIdle {
-        /// Next generation ID that will be assigned on activation.
         next_generation: u64,
     },
     Active {
-        active: ActiveGenerationState,
+        active: Arc<ActiveGenerationRuntime>,
         next_generation: u64,
     },
 }
 
 impl ControllerLifecycle {
-    fn snapshot(self) -> GenerationState {
+    fn snapshot(&self) -> GenerationState {
         match self {
-            Self::Disabled { next_generation } => GenerationState::Disabled { next_generation },
-            Self::EnabledIdle { next_generation } => {
-                GenerationState::EnabledIdle { next_generation }
-            }
-            Self::Active { active, .. } => GenerationState::Active(active),
+            Self::Disabled { next_generation } => GenerationState::Disabled {
+                next_generation: *next_generation,
+            },
+            Self::Active { active, .. } => GenerationState::Active(active.snapshot()),
         }
     }
 }
 
-/// Errors emitted while building a controller scaffold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Errors emitted while building a controller.
+#[derive(Debug)]
 pub enum ControllerBuildError {
     /// Service name was empty.
     EmptyServiceName,
+    /// Initially-enabled controller failed to create first generation.
+    InitialEnable(EnableError),
 }
 
 impl std::fmt::Display for ControllerBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::InitialEnable(err) => write!(f, "failed to start initial generation: {err}"),
         }
     }
 }
 
 impl std::error::Error for ControllerBuildError {}
 
-/// Errors emitted when transitioning into active-generation state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StartGenerationError {
-    /// Controller is currently disabled/disarmed.
-    ControllerDisabled,
+/// Errors emitted when enabling/arming controller capture.
+#[derive(Debug)]
+pub enum EnableError {
     /// Another generation is already active.
     AlreadyActive {
         /// ID of the active generation blocking a new start.
         generation_id: u64,
     },
+    /// Building the fresh bounded run failed.
+    Build(BuildError),
 }
 
-impl std::fmt::Display for StartGenerationError {
+impl std::fmt::Display for EnableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ControllerDisabled => write!(f, "controller is disabled"),
             Self::AlreadyActive { generation_id } => {
                 write!(f, "generation {generation_id} is already active")
             }
+            Self::Build(err) => write!(f, "failed to build generation run: {err}"),
         }
     }
 }
 
-impl std::error::Error for StartGenerationError {}
+impl std::error::Error for EnableError {}
+
+/// Errors emitted while disarming and finalizing generation artifacts.
+#[derive(Debug)]
+pub enum DisableError {
+    /// Artifact writing failed during generation finalization.
+    Finalize(tailtriage_core::SinkError),
+}
+
+impl std::fmt::Display for DisableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Finalize(err) => write!(f, "failed to finalize generation: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for DisableError {}
+
+/// Outcome of calling [`TailtriageController::disable`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisableOutcome {
+    /// Controller was already disarmed.
+    AlreadyDisabled,
+    /// Active generation is closing and will finalize once in-flight requests drain.
+    Closing {
+        /// Active generation ID.
+        generation_id: u64,
+        /// Number of admitted captured requests still in flight.
+        inflight_captured_requests: u64,
+    },
+    /// Active generation finalized immediately.
+    Finalized {
+        /// Generation ID that was finalized.
+        generation_id: u64,
+    },
+}
+
+/// Errors emitted during process shutdown finalization.
+#[derive(Debug)]
+pub enum ShutdownError {
+    /// Active generation could not be finalized.
+    Finalize(DisableError),
+}
+
+impl std::fmt::Display for ShutdownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Finalize(err) => write!(f, "shutdown finalization failed: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ShutdownError {}
+
+fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64) -> PathBuf {
+    match template {
+        ControllerSinkTemplate::LocalJson { output_path } => {
+            let parent = output_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+            let stem = output_path
+                .file_stem()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or("tailtriage-run");
+            let extension = output_path.extension().and_then(std::ffi::OsStr::to_str);
+            let filename = match extension {
+                Some(ext) if !ext.is_empty() => format!("{stem}-generation-{generation_id}.{ext}"),
+                _ => format!("{stem}-generation-{generation_id}.json"),
+            };
+            parent.join(filename)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ControllerSinkTemplate, GenerationState, RunEndPolicy, StartGenerationError,
-        TailtriageController,
-    };
+    use std::fs;
 
-    #[test]
-    fn builder_defaults_are_stable() {
-        let controller = TailtriageController::builder("checkout-service")
-            .build()
-            .expect("build should succeed");
+    use super::{DisableOutcome, EnableError, GenerationState, TailtriageController};
 
-        let status = controller.status();
-        assert_eq!(status.service_name, "checkout-service");
-        assert_eq!(status.config_path, None);
-        assert_eq!(status.selected_mode, tailtriage_core::CaptureMode::Light);
-        assert_eq!(status.run_end_policy, RunEndPolicy::Manual);
-        assert_eq!(
-            status.sink_template,
-            ControllerSinkTemplate::LocalJson {
-                output_path: "tailtriage-run.json".into()
-            }
+    fn test_output(base: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "tailtriage-controller-{base}-{}-{}.json",
+            std::process::id(),
+            tailtriage_core::unix_time_ms()
         );
-        assert_eq!(
-            status.generation,
-            GenerationState::Disabled { next_generation: 1 }
-        );
+        std::env::temp_dir().join(unique)
     }
 
     #[test]
-    fn status_defaults_for_initially_enabled_controller() {
+    fn enable_capture_disable_finalizes_generation() {
+        let output = test_output("enable-capture-disable");
         let controller = TailtriageController::builder("checkout-service")
-            .initially_enabled(true)
+            .output(&output)
             .build()
             .expect("build should succeed");
 
-        let status = controller.status();
-        assert_eq!(
-            status.generation,
-            GenerationState::EnabledIdle { next_generation: 1 }
-        );
-    }
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller
+            .try_begin_request("/checkout")
+            .expect("request should be admitted while enabled");
+        started.completion.finish_ok();
 
-    #[test]
-    fn only_one_generation_can_be_active() {
-        let controller = TailtriageController::builder("checkout-service")
-            .initially_enabled(true)
-            .build()
-            .expect("build should succeed");
-
-        let first = controller
-            .start_generation()
-            .expect("first generation should start");
-        let GenerationState::Active(active) = first else {
-            panic!("first generation should be active");
-        };
-
-        let err = controller
-            .start_generation()
-            .expect_err("second start should fail while first active");
-        assert_eq!(
-            err,
-            StartGenerationError::AlreadyActive {
-                generation_id: active.generation_id
-            }
-        );
-
-        assert!(controller.finish_generation(active.generation_id));
+        let disable = controller.disable().expect("disable should succeed");
         assert!(matches!(
-            controller.status().generation,
-            GenerationState::EnabledIdle { next_generation: 2 }
+            disable,
+            DisableOutcome::Finalized {
+                generation_id: id
+            } if id == active.generation_id
         ));
+
+        let expected = output.with_file_name(format!(
+            "{}-generation-1.json",
+            output
+                .file_stem()
+                .and_then(std::ffi::OsStr::to_str)
+                .expect("stem")
+        ));
+        assert!(expected.exists());
+
+        fs::remove_file(expected).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn enable_disable_reenable_creates_distinct_generation_and_artifact() {
+        let output = test_output("reenable");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let first = controller.enable().expect("first enable should succeed");
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+
+        let second = controller.enable().expect("second enable should succeed");
+        assert_eq!(first.generation_id + 1, second.generation_id);
+        assert_ne!(first.artifact_path, second.artifact_path);
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 2 })
+        ));
+
+        fs::remove_file(first.artifact_path).expect("cleanup first artifact should succeed");
+        fs::remove_file(second.artifact_path).expect("cleanup second artifact should succeed");
+    }
+
+    #[test]
+    fn request_started_before_disable_can_finish_after_disable() {
+        let output = test_output("finish-after-disable");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller
+            .try_begin_request("/checkout")
+            .expect("request should be admitted while enabled");
+
+        let disable = controller.disable().expect("disable should succeed");
+        assert!(matches!(
+            disable,
+            DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            } if generation_id == active.generation_id
+        ));
+
+        started.completion.finish_ok();
+
+        let status = controller.status();
+        assert!(matches!(
+            status.generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        assert!(active.artifact_path.exists());
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn no_new_admissions_after_disable() {
+        let output = test_output("no-admissions");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller
+            .try_begin_request("/checkout")
+            .expect("first request should be admitted");
+
+        let _ = controller.disable().expect("disable should succeed");
+
+        assert!(controller.try_begin_request("/checkout").is_none());
+
+        started.completion.finish_ok();
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn one_active_generation_at_a_time() {
+        let controller = TailtriageController::builder("checkout-service")
+            .build()
+            .expect("build should succeed");
+
+        let first = controller.enable().expect("first enable should succeed");
+        let err = controller
+            .enable()
+            .expect_err("second enable should fail while first generation active");
+
+        assert!(matches!(
+            err,
+            EnableError::AlreadyActive {
+                generation_id
+            } if generation_id == first.generation_id
+        ));
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { .. })
+        ));
+        fs::remove_file(first.artifact_path).expect("cleanup should succeed");
     }
 }
