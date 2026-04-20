@@ -319,6 +319,10 @@ impl TailtriageController {
 
     /// Begins a captured request when an active generation is still admitting requests.
     ///
+    /// The returned handle and completion are generation-bound at admission time.
+    /// They remain attached to that admitted generation even if the controller is
+    /// disabled and re-enabled before completion finishes.
+    ///
     /// Returns `None` when controller is disabled or when active generation is closing.
     ///
     /// # Panics
@@ -353,13 +357,17 @@ impl TailtriageController {
             return None;
         }
 
+        // Admission is now committed to this concrete generation runtime.
+        // The completion token keeps a weak reference to this runtime so finish
+        // bookkeeping cannot drift into a later generation.
         let started = active.run.begin_request_with_owned(route, options);
 
         Some(ControllerStartedRequest {
             handle: started.handle,
             completion: ControllerRequestCompletion {
                 completion: Some(started.completion),
-                active_generation_id: active.state.generation_id,
+                admission_generation_id: active.state.generation_id,
+                admitted_generation: Arc::downgrade(&active),
                 inner: Arc::downgrade(&self.inner),
                 inflight_recorded: true,
             },
@@ -478,7 +486,18 @@ pub struct ControllerStartedRequest {
 #[derive(Debug)]
 pub struct ControllerRequestCompletion {
     completion: Option<OwnedRequestCompletion>,
-    active_generation_id: u64,
+    /// Generation captured at admission time.
+    ///
+    /// This binding is immutable for the life of the completion token so that
+    /// request finalization cannot migrate to a later generation during rapid
+    /// enable/disable/re-enable transitions.
+    admission_generation_id: u64,
+    /// Weak reference to the exact runtime generation that admitted the request.
+    ///
+    /// Keeping this pointer ensures inflight accounting and close/finalize checks
+    /// operate on the admitted generation even if controller lifecycle has already
+    /// advanced to a newer generation.
+    admitted_generation: Weak<ActiveGenerationRuntime>,
     inner: Weak<ControllerInner>,
     inflight_recorded: bool,
 }
@@ -522,38 +541,49 @@ impl ControllerRequestCompletion {
 
         self.inflight_recorded = false;
 
-        let Some(inner) = self.inner.upgrade() else {
+        let Some(active) = self.admitted_generation.upgrade() else {
             return;
         };
 
-        let mut lifecycle = inner
-            .lifecycle
-            .lock()
-            .expect("controller lifecycle lock poisoned");
-
-        let ControllerLifecycle::Active {
-            ref active,
-            next_generation,
-        } = *lifecycle
-        else {
-            return;
-        };
-
-        if active.state.generation_id != self.active_generation_id {
-            return;
-        }
+        debug_assert_eq!(
+            active.state.generation_id, self.admission_generation_id,
+            "controller completion generation binding should remain stable"
+        );
 
         let remaining = active
             .inflight_captured
             .fetch_sub(1, Ordering::AcqRel)
             .saturating_sub(1);
 
-        if remaining == 0
-            && active.closing.load(Ordering::Acquire)
-            && !active.finalize_started.swap(true, Ordering::AcqRel)
+        if remaining == 0 && active.closing.load(Ordering::Acquire) {
+            self.try_finalize_bound_generation(&active);
+        }
+    }
+
+    fn try_finalize_bound_generation(&self, active: &Arc<ActiveGenerationRuntime>) {
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+
+        if active.finalize_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        if active.run.shutdown().is_err() {
+            return;
+        }
+
+        let mut lifecycle = inner
+            .lifecycle
+            .lock()
+            .expect("controller lifecycle lock poisoned");
+
+        if let ControllerLifecycle::Active {
+            active: ref current_active,
+            next_generation,
+        } = *lifecycle
         {
-            let shutdown_result = active.run.shutdown();
-            if shutdown_result.is_ok() {
+            if current_active.state.generation_id == active.state.generation_id {
                 *lifecycle = ControllerLifecycle::Disabled { next_generation };
             }
         }
@@ -801,6 +831,7 @@ mod tests {
     use std::fs;
 
     use super::{DisableOutcome, EnableError, GenerationState, TailtriageController};
+    use tailtriage_core::RequestOptions;
 
     fn test_output(base: &str) -> std::path::PathBuf {
         let unique = format!(
@@ -809,6 +840,10 @@ mod tests {
             tailtriage_core::unix_time_ms()
         );
         std::env::temp_dir().join(unique)
+    }
+
+    fn read_artifact(path: &std::path::Path) -> String {
+        fs::read_to_string(path).expect("artifact should be readable")
     }
 
     #[test]
@@ -950,5 +985,172 @@ mod tests {
             Ok(DisableOutcome::Finalized { .. })
         ));
         fs::remove_file(first.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn request_completion_remains_bound_to_original_generation_after_reenable() {
+        let output = test_output("generation-binding");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let gen_a = controller.enable().expect("generation A should enable");
+        let started_a = controller
+            .try_begin_request_with(
+                "/checkout",
+                RequestOptions::new().request_id("req-generation-a"),
+            )
+            .expect("generation A request should be admitted");
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == gen_a.generation_id
+        ));
+
+        started_a.completion.finish_ok();
+
+        let gen_b = controller.enable().expect("generation B should enable");
+        let started_b = controller
+            .try_begin_request_with(
+                "/checkout",
+                RequestOptions::new().request_id("req-generation-b"),
+            )
+            .expect("generation B request should be admitted");
+        started_b.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id })
+            if generation_id == gen_b.generation_id
+        ));
+
+        let run_a = read_artifact(&gen_a.artifact_path);
+        let run_b = read_artifact(&gen_b.artifact_path);
+        assert!(run_a.contains("req-generation-a"));
+        assert!(!run_a.contains("req-generation-b"));
+        assert!(run_b.contains("req-generation-b"));
+        assert!(!run_b.contains("req-generation-a"));
+
+        fs::remove_file(gen_a.artifact_path).expect("cleanup generation A should succeed");
+        fs::remove_file(gen_b.artifact_path).expect("cleanup generation B should succeed");
+    }
+
+    #[test]
+    fn request_started_while_disabled_never_joins_later_generation() {
+        let output = test_output("disabled-admission");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        assert!(
+            controller
+                .try_begin_request_with(
+                    "/checkout",
+                    RequestOptions::new().request_id("req-disabled")
+                )
+                .is_none(),
+            "disabled controller should return no request token"
+        );
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller
+            .try_begin_request_with("/checkout", RequestOptions::new().request_id("req-enabled"))
+            .expect("enabled request should be admitted");
+        started.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+
+        let run = read_artifact(&active.artifact_path);
+        assert!(run.contains("req-enabled"));
+        assert!(!run.contains("req-disabled"));
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn rapid_enable_disable_boundaries_keep_generation_isolation() {
+        let output = test_output("rapid-boundaries");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let mut artifacts = Vec::new();
+        for generation in 1..=3 {
+            let active = controller.enable().expect("enable should succeed");
+            assert_eq!(active.generation_id, generation);
+
+            let started = controller
+                .try_begin_request_with(
+                    "/checkout",
+                    RequestOptions::new().request_id(format!("req-gen-{generation}")),
+                )
+                .expect("request should be admitted");
+
+            assert!(matches!(
+                controller.disable(),
+                Ok(DisableOutcome::Closing {
+                    generation_id,
+                    inflight_captured_requests: 1
+                }) if generation_id == generation
+            ));
+
+            assert!(
+                matches!(
+                    controller.enable(),
+                    Err(EnableError::AlreadyActive { generation_id }) if generation_id == generation
+                ),
+                "controller must not start next generation before admitted requests drain"
+            );
+
+            started.completion.finish_ok();
+            artifacts.push(active.artifact_path);
+        }
+
+        for (idx, artifact) in artifacts.iter().enumerate() {
+            let run = read_artifact(artifact);
+            assert!(run.contains(&format!("req-gen-{}", idx + 1)));
+            fs::remove_file(artifact).expect("cleanup should succeed");
+        }
+    }
+
+    #[test]
+    fn completion_drain_finalizes_once_without_duplicate_side_effects() {
+        let output = test_output("single-finalize");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller
+            .try_begin_request_with("/checkout", RequestOptions::new().request_id("req-once"))
+            .expect("request should be admitted");
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == active.generation_id
+        ));
+
+        started.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::AlreadyDisabled)
+        ));
+        assert!(matches!(controller.shutdown(), Ok(())));
+
+        let run = read_artifact(&active.artifact_path);
+        assert_eq!(run.matches("req-once").count(), 1);
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 }
