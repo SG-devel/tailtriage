@@ -50,5 +50,26 @@ pub use sink::{LocalJsonSink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};
 pub use timers::{InflightGuard, QueueTimer, StageTimer};
 
+/// Internal integration hooks for sibling crates in this workspace.
+#[doc(hidden)]
+pub mod __internal {
+    use crate::{EffectiveTokioSamplerConfig, RuntimeSamplerRegistrationError, Tailtriage};
+
+    /// Registers Tokio sampler startup metadata after real sampler preconditions pass.
+    ///
+    /// This hook is intentionally hidden and not part of the stable public API.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeSamplerRegistrationError::DuplicateStart`] when a sampler
+    /// was already registered for this run.
+    pub fn register_tokio_runtime_sampler(
+        tailtriage: &Tailtriage,
+        config: EffectiveTokioSamplerConfig,
+    ) -> Result<(), RuntimeSamplerRegistrationError> {
+        tailtriage.register_tokio_runtime_sampler(config)
+    }
+}
+
 #[cfg(test)]
 mod tests;
