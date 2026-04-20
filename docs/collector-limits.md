@@ -13,6 +13,13 @@ In short:
 - `runtime-cost.md`: overhead attribution across fixed benchmark modes.
 - `collector-limits.md` (this page): sustained-load operating behavior, retention/truncation behavior, artifact/memory growth, and sampler density behavior under stress-shaped event volume.
 
+Use this distinction when choosing a measurement path:
+
+- Runtime overhead attribution -> `runtime-cost.md`
+- Sustained-load collector limits -> this page + `scripts/measure_collector_limits.py`
+- Artifact-size scaling under stress-shaped event volume -> this page
+- Memory-growth behavior under stress-shaped event volume -> this page
+
 ## Measurement path and methodology
 
 The measured path is:
@@ -22,6 +29,8 @@ The measured path is:
 3. **Output artifacts:**
    - Raw JSONL: `demos/collector_stress/artifacts/collector-limits-<profile>-raw.jsonl`
    - Summary JSON: `demos/collector_stress/artifacts/collector-limits-<profile>-summary.json`
+
+Treat this as the canonical collector-limits measurement path for issue #107.
 
 ### Workload shape and measured dimensions
 
