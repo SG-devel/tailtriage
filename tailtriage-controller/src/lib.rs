@@ -1183,19 +1183,18 @@ impl ControllerSinkTemplateToml {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum RunEndPolicyConfigToml {
+    #[default]
     Manual,
-    MaxRequests { max_requests: u64 },
-    MaxDurationMs { max_duration_ms: u64 },
+    MaxRequests {
+        max_requests: u64,
+    },
+    MaxDurationMs {
+        max_duration_ms: u64,
+    },
     FirstLimitHit,
-}
-
-impl Default for RunEndPolicyConfigToml {
-    fn default() -> Self {
-        Self::Manual
-    }
 }
 
 impl From<RunEndPolicyConfigToml> for RunEndPolicy {
