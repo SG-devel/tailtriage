@@ -15,7 +15,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use tailtriage_core::{
-    BuildError, CaptureMode, OwnedRequestCompletion, OwnedRequestHandle, RequestOptions, Tailtriage,
+    BuildError, CaptureMode, InflightGuard, Outcome, OwnedRequestCompletion, OwnedRequestHandle,
+    QueueTimer, RequestOptions, StageTimer, Tailtriage,
 };
 
 /// Builder for a long-lived [`TailtriageController`].
@@ -94,18 +95,7 @@ impl TailtriageControllerBuilder {
         let inner = Arc::new(ControllerInner {
             template: Mutex::new(template),
             lifecycle: Mutex::new(ControllerLifecycle::Disabled { next_generation: 1 }),
-            inert_run: Arc::new(
-                Tailtriage::builder("tailtriage-controller-disabled")
-                    .output(std::env::temp_dir().join(format!(
-                        "tailtriage-controller-disabled-{}-{}.json",
-                        std::process::id(),
-                        tailtriage_core::unix_time_ms()
-                    )))
-                    .build()
-                    .map_err(ControllerBuildError::InertRunBuild)?,
-            ),
         });
-        inner.inert_run.set_capture_enabled(false);
 
         let controller = TailtriageController { inner };
         if self.initially_enabled {
@@ -128,7 +118,6 @@ pub struct TailtriageController {
 struct ControllerInner {
     template: Mutex<TailtriageControllerTemplate>,
     lifecycle: Mutex<ControllerLifecycle>,
-    inert_run: Arc<Tailtriage>,
 }
 
 #[derive(Debug)]
@@ -350,18 +339,12 @@ impl TailtriageController {
             return started;
         }
 
-        let started = self
-            .inner
-            .inert_run
-            .begin_request_with_owned(route, options);
         ControllerStartedRequest {
-            handle: started.handle,
+            handle: ControllerRequestHandle::Inert(InertControllerRequestHandle::new(
+                route, options,
+            )),
             completion: ControllerRequestCompletion {
-                completion: Some(started.completion),
-                admission_generation_id: None,
-                admitted_generation: Weak::new(),
-                inner: Weak::new(),
-                inflight_recorded: false,
+                kind: ControllerCompletionKind::Inert,
             },
         }
     }
@@ -419,13 +402,15 @@ impl TailtriageController {
         let started = active.run.begin_request_with_owned(route, options);
 
         Some(ControllerStartedRequest {
-            handle: started.handle,
+            handle: ControllerRequestHandle::Active(started.handle),
             completion: ControllerRequestCompletion {
-                completion: Some(started.completion),
-                admission_generation_id: Some(active.state.generation_id),
-                admitted_generation: Arc::downgrade(&active),
-                inner: Arc::downgrade(&self.inner),
-                inflight_recorded: true,
+                kind: ControllerCompletionKind::Active(ActiveControllerCompletion {
+                    completion: Some(started.completion),
+                    admission_generation_id: active.state.generation_id,
+                    admitted_generation: Arc::downgrade(&active),
+                    inner: Arc::downgrade(&self.inner),
+                    inflight_recorded: true,
+                }),
             },
         })
     }
@@ -534,7 +519,7 @@ impl TailtriageController {
 #[derive(Debug)]
 pub struct ControllerStartedRequest {
     /// Instrumentation handle for queue/stage/inflight timing.
-    pub handle: OwnedRequestHandle,
+    pub handle: ControllerRequestHandle,
     /// Completion token bound to one generation.
     pub completion: ControllerRequestCompletion,
 }
@@ -543,13 +528,61 @@ pub struct ControllerStartedRequest {
 #[must_use = "request completion must be finished explicitly"]
 #[derive(Debug)]
 pub struct ControllerRequestCompletion {
+    kind: ControllerCompletionKind,
+}
+
+impl ControllerRequestCompletion {
+    /// Finishes this request with an explicit outcome.
+    pub fn finish(mut self, outcome: Outcome) {
+        if let ControllerCompletionKind::Active(active) = &mut self.kind {
+            if let Some(completion) = active.completion.take() {
+                completion.finish(outcome);
+                active.mark_finished();
+            }
+        }
+    }
+
+    /// Convenience helper for successful completion.
+    pub fn finish_ok(self) {
+        self.finish(Outcome::Ok);
+    }
+
+    /// Finishes from `result` and returns `result` unchanged.
+    ///
+    /// # Errors
+    ///
+    /// This method does not create new errors. It returns `result` unchanged,
+    /// including the original `Err(E)` value.
+    pub fn finish_result<T, E>(mut self, result: Result<T, E>) -> Result<T, E> {
+        if let ControllerCompletionKind::Active(active) = &mut self.kind {
+            if let Some(completion) = active.completion.take() {
+                completion.finish(if result.is_ok() {
+                    Outcome::Ok
+                } else {
+                    Outcome::Error
+                });
+                active.mark_finished();
+            }
+        }
+        result
+    }
+}
+
+#[derive(Debug)]
+enum ControllerCompletionKind {
+    Active(ActiveControllerCompletion),
+    Inert,
+}
+
+#[derive(Debug)]
+struct ActiveControllerCompletion {
     completion: Option<OwnedRequestCompletion>,
     /// Generation captured at admission time.
     ///
     /// This binding is immutable for the life of the completion token so that
     /// request finalization cannot migrate to a later generation during rapid
     /// enable/disable/re-enable transitions.
-    admission_generation_id: Option<u64>,
+    admission_generation_id: u64,
     /// Weak reference to the exact runtime generation that admitted the request.
     ///
     /// Keeping this pointer ensures inflight accounting and close/finalize checks
@@ -560,38 +593,7 @@ pub struct ControllerRequestCompletion {
     inflight_recorded: bool,
 }
 
-impl ControllerRequestCompletion {
-    /// Finishes this request with an explicit outcome.
-    pub fn finish(mut self, outcome: tailtriage_core::Outcome) {
-        if let Some(completion) = self.completion.take() {
-            completion.finish(outcome);
-            self.mark_finished();
-        }
-    }
-
-    /// Convenience helper for successful completion.
-    pub fn finish_ok(self) {
-        self.finish(tailtriage_core::Outcome::Ok);
-    }
-
-    /// Finishes from `result` and returns `result` unchanged.
-    ///
-    /// # Errors
-    ///
-    /// This method does not create new errors. It returns `result` unchanged,
-    /// including the original `Err(E)` value.
-    pub fn finish_result<T, E>(mut self, result: Result<T, E>) -> Result<T, E> {
-        if let Some(completion) = self.completion.take() {
-            completion.finish(if result.is_ok() {
-                tailtriage_core::Outcome::Ok
-            } else {
-                tailtriage_core::Outcome::Error
-            });
-            self.mark_finished();
-        }
-        result
-    }
-
+impl ActiveControllerCompletion {
     fn mark_finished(&mut self) {
         if !self.inflight_recorded {
             return;
@@ -603,12 +605,10 @@ impl ControllerRequestCompletion {
             return;
         };
 
-        if let Some(admission_generation_id) = self.admission_generation_id {
-            debug_assert_eq!(
-                active.state.generation_id, admission_generation_id,
-                "controller completion generation binding should remain stable"
-            );
-        }
+        debug_assert_eq!(
+            active.state.generation_id, self.admission_generation_id,
+            "controller completion generation binding should remain stable"
+        );
 
         let remaining = active
             .inflight_captured
@@ -648,6 +648,178 @@ impl ControllerRequestCompletion {
             }
         }
     }
+}
+
+/// Instrumentation handle for requests admitted through [`TailtriageController`].
+#[derive(Debug, Clone)]
+pub enum ControllerRequestHandle {
+    /// Active request handle delegated to one admitted generation.
+    Active(OwnedRequestHandle),
+    /// Inert request handle returned while disabled/closing.
+    Inert(InertControllerRequestHandle),
+}
+
+impl ControllerRequestHandle {
+    /// Correlation ID attached to this request.
+    #[must_use]
+    pub fn request_id(&self) -> &str {
+        match self {
+            Self::Active(handle) => handle.request_id(),
+            Self::Inert(handle) => handle.request_id(),
+        }
+    }
+
+    /// Route/operation name attached to this request.
+    #[must_use]
+    pub fn route(&self) -> &str {
+        match self {
+            Self::Active(handle) => handle.route(),
+            Self::Inert(handle) => handle.route(),
+        }
+    }
+
+    /// Optional kind metadata attached to this request.
+    #[must_use]
+    pub fn kind(&self) -> Option<&str> {
+        match self {
+            Self::Active(handle) => handle.kind(),
+            Self::Inert(handle) => handle.kind(),
+        }
+    }
+
+    /// Starts queue-wait timing instrumentation for `queue`.
+    #[must_use]
+    pub fn queue(&self, queue: impl Into<String>) -> ControllerQueueTimer<'_> {
+        match self {
+            Self::Active(handle) => ControllerQueueTimer::Active(handle.queue(queue)),
+            Self::Inert(_) => ControllerQueueTimer::Inert,
+        }
+    }
+
+    /// Starts stage timing instrumentation for `stage`.
+    #[must_use]
+    pub fn stage(&self, stage: impl Into<String>) -> ControllerStageTimer<'_> {
+        match self {
+            Self::Active(handle) => ControllerStageTimer::Active(handle.stage(stage)),
+            Self::Inert(_) => ControllerStageTimer::Inert,
+        }
+    }
+
+    /// Creates an in-flight guard for `gauge`.
+    #[must_use]
+    pub fn inflight(&self, gauge: impl Into<String>) -> ControllerInflightGuard<'_> {
+        match self {
+            Self::Active(handle) => ControllerInflightGuard::Active(handle.inflight(gauge)),
+            Self::Inert(_) => ControllerInflightGuard::Inert,
+        }
+    }
+}
+
+/// Inert controller request handle metadata stored while disabled/closing.
+#[derive(Debug, Clone)]
+pub struct InertControllerRequestHandle {
+    request_id: String,
+    route: String,
+    kind: Option<String>,
+}
+
+impl InertControllerRequestHandle {
+    fn new(route: String, options: RequestOptions) -> Self {
+        Self {
+            request_id: options.request_id.unwrap_or_default(),
+            route,
+            kind: options.kind,
+        }
+    }
+
+    fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
+    fn route(&self) -> &str {
+        &self.route
+    }
+
+    fn kind(&self) -> Option<&str> {
+        self.kind.as_deref()
+    }
+}
+
+/// Controller-local queue timer wrapper.
+#[derive(Debug)]
+pub enum ControllerQueueTimer<'a> {
+    /// Queue timer delegated to an active generation.
+    Active(QueueTimer<'a>),
+    /// Inert timer used while disabled/closing.
+    Inert,
+}
+
+impl ControllerQueueTimer<'_> {
+    /// Sets queue depth sample captured at wait start.
+    #[must_use]
+    pub fn with_depth_at_start(self, depth_at_start: u64) -> Self {
+        match self {
+            Self::Active(timer) => Self::Active(timer.with_depth_at_start(depth_at_start)),
+            Self::Inert => Self::Inert,
+        }
+    }
+
+    /// Awaits `fut`, recording queue wait for active requests only.
+    pub async fn await_on<Fut, T>(self, fut: Fut) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        match self {
+            Self::Active(timer) => timer.await_on(fut).await,
+            Self::Inert => fut.await,
+        }
+    }
+}
+
+/// Controller-local stage timer wrapper.
+#[derive(Debug)]
+pub enum ControllerStageTimer<'a> {
+    /// Stage timer delegated to an active generation.
+    Active(StageTimer<'a>),
+    /// Inert timer used while disabled/closing.
+    Inert,
+}
+
+impl ControllerStageTimer<'_> {
+    /// Awaits `fut`, recording stage duration for active requests only.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same `Err(E)` produced by `fut` unchanged.
+    pub async fn await_on<Fut, T, E>(self, fut: Fut) -> Result<T, E>
+    where
+        Fut: std::future::Future<Output = Result<T, E>>,
+    {
+        match self {
+            Self::Active(timer) => timer.await_on(fut).await,
+            Self::Inert => fut.await,
+        }
+    }
+
+    /// Awaits infallible stage work, recording active requests only.
+    pub async fn await_value<Fut, T>(self, fut: Fut) -> T
+    where
+        Fut: std::future::Future<Output = T>,
+    {
+        match self {
+            Self::Active(timer) => timer.await_value(fut).await,
+            Self::Inert => fut.await,
+        }
+    }
+}
+
+/// Controller-local in-flight guard wrapper.
+#[derive(Debug)]
+pub enum ControllerInflightGuard<'a> {
+    /// In-flight guard delegated to an active generation.
+    Active(InflightGuard<'a>),
+    /// Inert guard used while disabled/closing.
+    Inert,
 }
 
 /// Template configuration that the controller applies to future activations.
@@ -772,8 +944,6 @@ impl ControllerLifecycle {
 pub enum ControllerBuildError {
     /// Service name was empty.
     EmptyServiceName,
-    /// Building the disabled-path inert run failed.
-    InertRunBuild(BuildError),
     /// Initially-enabled controller failed to create first generation.
     InitialEnable(EnableError),
 }
@@ -782,7 +952,6 @@ impl std::fmt::Display for ControllerBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
-            Self::InertRunBuild(err) => write!(f, "failed to build disabled-path inert run: {err}"),
             Self::InitialEnable(err) => write!(f, "failed to start initial generation: {err}"),
         }
     }
@@ -1103,7 +1272,7 @@ mod tests {
             "/checkout",
             RequestOptions::new().request_id("req-disabled"),
         );
-        assert_eq!(disabled_started.handle.request_id(), "");
+        assert_eq!(disabled_started.handle.request_id(), "req-disabled");
         disabled_started.completion.finish_ok();
 
         let active = controller.enable().expect("enable should succeed");
@@ -1137,7 +1306,7 @@ mod tests {
                 .kind("http"),
         );
 
-        assert_eq!(started.handle.request_id(), "");
+        assert_eq!(started.handle.request_id(), "req-disabled-noop");
         assert_eq!(started.handle.route(), "/checkout");
         assert_eq!(started.handle.kind(), Some("http"));
         let request = started.handle.clone();

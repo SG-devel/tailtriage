@@ -14,6 +14,7 @@ This crate provides:
 - per-generation admission gating and drain-aware finalization
 - generation-specific artifact paths and run IDs
 - run-end policy modeling
+- controller-owned inert request wrappers for disabled/closing periods
 
 ## Minimal usage
 
@@ -35,3 +36,8 @@ let _ = controller.disable()?;
 # Ok(())
 # }
 ```
+
+When the controller is disabled (or an active generation is closing), `begin_request(...)`
+and `begin_request_with(...)` still return request tokens with the same non-branching
+ergonomics, but those tokens are inert/no-op wrappers owned by this crate. They do not
+interact with `tailtriage-core` state until a generation is actively admitting requests.
