@@ -51,7 +51,10 @@ impl TailtriageControllerBuilder {
         self
     }
 
-    /// Sets whether the controller starts with an active generation.
+    /// Sets whether build should immediately create the first active generation.
+    ///
+    /// When set to `true`, [`Self::build`] calls [`TailtriageController::enable`]
+    /// during construction so generation `1` is active as soon as build succeeds.
     #[must_use]
     pub const fn initially_enabled(mut self, initially_enabled: bool) -> Self {
         self.initially_enabled = initially_enabled;
@@ -891,11 +894,6 @@ pub enum GenerationState {
         /// Next generation ID that would be assigned on activation.
         next_generation: u64,
     },
-    /// Controller is armed and waiting for next activation.
-    EnabledIdle {
-        /// Next generation ID that will be assigned on activation.
-        next_generation: u64,
-    },
     /// Controller currently owns one active generation.
     Active(ActiveGenerationState),
 }
@@ -1108,6 +1106,43 @@ mod tests {
         assert!(expected.exists());
 
         fs::remove_file(expected).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn initially_enabled_build_starts_first_active_generation() {
+        let output = test_output("initially-enabled");
+        let controller = TailtriageController::builder("checkout-service")
+            .initially_enabled(true)
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let status = controller.status();
+        let active = match status.generation {
+            GenerationState::Active(active) => active,
+            disabled @ GenerationState::Disabled { .. } => {
+                panic!("expected active generation after build, got {disabled:?}")
+            }
+        };
+        assert_eq!(active.generation_id, 1);
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn disabled_status_reports_next_generation() {
+        let controller = TailtriageController::builder("checkout-service")
+            .build()
+            .expect("build should succeed");
+
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 1 }
+        ));
     }
 
     #[test]
