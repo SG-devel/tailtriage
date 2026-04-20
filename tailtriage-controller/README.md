@@ -62,19 +62,22 @@ let _ = controller.disable()?;
 # }
 ```
 
-### Runnable example (workspace checkout or published crate)
+### Runnable example (workspace checkout)
 
 `controller_minimal` is bundled in the repository/workspace and in the published crate package.
 Run it from a repository checkout:
 
 `cargo run --manifest-path tailtriage-controller/Cargo.toml --example controller_minimal`
 
-or from a standalone project after adding `tailtriage-controller` from crates.io:
+### Published crate examples (reference/adoption source)
 
-```bash
-cargo add tailtriage-controller
-cargo run --example controller_minimal
-```
+`tailtriage-controller` packages `examples/**` in the published crate so consumers can read/copy
+the exact example source from docs.rs or the crate source package.
+
+Important: dependency examples are **not** runnable in an arbitrary consumer project by first
+adding `tailtriage-controller` as a dependency and then running
+`cargo run --example controller_minimal`. `cargo run --example ...` runs examples defined by the
+current package.
 
 You can also copy the minimal snippet directly into your service:
 

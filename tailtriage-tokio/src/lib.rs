@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{
-    unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, RuntimeSamplerRegistrationError,
-    RuntimeSnapshot, Tailtriage,
+    __internal, unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig,
+    RuntimeSamplerRegistrationError, RuntimeSnapshot, Tailtriage,
 };
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
@@ -204,15 +204,13 @@ impl RuntimeSamplerBuilder {
     pub fn start(self) -> Result<RuntimeSampler, SamplerStartError> {
         let resolved = self.resolve_config()?;
         let handle = Handle::try_current().map_err(|_| SamplerStartError::MissingRuntime)?;
-        self.tailtriage
-            .__tailtriage_internal_register_tokio_runtime_sampler(
-                resolved.into_effective_metadata(),
-            )
-            .map_err(|err| match err {
-                RuntimeSamplerRegistrationError::DuplicateStart => {
-                    SamplerStartError::DuplicateStart
-                }
-            })?;
+        __internal::register_tokio_runtime_sampler(
+            &self.tailtriage,
+            resolved.into_effective_metadata(),
+        )
+        .map_err(|err| match err {
+            RuntimeSamplerRegistrationError::DuplicateStart => SamplerStartError::DuplicateStart,
+        })?;
 
         let tailtriage = Arc::clone(&self.tailtriage);
         let (stop_tx, mut stop_rx) = oneshot::channel();
