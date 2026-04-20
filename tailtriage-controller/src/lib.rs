@@ -20,6 +20,7 @@ use tailtriage_core::{
     BuildError, CaptureLimitsOverride, CaptureMode, InflightGuard, Outcome, OwnedRequestCompletion,
     OwnedRequestHandle, QueueTimer, RequestOptions, StageTimer, Tailtriage,
 };
+use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
 /// Builder for a long-lived [`TailtriageController`].
 #[derive(Debug, Clone)]
@@ -198,6 +199,7 @@ struct ActiveGenerationRuntime {
     closing: AtomicBool,
     inflight_captured: AtomicU64,
     finalize_started: AtomicBool,
+    runtime_sampler: Mutex<Option<RuntimeSampler>>,
 }
 
 impl ActiveGenerationRuntime {
@@ -369,6 +371,27 @@ impl TailtriageController {
         builder = builder.strict_lifecycle(template.strict_lifecycle);
 
         let run = Arc::new(builder.build().map_err(EnableError::Build)?);
+        let runtime_sampler = if template.runtime_sampler.enabled_for_armed_runs {
+            let _ = tokio::runtime::Handle::try_current()
+                .map_err(|_| EnableError::MissingTokioRuntimeForSampler)?;
+            let mut sampler_builder = RuntimeSampler::builder(Arc::clone(&run));
+            if let Some(mode_override) = template.runtime_sampler.mode_override {
+                sampler_builder = sampler_builder.mode(mode_override);
+            }
+            if let Some(interval_ms) = template.runtime_sampler.interval_ms {
+                sampler_builder = sampler_builder.interval(Duration::from_millis(interval_ms));
+            }
+            if let Some(max_runtime_snapshots) = template.runtime_sampler.max_runtime_snapshots {
+                sampler_builder = sampler_builder.max_runtime_snapshots(max_runtime_snapshots);
+            }
+            Some(
+                sampler_builder
+                    .start()
+                    .map_err(EnableError::StartRuntimeSampler)?,
+            )
+        } else {
+            None
+        };
         let runtime = Arc::new(ActiveGenerationRuntime {
             state: ActiveGenerationState {
                 generation_id: next_generation,
@@ -392,6 +415,7 @@ impl TailtriageController {
             closing: AtomicBool::new(false),
             inflight_captured: AtomicU64::new(0),
             finalize_started: AtomicBool::new(false),
+            runtime_sampler: Mutex::new(runtime_sampler),
         });
 
         *lifecycle = ControllerLifecycle::Active {
@@ -630,6 +654,7 @@ impl TailtriageController {
             return Ok(());
         }
 
+        Self::stop_runtime_sampler(active);
         active.run.shutdown().map_err(DisableError::Finalize)?;
 
         let mut lifecycle = self
@@ -649,6 +674,24 @@ impl TailtriageController {
         }
 
         Ok(())
+    }
+
+    fn stop_runtime_sampler(active: &Arc<ActiveGenerationRuntime>) {
+        let sampler = active
+            .runtime_sampler
+            .lock()
+            .expect("generation runtime sampler lock poisoned")
+            .take();
+        if let Some(sampler) = sampler {
+            let shutdown_thread = std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("sampler shutdown runtime should build");
+                runtime.block_on(sampler.shutdown());
+            });
+            let _ = shutdown_thread.join();
+        }
     }
 }
 
@@ -767,6 +810,7 @@ impl ActiveControllerCompletion {
             return;
         }
 
+        TailtriageController::stop_runtime_sampler(active);
         if active.run.shutdown().is_err() {
             return;
         }
@@ -1327,6 +1371,10 @@ pub enum EnableError {
     },
     /// Building the fresh bounded run failed.
     Build(BuildError),
+    /// Runtime sampler was enabled but no Tokio runtime was active.
+    MissingTokioRuntimeForSampler,
+    /// Runtime sampler failed to start for this generation.
+    StartRuntimeSampler(SamplerStartError),
 }
 
 impl std::fmt::Display for EnableError {
@@ -1336,6 +1384,12 @@ impl std::fmt::Display for EnableError {
                 write!(f, "generation {generation_id} is already active")
             }
             Self::Build(err) => write!(f, "failed to build generation run: {err}"),
+            Self::MissingTokioRuntimeForSampler => {
+                write!(f, "runtime sampler requires an active Tokio runtime")
+            }
+            Self::StartRuntimeSampler(err) => {
+                write!(f, "failed to start runtime sampler for generation: {err}")
+            }
         }
     }
 }
@@ -1421,8 +1475,11 @@ mod tests {
     use std::fs;
     use std::time::Duration;
 
-    use super::{DisableOutcome, EnableError, GenerationState, RunEndPolicy, TailtriageController};
-    use tailtriage_core::{CaptureLimitsOverride, CaptureMode, RequestOptions};
+    use super::{
+        DisableOutcome, EnableError, GenerationState, RunEndPolicy, RuntimeSamplerTemplate,
+        TailtriageController,
+    };
+    use tailtriage_core::{CaptureLimitsOverride, CaptureMode, RequestOptions, Run};
 
     fn test_output(base: &str) -> std::path::PathBuf {
         let unique = format!(
@@ -1437,6 +1494,11 @@ mod tests {
         fs::read_to_string(path).expect("artifact should be readable")
     }
 
+    fn read_run(path: &std::path::Path) -> Run {
+        let artifact = read_artifact(path);
+        serde_json::from_str(&artifact).expect("artifact should parse as Run")
+    }
+
     fn test_config_path(base: &str) -> std::path::PathBuf {
         let unique = format!(
             "tailtriage-controller-config-{base}-{}-{}.toml",
@@ -1446,7 +1508,13 @@ mod tests {
         std::env::temp_dir().join(unique)
     }
 
-    fn write_config(path: &std::path::Path, output: &std::path::Path, mode: &str, strict: bool) {
+    fn write_config(
+        path: &std::path::Path,
+        output: &std::path::Path,
+        mode: &str,
+        strict: bool,
+        sampler_enabled: bool,
+    ) {
         let content = format!(
             r#"[controller]
 initially_enabled = false
@@ -1464,7 +1532,7 @@ type = "local_json"
 output_path = "{}"
 
 [controller.activation.runtime_sampler]
-enabled_for_armed_runs = true
+enabled_for_armed_runs = {sampler_enabled}
 mode_override = "investigation"
 interval_ms = 250
 max_runtime_snapshots = 123
@@ -1853,7 +1921,7 @@ max_duration_ms = 5000
     fn toml_parsing_success_and_failure() {
         let output = test_output("toml-parse");
         let config = test_config_path("toml-parse");
-        write_config(&config, &output, "light", false);
+        write_config(&config, &output, "light", false, true);
 
         let loaded =
             TailtriageController::load_config_from_path(&config).expect("valid TOML should parse");
@@ -1892,7 +1960,7 @@ max_duration_ms = 5000
         let output_before = test_output("reload-template-before");
         let output_after = test_output("reload-template-after");
         let config = test_config_path("reload-template");
-        write_config(&config, &output_before, "light", false);
+        write_config(&config, &output_before, "light", false, false);
 
         let controller = TailtriageController::builder("checkout-service")
             .config_path(&config)
@@ -1903,7 +1971,7 @@ max_duration_ms = 5000
             CaptureMode::Light
         );
 
-        write_config(&config, &output_after, "investigation", true);
+        write_config(&config, &output_after, "investigation", true, false);
         controller.reload_config().expect("reload should succeed");
 
         let status = controller.status();
@@ -1924,7 +1992,7 @@ max_duration_ms = 5000
         let output_before = test_output("active-keeps-before");
         let output_after = test_output("active-keeps-after");
         let config = test_config_path("active-keeps");
-        write_config(&config, &output_before, "light", false);
+        write_config(&config, &output_before, "light", false, false);
 
         let controller = TailtriageController::builder("checkout-service")
             .config_path(&config)
@@ -1940,7 +2008,7 @@ max_duration_ms = 5000
             }
         );
 
-        write_config(&config, &output_after, "investigation", true);
+        write_config(&config, &output_after, "investigation", true, false);
         controller.reload_config().expect("reload should succeed");
 
         let GenerationState::Active(active_after_reload) = controller.status().generation else {
@@ -1980,5 +2048,127 @@ max_duration_ms = 5000
         fs::remove_file(gen1.artifact_path).expect("cleanup gen1 should succeed");
         fs::remove_file(gen2.artifact_path).expect("cleanup gen2 should succeed");
         fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn armed_generation_with_sampler_enabled_records_effective_metadata() {
+        let output = test_output("sampler-enabled");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .runtime_sampler(RuntimeSamplerTemplate {
+                enabled_for_armed_runs: true,
+                mode_override: Some(CaptureMode::Investigation),
+                interval_ms: Some(15),
+                max_runtime_snapshots: Some(8),
+            })
+            .capture_limits_override(CaptureLimitsOverride {
+                max_runtime_snapshots: Some(3),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+
+        let run = read_run(&active.artifact_path);
+        let config = run
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("sampler metadata should be set");
+        assert_eq!(config.inherited_mode, CaptureMode::Light);
+        assert_eq!(
+            config.explicit_mode_override,
+            Some(CaptureMode::Investigation)
+        );
+        assert_eq!(config.resolved_mode, CaptureMode::Investigation);
+        assert_eq!(config.resolved_sampler_cadence_ms, 15);
+        assert_eq!(config.resolved_runtime_snapshot_retention, 3);
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn armed_generation_with_sampler_disabled_keeps_sampler_metadata_empty() {
+        let output = test_output("sampler-disabled");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .runtime_sampler(RuntimeSamplerTemplate {
+                enabled_for_armed_runs: false,
+                mode_override: Some(CaptureMode::Investigation),
+                interval_ms: Some(5),
+                max_runtime_snapshots: Some(100),
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+
+        let run = read_run(&active.artifact_path);
+        assert!(run.metadata.effective_tokio_sampler_config.is_none());
+        assert!(run.runtime_snapshots.is_empty());
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sampler_stops_on_disarm_and_reenable_uses_fresh_generation_sampler_lifecycle() {
+        let output = test_output("sampler-reenable");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .runtime_sampler(RuntimeSamplerTemplate {
+                enabled_for_armed_runs: true,
+                mode_override: None,
+                interval_ms: Some(10),
+                max_runtime_snapshots: Some(32),
+            })
+            .build()
+            .expect("build should succeed");
+
+        let first = controller.enable().expect("first enable should succeed");
+        tokio::time::sleep(Duration::from_millis(35)).await;
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == first.generation_id
+        ));
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        let first_run = read_run(&first.artifact_path);
+        assert!(!first_run.runtime_snapshots.is_empty());
+        let first_metadata = first_run
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("first generation sampler metadata should exist");
+
+        let second = controller.enable().expect("second enable should succeed");
+        assert_eq!(second.generation_id, first.generation_id + 1);
+        tokio::time::sleep(Duration::from_millis(35)).await;
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == second.generation_id
+        ));
+
+        let second_run = read_run(&second.artifact_path);
+        assert!(!second_run.runtime_snapshots.is_empty());
+        let second_metadata = second_run
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("second generation sampler metadata should exist");
+
+        assert_eq!(first_metadata.resolved_sampler_cadence_ms, 10);
+        assert_eq!(second_metadata.resolved_sampler_cadence_ms, 10);
+        assert_ne!(first.artifact_path, second.artifact_path);
+
+        fs::remove_file(first.artifact_path).expect("cleanup first should succeed");
+        fs::remove_file(second.artifact_path).expect("cleanup second should succeed");
     }
 }
