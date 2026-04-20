@@ -112,6 +112,10 @@ jobs:
         if: matrix.profile == 'release'
         run: python3 scripts/smoke_external_consumer.py
 
+      - name: Smoke-check controller public example
+        if: matrix.profile == 'release'
+        run: python3 scripts/smoke_controller_example.py
+
       - name: Measure collector limits (smoke)
         if: matrix.profile == 'release'
         run: python3 scripts/measure_collector_limits.py --profile smoke
