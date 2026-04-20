@@ -31,6 +31,7 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
         self.assertEqual(
             case_ids,
             {
+                "low_concurrency",
                 "baseline_shape",
                 "high_concurrency",
                 "heavy_event_shape",
@@ -106,6 +107,7 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
         self.assertIn("sampler_density_impact", summary)
         self.assertIn("measurement_quality", summary)
         self.assertIn("outputs", summary)
+        self.assertIn("collector_pressure_onset_markers", summary)
 
 
 if __name__ == "__main__":
