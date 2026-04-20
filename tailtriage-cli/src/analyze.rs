@@ -180,6 +180,7 @@ pub struct Report {
 ///         pid: None,
 ///         lifecycle_warnings: Vec::new(),
 ///         unfinished_requests: UnfinishedRequests::default(),
+///         run_end_reason: None,
 ///     },
 ///     requests: vec![],
 ///     stages: vec![],
@@ -712,6 +713,7 @@ mod tests {
                 pid: Some(1),
                 lifecycle_warnings: Vec::new(),
                 unfinished_requests: tailtriage_core::UnfinishedRequests::default(),
+                run_end_reason: None,
             },
             requests: vec![
                 RequestEvent {

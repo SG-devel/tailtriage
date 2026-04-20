@@ -43,8 +43,8 @@ pub use config::{
 };
 pub use events::{
     EffectiveTokioSamplerConfig, InFlightSnapshot, Outcome, QueueEvent, RequestEvent, Run,
-    RunMetadata, RuntimeSnapshot, StageEvent, TruncationSummary, UnfinishedRequestSample,
-    UnfinishedRequests, SCHEMA_VERSION,
+    RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, TruncationSummary,
+    UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,
 };
 pub use sink::{LocalJsonSink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};

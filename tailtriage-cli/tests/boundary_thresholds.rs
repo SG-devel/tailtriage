@@ -32,6 +32,7 @@ fn base_run() -> Run {
             pid: Some(7),
             lifecycle_warnings: Vec::new(),
             unfinished_requests: tailtriage_core::UnfinishedRequests::default(),
+            run_end_reason: None,
         },
         requests: vec![
             RequestEvent {

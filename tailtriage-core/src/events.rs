@@ -156,6 +156,23 @@ pub struct RunMetadata {
     /// Incomplete request summary captured at shutdown.
     #[serde(default)]
     pub unfinished_requests: UnfinishedRequests,
+    /// Why the run lifecycle ended.
+    ///
+    /// This field may be `None` for older artifacts that predate explicit run-end reasons.
+    #[serde(default)]
+    pub run_end_reason: Option<RunEndReason>,
+}
+
+/// Run lifecycle end reason recorded in artifact metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunEndReason {
+    /// Run ended because capture was disarmed manually.
+    ManualDisarm,
+    /// Run ended because process/controller shutdown finalized capture.
+    Shutdown,
+    /// Run auto-sealed after hitting capture limits.
+    AutoSealOnLimitsHit,
 }
 
 /// Stable, resolved Tokio runtime sampler configuration used by one run.
