@@ -45,7 +45,7 @@ impl std::error::Error for SamplerStartError {}
 #[derive(Debug)]
 pub struct RuntimeSampler {
     stop_tx: Option<oneshot::Sender<()>>,
-    task: JoinHandle<()>,
+    task: Option<JoinHandle<()>>,
 }
 
 /// Tokio-owned defaults for runtime sampler behavior by capture mode.
@@ -133,7 +133,9 @@ impl RuntimeSampler {
         if let Some(stop_tx) = self.stop_tx.take() {
             let _ = stop_tx.send(());
         }
-        let _ = self.task.await;
+        if let Some(task) = self.task.take() {
+            let _ = task.await;
+        }
     }
 }
 
@@ -176,6 +178,13 @@ impl RuntimeSamplerBuilder {
     ///
     /// Returns [`SamplerStartError::ZeroInterval`] when resolved cadence is zero.
     pub fn start(self) -> Result<RuntimeSampler, SamplerStartError> {
+        if !self.tailtriage.is_capture_enabled() {
+            return Ok(RuntimeSampler {
+                stop_tx: None,
+                task: None,
+            });
+        }
+
         let resolved = self.resolve_config()?;
         self.tailtriage
             .record_tokio_sampler_config(resolved.into_effective_metadata());
@@ -205,7 +214,7 @@ impl RuntimeSamplerBuilder {
 
         Ok(RuntimeSampler {
             stop_tx: Some(stop_tx),
-            task,
+            task: Some(task),
         })
     }
 
@@ -514,7 +523,11 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(12)).await;
         assert!(
-            sampler.task.is_finished(),
+            sampler
+                .task
+                .as_ref()
+                .expect("sampler should spawn task when capture is enabled")
+                .is_finished(),
             "sampler task should exit at cap"
         );
 
@@ -526,6 +539,34 @@ mod tests {
 
         // shutdown remains safe after the task has already exited at cap.
         sampler.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn runtime_sampler_is_noop_when_capture_disabled() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_disabled_sampler.json"))
+                .build()
+                .expect("build should succeed"),
+        );
+        tailtriage.set_capture_enabled(false);
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(1))
+            .start()
+            .expect("disabled capture should still produce no-op sampler");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        sampler.shutdown().await;
+
+        let snapshot = tailtriage.snapshot();
+        assert!(
+            snapshot.runtime_snapshots.is_empty(),
+            "disabled capture should not record runtime snapshots"
+        );
+        assert!(
+            snapshot.metadata.effective_tokio_sampler_config.is_none(),
+            "disabled capture should not record sampler metadata"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
