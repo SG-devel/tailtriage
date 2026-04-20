@@ -427,18 +427,6 @@ impl Tailtriage {
         Ok(())
     }
 
-    /// Internal integration path used by `tailtriage-tokio` to register
-    /// sampler metadata only after successful real startup preconditions.
-    ///
-    /// This is not a stable public API surface.
-    #[doc(hidden)]
-    pub fn __tailtriage_internal_register_tokio_runtime_sampler(
-        &self,
-        config: crate::EffectiveTokioSamplerConfig,
-    ) -> Result<(), RuntimeSamplerRegistrationError> {
-        self.register_tokio_runtime_sampler(config)
-    }
-
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
         if self.truncation_state.stages.is_saturated() {
             self.truncation_state.stages.increment_drop();
