@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Smoke-check the controller public adoption example.
+"""Smoke-check the controller example contract.
 
 Validation steps:
-1) run the controller example in release mode
+1) run the repository/workspace controller example in release mode
 2) verify artifact exists
 3) verify artifact has expected top-level schema keys
 4) verify artifact recorded exactly one request
+5) verify packaged crate contents do not include repository examples
 """
 
 from __future__ import annotations
@@ -48,9 +49,31 @@ def assert_keys(payload: dict, expected: set[str], *, context: str) -> None:
         raise SystemExit(f"{context} missing top-level keys: {missing_list}")
 
 
+def assert_packaged_contract(root: Path) -> None:
+    package_listing = run_cmd(
+        [
+            "cargo",
+            "package",
+            "--allow-dirty",
+            "--manifest-path",
+            str(root / "tailtriage-controller/Cargo.toml"),
+            "--list",
+        ],
+        cwd=root,
+    )
+    packaged_paths = [line.strip() for line in package_listing.stdout.splitlines() if line.strip()]
+    example_paths = [path for path in packaged_paths if path.startswith("examples/")]
+    if example_paths:
+        rendered = ", ".join(sorted(example_paths))
+        raise SystemExit(
+            "tailtriage-controller packaged crate unexpectedly includes examples: "
+            f"{rendered}"
+        )
+
+
 def main() -> None:
     root = repo_root()
-    print("Smoke-checking controller public example...")
+    print("Smoke-checking controller example contract...")
 
     with tempfile.TemporaryDirectory(prefix="tailtriage-controller-example-smoke-") as temp_dir:
         working_dir = Path(temp_dir)
@@ -97,8 +120,11 @@ def main() -> None:
                 f"found {len(requests)}"
             )
 
+        assert_packaged_contract(root)
+
         print("validated: tailtriage-controller::controller_minimal")
         print(f"  artifact: {artifact_path}")
+        print("validated: packaged crate excludes repository/workspace examples")
 
 
 if __name__ == "__main__":
