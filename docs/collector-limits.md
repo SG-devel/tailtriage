@@ -1,29 +1,39 @@
-# Collector-stress measurement path
+# Collector stress methodology, findings, and operating guidance
 
-This document describes the dedicated **collector-stress** path introduced for issue #107.
+This page documents the **collector-stress operating measurement path** for issue #107.
 
-## Why this path exists
+## Why this doc exists (and how it differs from `docs/runtime-cost.md`)
 
-`runtime_cost` and collector-limits stress measurement answer different questions:
+`docs/runtime-cost.md` explains a controlled runtime-overhead attribution path (baked-in/core/sampler/drop-path) on one shared scenario.
 
-- `runtime_cost` is for compact, comparable **overhead attribution** across fixed modes on one shared scenario.
-- `collector_limits` is for **sustained-load operating limits** under higher concurrency and denser per-request event shapes.
+This page serves a different purpose: it records how we run the **collector stress path**, what outputs it produces, what trends were observed in a real run, and what those trends do and do not prove.
 
-This separation keeps one coherent triage-oriented measurement path per question, rather than growing a generic benchmark framework.
+In short:
 
-## What it measures
+- `runtime-cost.md`: overhead attribution across fixed benchmark modes.
+- `collector-limits.md` (this page): sustained-load operating behavior, retention/truncation behavior, artifact/memory growth, and sampler density behavior under stress-shaped event volume.
 
-The `collector_stress` binary and `scripts/measure_collector_limits.py` orchestrator focus on measured output for:
+## Measurement path and methodology
 
-- collector behavior at higher concurrency than the runtime-cost path
-- queue/stage/inflight-heavy request shapes
-- runtime sampler density impact in sampler-enabled modes
-- sustained run behavior over configurable duration (and optional request cap)
-- retained event growth and drop/truncation counters
-- run artifact size growth
-- memory behavior using a preferred Linux peak-RSS path when available (`/usr/bin/time -v`) with explicit in-process fallback
+The measured path is:
 
-Supported modes in this path:
+1. **Stress binary:** `demos/collector_stress` (release build).
+2. **Orchestration script:** `scripts/measure_collector_limits.py`.
+3. **Output artifacts:**
+   - Raw JSONL: `demos/collector_stress/artifacts/collector-limits-<profile>-raw.jsonl`
+   - Summary JSON: `demos/collector_stress/artifacts/collector-limits-<profile>-summary.json`
+
+### Workload shape and measured dimensions
+
+The default matrix in the script executes five named cases:
+
+1. `baseline_shape`
+2. `high_concurrency`
+3. `heavy_event_shape`
+4. `longer_run`
+5. `sampler_dense` (sampler-enabled modes only)
+
+Across supported modes:
 
 - `baseline`
 - `core_light`
@@ -31,68 +41,153 @@ Supported modes in this path:
 - `core_light_tokio_sampler`
 - `core_investigation_tokio_sampler`
 
-## Default matrix (documented, manageable)
+Each run reports (per row in raw JSONL):
 
-The default orchestrator profile keeps one manageable matrix with named stress dimensions:
+- workload metadata (`mode`, `concurrency`, duration/request controls, `event_shape`, `sampler_settings`)
+- throughput + latency (`throughput_rps`, `latency`)
+- retention/truncation state (`retained_counts`, `truncation_counts`)
+- artifact metadata (`artifact.artifact_path`, `artifact.artifact_size_bytes`, script-measured size)
+- memory metadata (`peak_memory`, `memory_measurement`)
+- notes (`measurement_notes`)
 
-1. `baseline_shape`: reference shape across all modes
-2. `high_concurrency`: higher concurrency with the same shape
-3. `heavy_event_shape`: denser queue/stage/inflight event shape
-4. `longer_run`: larger event volume through longer duration
-5. `sampler_dense`: higher runtime sampler density for sampler-enabled modes only
+### Memory measurement method
 
-For routine validation and CI, run `--profile smoke` (small bounded matrix) instead of the default profile.
+The script tries external peak RSS first with `time -v` (`external_time_v`). If unavailable, it falls back to in-process memory fields (`in_process_fallback`) and records caveats in summary `measurement_quality.limitations`.
 
-## What it does not prove
+## What was measured
 
-- It does **not** prove root cause.
-- It does **not** redefine `CaptureMode` semantics.
-- It does **not** redesign collector internals.
-- It is **not** a portability benchmark suite for all platforms.
+From this path, we measure these dimensions directly:
 
-Memory behavior is machine-scoped. If preferred external RSS measurement is unavailable, the summary records fallback behavior and caveats explicitly.
+1. **Contention behavior:** `baseline_shape` -> `high_concurrency` deltas.
+2. **Sustained-load behavior:** `baseline_shape` -> `longer_run` for throughput/latency/memory/truncation.
+3. **Artifact-size scaling:** `baseline_shape` -> `heavy_event_shape` by mode.
+4. **Memory growth:** peak/end RSS fields, including case deltas.
+5. **Runtime sampler density impact:** sampler baseline cadence vs `sampler_dense` override.
 
-## Structured output model
+## What was observed (machine-scoped run on April 20, 2026)
 
-Each binary run emits one JSON record with these fields:
+The following observations are from a real `--profile default` run output written to:
 
-- `mode`
-- `concurrency`
-- `duration_secs` and optional `request_limit`
-- `event_shape` (`queues_per_request`, `stages_per_request`, `inflight_cycles_per_request`, `work_ms`/`work_us`)
-- `sampler_settings`
-- `throughput_rps`
-- `latency` summary (`count`, `p50_ms`, `p95_ms`, `p99_ms`, `max_ms`)
-- `retained_counts`
-- `truncation_counts` (dropped counters + `limits_hit`)
-- `artifact` (`artifact_path`, `artifact_size_bytes`)
-- `peak_memory`
-- `measurement_notes`
+- `demos/collector_stress/artifacts/collector-limits-default-raw.jsonl`
+- `demos/collector_stress/artifacts/collector-limits-default-summary.json`
 
-The orchestrator writes:
+Treat these as run-local evidence, not timeless constants.
 
-- raw JSONL per run, e.g. `demos/collector_stress/artifacts/collector-limits-default-raw.jsonl`
-- summary JSON, e.g. `demos/collector_stress/artifacts/collector-limits-default-summary.json`
+### 1) Contention behavior
 
-Summary sections include:
+In this run, moving from `baseline_shape` to `high_concurrency` increased throughput substantially in every mode (~+92% to +99%), while p95 latency rose moderately (~+2% to +8%).
 
-- absolute metrics (throughput/latency/request completion)
-- artifact-size summaries (binary-reported and script-measured bytes)
-- memory summaries (peak/end RSS and path usage)
-- truncation/limits-hit context
-- mode + sampler + event-shape metadata
-- measurement-quality caveats and conservative interpretation notes
-- derived stress signals (including sampler-density impact)
+So this particular run did **not** show a throughput-collapse breakpoint under the configured `high_concurrency` step.
+
+### 2) Sustained-load behavior (`longer_run`)
+
+- Throughput remained near baseline-shape levels across instrumented modes.
+- Longer runs increased dropped counters materially in instrumented modes (especially dropped inflight snapshots and, in light modes, dropped requests/stages/queues).
+- `limits_hit_runs` was consistently set for instrumented modes in baseline/high/heavy/longer cases.
+
+This indicates pressure is visible through truncation counters before/while artifacts saturate retention limits.
+
+### 3) Artifact-size scaling by event shape
+
+In this specific run, `heavy_event_shape` did **not** increase artifact bytes versus `baseline_shape`; summary `artifact_growth_heavy_event_shape_pct` was negative for instrumented modes.
+
+That means this run does not support a claim of universal monotonic artifact growth from denser shape settings once truncation is already active.
+
+### 4) Memory growth by event volume
+
+- Baseline mode (no artifact writing) had very low RSS compared with instrumented modes.
+- Investigation-family modes showed much larger peak RSS than light-family modes.
+- `longer_run` increased peak RSS noticeably in investigation-family modes (~+48% to +49% in this run’s summary signals), while light-family growth was small.
+
+Because `time -v` was unavailable on this host, this run used in-process fallback memory fields.
+
+### 5) Runtime sampler density impact
+
+`sampler_dense` compared against sampler baselines produced only small changes in this run (close to flat, with slight improvement in one sampler mode and slight latency increase in the other).
+
+Result: this run does not support a broad claim that denser sampler cadence always worsens throughput/latency.
+
+### 6) Light vs investigation (where relevant)
+
+Observed in this run:
+
+- Investigation-family artifacts and memory were higher than light-family.
+- Both families hit truncation limits under the configured stress matrix.
+- Investigation-family dropped inflight snapshots even when dropped requests/stages/queues were zero in some cases.
+
+### 7) Truncation / operating-limit behavior
+
+The operating-limit signal in this run is explicit:
+
+- `truncation_counts.limits_hit=true` across instrumented mode/case combinations in default profile.
+- Non-zero dropped counters persist while runs still complete and produce analyzable output.
+
+This is the practical signal for “collector pressure is active” in this measurement path.
+
+## What these results do **not** prove
+
+These measurements do **not** prove:
+
+- universal cross-machine performance properties
+- production behavior outside this measured path and parameter set
+- root cause certainty (they provide evidence-ranked stress signals)
+- that one run’s absolute numbers should be reused as fixed guidance
+
+## Practical operating guidance (grounded only in measured behavior)
+
+Based on observed output fields and this run’s behavior:
+
+1. Watch `truncation_counts` first when running collector stress; treat `limits_hit` and dropped counters as primary operating-limit signals.
+2. Compare **light vs investigation** using artifact bytes + memory + dropped counters together, not throughput alone.
+3. Use `sampler_dense` as an empirical check per machine; do not assume cadence changes are always costly.
+4. Keep claims run-scoped and include profile, case shape, and memory path (`external_time_v` vs fallback).
+5. If you need stronger conclusions, run repeats (`--repeats`) and compare distributions instead of one-shot values.
+
+Where data is insufficient (for example, broad sampler-cadence tradeoffs), state explicitly that more measured runs are needed.
+
+## Follow-up implications and issue drafts
+
+I cannot create GitHub issues from this environment, so here are focused drafts based on observed bottleneck/limit signals:
+
+### Draft 1: Improve collector-limit pressure visibility in summary
+
+**Title:** collector-limits: add explicit per-category saturation onset markers
+
+**Body:**
+- Problem: current summary reports dropped totals and limits-hit counts, but not the first point of saturation per category.
+- Proposal: add derived fields for first-observed saturation markers by category (`requests/stages/queues/inflight/runtime`) per case/mode.
+- Why: helps triage when pressure starts, not just that it happened.
+- Scope: summary-only derived metadata; no capture semantics changes.
+
+### Draft 2: Add repeated-run profile for collector-limits default matrix
+
+**Title:** collector-limits: add documented `--repeats` guidance and sample comparison helper
+
+**Body:**
+- Problem: one-shot runs are noisy and can invert expected trends (e.g., heavy-event artifact deltas under active truncation).
+- Proposal: document and optionally script a small repeated-run aggregation/report helper for default profile.
+- Why: improves confidence in trend statements without introducing universal-number claims.
+- Scope: scripts/docs only; no runtime behavior changes.
+
+### Draft 3: Optional host-memory probe enhancement
+
+**Title:** collector-limits: improve memory-path portability when `/usr/bin/time -v` is unavailable
+
+**Body:**
+- Problem: current host lacked compatible `time -v`, forcing in-process fallback memory fields.
+- Proposal: add optional Linux `/proc` peak tracking path (guarded and clearly labeled) as another explicit measurement path.
+- Why: better host portability while preserving explicit caveats.
+- Scope: measurement script enhancement; keep current fallback and caveat behavior.
 
 ## Commands
 
-Run matrix orchestration (default matrix):
+Default matrix:
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile default
 ```
 
-Run bounded smoke validation matrix:
+Quick smoke matrix:
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile smoke
@@ -100,4 +195,4 @@ python3 scripts/measure_collector_limits.py --profile smoke
 
 ## Policy reminder
 
-Keep claims conservative and based on measured output artifacts generated for the current machine/run. Do not hardcode machine-specific “latest numbers” into docs.
+Do not hardcode one machine’s “latest numbers” as timeless truth. Keep claims tied to the measured path, emitted fields, and artifact files from the run being discussed.

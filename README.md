@@ -139,6 +139,13 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 | Analyze artifacts only                                          | `tailtriage-cli`                                         | none                                 | CLI loads run JSON, validates schema version, analyzes, and renders text/JSON reports                                      |
 | Minimal first run from repo                                     | none beyond workspace                                    | none                                 | Fastest path for bundled examples, demo scripts, and contributor workflows                                                 |
 
+## Measurement methodology and limits
+
+For measurement-path details and conservative interpretation guidance:
+
+- Collector stress methodology/findings/limits: [`docs/collector-limits.md`](docs/collector-limits.md)
+- Runtime overhead attribution path: [`docs/runtime-cost.md`](docs/runtime-cost.md)
+
 ## What this is not
 
 `tailtriage` is not:
