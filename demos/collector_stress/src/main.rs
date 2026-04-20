@@ -198,6 +198,7 @@ async fn main() -> anyhow::Result<()> {
     let mut notes = vec![
         "Synthetic stress shape intentionally amplifies queue/stage/inflight event volume per request.".to_string(),
         "This output ranks collector pressure signals; it does not prove root cause.".to_string(),
+        "Operating ranges must be validated from measured output on the current machine/workload; this run does not provide cross-machine numeric guarantees.".to_string(),
     ];
 
     let (retained_counts, truncation_counts, sampler_settings) =

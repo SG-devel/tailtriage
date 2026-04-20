@@ -146,6 +146,13 @@ For measurement-path details and conservative interpretation guidance:
 - Collector stress methodology/findings/limits: [`docs/collector-limits.md`](docs/collector-limits.md)
 - Runtime overhead attribution path: [`docs/runtime-cost.md`](docs/runtime-cost.md)
 
+Use these as distinct measurement paths:
+
+- **Runtime overhead attribution:** isolate baked-in/core/sampler/drop-path overhead categories (`docs/runtime-cost.md`).
+- **Sustained-load collector limits:** stress retention and truncation behavior under high event volume (`docs/collector-limits.md`).
+- **Artifact-size scaling:** compare shape-driven artifact growth in the collector-limits matrix (`docs/collector-limits.md`).
+- **Memory-growth behavior:** compare peak/end RSS trends across stress cases and modes (`docs/collector-limits.md`).
+
 ## What this is not
 
 `tailtriage` is not:

@@ -2,6 +2,9 @@
 
 This document covers the reproducible local benchmark path for tailtriage runtime-cost triage.
 
+It is intentionally focused on **runtime overhead attribution** for one shared scenario family.
+It is not the operating-limits path for sustained collector stress, artifact scaling, or memory-growth trend mapping; use [`collector-limits.md`](collector-limits.md) for those.
+
 ## Scenario family
 
 All measurements use the same shared request scenario (same request shape, concurrency model, and simulated work) so comparisons stay interpretable.
