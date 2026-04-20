@@ -12,7 +12,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{
-    unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, RuntimeSnapshot, Tailtriage,
+    unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, RuntimeSamplerRegistrationError,
+    RuntimeSnapshot, Tailtriage,
 };
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
@@ -29,12 +30,26 @@ pub const fn crate_name() -> &'static str {
 pub enum SamplerStartError {
     /// Sampling interval must be greater than zero.
     ZeroInterval,
+    /// Runtime sampling requires an active Tokio runtime.
+    MissingRuntime,
+    /// Only one runtime sampler may be started for each Tailtriage run.
+    DuplicateStart,
 }
 
 impl std::fmt::Display for SamplerStartError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ZeroInterval => write!(f, "runtime sampling interval must be greater than zero"),
+            Self::MissingRuntime => write!(
+                f,
+                "runtime sampling requires an active Tokio runtime on the current thread"
+            ),
+            Self::DuplicateStart => {
+                write!(
+                    f,
+                    "only one runtime sampler may be started per Tailtriage run"
+                )
+            }
         }
     }
 }
@@ -121,6 +136,9 @@ impl RuntimeSampler {
     /// # Errors
     ///
     /// Returns [`SamplerStartError::ZeroInterval`] when `interval` is zero.
+    ///
+    /// Returns [`SamplerStartError::MissingRuntime`] when called outside an
+    /// active Tokio runtime.
     pub fn start(
         tailtriage: Arc<Tailtriage>,
         interval: Duration,
@@ -177,19 +195,32 @@ impl RuntimeSamplerBuilder {
     /// # Errors
     ///
     /// Returns [`SamplerStartError::ZeroInterval`] when resolved cadence is zero.
+    ///
+    /// Returns [`SamplerStartError::MissingRuntime`] when called outside an
+    /// active Tokio runtime.
+    ///
+    /// Returns [`SamplerStartError::DuplicateStart`] when a sampler was already
+    /// started for this run.
     pub fn start(self) -> Result<RuntimeSampler, SamplerStartError> {
         let resolved = self.resolve_config()?;
+        let handle = Handle::try_current().map_err(|_| SamplerStartError::MissingRuntime)?;
         self.tailtriage
-            .record_tokio_sampler_config(resolved.into_effective_metadata());
+            .register_tokio_runtime_sampler(resolved.into_effective_metadata())
+            .map_err(|err| match err {
+                RuntimeSamplerRegistrationError::DuplicateStart => {
+                    SamplerStartError::DuplicateStart
+                }
+            })?;
 
         let tailtriage = Arc::clone(&self.tailtriage);
-        let handle = Handle::current();
         let (stop_tx, mut stop_rx) = oneshot::channel();
-        let mut ticker = tokio::time::interval(resolved.resolved_interval);
         let mut captured: usize = 0;
         let max_runtime_snapshots = resolved.resolved_max_runtime_snapshots;
+        let resolved_interval = resolved.resolved_interval;
 
-        let task = tokio::spawn(async move {
+        let runtime_handle = handle.clone();
+        let task = handle.spawn(async move {
+            let mut ticker = tokio::time::interval(resolved_interval);
             loop {
                 tokio::select! {
                     _ = &mut stop_rx => break,
@@ -198,7 +229,7 @@ impl RuntimeSamplerBuilder {
                             break;
                         }
 
-                        tailtriage.record_runtime_snapshot(capture_runtime_snapshot(&handle));
+                        tailtriage.record_runtime_snapshot(capture_runtime_snapshot(&runtime_handle));
                         captured = captured.saturating_add(1);
                     }
                 }
@@ -354,6 +385,30 @@ mod tests {
         let err = RuntimeSampler::start(tailtriage, Duration::ZERO)
             .expect_err("zero interval should fail");
         assert_eq!(err, SamplerStartError::ZeroInterval);
+    }
+
+    #[test]
+    fn runtime_sampler_requires_active_runtime() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_missing_runtime.json"))
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let err = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(5))
+            .start()
+            .expect_err("starting outside runtime should fail");
+        assert_eq!(err, SamplerStartError::MissingRuntime);
+        assert!(
+            tailtriage
+                .snapshot()
+                .metadata
+                .effective_tokio_sampler_config
+                .is_none(),
+            "failed startup must not mutate sampler metadata"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -615,5 +670,38 @@ mod tests {
             assert_eq!(snapshot.blocking_queue_depth, None);
             assert_eq!(snapshot.remote_schedule_count, None);
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn runtime_sampler_rejects_duplicate_start_for_same_run() {
+        let tailtriage = Arc::new(
+            Tailtriage::builder("runtime-test")
+                .output(std::env::temp_dir().join("tailtriage_tokio_duplicate_start.json"))
+                .build()
+                .expect("build should succeed"),
+        );
+
+        let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(11))
+            .start()
+            .expect("first sampler should start");
+
+        let err = RuntimeSampler::builder(Arc::clone(&tailtriage))
+            .interval(Duration::from_millis(17))
+            .start()
+            .expect_err("duplicate sampler start should fail");
+        assert_eq!(err, SamplerStartError::DuplicateStart);
+
+        sampler.shutdown().await;
+
+        let metadata = tailtriage
+            .snapshot()
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("first sampler startup should record metadata");
+        assert_eq!(
+            metadata.resolved_sampler_cadence_ms, 11,
+            "duplicate start must not overwrite prior metadata"
+        );
     }
 }

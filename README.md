@@ -177,6 +177,7 @@ Use these as distinct measurement paths:
 `RuntimeSampler` works on stable Tokio, but some runtime fields (`local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`) require `tokio_unstable`. See [`docs/user-guide.md`](docs/user-guide.md) for details.
 
 When you use `RuntimeSampler::builder(...)`, Tokio defaults are resolved from the core-selected mode by default (inherited mode), and you can provide an explicit Tokio override with `.mode(...)`.
+`RuntimeSampler::start()` requires an active Tokio runtime and allows only one sampler startup per `Tailtriage` run.
 
 ## Request lifecycle shape (public API)
 
@@ -226,7 +227,7 @@ Artifacts record both selected mode and effective resolved config:
 
 - selected mode: `metadata.mode`
 - core effective config: `metadata.effective_core_config`
-- Tokio sampler effective config (when sampler is started): `metadata.effective_tokio_sampler_config`
+- Tokio sampler effective config (recorded only by successful sampler startup): `metadata.effective_tokio_sampler_config`
 
 Overhead terminology used in docs and scripts:
 
