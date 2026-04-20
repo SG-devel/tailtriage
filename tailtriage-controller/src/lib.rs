@@ -9,14 +9,16 @@
 //! - `tailtriage-controller` provides control-layer scaffolding for live arm/disarm
 //!   workflows that create fresh bounded runs on every activation.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use tailtriage_core::{
-    BuildError, CaptureMode, InflightGuard, Outcome, OwnedRequestCompletion, OwnedRequestHandle,
-    QueueTimer, RequestOptions, StageTimer, Tailtriage,
+    BuildError, CaptureLimitsOverride, CaptureMode, InflightGuard, Outcome, OwnedRequestCompletion,
+    OwnedRequestHandle, QueueTimer, RequestOptions, StageTimer, Tailtriage,
 };
 
 /// Builder for a long-lived [`TailtriageController`].
@@ -26,6 +28,9 @@ pub struct TailtriageControllerBuilder {
     config_path: Option<PathBuf>,
     initially_enabled: bool,
     sink_template: ControllerSinkTemplate,
+    capture_limits_override: CaptureLimitsOverride,
+    strict_lifecycle: bool,
+    runtime_sampler: RuntimeSamplerTemplate,
     run_end_policy: RunEndPolicy,
 }
 
@@ -40,6 +45,9 @@ impl TailtriageControllerBuilder {
             sink_template: ControllerSinkTemplate::LocalJson {
                 output_path: PathBuf::from("tailtriage-run.json"),
             },
+            capture_limits_override: CaptureLimitsOverride::default(),
+            strict_lifecycle: false,
+            runtime_sampler: RuntimeSamplerTemplate::default(),
             run_end_policy: RunEndPolicy::Manual,
         }
     }
@@ -70,6 +78,30 @@ impl TailtriageControllerBuilder {
         self
     }
 
+    /// Sets field-level capture limit overrides applied on top of selected mode defaults.
+    #[must_use]
+    pub const fn capture_limits_override(
+        mut self,
+        capture_limits_override: CaptureLimitsOverride,
+    ) -> Self {
+        self.capture_limits_override = capture_limits_override;
+        self
+    }
+
+    /// Sets strict lifecycle validation applied to future activation runs.
+    #[must_use]
+    pub const fn strict_lifecycle(mut self, strict_lifecycle: bool) -> Self {
+        self.strict_lifecycle = strict_lifecycle;
+        self
+    }
+
+    /// Sets runtime sampler template settings for future activations.
+    #[must_use]
+    pub const fn runtime_sampler(mut self, runtime_sampler: RuntimeSamplerTemplate) -> Self {
+        self.runtime_sampler = runtime_sampler;
+        self
+    }
+
     /// Sets a run-end policy template applied to future activations.
     #[must_use]
     pub const fn run_end_policy(mut self, run_end_policy: RunEndPolicy) -> Self {
@@ -83,16 +115,50 @@ impl TailtriageControllerBuilder {
     ///
     /// Returns [`ControllerBuildError::EmptyServiceName`] when `service_name` is blank.
     pub fn build(self) -> Result<TailtriageController, ControllerBuildError> {
-        if self.service_name.trim().is_empty() {
+        let mut service_name = self.service_name;
+        if service_name.trim().is_empty() {
+            return Err(ControllerBuildError::EmptyServiceName);
+        }
+
+        let mut initially_enabled = self.initially_enabled;
+        let mut sink_template = self.sink_template;
+        let mut selected_mode = CaptureMode::Light;
+        let mut capture_limits_override = self.capture_limits_override;
+        let mut strict_lifecycle = self.strict_lifecycle;
+        let mut runtime_sampler = self.runtime_sampler;
+        let mut run_end_policy = self.run_end_policy;
+
+        if let Some(config_path) = self.config_path.as_ref() {
+            let loaded = TailtriageController::load_config_from_path(config_path)
+                .map_err(ControllerBuildError::ConfigLoad)?;
+            let activation = loaded.activation_template;
+            service_name = loaded.service_name.unwrap_or(service_name);
+            initially_enabled = loaded.initially_enabled.unwrap_or(initially_enabled);
+            sink_template = activation.sink_template;
+            selected_mode = activation.selected_mode;
+            capture_limits_override = activation.capture_limits_override;
+            strict_lifecycle = activation.strict_lifecycle;
+            runtime_sampler = activation.runtime_sampler;
+            run_end_policy = activation.run_end_policy;
+        }
+
+        if service_name.trim().is_empty() {
             return Err(ControllerBuildError::EmptyServiceName);
         }
 
         let template = TailtriageControllerTemplate {
-            service_name: self.service_name,
+            service_name,
             config_path: self.config_path,
-            sink_template: self.sink_template,
+            sink_template,
             selected_mode: CaptureMode::Light,
-            run_end_policy: self.run_end_policy,
+            capture_limits_override,
+            strict_lifecycle,
+            runtime_sampler,
+            run_end_policy,
+        };
+        let template = TailtriageControllerTemplate {
+            selected_mode,
+            ..template
         };
 
         let inner = Arc::new(ControllerInner {
@@ -101,7 +167,7 @@ impl TailtriageControllerBuilder {
         });
 
         let controller = TailtriageController { inner };
-        if self.initially_enabled {
+        if initially_enabled {
             controller
                 .enable()
                 .map_err(ControllerBuildError::InitialEnable)?;
@@ -143,6 +209,7 @@ impl ActiveGenerationRuntime {
             accepting_new_admissions: self.accepting_new.load(Ordering::Relaxed),
             closing: self.closing.load(Ordering::Relaxed),
             inflight_captured_requests: self.inflight_captured.load(Ordering::Relaxed),
+            activation_config: self.state.activation_config.clone(),
         }
     }
 }
@@ -152,6 +219,22 @@ impl TailtriageController {
     #[must_use]
     pub fn builder(service_name: impl Into<String>) -> TailtriageControllerBuilder {
         TailtriageControllerBuilder::new(service_name)
+    }
+
+    /// Loads controller TOML config from `path` without mutating controller state.
+    ///
+    /// This helper parses and returns the activation template that would be applied
+    /// on reload/build.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigLoadError`] when reading or parsing the TOML file fails.
+    pub fn load_config_from_path(
+        path: impl AsRef<Path>,
+    ) -> Result<LoadedControllerConfig, ConfigLoadError> {
+        let path = path.as_ref();
+        let file = ControllerConfigFile::from_path(path)?;
+        Ok(file.into_loaded())
     }
 
     /// Returns a status snapshot of controller lifecycle and template state.
@@ -173,11 +256,7 @@ impl TailtriageController {
             .expect("controller lifecycle lock poisoned");
 
         TailtriageControllerStatus {
-            service_name: template.service_name.clone(),
-            config_path: template.config_path.clone(),
-            sink_template: template.sink_template.clone(),
-            selected_mode: template.selected_mode,
-            run_end_policy: template.run_end_policy,
+            template: template.clone(),
             generation: lifecycle.snapshot(),
         }
     }
@@ -194,6 +273,52 @@ impl TailtriageController {
             .lock()
             .expect("controller template lock poisoned");
         *template = next_template;
+    }
+
+    /// Reloads controller config from the configured template file path.
+    ///
+    /// Reload only updates the template for future activations. Any active generation
+    /// keeps the activation config it started with.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReloadConfigError`] when the controller has no `config_path` or when
+    /// loading/parsing/validating the TOML file fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the controller template mutex is poisoned.
+    pub fn reload_config(&self) -> Result<(), ReloadConfigError> {
+        let (config_path, service_name) = {
+            let template = self
+                .inner
+                .template
+                .lock()
+                .expect("controller template lock poisoned");
+            let Some(config_path) = template.config_path.clone() else {
+                return Err(ReloadConfigError::MissingConfigPath);
+            };
+            (config_path, template.service_name.clone())
+        };
+
+        let loaded = TailtriageController::load_config_from_path(&config_path)
+            .map_err(ReloadConfigError::Load)?;
+        let activation = loaded.activation_template;
+
+        let mut template = self
+            .inner
+            .template
+            .lock()
+            .expect("controller template lock poisoned");
+        template.service_name = loaded.service_name.unwrap_or(service_name);
+        template.sink_template = activation.sink_template;
+        template.selected_mode = activation.selected_mode;
+        template.capture_limits_override = activation.capture_limits_override;
+        template.strict_lifecycle = activation.strict_lifecycle;
+        template.runtime_sampler = activation.runtime_sampler;
+        template.run_end_policy = activation.run_end_policy;
+
+        Ok(())
     }
 
     /// Arms capture by creating a fresh active generation with a bounded run.
@@ -240,6 +365,8 @@ impl TailtriageController {
             CaptureMode::Light => builder.light(),
             CaptureMode::Investigation => builder.investigation(),
         };
+        builder = builder.capture_limits_override(template.capture_limits_override);
+        builder = builder.strict_lifecycle(template.strict_lifecycle);
 
         let run = Arc::new(builder.build().map_err(EnableError::Build)?);
         let runtime = Arc::new(ActiveGenerationRuntime {
@@ -250,6 +377,14 @@ impl TailtriageController {
                 accepting_new_admissions: true,
                 closing: false,
                 inflight_captured_requests: 0,
+                activation_config: ControllerActivationTemplate {
+                    sink_template: template.sink_template.clone(),
+                    selected_mode: template.selected_mode,
+                    capture_limits_override: template.capture_limits_override,
+                    strict_lifecycle: template.strict_lifecycle,
+                    runtime_sampler: template.runtime_sampler,
+                    run_end_policy: template.run_end_policy,
+                },
             },
             artifact_path,
             run,
@@ -836,6 +971,12 @@ pub struct TailtriageControllerTemplate {
     pub sink_template: ControllerSinkTemplate,
     /// Mode selected for next activations.
     pub selected_mode: CaptureMode,
+    /// Field-level capture limits override applied on top of mode defaults.
+    pub capture_limits_override: CaptureLimitsOverride,
+    /// Strict lifecycle behavior for next activations.
+    pub strict_lifecycle: bool,
+    /// Runtime sampler template for next activations.
+    pub runtime_sampler: RuntimeSamplerTemplate,
     /// Policy that determines how an activation run should end.
     pub run_end_policy: RunEndPolicy,
 }
@@ -848,6 +989,19 @@ pub enum ControllerSinkTemplate {
         /// Base destination artifact path for generated runs.
         output_path: PathBuf,
     },
+}
+
+/// Runtime sampler template attached to controller activation settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RuntimeSamplerTemplate {
+    /// Enables runtime sampler startup for armed runs.
+    pub enabled_for_armed_runs: bool,
+    /// Optional mode override used by runtime sampler.
+    pub mode_override: Option<CaptureMode>,
+    /// Optional interval override in milliseconds.
+    pub interval_ms: Option<u64>,
+    /// Optional max runtime snapshots override.
+    pub max_runtime_snapshots: Option<usize>,
 }
 
 /// Policy for bounded activation run completion.
@@ -872,16 +1026,8 @@ pub enum RunEndPolicy {
 /// Public status snapshot for reporting controller state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TailtriageControllerStatus {
-    /// Service name used for controller activations.
-    pub service_name: String,
-    /// Optional source path for reloadable control config.
-    pub config_path: Option<PathBuf>,
-    /// Sink/output template for generated runs.
-    pub sink_template: ControllerSinkTemplate,
-    /// Mode selected for next activations.
-    pub selected_mode: CaptureMode,
-    /// Run-end policy selected for next activations.
-    pub run_end_policy: RunEndPolicy,
+    /// Template used for the next activation generation.
+    pub template: TailtriageControllerTemplate,
     /// Current generation state snapshot.
     pub generation: GenerationState,
 }
@@ -895,7 +1041,7 @@ pub enum GenerationState {
         next_generation: u64,
     },
     /// Controller currently owns one active generation.
-    Active(ActiveGenerationState),
+    Active(Box<ActiveGenerationState>),
 }
 
 /// Metadata for one active generation.
@@ -913,6 +1059,25 @@ pub struct ActiveGenerationState {
     pub closing: bool,
     /// Number of admitted captured requests still in-flight.
     pub inflight_captured_requests: u64,
+    /// Effective activation settings fixed for this generation.
+    pub activation_config: ControllerActivationTemplate,
+}
+
+/// One bounded activation template snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControllerActivationTemplate {
+    /// Sink/output settings for this generation.
+    pub sink_template: ControllerSinkTemplate,
+    /// Core mode for this generation.
+    pub selected_mode: CaptureMode,
+    /// Field-level capture limit overrides for this generation.
+    pub capture_limits_override: CaptureLimitsOverride,
+    /// Strict lifecycle behavior for this generation.
+    pub strict_lifecycle: bool,
+    /// Runtime sampler settings for this generation.
+    pub runtime_sampler: RuntimeSamplerTemplate,
+    /// Run-end policy for this generation.
+    pub run_end_policy: RunEndPolicy,
 }
 
 #[derive(Debug)]
@@ -932,7 +1097,173 @@ impl ControllerLifecycle {
             Self::Disabled { next_generation } => GenerationState::Disabled {
                 next_generation: *next_generation,
             },
-            Self::Active { active, .. } => GenerationState::Active(active.snapshot()),
+            Self::Active { active, .. } => GenerationState::Active(Box::new(active.snapshot())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ControllerConfigFile {
+    controller: ControllerConfigToml,
+}
+
+impl ControllerConfigFile {
+    fn from_path(path: &Path) -> Result<Self, ConfigLoadError> {
+        let raw = fs::read_to_string(path).map_err(|source| ConfigLoadError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        toml::from_str(&raw).map_err(|source| ConfigLoadError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+
+    fn into_loaded(self) -> LoadedControllerConfig {
+        let activation = self.controller.activation;
+        let run_end_policy = activation.run_end_policy();
+        LoadedControllerConfig {
+            service_name: self.controller.service_name,
+            initially_enabled: self.controller.initially_enabled,
+            activation_template: ControllerActivationTemplate {
+                sink_template: activation.sink.into_template(),
+                selected_mode: activation.mode,
+                capture_limits_override: activation.capture_limits_override,
+                strict_lifecycle: activation.strict_lifecycle,
+                runtime_sampler: activation.runtime_sampler,
+                run_end_policy,
+            },
+        }
+    }
+}
+
+/// Parsed controller config loaded from a TOML file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedControllerConfig {
+    /// Optional service name override.
+    pub service_name: Option<String>,
+    /// Optional initially-enabled flag.
+    pub initially_enabled: Option<bool>,
+    /// Activation template loaded from config.
+    pub activation_template: ControllerActivationTemplate,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ControllerConfigToml {
+    service_name: Option<String>,
+    initially_enabled: Option<bool>,
+    activation: ControllerActivationConfigToml,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ControllerActivationConfigToml {
+    mode: CaptureMode,
+    #[serde(default)]
+    capture_limits_override: CaptureLimitsOverride,
+    #[serde(default)]
+    strict_lifecycle: bool,
+    sink: ControllerSinkTemplateToml,
+    #[serde(default)]
+    runtime_sampler: RuntimeSamplerTemplate,
+    #[serde(default)]
+    run_end_policy: RunEndPolicyConfigToml,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ControllerSinkTemplateToml {
+    LocalJson { output_path: PathBuf },
+}
+
+impl ControllerSinkTemplateToml {
+    fn into_template(self) -> ControllerSinkTemplate {
+        match self {
+            Self::LocalJson { output_path } => ControllerSinkTemplate::LocalJson { output_path },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum RunEndPolicyConfigToml {
+    Manual,
+    MaxRequests { max_requests: u64 },
+    MaxDurationMs { max_duration_ms: u64 },
+    FirstLimitHit,
+}
+
+impl Default for RunEndPolicyConfigToml {
+    fn default() -> Self {
+        Self::Manual
+    }
+}
+
+impl From<RunEndPolicyConfigToml> for RunEndPolicy {
+    fn from(value: RunEndPolicyConfigToml) -> Self {
+        match value {
+            RunEndPolicyConfigToml::Manual => Self::Manual,
+            RunEndPolicyConfigToml::MaxRequests { max_requests } => {
+                Self::MaxRequests { max_requests }
+            }
+            RunEndPolicyConfigToml::MaxDurationMs { max_duration_ms } => Self::MaxDuration {
+                max_duration: Duration::from_millis(max_duration_ms),
+            },
+            RunEndPolicyConfigToml::FirstLimitHit => Self::FirstLimitHit,
+        }
+    }
+}
+
+impl ControllerActivationConfigToml {
+    fn run_end_policy(&self) -> RunEndPolicy {
+        self.run_end_policy.clone().into()
+    }
+}
+
+/// Errors emitted while loading controller TOML config from disk.
+#[derive(Debug)]
+pub enum ConfigLoadError {
+    /// Reading the config file failed.
+    Io {
+        /// Path that failed to read.
+        path: PathBuf,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
+    /// TOML parsing failed.
+    Parse {
+        /// Path that failed to parse.
+        path: PathBuf,
+        /// Underlying TOML parse error.
+        source: toml::de::Error,
+    },
+}
+
+impl std::fmt::Display for ConfigLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io { path, source } => {
+                write!(
+                    f,
+                    "failed to read controller config {}: {source}",
+                    path.display()
+                )
+            }
+            Self::Parse { path, source } => {
+                write!(
+                    f,
+                    "failed to parse controller config TOML {}: {source}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigLoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io { source, .. } => Some(source),
+            Self::Parse { source, .. } => Some(source),
         }
     }
 }
@@ -942,6 +1273,8 @@ impl ControllerLifecycle {
 pub enum ControllerBuildError {
     /// Service name was empty.
     EmptyServiceName,
+    /// Config file load failed while building.
+    ConfigLoad(ConfigLoadError),
     /// Initially-enabled controller failed to create first generation.
     InitialEnable(EnableError),
 }
@@ -950,12 +1283,40 @@ impl std::fmt::Display for ControllerBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::ConfigLoad(err) => write!(f, "failed to load config for build: {err}"),
             Self::InitialEnable(err) => write!(f, "failed to start initial generation: {err}"),
         }
     }
 }
 
 impl std::error::Error for ControllerBuildError {}
+
+/// Errors emitted while reloading controller TOML config.
+#[derive(Debug)]
+pub enum ReloadConfigError {
+    /// Reload requested but no config path is configured.
+    MissingConfigPath,
+    /// Loading/parsing TOML config failed.
+    Load(ConfigLoadError),
+}
+
+impl std::fmt::Display for ReloadConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingConfigPath => write!(f, "controller has no config_path; cannot reload"),
+            Self::Load(err) => write!(f, "failed to reload controller config: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for ReloadConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MissingConfigPath => None,
+            Self::Load(err) => Some(err),
+        }
+    }
+}
 
 /// Errors emitted when enabling/arming controller capture.
 #[derive(Debug)]
@@ -1059,9 +1420,10 @@ fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::time::Duration;
 
-    use super::{DisableOutcome, EnableError, GenerationState, TailtriageController};
-    use tailtriage_core::RequestOptions;
+    use super::{DisableOutcome, EnableError, GenerationState, RunEndPolicy, TailtriageController};
+    use tailtriage_core::{CaptureLimitsOverride, CaptureMode, RequestOptions};
 
     fn test_output(base: &str) -> std::path::PathBuf {
         let unique = format!(
@@ -1074,6 +1436,47 @@ mod tests {
 
     fn read_artifact(path: &std::path::Path) -> String {
         fs::read_to_string(path).expect("artifact should be readable")
+    }
+
+    fn test_config_path(base: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "tailtriage-controller-config-{base}-{}-{}.toml",
+            std::process::id(),
+            tailtriage_core::unix_time_ms()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    fn write_config(path: &std::path::Path, output: &std::path::Path, mode: &str, strict: bool) {
+        let content = format!(
+            r#"[controller]
+initially_enabled = false
+
+[controller.activation]
+mode = "{mode}"
+strict_lifecycle = {strict}
+
+[controller.activation.capture_limits_override]
+max_requests = 17
+max_stages = 18
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "{}"
+
+[controller.activation.runtime_sampler]
+enabled_for_armed_runs = true
+mode_override = "investigation"
+interval_ms = 250
+max_runtime_snapshots = 123
+
+[controller.activation.run_end_policy]
+kind = "max_duration_ms"
+max_duration_ms = 5000
+"#,
+            output.display()
+        );
+        fs::write(path, content).expect("config write should succeed");
     }
 
     #[test]
@@ -1445,5 +1848,138 @@ mod tests {
         assert_eq!(run.matches("req-once").count(), 1);
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn toml_parsing_success_and_failure() {
+        let output = test_output("toml-parse");
+        let config = test_config_path("toml-parse");
+        write_config(&config, &output, "light", false);
+
+        let loaded =
+            TailtriageController::load_config_from_path(&config).expect("valid TOML should parse");
+        assert_eq!(loaded.activation_template.selected_mode, CaptureMode::Light);
+        assert_eq!(
+            loaded.activation_template.capture_limits_override,
+            CaptureLimitsOverride {
+                max_requests: Some(17),
+                max_stages: Some(18),
+                max_queues: None,
+                max_inflight_snapshots: None,
+                max_runtime_snapshots: None,
+            }
+        );
+        assert!(
+            loaded
+                .activation_template
+                .runtime_sampler
+                .enabled_for_armed_runs
+        );
+        assert_eq!(
+            loaded.activation_template.run_end_policy,
+            RunEndPolicy::MaxDuration {
+                max_duration: Duration::from_secs(5)
+            }
+        );
+
+        fs::write(&config, "[controller\n").expect("invalid TOML write should succeed");
+        assert!(TailtriageController::load_config_from_path(&config).is_err());
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn reload_updates_next_activation_template_only() {
+        let output_before = test_output("reload-template-before");
+        let output_after = test_output("reload-template-after");
+        let config = test_config_path("reload-template");
+        write_config(&config, &output_before, "light", false);
+
+        let controller = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+        assert_eq!(
+            controller.status().template.selected_mode,
+            CaptureMode::Light
+        );
+
+        write_config(&config, &output_after, "investigation", true);
+        controller.reload_config().expect("reload should succeed");
+
+        let status = controller.status();
+        assert_eq!(status.template.selected_mode, CaptureMode::Investigation);
+        assert!(status.template.strict_lifecycle);
+        assert_eq!(
+            status.template.run_end_policy,
+            RunEndPolicy::MaxDuration {
+                max_duration: Duration::from_secs(5)
+            }
+        );
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn active_generation_keeps_original_config_after_reload() {
+        let output_before = test_output("active-keeps-before");
+        let output_after = test_output("active-keeps-after");
+        let config = test_config_path("active-keeps");
+        write_config(&config, &output_before, "light", false);
+
+        let controller = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+
+        let gen1 = controller.enable().expect("first enable should succeed");
+        assert_eq!(gen1.activation_config.selected_mode, CaptureMode::Light);
+        assert_eq!(
+            gen1.activation_config.sink_template,
+            super::ControllerSinkTemplate::LocalJson {
+                output_path: output_before.clone()
+            }
+        );
+
+        write_config(&config, &output_after, "investigation", true);
+        controller.reload_config().expect("reload should succeed");
+
+        let GenerationState::Active(active_after_reload) = controller.status().generation else {
+            panic!("expected active generation");
+        };
+        assert_eq!(
+            active_after_reload.activation_config.selected_mode,
+            CaptureMode::Light
+        );
+        assert!(!active_after_reload.activation_config.strict_lifecycle);
+
+        let started = controller.begin_request("/checkout");
+        started.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == gen1.generation_id
+        ));
+
+        let gen2 = controller.enable().expect("second enable should succeed");
+        assert_eq!(
+            gen2.activation_config.selected_mode,
+            CaptureMode::Investigation
+        );
+        assert!(gen2.activation_config.strict_lifecycle);
+        assert_eq!(
+            gen2.activation_config.sink_template,
+            super::ControllerSinkTemplate::LocalJson {
+                output_path: output_after.clone()
+            }
+        );
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == gen2.generation_id
+        ));
+
+        fs::remove_file(gen1.artifact_path).expect("cleanup gen1 should succeed");
+        fs::remove_file(gen2.artifact_path).expect("cleanup gen2 should succeed");
+        fs::remove_file(config).expect("config cleanup should succeed");
     }
 }
