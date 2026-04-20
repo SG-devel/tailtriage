@@ -62,6 +62,8 @@ let _ = controller.disable()?;
 # }
 ```
 
+Runnable version: `cargo run -p tailtriage-controller --example controller_minimal`.
+
 ### Disabled-path expectations
 
 When the controller is disabled (or an active generation is closing), `begin_request(...)`
