@@ -123,6 +123,10 @@ jobs:
             --raw demos/collector_stress/artifacts/collector-limits-smoke-raw.jsonl \
             --summary demos/collector_stress/artifacts/collector-limits-smoke-summary.json
 
+      - name: Validate collector limits summary helper unit tests
+        if: matrix.profile == 'release'
+        run: python3 -m unittest scripts.tests.test_measure_collector_limits
+
       - name: Check demo fixture drift
         if: matrix.profile == 'dev'
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
