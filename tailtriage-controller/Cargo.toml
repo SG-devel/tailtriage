@@ -19,7 +19,13 @@ include = [
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 tailtriage-core.workspace = true
+tailtriage-tokio.workspace = true
+tokio = { version = "1", features = ["rt", "time"] }
 toml = "0.8"
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [lints]
 workspace = true
