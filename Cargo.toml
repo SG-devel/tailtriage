@@ -15,6 +15,7 @@ members = [
   "demos/shared_state_lock_service",
   "demos/retry_storm_service",
   "demos/runtime_cost",
+  "demos/collector_stress",
 ]
 resolver = "2"
 
