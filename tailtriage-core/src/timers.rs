@@ -8,10 +8,15 @@ use crate::{unix_time_ms, InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 pub struct InflightGuard<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
     pub(crate) gauge: String,
+    pub(crate) enabled: bool,
 }
 
 impl Drop for InflightGuard<'_> {
     fn drop(&mut self) {
+        if !self.enabled {
+            return;
+        }
+
         let count = {
             let mut counts = lock_map(&self.tailtriage.inflight_counts);
             let entry = counts.entry(self.gauge.clone()).or_insert(0);
@@ -33,6 +38,7 @@ impl Drop for InflightGuard<'_> {
 #[derive(Debug)]
 pub struct StageTimer<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
+    pub(crate) enabled: bool,
     pub(crate) request_id: String,
     pub(crate) stage: String,
 }
@@ -54,6 +60,10 @@ impl StageTimer<'_> {
     where
         Fut: std::future::Future<Output = Result<T, E>>,
     {
+        if !self.enabled {
+            return fut.await;
+        }
+
         let started_at_unix_ms = unix_time_ms();
         let started = Instant::now();
         let value = fut.await;
@@ -80,6 +90,10 @@ impl StageTimer<'_> {
     where
         Fut: std::future::Future<Output = T>,
     {
+        if !self.enabled {
+            return fut.await;
+        }
+
         let started_at_unix_ms = unix_time_ms();
         let started = Instant::now();
         let value = fut.await;
@@ -102,6 +116,7 @@ impl StageTimer<'_> {
 #[derive(Debug)]
 pub struct QueueTimer<'a> {
     pub(crate) tailtriage: &'a Tailtriage,
+    pub(crate) enabled: bool,
     pub(crate) request_id: String,
     pub(crate) queue: String,
     pub(crate) depth_at_start: Option<u64>,
@@ -124,6 +139,10 @@ impl QueueTimer<'_> {
     where
         Fut: std::future::Future<Output = T>,
     {
+        if !self.enabled {
+            return fut.await;
+        }
+
         let waited_from_unix_ms = unix_time_ms();
         let started = Instant::now();
         let value = fut.await;

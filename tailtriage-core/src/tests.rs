@@ -110,6 +110,76 @@ fn queue_stage_and_inflight_are_recorded() {
 }
 
 #[test]
+fn begin_request_is_inert_when_capture_disabled() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-disabled-begin.json");
+    tailtriage.set_capture_enabled(false);
+
+    let started = tailtriage.begin_request("/invoice");
+    assert_eq!(started.handle.request_id(), "");
+    assert_eq!(started.handle.route(), "/invoice");
+    assert_eq!(started.handle.kind(), None);
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.requests.is_empty());
+    assert!(snapshot.queues.is_empty());
+    assert!(snapshot.stages.is_empty());
+    assert!(snapshot.inflight.is_empty());
+}
+
+#[test]
+fn disabled_handles_skip_queue_stage_and_inflight_work() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-disabled-handles.json");
+    tailtriage.set_capture_enabled(false);
+
+    let started = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("caller-id").kind("http"),
+    );
+
+    {
+        let _inflight = started.handle.inflight("invoice_inflight");
+        futures_executor::block_on(started.handle.queue("permit").await_on(ready(())));
+        let _: Result<(), ()> =
+            futures_executor::block_on(started.handle.stage("persist").await_on(ready(Ok(()))));
+    }
+    started.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.requests.is_empty());
+    assert!(snapshot.queues.is_empty());
+    assert!(snapshot.stages.is_empty());
+    assert!(snapshot.inflight.is_empty());
+}
+
+#[test]
+fn disabled_completions_are_noop_and_do_not_trigger_unfinished_lifecycle() {
+    let sink = Arc::new(RecordingSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(Arc::clone(&sink))
+        .strict_lifecycle(true)
+        .build()
+        .expect("build should succeed");
+    tailtriage.set_capture_enabled(false);
+
+    let started = tailtriage.begin_request("/invoice");
+    drop(started.completion);
+
+    tailtriage
+        .shutdown()
+        .expect("disabled no-op request should not create pending lifecycle violations");
+
+    let run = sink
+        .run
+        .lock()
+        .expect("sink lock should succeed")
+        .clone()
+        .expect("shutdown should write one artifact");
+    assert!(run.requests.is_empty());
+    assert_eq!(run.metadata.unfinished_requests.count, 0);
+    assert!(run.metadata.lifecycle_warnings.is_empty());
+}
+
+#[test]
 fn shutdown_writes_artifact() {
     let output = std::env::temp_dir().join("tailtriage-core-shutdown.json");
     let tailtriage = Tailtriage::builder("payments")
