@@ -17,7 +17,9 @@ include = [
 ]
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 tailtriage-core.workspace = true
+toml = "0.8"
 
 [lints]
 workspace = true

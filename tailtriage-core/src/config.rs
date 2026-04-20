@@ -84,7 +84,7 @@ impl Default for CaptureLimits {
 ///
 /// This additive API preserves [`TailtriageBuilder::capture_limits`] as a
 /// full-override path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CaptureLimitsOverride {
     /// Optional override for [`CaptureLimits::max_requests`].
     pub max_requests: Option<usize>,
