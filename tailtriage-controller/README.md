@@ -62,7 +62,37 @@ let _ = controller.disable()?;
 # }
 ```
 
-Runnable version: `cargo run -p tailtriage-controller --example controller_minimal`.
+### Runnable workspace example (repository/source checkout)
+
+`controller_minimal` is a **repository/workspace example**. Run it from this repository checkout:
+
+`cargo run --manifest-path tailtriage-controller/Cargo.toml --example controller_minimal`
+
+### Published-crate onboarding (crates.io)
+
+Published users should copy the minimal snippet into their service (the packaged crate does not promise
+bundled runnable examples):
+
+```bash
+cargo add tailtriage-controller
+```
+
+```rust
+use tailtriage_controller::TailtriageController;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let controller = TailtriageController::builder("checkout-service")
+        .initially_enabled(false)
+        .output("tailtriage-run.json")
+        .build()?;
+
+    let _generation = controller.enable()?;
+    let started = controller.begin_request("/checkout");
+    started.completion.finish_ok();
+    let _ = controller.disable()?;
+    Ok(())
+}
+```
 
 ### Disabled-path expectations
 
