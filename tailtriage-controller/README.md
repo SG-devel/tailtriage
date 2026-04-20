@@ -27,9 +27,8 @@ let controller = TailtriageController::builder("checkout-service")
     .build()?;
 
 let generation = controller.enable()?;
-if let Some(started) = controller.try_begin_request("/checkout") {
-    started.completion.finish_ok();
-}
+let started = controller.begin_request("/checkout");
+started.completion.finish_ok();
 let _ = controller.disable()?;
 
 # let _ = generation;
