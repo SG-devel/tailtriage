@@ -111,7 +111,18 @@ jobs:
       - name: Smoke-check external crates.io consumer adoption flow
         if: matrix.profile == 'release'
         run: python3 scripts/smoke_external_consumer.py
-        
+
+      - name: Measure collector limits (smoke)
+        if: matrix.profile == 'release'
+        run: python3 scripts/measure_collector_limits.py --profile smoke
+
+      - name: Validate collector limits smoke outputs
+        if: matrix.profile == 'release'
+        run: |
+          python3 scripts/validate_collector_limits_summary.py \
+            --raw demos/collector_stress/artifacts/collector-limits-smoke-raw.jsonl \
+            --summary demos/collector_stress/artifacts/collector-limits-smoke-summary.json
+
       - name: Check demo fixture drift
         if: matrix.profile == 'dev'
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
