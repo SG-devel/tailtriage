@@ -165,8 +165,11 @@ Reload in v1 is explicit and manual:
 
 - `kind = "manual"`: keep the generation active; additional data can be dropped after saturation
   until manual disarm/shutdown.
-- `kind = "max_requests"` / `kind = "max_duration_ms"` / `kind = "first_limit_hit"`: controller
-  auto-seals the generation according to the chosen threshold/condition.
+- `kind = "max_requests"` / `kind = "max_duration_ms"` / `kind = "first_limit_hit"`: on the first
+  transition to `limits_hit` in any capture path (request events, runtime snapshots, stage events,
+  queue events, or in-flight snapshots), controller immediately stops new admissions and moves the
+  current generation into sealing/finalization. If admitted requests are still in flight, the
+  generation remains closing and finalizes as soon as those admitted requests drain.
 
 ## What this feature does not do
 
