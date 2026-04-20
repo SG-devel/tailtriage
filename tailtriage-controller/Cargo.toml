@@ -1,0 +1,23 @@
+[package]
+name = "tailtriage-controller"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Long-lived control-layer scaffolding for repeated bounded tailtriage activations"
+documentation = "https://docs.rs/tailtriage-controller"
+readme = "README.md"
+keywords = ["tokio", "latency", "controller", "capture", "triage"]
+categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "src/**",
+]
+
+[dependencies]
+tailtriage-core.workspace = true
+
+[lints]
+workspace = true
