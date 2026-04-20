@@ -107,6 +107,8 @@ ergonomics, but those tokens are inert/no-op wrappers owned by this crate.
 - queue/stage/inflight wrappers are no-op
 - completion methods are no-op lifecycle markers on the inert wrapper
 - inert requests do not write capture events and do not join later generations
+- inert metadata preserves explicit `request_id`/`kind`; if `request_id` is omitted,
+  controller assigns a non-empty local fallback ID (`inert-{N}`)
 
 This path is intended to be cheap and predictable, but users should still validate overhead in
 their own workload/environment.
@@ -188,8 +190,20 @@ Reload in v1 is explicit and manual:
 
 - `controller.reload_config()?` re-reads TOML from `config_path`.
 - Reload updates only the controller template for **future** activations.
+- `reload_config()` validates the reloaded template immediately and returns an error
+  instead of deferring invalid-template failures to the next `enable()`.
 - If a generation is already active, that generation keeps the exact activation config it started with.
 - The reloaded template is applied the next time `enable()` starts a new generation.
+
+Direct template replacement has two forms:
+
+- `try_reload_template(...) -> Result<_, ReloadTemplateError>` validates immediately and
+  returns errors.
+- `reload_template(...)` remains as a compatibility helper and panics on invalid templates.
+
+Poisoned internal controller mutexes are recovered by taking ownership of the poisoned
+state, so controller methods do not panic solely because a previous panic poisoned an
+internal lock.
 
 ### Run-end policy behavior on limits hit
 

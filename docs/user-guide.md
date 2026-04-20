@@ -88,7 +88,8 @@ Use direct `Tailtriage::builder(...)` for the standard single-run lifecycle.
 
 Use `tailtriage-controller` only when you need repeated enable/disable triage windows in one
 long-lived process. Its controller surface keeps disabled/closing request calls non-branching via
-inert wrappers, and applies config reloads only to later activations (not to already-active runs).
+inert wrappers, assigns non-empty fallback request IDs on inert requests when one is omitted,
+and applies validated config reloads only to later activations (not to already-active runs).
 
 See [`../tailtriage-controller/README.md`](../tailtriage-controller/README.md) for lifecycle,
 generation isolation, TOML shape, and reload semantics.
