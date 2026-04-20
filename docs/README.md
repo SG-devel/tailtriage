@@ -13,5 +13,5 @@
 ## Reference
 
 - **Architecture and crate responsibilities:** [`architecture.md`](architecture.md)
-- **Collector-stress methodology, findings, limits, and operating guidance:** [`collector-limits.md`](collector-limits.md)
-- **Runtime-cost measurement notes:** [`runtime-cost.md`](runtime-cost.md)
+- **Collector-limits measurement path (stress matrix + operating guidance):** [`collector-limits.md`](collector-limits.md)
+- **Runtime-cost attribution path (baked-in/core/sampler/drop-path):** [`runtime-cost.md`](runtime-cost.md)

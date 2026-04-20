@@ -613,11 +613,11 @@ def summarize(rows: list[dict[str, Any]], profile: str, selected_modes: tuple[st
         "collector_stress_signals": {
             "per_mode": mode_signals,
             "collector_bottleneck_indicators": [
-                "Throughput declines while p95 latency rises when moving from baseline_shape to high_concurrency.",
-                "Artifact growth jumps in heavy_event_shape relative to baseline_shape.",
-                "Memory peak RSS grows in longer_run relative to baseline_shape.",
-                "Sampler dense runs degrade throughput/latency versus sampler baseline.",
-                "limits_hit or dropped_* counters appear and persist across repeats/cases.",
+                "Look for throughput decline alongside p95 latency increase when moving baseline_shape -> high_concurrency.",
+                "Look for artifact-size growth in heavy_event_shape relative to baseline_shape.",
+                "Look for peak RSS growth in longer_run relative to baseline_shape.",
+                "Look for sampler_dense deltas versus sampler baseline; do not assume direction without measured output.",
+                "Look for limits_hit or persistent dropped_* counters across repeats/cases.",
             ],
         },
         "measurement_quality": {
