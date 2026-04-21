@@ -43,21 +43,6 @@ async fn timeout_handler(TailtriageRequest(_): TailtriageRequest) -> StatusCode 
     StatusCode::REQUEST_TIMEOUT
 }
 
-async fn custom_classifier_middleware(
-    State(tailtriage): State<Arc<Tailtriage>>,
-    request: Request<Body>,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    tailtriage_axum::middleware_with_status_classifier(tailtriage, request, next, |status| {
-        if status == StatusCode::BAD_REQUEST {
-            Outcome::Other("client_error".to_owned())
-        } else {
-            tailtriage_axum::default_status_to_outcome(status)
-        }
-    })
-    .await
-}
-
 #[tokio::test(flavor = "current_thread")]
 async fn middleware_injects_request_handle_and_finishes_from_response_status() {
     let nanos = SystemTime::now()
@@ -199,7 +184,13 @@ async fn configurable_middleware_classifier_changes_recorded_outcome() {
         .route("/bad", get(bad_request_handler))
         .layer(from_fn_with_state(
             Arc::clone(&tailtriage),
-            custom_classifier_middleware,
+            tailtriage_axum::middleware_with_status_classifier(|status| {
+                if status == StatusCode::BAD_REQUEST {
+                    Outcome::Other("client_error".to_owned())
+                } else {
+                    tailtriage_axum::default_status_to_outcome(status)
+                }
+            }),
         ))
         .with_state(AppState {
             gate: Arc::new(Semaphore::new(1)),

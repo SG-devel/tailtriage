@@ -6,6 +6,8 @@
 //! This crate provides a focused middleware + extractor path so handlers can
 //! access request instrumentation without repeating request start/finish wiring.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::extract::{FromRequestParts, MatchedPath, State};
@@ -14,6 +16,8 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use tailtriage_core::{Outcome, OwnedRequestHandle, RequestOptions, Tailtriage};
+
+type MiddlewareFuture = Pin<Box<dyn Future<Output = axum::response::Response> + Send + 'static>>;
 
 /// Returns the crate name for smoke-testing workspace wiring.
 #[must_use]
@@ -35,14 +39,32 @@ pub async fn middleware(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> axum::response::Response {
-    middleware_with_status_classifier(tailtriage, request, next, default_status_to_outcome).await
+    run_middleware_with_status_classifier(tailtriage, request, next, default_status_to_outcome)
+        .await
 }
 
-/// Middleware implementation with an explicit response-status classifier.
+/// Returns middleware with an explicit response-status classifier.
 ///
 /// This keeps [`middleware`] ergonomic as the default path while allowing
 /// future callers to choose a different status-to-outcome policy.
-pub async fn middleware_with_status_classifier<C>(
+pub fn middleware_with_status_classifier<C>(
+    classify_status: C,
+) -> impl Clone
+       + Send
+       + 'static
+       + Fn(State<Arc<Tailtriage>>, Request<axum::body::Body>, Next) -> MiddlewareFuture
+where
+    C: Fn(StatusCode) -> Outcome + Clone + Send + Sync + 'static,
+{
+    move |State(tailtriage), request, next| {
+        let classify_status = classify_status.clone();
+        Box::pin(async move {
+            run_middleware_with_status_classifier(tailtriage, request, next, classify_status).await
+        })
+    }
+}
+
+async fn run_middleware_with_status_classifier<C>(
     tailtriage: Arc<Tailtriage>,
     mut request: Request<axum::body::Body>,
     next: Next,
