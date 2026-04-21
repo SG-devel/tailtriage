@@ -1,19 +1,29 @@
 # tailtriage-axum
 
-`tailtriage-axum` provides Axum-first ergonomics for request-boundary instrumentation with tailtriage.
+`tailtriage-axum` provides Axum-first request-boundary wiring for `tailtriage`.
 
-It is an adapter crate: middleware starts/finishes request lifecycle and an extractor exposes the request-scoped handle in handlers.
+Use it when you want middleware to start and finish request lifecycle automatically at the Axum boundary, while still keeping queue/stage/inflight instrumentation explicit inside handlers or helper code.
 
-## What this crate is for
+## What this crate does
 
-Use this crate when you want request-boundary integration in Axum without manually wiring lifecycle calls in every handler.
+This crate gives you two Axum-facing pieces:
 
-## When to use this crate vs others
+- `middleware` to start and finish request lifecycle at the request boundary
+- `TailtriageRequest` extractor to access the request-scoped handle in handlers
 
-- **Use `tailtriage-axum`:** Axum middleware/extractor ergonomics.
-- **Use `tailtriage-core` directly:** framework-agnostic manual instrumentation.
-- **Add `tailtriage-tokio`:** if you also need runtime-pressure snapshots.
-- **Use `tailtriage` (default crate):** default starting point with optional `axum` feature.
+This crate is about integration ergonomics. It does not replace explicit instrumentation inside the request body.
+
+## When to choose this crate
+
+Choose `tailtriage-axum` when:
+
+- you already use Axum
+- you do not want to manually wire request start/finish in every handler
+- you still want explicit queue/stage/inflight instrumentation inside the request path
+
+Choose `tailtriage-core` directly when you want framework-agnostic manual instrumentation.
+
+Choose `tailtriage` when you want the default entry point and feature-gated Axum support.
 
 ## Installation
 
@@ -29,7 +39,7 @@ Via the default crate:
 cargo add tailtriage --features axum
 ```
 
-## Minimal example
+## Quick start
 
 ```rust,no_run
 use std::sync::Arc;
@@ -38,28 +48,69 @@ use axum::{extract::State, middleware::from_fn_with_state, routing::get, Router}
 use tailtriage_axum::{middleware, TailtriageRequest};
 use tailtriage_core::Tailtriage;
 
-# async fn app(tailtriage: Arc<Tailtriage>) {
-async fn checkout(TailtriageRequest(req): TailtriageRequest, State(_): State<()>) {
-    let _: Result<(), ()> = req.stage("inventory_lookup").await_on(async { Ok(()) }).await;
-}
+async fn app(tailtriage: Arc<Tailtriage>) {
+    async fn checkout(TailtriageRequest(req): TailtriageRequest, State(_): State<()>) {
+        let _: Result<(), ()> = req
+            .stage("inventory_lookup")
+            .await_on(async { Ok(()) })
+            .await;
+    }
 
-let app: Router<()> = Router::new()
-    .route("/checkout", get(checkout))
-    .layer(from_fn_with_state(tailtriage, middleware))
-    .with_state(());
-# let _ = app;
-# }
+    let app: Router<()> = Router::new()
+        .route("/checkout", get(checkout))
+        .layer(from_fn_with_state(tailtriage, middleware))
+        .with_state(());
+
+    let _ = app;
+}
 ```
 
-## Request-boundary constraints
+## What is automatic and what is still explicit
 
-- Install `middleware` before using `TailtriageRequest` extractor.
-- Missing middleware yields `TailtriageExtractorError` (HTTP 500).
-- Route labels prefer Axum `MatchedPath`; fallback is raw URI path.
-- This crate handles integration ergonomics only; report generation remains in `tailtriage-cli`.
+Automatic at the Axum boundary:
 
-## Deeper docs
+- request start
+- request finish
+- request-scoped handle injection into handlers
 
-- Default crate integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
-- Core lifecycle semantics: [`../tailtriage-core/README.md`](../tailtriage-core/README.md)
-- CLI analyzer/report docs: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)
+Still explicit in your code:
+
+- queue timing
+- stage timing
+- in-flight instrumentation
+- interpretation of the resulting artifact
+
+That split is important: this crate helps you integrate capture at the framework boundary, but it does not diagnose the slowdown by itself.
+
+## Important constraints
+
+- install `middleware` before using `TailtriageRequest`
+- missing middleware yields `TailtriageExtractorError` with HTTP 500 behavior
+- route labels prefer Axum `MatchedPath`; the fallback is the raw URI path
+- analysis still happens in `tailtriage-cli`
+
+## Minimal handler example
+
+```rust,no_run
+use tailtriage_axum::TailtriageRequest;
+
+async fn checkout(TailtriageRequest(req): TailtriageRequest) {
+    req.queue("checkout_queue").await_on(async {}).await;
+    let _: Result<(), ()> = req.stage("db_call").await_on(async { Ok(()) }).await;
+}
+```
+
+## When not to use this crate
+
+Do not add this crate just to analyze artifacts or rank suspects.
+
+It is only for Axum integration ergonomics.
+
+If you do not use Axum, this crate is not the right abstraction boundary.
+
+## Related crates
+
+- `tailtriage`: recommended default entry point
+- `tailtriage-core`: framework-agnostic instrumentation primitives
+- `tailtriage-tokio`: runtime-pressure sampling
+- `tailtriage-cli`: artifact analysis and report generation
