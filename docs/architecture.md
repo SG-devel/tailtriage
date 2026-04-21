@@ -1,59 +1,72 @@
-# Architecture (MVP)
+# Architecture
 
-`tailtriage` is a file-based triage pipeline over one instrumented run plus optional runtime/framework adapters.
+`tailtriage` is a file-based triage toolkit for Tokio services.
 
-## Why focused crates
+## Product-level shape
 
-The project is split into focused crates so service instrumentation, Tokio runtime enrichment, framework adapters, and artifact diagnosis can evolve independently while staying on one shared run schema.
+The default user path is:
 
-## Flow
+1. instrument capture in service code (`tailtriage` facade)
+2. optionally enrich with runtime sampling (`tailtriage-tokio`)
+3. write local run artifact JSON
+4. analyze artifact with `tailtriage-cli`
 
-1. Service code records request/queue/stage/in-flight signals via `tailtriage-core`.
-2. Optional runtime snapshots are collected by `tailtriage-tokio`.
-3. Optional framework boundary helpers are provided by adapter crates such as `tailtriage-axum`.
-4. `tailtriage-core` writes one JSON run artifact (`Run`).
-5. `tailtriage-cli` ranks suspects from that artifact.
+The result is a triage report with evidence-ranked suspects and next checks.
 
-## Crate responsibilities
+## Crate roles
+
+### `tailtriage` (facade, default entry point)
+
+Provides one cohesive surface for:
+
+- direct capture (`tailtriage::Tailtriage`)
+- controller windows (`tailtriage::controller::TailtriageController`)
+- optional runtime sampler module (`tailtriage::tokio`)
+- optional Axum adapter module (`tailtriage::axum`)
+
+### `tailtriage-controller`
+
+Controls repeated bounded capture windows in long-lived services.
+
+- arm/disarm generation windows
+- isolate generations from each other
+- support TOML-backed template config and future-generation reload
 
 ### `tailtriage-core`
 
-- run schema (`Run`, metadata, events, snapshots)
-- collection lifecycle (`Tailtriage::builder(...).build`, `shutdown`, `snapshot`)
-- split request lifecycle API (`begin_request` / `begin_request_with` returning `StartedRequest { handle, completion }`)
-- instrumentation wrappers on `RequestHandle` (`queue`, `stage`, `inflight`)
-- completion wrappers on `RequestCompletion` (`finish`, `finish_ok`, `finish_result`)
-- local JSON sink (`LocalJsonSink`)
+Owns the core capture model:
+
+- request lifecycle API (`StartedRequest`, `RequestHandle`, `RequestCompletion`)
+- queue/stage/inflight instrumentation wrappers
+- run artifact schema and sink behavior
+- capture limits/truncation accounting
 
 ### `tailtriage-tokio`
 
-- runtime sampling (`RuntimeSampler`)
-- runtime snapshot capture (`capture_runtime_snapshot`)
-- request lifecycle starts via `Tailtriage::begin_request(...)` / `begin_request_with(...)`
-- `RequestHandle` is instrumentation-only
-- `RequestCompletion` is explicit finish-only
-
-Some runtime metrics require `tokio_unstable`; unavailable fields are recorded as `None`.
+Adds optional runtime-pressure snapshots to the same run artifact via `RuntimeSampler`.
 
 ### `tailtriage-axum`
 
-- optional axum adapter middleware (`middleware`)
-- optional axum request extractor (`TailtriageRequest`)
-- framework-boundary request start/finish wiring with explicit handler instrumentation preserved
+Adds optional Axum request-boundary ergonomics (middleware + extractor).
 
 ### `tailtriage-cli`
 
-- parse run JSON
-- compute request percentiles
-- apply rule-based diagnosis ranking
-- render text or JSON report
+Consumes run artifacts and emits diagnosis reports (text/JSON).
 
-The CLI consumes run artifacts and does not need to be embedded into your service.
+## Relationship model
 
-`shutdown()` does not auto-finish requests or fabricate request outcomes/timings. Unfinished pending requests are surfaced in run metadata warnings, and `strict_lifecycle(true)` can make `shutdown()` fail.
+- **Capture surfaces:** direct `Tailtriage` lifecycle and controller-managed windows feed the same artifact model.
+- **Controller windows:** long-lived services can collect repeated bounded runs without restart.
+- **Optional runtime enrichment:** runtime sampler increases evidence quality when runtime pressure is ambiguous.
+- **Optional framework ergonomics:** Axum adapter reduces boundary wiring while keeping explicit instrumentation in business logic.
+- **Artifact analysis:** CLI performs file-based diagnosis from captured evidence.
 
-## Contract boundary
+## Boundary and claims
 
-- Input: one local `Run` JSON artifact.
-- Output: ranked suspects with evidence and next checks.
-- Non-claim: proven root cause.
+`tailtriage` intentionally focuses on triage from one run artifact.
+
+It does not claim:
+
+- observability backend behavior
+- distributed-system root-cause proof
+- automatic causality certainty

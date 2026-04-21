@@ -1,269 +1,198 @@
 # User guide
 
-Use this guide for a reliable capture → analyze → next-check loop.
+This guide teaches the default `tailtriage` workflow for end users.
 
-## Path A — Run from this repo workspace
+## 1) Default adoption path
 
-Use this path to run bundled examples, demos, and contributor workflows from this repository.
+For most services, use:
 
-### 1) Capture one artifact
+- `tailtriage` for capture instrumentation
+- `tailtriage-cli` for analysis/report generation
 
-```bash
-cargo run -p tailtriage-tokio --example minimal_checkout
-```
-
-Optional additional examples:
+Install:
 
 ```bash
-cargo run -p tailtriage-axum --example axum_minimal
-cargo run -p tailtriage-axum --example axum_service_adoption
-cargo run -p tailtriage-tokio --example mini_service_integration
+cargo add tailtriage
+cargo install tailtriage-cli
 ```
 
-### 2) Analyze with the workspace CLI
+Optional integrations:
 
 ```bash
-cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+cargo add tailtriage --features tokio
+cargo add tailtriage --features "tokio,axum"
 ```
 
-### 3) Read the report in order
+## 2) Core workflow: capture -> analyze -> next check -> re-run
 
-1. `primary_suspect.kind`
-2. `primary_suspect.evidence[]`
-3. `primary_suspect.next_checks[]`
-4. `p95_queue_share_permille` / `p95_service_share_permille` as directional context
+### Capture
 
-The p95 share fields are independent percentile summaries and are not expected to sum to `1000`.
+```rust,no_run
+use tailtriage::Tailtriage;
 
-## Request lifecycle correctness (required)
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let run = Tailtriage::builder("checkout-service")
+    .output("tailtriage-run.json")
+    .build()?;
 
-`Tailtriage::begin_request(...)` / `begin_request_with(...)` returns a split `StartedRequest { handle, completion }`:
-
-- `started.handle` (`RequestHandle`) is instrumentation-only
-- `started.completion` (`RequestCompletion`) is explicit finish-only
-
-```rust
-use tailtriage_core::RequestOptions;
-
-let started = tailtriage.begin_request_with(
-    "/checkout",
-    RequestOptions::new().request_id("req-1").kind("http"),
-);
-let req = started.handle.clone();
-
-helper_a(&req).await?;
-helper_b(&req).await?;
-
+let started = run.begin_request("/checkout");
 started.completion.finish_ok();
-```
 
-Terminal methods on `RequestCompletion`:
-
-- `finish(...)`
-- `finish_ok()`
-- `finish_result(...)`
-
-`queue(...)`, `stage(...)`, and `inflight(...)` on `RequestHandle` do not finish the request. `Drop` is only a debug-time misuse detector and does not record completion automatically.
-
-Helper-layer functions should take `&RequestHandle<'_>` so instrumentation can be spread across middleware/handlers/service helpers while completion remains single-owner:
-
-```rust
-async fn helper_a(req: &tailtriage_core::RequestHandle<'_>) -> Result<(), MyError> {
-    req.stage("helper_a").await_on(do_work_a()).await
-}
-```
-
-### Shutdown lifecycle semantics
-
-`tailtriage.shutdown()` only finalizes and writes the run. It does not complete pending requests.
-
-- `shutdown()` does **not** auto-finish requests.
-- `shutdown()` does **not** fabricate timings or outcomes.
-- unfinished requests are surfaced in run metadata warnings and unfinished-request samples.
-- `strict_lifecycle(true)` makes `shutdown()` return an error when unfinished requests remain.
-
-## Live arm/disarm controller (optional)
-
-Use direct `Tailtriage::builder(...)` for the standard single-run lifecycle.
-
-Use `tailtriage-controller` only when you need repeated enable/disable triage windows in one
-long-lived process. Its controller surface keeps disabled/closing request calls non-branching via
-inert wrappers, assigns non-empty fallback request IDs on inert requests when one is omitted,
-and applies validated config reloads only to later activations (not to already-active runs).
-
-See [`../tailtriage-controller/README.md`](../tailtriage-controller/README.md) for lifecycle,
-generation isolation, TOML shape, and reload semantics.
-
-## RuntimeSampler (optional stronger attribution)
-
-`CaptureMode` in core sets retention defaults only. It does not auto-enable `RuntimeSampler`.
-Light mode remains lower retention defaults, not sparse evidence before saturation.
-When limits are hit, artifacts keep per-category drop counters and mark that limits were hit;
-analyzer warnings call out that dropped evidence can reduce completeness/confidence.
-Older artifacts may show `metadata.effective_core_config` as `null` (unknown).
-
-Post-limit behavior (issue #252 scope):
-
-- the cheaper drop path improves saturated-run overhead without changing `CaptureMode` semantics;
-- after saturation, dropped events skip the normal append/retention path;
-- drop counters and `limits_hit` bookkeeping still happen;
-- residual overhead remains from branch checks and drop-accounting state updates.
-
-### What mode changes in each crate
-
-Core defaults (`tailtriage-core`):
-
-- Light: `max_requests=100_000`, `max_stages=200_000`, `max_queues=200_000`, `max_inflight_snapshots=200_000`, `max_runtime_snapshots=100_000`
-- Investigation: `max_requests=300_000`, `max_stages=600_000`, `max_queues=600_000`, `max_inflight_snapshots=600_000`, `max_runtime_snapshots=300_000`
-
-Tokio defaults (`tailtriage-tokio`, only when sampler is started):
-
-- Light: `cadence=500ms`, `max_runtime_snapshots=5_000`
-- Investigation: `cadence=100ms`, `max_runtime_snapshots=50_000`
-
-Tokio sampler override precedence:
-
-1. inherited mode from selected core mode
-2. explicit Tokio override via `.mode(...)`
-3. explicit cadence override via `.interval(...)`
-4. explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
-
-What mode does **not** do:
-
-- does **not** auto-enable Tokio sampling
-- does **not** imply sampler cost by itself (core Investigation alone does not start a sampler)
-- does **not** require Tokio
-- does **not** change `strict_lifecycle`
-- does **not** change event types
-
-Artifacts record both selected mode and effective resolved config:
-
-- selected mode: `metadata.mode`
-- core effective config: `metadata.effective_core_config`
-- Tokio sampler effective config (recorded only by successful sampler startup): `metadata.effective_tokio_sampler_config`
-
-Overhead terminology used in docs and scripts:
-
-- Core mode overhead
-- Tokio mode overhead
-- Incremental runtime sampler overhead
-- Baked-in overhead
-- Post-limit / drop-path overhead
-
-Decision note: issue #252 is resolved by post-limit optimization alone for the current scope; no new evidence-density policy is required in this change set.
-
-Use runtime snapshots when request-level signals are not enough to separate queueing vs executor vs blocking-pool pressure. For runtime-cost attribution categories and measurement workflow, see [runtime-cost.md](runtime-cost.md).
-
-`RuntimeSampler` resolves Tokio config from:
-
-1. inherited mode from `Tailtriage` selected mode
-2. optional explicit Tokio override via `.mode(...)`
-3. optional explicit cadence override via `.interval(...)`
-4. optional explicit runtime snapshot retention override via `.max_runtime_snapshots(...)`
-
-`CaptureMode` does not auto-start runtime sampling.
-Resolved runtime snapshot retention is clamped to the core collector limit for
-`max_runtime_snapshots`.
-Sampler startup requires an active Tokio runtime, and each `Tailtriage` run
-accepts only one successful `RuntimeSampler::start()` registration.
-
-```rust
-use std::sync::Arc;
-use tailtriage_core::Tailtriage;
-use tailtriage_core::CaptureMode;
-use tailtriage_tokio::RuntimeSampler;
-
-# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
-let tailtriage = Arc::new(
-    Tailtriage::builder("checkout-service")
-        .output("tailtriage-run.json")
-        .light()
-        .build()?,
-);
-let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
-    .mode(CaptureMode::Investigation)
-    .interval(std::time::Duration::from_millis(200))
-    .max_runtime_snapshots(25_000)
-    .start()?;
-
-// run workload
-
-sampler.shutdown().await;
-tailtriage.shutdown()?;
+run.shutdown()?;
 # Ok(())
 # }
 ```
 
-Always call both shutdowns:
-
-- `sampler.shutdown().await`
-- `tailtriage.shutdown()?`
-
-`RuntimeSampler` works on stable Tokio, but some runtime fields (`local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`) require `tokio_unstable`.
-
-## Axum adapter surface (optional)
-
-`tailtriage-axum` provides a narrow axum ergonomics layer for request-scoped triage:
-
-- middleware: `tailtriage_axum::middleware`
-- extractor: `tailtriage_axum::TailtriageRequest`
-
-This layer reduces repeated handler boundary code (request start/finish + handle wiring). It is an adoption helper, not auto-instrumentation magic.
-
-```rust,no_run
-use std::sync::Arc;
-use axum::{extract::State, middleware::from_fn_with_state, routing::get, Router};
-use tailtriage_core::Tailtriage;
-use tailtriage_axum::{middleware, TailtriageRequest};
-
-# async fn app(tailtriage: Arc<Tailtriage>) {
-async fn checkout(TailtriageRequest(req): TailtriageRequest, State(_): State<()>) {
-    let _: Result<(), ()> = req.stage("inventory_lookup").await_on(async { Ok(()) }).await;
-}
-
-let app = Router::new()
-    .route("/checkout", get(checkout))
-    .layer(from_fn_with_state(tailtriage, middleware))
-    .with_state(());
-# let _ = app;
-# }
-```
-
-Finish semantics at the framework boundary:
-
-- middleware starts one request per incoming axum request
-- middleware finishes with `Outcome::Ok` for non-5xx responses and `Outcome::Error` for 5xx responses
-- queue/stage/inflight instrumentation remains explicit in handlers/helpers via `TailtriageRequest`
-
-Example split:
-
-- `axum_minimal`: smallest framework starter in `tailtriage-axum` with explicit manual lifecycle wiring
-- `axum_service_adoption`: larger service-shaped path in `tailtriage-axum` using the adapter and multiple routes
-
-## If report shows `insufficient_evidence`
-
-Add one queue wrapper and one stage wrapper around the most likely missing waits, rerun under comparable load, then compare suspects/evidence.
-
-## Path B — Use published crates from crates.io
-
-Use this path when adopting `tailtriage` in an external project.
-
-```toml
-[dependencies]
-tailtriage-core = "0.1.1"
-tailtriage-tokio = "0.1.1" # optional, for RuntimeSampler and runtime-pressure evidence
-tailtriage-axum = "0.1.1" # optional, only for axum middleware/extractor ergonomics
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-```
+### Analyze
 
 ```bash
-cargo install tailtriage-cli
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-## Next docs
+### Decide next check
+
+Read output in this order:
+
+1. `primary_suspect.kind`
+2. `primary_suspect.evidence[]`
+3. `primary_suspect.next_checks[]`
+
+Then run one targeted check, change one thing, and re-run under comparable load.
+
+## 3) Request lifecycle contract (required)
+
+`begin_request(...)` / `begin_request_with(...)` returns `StartedRequest`:
+
+- `started.handle` (`RequestHandle`) for instrumentation
+- `started.completion` (`RequestCompletion`) for explicit completion
+
+```rust,no_run
+use tailtriage::Tailtriage;
+
+# async fn demo(run: &Tailtriage) -> Result<(), Box<dyn std::error::Error>> {
+let started = run.begin_request("/checkout");
+let req = started.handle.clone();
+
+req.queue("checkout_queue").await_on(async {}).await;
+let _: Result<(), ()> = req.stage("downstream_call").await_on(async { Ok(()) }).await;
+
+started.completion.finish_ok();
+# Ok(())
+# }
+```
+
+Important semantics:
+
+- finish exactly once (`finish`, `finish_ok`, `finish_result`)
+- drop does not auto-finish
+- `shutdown()` does not fabricate completion/outcome
+- `strict_lifecycle(true)` can fail shutdown when unfinished requests remain
+
+## 4) Direct capture vs controller
+
+Use **direct capture** (`Tailtriage`) when you want a straightforward run lifecycle in app code.
+
+Use **controller** (`TailtriageController`) when your service is long-lived and you need repeated bounded windows over time:
+
+- enable capture window
+- collect
+- disable/finalize
+- re-enable later
+
+Minimal controller window example:
+
+```rust,no_run
+use tailtriage::controller::TailtriageController;
+
+# fn demo() -> Result<(), Box<dyn std::error::Error>> {
+let controller = TailtriageController::builder("checkout-service")
+    .initially_enabled(false)
+    .output("tailtriage-run.json")
+    .build()?;
+
+let _generation = controller.enable()?;
+let started = controller.begin_request("/checkout");
+started.completion.finish_ok();
+let _ = controller.disable()?;
+# Ok(())
+# }
+```
+
+Controller details: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
+
+## 5) Controller TOML config and reload semantics
+
+Controller config is for repeatable operational settings across environments.
+
+Stay with builder defaults when you are exploring locally or need one straightforward capture setup. Move to TOML when you need consistent operational settings (service identity, output path, capture limits, sampler template) across environments without rebuilding.
+
+Minimal TOML shape:
+
+```toml
+[controller]
+service_name = "checkout-service"
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+
+At contract level:
+
+- set config file path with `config_path(...)`
+- call `reload_config()` to refresh the template from file
+- reload applies to **future generations only**
+- active generation keeps activation-time config
+
+See crate README for full TOML keys and examples: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
+
+## 6) Runtime sampler: when and why
+
+Add runtime sampling when request timing alone does not clearly separate:
+
+- queueing saturation
+- executor pressure
+- blocking-pool pressure
+
+Use `tailtriage --features tokio`, then start `RuntimeSampler` for the run. `CaptureMode` does not auto-start sampling.
+
+Key constraints:
+
+- start inside an active Tokio runtime
+- one successful sampler start per run
+- runtime snapshot retention is bounded by core limits
+- some runtime fields require `tokio_unstable`
+
+Sampler details: [tailtriage-tokio/README.md](../tailtriage-tokio/README.md)
+
+## 7) Axum adapter: what it is and is not
+
+`tailtriage-axum` is a framework-boundary ergonomics layer:
+
+- middleware handles request start/finish at Axum boundary
+- extractor passes request handle into handlers
+
+It is not automatic diagnosis. Queue/stage/inflight instrumentation is still explicit in handler/helper code.
+
+Adapter details: [tailtriage-axum/README.md](../tailtriage-axum/README.md)
+
+## 8) What to do when result is `insufficient_evidence`
+
+When `primary_suspect.kind` is `insufficient_evidence`:
+
+1. add at least one queue wrapper around suspected waits
+2. add at least one stage wrapper around suspected downstream work
+3. optionally add runtime sampler if runtime pressure is unclear
+4. rerun with comparable load and compare evidence movement
+
+Use [diagnostics.md](diagnostics.md) for interpretation details.
+
+## 9) Next docs
 
 - [Documentation index](README.md)
-- [Demo walkthrough](getting-started-demo.md)
-- [Diagnostics details](diagnostics.md)
+- [Diagnostics guide](diagnostics.md)
+- [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)

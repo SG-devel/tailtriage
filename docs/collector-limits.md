@@ -1,212 +1,82 @@
-# Collector stress methodology, findings, and operating guidance
+# Collector limits and stress guidance
 
-This page documents the **collector-stress operating measurement path** for issue #107.
+This page describes the repository's sustained collector-stress measurement path.
 
-## Why this doc exists (and how it differs from `docs/runtime-cost.md`)
+Use this path when you want to understand truncation onset, dropped-category progression, artifact-size growth, and memory trends under stress-shaped synthetic workloads.
 
-`docs/runtime-cost.md` explains a controlled runtime-overhead attribution path (baked-in/core/sampler/drop-path) on one shared scenario.
+For runtime-overhead attribution across fixed modes, use [runtime-cost.md](runtime-cost.md).
 
-This page serves a different purpose: it records how we run the **collector stress path**, what outputs it produces, what trends were observed in a real run, and what those trends do and do not prove.
+## What this path measures
 
-In short:
+The path runs the `demos/collector_stress` workload matrix through `scripts/measure_collector_limits.py` and records:
 
-- `runtime-cost.md`: overhead attribution across fixed benchmark modes.
-- `collector-limits.md` (this page): sustained-load operating behavior, retention/truncation behavior, artifact/memory growth, and sampler density behavior under stress-shaped event volume.
+- throughput and latency
+- retained counts and truncation/drop counters
+- artifact-size growth
+- peak memory trends
+- optional runtime sampler density effects
 
-Use this distinction when choosing a measurement path:
+Profiles:
 
-- Runtime overhead attribution -> `runtime-cost.md`
-- Sustained-load collector limits -> this page + `scripts/measure_collector_limits.py`
-- Artifact-size scaling under stress-shaped event volume -> this page
-- Memory-growth behavior under stress-shaped event volume -> this page
+- `default` (reference progression)
+- `artifact_scaling` (bounded scaling-focused progression)
+- `smoke` (quick validation)
 
-## Measurement path and methodology
+## What outputs it emits
 
-The measured path is:
+Artifacts are written under `demos/collector_stress/artifacts/`:
 
-1. **Stress binary:** `demos/collector_stress` (release build).
-2. **Orchestration script:** `scripts/measure_collector_limits.py`.
-3. **Output artifacts:**
-   - Raw JSONL: `demos/collector_stress/artifacts/collector-limits-<profile>-raw.jsonl`
-   - Summary JSON: `demos/collector_stress/artifacts/collector-limits-<profile>-summary.json`
+- `collector-limits-<profile>-raw.jsonl`
+- `collector-limits-<profile>-summary.json`
 
-Treat this as the canonical collector-limits measurement path for issue #107.
+Summary output includes onset helpers such as:
 
-### Workload shape and measured dimensions
+- first case where limits are hit
+- first case where each dropped category becomes non-zero
+- growth-threshold crossings for artifact size and memory
 
-The default matrix includes an explicit pressure progression, plus two orthogonal stress checks:
+## Interpreting onset and truncation signals
 
-1. `low_concurrency` (lower-pressure point)
-2. `baseline_shape` (mid-pressure reference)
-3. `high_concurrency` (higher-pressure point on the same shape)
-4. `heavy_event_shape` (event-density change at mid concurrency)
-5. `longer_run` (event-volume/duration change at mid concurrency)
-6. `sampler_dense` (sampler-enabled modes only; cadence stress check)
+Treat these as practical warning markers in the measured matrix:
 
-This keeps one coherent measurement path while making onset/range interpretation practical.
+1. `limits_hit_runs > 0` means capture is no longer fully retained for that case.
+2. non-zero dropped counters show which data category saturates first (`requests`, `stages`, `queues`, `inflight`, `runtime`).
+3. once truncation is active, artifact bytes can flatten or invert because retained output is capped.
 
-To characterize artifact-size scaling before truncation dominates, there is also a bounded profile:
+Interpret artifact-size trends most confidently on mostly-unsaturated points.
 
-- `--profile artifact_scaling`
-  - request-volume axis: `artifact_scale_volume_low` -> `artifact_scale_volume_mid` -> `artifact_scale_volume_high`
-  - event-density axis: `artifact_scale_density_low` -> `artifact_scale_density_mid` -> `artifact_scale_density_high`
-  - sampler cadence axis (sampler modes only): `artifact_scale_density_mid` -> `artifact_scale_sampler_dense`
+## Artifact-size and memory guidance (bounded claims)
 
-This profile intentionally uses bounded request counts and shorter duration so at least part of each progression can remain mostly unsaturated on many hosts, while still allowing later points to cross into truncation.
+- Use growth trends as machine-scoped operating guidance, not universal limits.
+- Compare modes and cases with truncation context, not throughput alone.
+- Treat memory and artifact thresholds as conservative local indicators for your current machine/workload shape.
 
-Across supported modes:
+## What this path does not prove
 
-- `baseline`
-- `core_light`
-- `core_investigation`
-- `core_light_tokio_sampler`
-- `core_investigation_tokio_sampler`
+It does not prove:
 
-Each run reports (per row in raw JSONL):
+- universal production behavior
+- fixed safe operating ranges for all environments
+- root cause certainty
 
-- workload metadata (`mode`, `concurrency`, duration/request controls, `event_shape`, `sampler_settings`)
-- throughput + latency (`throughput_rps`, `latency`)
-- retention/truncation state (`retained_counts`, `truncation_counts`)
-- artifact metadata (`artifact.artifact_path`, `artifact.artifact_size_bytes`, script-measured size)
-- memory metadata (`peak_memory`, `memory_measurement`)
-- notes (`measurement_notes`)
-
-### Memory measurement method
-
-The script tries external peak RSS first with `time -v` (`external_time_v`). If unavailable, it falls back to in-process memory fields (`in_process_fallback`) and records caveats in summary `measurement_quality.limitations`.
-
-## What is measured and derived
-
-From this path, we measure these dimensions directly:
-
-1. **Concurrency progression:** `low_concurrency` -> `baseline_shape` -> `high_concurrency` with a fixed event shape.
-2. **Event-density effect:** `baseline_shape` -> `heavy_event_shape`.
-3. **Event-volume/duration effect:** `baseline_shape` -> `longer_run`.
-4. **Runtime sampler density impact:** sampler baseline cadence vs `sampler_dense` override.
-5. **Derived onset markers** in `collector_pressure_onset_markers`:
-   - first case where `limits_hit_runs > 0`
-   - first case where each dropped category becomes non-zero
-   - first case where artifact growth crosses the configured threshold (currently +25% vs `baseline_shape`)
-   - first case where memory growth crosses the configured threshold (currently +25% vs `baseline_shape`)
-6. **Derived artifact-scaling view** in `artifact_scaling`:
-   - `mode_comparisons` summarizes request-volume and event-density growth progression where scaling cases exist
-   - each point is labeled as:
-     - `mostly_unsaturated` (`limits_hit_runs == 0` and dropped means are zero), or
-     - `actively_truncated` (limits hit and/or dropped means non-zero)
-   - `growth_by_regime` separates data points by those two regimes
-
-## Regime interpretation model (comfortable vs onset vs stressed)
-
-Interpret each mode using the derived onset markers:
-
-1. **Comfortable / unsaturated regime**
-   - Typical signal: `first_limits_hit_case = null` and all `first_nonzero_dropped_case_by_category.* = null`.
-   - Usually represented by `low_concurrency` when the host/workload can stay unsaturated there.
-
-2. **Onset regime**
-   - Typical signal: first non-null onset marker appears (for limits-hit, dropped categories, or growth threshold crossings).
-   - This is the practical “pressure starts here” boundary for machine-scoped guidance.
-
-3. **Clearly stressed regime**
-   - Typical signal: multiple non-null onset markers and/or repeated limits-hit with persistent dropped counters across heavier cases (`high_concurrency`, `heavy_event_shape`, `longer_run`).
-   - This regime is useful for confirming behavior under pressure, not for claiming universal operating limits.
-
-## Machine-scoped example (April 20, 2026 run)
-
-A bounded default run (`--profile default --modes core_light,core_light_tokio_sampler`) plus a bounded artifact-scaling run (`--profile artifact_scaling --modes core_light,core_light_tokio_sampler`) produced these machine-scoped findings:
-
-1. **Where collector pressure first appeared (reference path):**
-   - in both measured modes, `collector_pressure_onset_markers.per_mode[].first_limits_hit_case = low_concurrency` (configured `concurrency=32`).
-   - in both measured modes, the first non-zero drop category was `dropped_inflight_snapshots` at `low_concurrency`, while `dropped_requests`, `dropped_stages`, and `dropped_queues` first became non-zero at `baseline_shape`.
-
-2. **Earliest practical warning signals in this run set:**
-   - `truncation.limits_hit_runs > 0` at low-concurrency.
-   - `truncation.dropped_inflight_snapshots.mean > 0` before request/stage/queue drops.
-   - then `truncation.dropped_requests|dropped_stages|dropped_queues.mean > 0` at `baseline_shape`.
-   - Treat these summary fields as the earliest practical warning signals in this reference path.
-
-3. **How memory grew across the measured progression (`default` profile):**
-   - `core_light` peak RSS (in-process fallback path): ~114 MB (`low_concurrency`) -> ~208 MB (`baseline_shape`) -> ~209 MB (`high_concurrency`) -> ~185 MB (`heavy_event_shape`) -> ~209 MB (`longer_run`).
-   - `core_light_tokio_sampler` followed the same pattern (~113 MB -> ~208 MB -> ~209 MB -> ~185 MB -> ~209 MB).
-   - `first_growth_threshold_crossing_case.peak_rss_memory = null` in both modes for the configured +25% threshold against `baseline_shape`.
-
-4. **How artifact size grew in interpretable cases:**
-   - in the bounded `artifact_scaling` profile, all request-volume and event-density comparison points were `mostly_unsaturated` (no limits-hit and no dropped means).
-   - request-volume axis (`core_light`): ~469 KB (`300` requests) -> ~1.25 MB (`800`) -> ~2.19 MB (`1400`) (~+366% first-to-last).
-   - event-density axis (`core_light`): ~1.25 MB (low density) -> ~2.48 MB (mid) -> ~4.25 MB (high) (~+240% first-to-last).
-   - sampler mode showed nearly identical scaling patterns.
-
-5. **Observed runtime sampler density impact (reference path):**
-   - `sampler_density_impact.core_light_tokio_sampler` (500ms baseline cadence vs 50ms dense cadence) showed:
-     - throughput delta ≈ `-0.35%`
-     - p95 latency delta ≈ `+0.51%`
-     - runtime snapshot drop delta = `null` (no runtime snapshot drops in either case).
-   - This run indicates small measured impact for this machine/workload shape, not a general guarantee.
-
-Interpretation for this machine/run set:
-
-- in the reference path, pressure first appears when `low_concurrency` (32) is already limits-hit for both measured modes;
-- treat `limits_hit_runs` and early non-zero dropped counters as practical earliest warning fields;
-- the default profile did not provide a comfortable unsaturated point on this machine, while the artifact-scaling profile did provide unsaturated interpretable growth points;
-- this matrix did **not** support a stronger universal range claim, and should not be used as production guarantees.
-
-## How to interpret artifact growth without over-claiming
-
-Artifact-size growth is directly interpretable when comparing points that are mostly unsaturated:
-
-- use `artifact_scaling.mode_comparisons.<mode>.<axis>.points[*].regime == "mostly_unsaturated"`
-- compare `artifact_size_bytes_mean` together with `requests_completed_mean`
-- keep conclusions scoped to the measured mode/axis/profile
-
-Artifact-size growth becomes potentially misleading once truncation is active:
-
-- if any compared point has `regime == "actively_truncated"`, raw artifact bytes can flatten or invert because dropped events cap retained output
-- in that regime, treat artifact-byte comparisons as lower-bound/retention-limited signals, not total-event-volume signals
-- rely on truncation context (`limits_hit_runs`, dropped counters) before claiming a growth trend
-
-## What these results do **not** prove
-
-These measurements do **not** prove:
-
-- universal cross-machine performance properties
-- production behavior outside this measured path and parameter set
-- root cause certainty (they provide evidence-ranked stress signals)
-- that one run’s absolute numbers should be reused as fixed guidance
-
-## Practical operating guidance (grounded only in measured behavior)
-
-Tie guidance to measured onset markers, not guesses:
-
-1. Use `collector_pressure_onset_markers.per_mode[].first_limits_hit_case` as the first collector-pressure boundary.
-2. Use `first_nonzero_dropped_case_by_category` to identify which retention category starts dropping first (`requests/stages/queues/inflight/runtime`).
-3. Use growth-threshold markers to flag potential storage/memory pressure transitions; thresholds are intentionally conservative (+25%) and machine-scoped.
-4. Treat `low_concurrency` as your practical “comfortable check,” `baseline_shape` as mid-point, and `high_concurrency`/`longer_run` as stress checks.
-5. Compare **light vs investigation** with onset markers + artifact bytes + memory + dropped counters together, not throughput alone.
-6. Use `sampler_dense` as an empirical, per-machine check; do not assume cadence impact direction without measured output.
-7. Keep claims run-scoped and include profile, case IDs, repeat count, and memory path (`external_time_v` vs fallback).
-
-Where data is insufficient (for example, broad sampler-cadence tradeoffs), state explicitly that more measured runs are needed.
+Like runtime-cost data, these are synthetic, machine-scoped, workload-scoped measurements from this repository.
 
 ## Commands
 
-Default matrix:
+Default profile:
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile default
 ```
 
-Bounded artifact-scaling matrix:
+Artifact-scaling profile:
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile artifact_scaling
 ```
 
-Quick smoke matrix:
+Quick smoke profile:
 
 ```bash
 python3 scripts/measure_collector_limits.py --profile smoke
 ```
-
-## Policy reminder
-
-Do not hardcode one machine’s “latest numbers” as timeless truth. Keep claims tied to the measured path, emitted fields, and artifact files from the run being discussed.

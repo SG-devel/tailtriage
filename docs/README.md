@@ -1,18 +1,30 @@
-# Documentation map
+# Documentation index
+
+This is the canonical user-facing docs index for `tailtriage`.
 
 ## Start here
 
-- **Fastest first run from this repo:** [`user-guide.md#path-a--run-from-this-repo-workspace`](user-guide.md#path-a--run-from-this-repo-workspace)
-- **Use published crates in external projects:** [`user-guide.md#path-b--use-published-crates-from-cratesio`](user-guide.md#path-b--use-published-crates-from-cratesio)
-- **Split lifecycle API contract (`StartedRequest`, `RequestHandle`, `RequestCompletion`):** [`user-guide.md#request-lifecycle-correctness-required`](user-guide.md#request-lifecycle-correctness-required)
-- **Live arm/disarm controller guide:** [`../tailtriage-controller/README.md`](../tailtriage-controller/README.md)
-- **Axum adapter usage (`TailtriageRequest` + middleware):** [`user-guide.md#axum-adapter-surface-optional`](user-guide.md#axum-adapter-surface-optional)
-- **Public examples:** [`../tailtriage-tokio/examples/`](../tailtriage-tokio/examples/) and [`../tailtriage-axum/examples/`](../tailtriage-axum/examples/)
-- **Demo walkthrough and recommended first three demos:** [`getting-started-demo.md`](getting-started-demo.md)
-- **How to read diagnosis output:** [`diagnostics.md`](diagnostics.md)
+- [User guide](user-guide.md) — default adoption path (`tailtriage` + `tailtriage-cli`) and the core capture -> analyze -> next check -> re-run workflow.
+- [Facade crate README (`tailtriage`)](../tailtriage/README.md) — fastest way to integrate with one dependency.
 
-## Reference
+## Core workflow and interpretation
 
-- **Architecture and crate responsibilities:** [`architecture.md`](architecture.md)
-- **Collector-limits measurement path (stress matrix + measured operating guidance):** [`collector-limits.md`](collector-limits.md)
-- **Runtime-cost attribution path (baked-in/core/sampler/drop-path):** [`runtime-cost.md`](runtime-cost.md)
+- [Diagnostics guide](diagnostics.md) — quick reading flow plus concise field reference for analyzer output.
+- [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — analyzer/report contract and CLI usage.
+
+## Capture surfaces
+
+- [Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md) — repeated bounded windows in long-lived services, TOML config, and reload behavior.
+- [Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md) — optional runtime-pressure enrichment and Tokio-specific constraints.
+- [Axum adapter README (`tailtriage-axum`)](../tailtriage-axum/README.md) — middleware/extractor ergonomics and framework-boundary behavior.
+
+## Practical measurement guidance
+
+- [Runtime cost measurement](runtime-cost.md) — reproducible overhead attribution path (baked-in, core, sampler, post-limit/drop-path).
+- [Collector limits and stress guidance](collector-limits.md) — sustained-load truncation onset, artifact-size growth, and memory trend interpretation.
+
+## Demos and architecture
+
+- [Getting started with demos](getting-started-demo.md) — which demos to run first and how to validate scenario outcomes.
+- [Architecture](architecture.md) — how facade/core/controller/sampler/adapter/CLI fit into one file-based triage pipeline.
+- [Demos catalog](../demos/README.md) — scenario details and fixture layout.
