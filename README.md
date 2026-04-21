@@ -247,7 +247,7 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 ## Documentation map
 
-- Facade/default crate docs: [`tailtriage/README.md`](tailtriage/README.md)
+- Default crate docs: [`tailtriage/README.md`](tailtriage/README.md)
 - User workflow guide: [`docs/user-guide.md`](docs/user-guide.md)
 - Controller docs and config: [`tailtriage-controller/README.md`](tailtriage-controller/README.md)
 - Runtime sampler docs: [`tailtriage-tokio/README.md`](tailtriage-tokio/README.md)

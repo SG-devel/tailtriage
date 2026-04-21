@@ -22,6 +22,24 @@ CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
 CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
 PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
+USER_FACING_TERMINOLOGY_PATHS = (
+    README_PATH,
+    DOCS_INDEX_PATH,
+    USER_GUIDE_PATH,
+    DIAGNOSTICS_PATH,
+    ARCHITECTURE_PATH,
+    REPO_ROOT / "docs" / "runtime-cost.md",
+    REPO_ROOT / "docs" / "collector-limits.md",
+    REPO_ROOT / "docs" / "getting-started-demo.md",
+    REPO_ROOT / "tailtriage" / "README.md",
+    REPO_ROOT / "tailtriage-core" / "README.md",
+    REPO_ROOT / "tailtriage-controller" / "README.md",
+    REPO_ROOT / "tailtriage-tokio" / "README.md",
+    REPO_ROOT / "tailtriage-axum" / "README.md",
+    REPO_ROOT / "tailtriage-cli" / "README.md",
+    REPO_ROOT / "tailtriage" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage" / "Cargo.toml",
+)
 
 STALE_CONTROLLER_POLICY_NAMES = (
     'kind = "manual"',
@@ -455,6 +473,23 @@ def validate_docs_no_history_framing() -> None:
         raise ValueError("docs include stale history/process framing:\n" + "\n".join(failures))
 
 
+def validate_no_user_facing_facade_wording() -> None:
+    failures: list[str] = []
+    for path in USER_FACING_TERMINOLOGY_PATHS:
+        text = path.read_text(encoding="utf-8")
+        if re.search(r"\bfacade\b", text, flags=re.IGNORECASE):
+            try:
+                display_path = str(path.relative_to(REPO_ROOT))
+            except ValueError:
+                display_path = str(path)
+            failures.append(f"{display_path} contains disallowed term: facade")
+
+    if failures:
+        raise ValueError(
+            "user-facing files contain stale facade wording:\n" + "\n".join(failures)
+        )
+
+
 def is_misleading_controller_example_flow(readme_text: str) -> bool:
     for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
         if "cargo add tailtriage-controller" in block and "cargo run --example controller_minimal" in block:
@@ -511,6 +546,7 @@ def main() -> int:
     validate_diagnostics_contract_truthfulness()
     validate_architecture_contract()
     validate_docs_no_history_framing()
+    validate_no_user_facing_facade_wording()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
     print("docs contracts validated successfully")
