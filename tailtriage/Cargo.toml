@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Official default crate and all-in-one entry point for tailtriage Tokio tail-latency triage"
+description = "Default crate and entry point for tailtriage Tokio tail-latency triage"
 documentation = "https://docs.rs/tailtriage"
 readme = "README.md"
-keywords = ["tokio", "latency", "diagnostics", "performance", "triage"]
+keywords = ["tokio", "latency", "diagnostics", "instrumentation", "triage"]
 categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
 include = [
   "Cargo.toml",
