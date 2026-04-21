@@ -72,13 +72,6 @@ From `tailtriage`:
 - `tailtriage::tokio` _(optional feature)_ — runtime-pressure sampling
 - `tailtriage::axum` _(optional feature)_ — Axum middleware/extractor ergonomics
 
-## Which package should I use?
-
-- **Default:** `tailtriage` + `tailtriage-cli`
-- **Controller-heavy operations:** `tailtriage` (controller is included by default)
-- **Fine-grained dependency control:** direct `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, or `tailtriage-axum`
-- **Analysis only:** `tailtriage-cli`
-
 ## When to choose the controller
 
 Use `tailtriage::controller::TailtriageController` when your service must stay up and you need repeated capture windows over time:
@@ -88,11 +81,24 @@ Use `tailtriage::controller::TailtriageController` when your service must stay u
 - disarm
 - re-arm
 
-This is a major capability of the facade crate, not a niche add-on.
+> The controller is designed to be easy to start with and configurable when you need more control.
+
+You can begin with straightforward builder defaults, then move to a TOML-backed capture template when you want repeatable operational settings across environments.
+
+### Controller TOML config
+
+TOML config is useful when you want to:
+
+- keep startup simple in development, but use standardized capture settings in shared environments
+- control run identity, artifact output paths, and retention defaults without rebuilding the service
+- define runtime sampler template settings when enabled
+- refresh future capture generations with `reload_config()` while leaving the active generation unchanged
+
+See [`tailtriage-controller/README.md`](tailtriage-controller/README.md) for full controller config and reload semantics.
 
 ## Minimal examples
 
-### Facade capture (library)
+### Single, immediate capture
 
 ```rust,no_run
 use tailtriage::Tailtriage;
@@ -110,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Controller capture window (library)
+### Controller capture window with TOML config
 
 ```rust,no_run
 use tailtriage::controller::TailtriageController;
@@ -118,7 +124,7 @@ use tailtriage::controller::TailtriageController;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let controller = TailtriageController::builder("checkout-service")
         .initially_enabled(false)
-        .output("tailtriage-run.json")
+        .config_path("tailtriage-controller.toml")
         .build()?;
 
     let _generation = controller.enable()?;
@@ -136,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-### Example output (JSON)
+#### Example output (representative JSON)
 
 ```json
 {
@@ -185,14 +191,24 @@ tailtriage analyze tailtriage-run.json --format json
 }
 ```
 
+## Operations guidance and overhead
+
+`tailtriage` includes repo-local measurement paths for both runtime-overhead attribution and sustained collector-stress behavior. These are based on synthetic, controlled tests in this repository and should be treated as machine- and workload-scoped guidance, not universal production guarantees.
+
+For overhead attribution and measurement workflow, see [`docs/runtime-cost.md`](docs/runtime-cost.md). For sustained-load behavior, truncation onset, artifact-size growth, and memory trends under stress-shaped workloads, see [`docs/collector-limits.md`](docs/collector-limits.md).
+
+## What this is not
+
+`tailtriage` is not:
+
+- an observability backend
+- a distributed tracing system
+- a general telemetry platform
+- a root-cause proof engine
+
 ## Development alternative (workspace checkout)
 
-Use the GitHub/workspace path when you want to run packaged examples, inspect internals, or contribute:
-
-```bash
-cargo run -p tailtriage-tokio --example minimal_checkout
-cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
-```
+Use the GitHub/workspace path when you want to run packaged examples, inspect internals, or contribute.
 
 ## Examples
 
@@ -229,26 +245,16 @@ Use before/after comparisons as a reproducible mitigation-confirmation loop, not
 
 Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 
-## What this is not
-
-`tailtriage` is not:
-
-- an observability backend
-- a distributed tracing system
-- a general telemetry platform
-- a root-cause proof engine
-
 ## Documentation map
 
 - Facade/default crate docs: [`tailtriage/README.md`](tailtriage/README.md)
+- User workflow guide: [`docs/user-guide.md`](docs/user-guide.md)
 - Controller docs and config: [`tailtriage-controller/README.md`](tailtriage-controller/README.md)
 - Runtime sampler docs: [`tailtriage-tokio/README.md`](tailtriage-tokio/README.md)
-- User workflow guide: [`docs/user-guide.md`](docs/user-guide.md)
-- Analyzer and diagnostics references:
-  - [`tailtriage-cli/README.md`](tailtriage-cli/README.md)
-  - [`docs/diagnostics.md`](docs/diagnostics.md)
-
-- Advanced references:
-  - [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
-  - [`docs/runtime-cost.md`](docs/runtime-cost.md)
-  - [`docs/collector-limits.md`](docs/collector-limits.md)
+- Analyzer/report contract: [`tailtriage-cli/README.md`](tailtriage-cli/README.md)
+- Diagnostics field reference and interpretation: [`docs/diagnostics.md`](docs/diagnostics.md)
+- Demo walkthrough and recommended first demos: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
+- Runtime-overhead measurement path: [`docs/runtime-cost.md`](docs/runtime-cost.md)
+- Collector-stress, truncation, artifact-size, and memory guidance: [`docs/collector-limits.md`](docs/collector-limits.md)
+- Architecture and crate responsibilities: [`docs/architecture.md`](docs/architecture.md)
+- Full docs index: [`docs/README.md`](docs/README.md)
