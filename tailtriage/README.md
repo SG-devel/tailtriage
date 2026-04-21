@@ -1,8 +1,15 @@
 # tailtriage
 
-`tailtriage` is the official facade crate and umbrella entry point for Tokio tail-latency triage.
+`tailtriage` is the **default facade crate** for Tokio tail-latency triage.
 
-It always re-exports `tailtriage-core` as the foundation API and exposes optional integration crates behind feature-gated namespaces.
+Use this crate when you want one dependency that can expose:
+
+- `tailtriage-core` (always) as the instrumentation foundation
+- `tailtriage::controller` (default feature) for long-lived arm/disarm capture control
+- `tailtriage::tokio` (feature) for runtime-pressure evidence
+- `tailtriage::axum` (feature) for Axum middleware/extractor ergonomics
+
+If you want tighter dependency control, depend on focused crates directly.
 
 ## Installation
 
@@ -10,27 +17,21 @@ It always re-exports `tailtriage-core` as the foundation API and exposes optiona
 cargo add tailtriage
 ```
 
-Optional integrations:
+Enable optional integrations:
 
 ```bash
 cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-`controller` is enabled by default and re-exported at `tailtriage::controller`.
-
 ## Feature flags
 
-- `controller` (default): enables `tailtriage::controller` (from `tailtriage-controller`)
-- `tokio`: enables `tailtriage::tokio` (from `tailtriage-tokio`)
-- `axum`: enables `tailtriage::axum` (from `tailtriage-axum`)
+- `controller` (default): enables `tailtriage::controller` (`tailtriage-controller`)
+- `tokio`: enables `tailtriage::tokio` (`tailtriage-tokio`)
+- `axum`: enables `tailtriage::axum` (`tailtriage-axum`)
 - `full`: enables `controller`, `tokio`, and `axum`
 
-Advanced users can still depend on focused crates (`tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`) directly for tighter dependency control.
-
-## Examples
-
-Core-only usage:
+## Minimal example
 
 ```no_run
 use tailtriage::Tailtriage;
@@ -39,35 +40,20 @@ use tailtriage::Tailtriage;
 let run = Tailtriage::builder("checkout-service")
     .output("tailtriage-run.json")
     .build()?;
+
+let started = run.begin_request("/checkout");
+started.completion.finish_ok();
+
 run.shutdown()?;
 # Ok(())
 # }
 ```
 
-Tokio runtime sampling (requires `tokio` feature):
+## Choosing crates in this workspace
 
-```no_run
-# #[cfg(feature = "tokio")]
-# async fn demo(run: std::sync::Arc<tailtriage::Tailtriage>) -> Result<(), Box<dyn std::error::Error>> {
-use tailtriage::tokio::RuntimeSampler;
-
-let sampler = RuntimeSampler::builder(run).start()?;
-sampler.shutdown().await;
-# Ok(())
-# }
-```
-
-Controller convenience layer (default `controller` feature):
-
-```no_run
-# #[cfg(feature = "controller")]
-# fn demo() -> Result<(), Box<dyn std::error::Error>> {
-use tailtriage::controller::TailtriageController;
-
-let controller = TailtriageController::builder("checkout-service")
-    .initially_enabled(true)
-    .build()?;
-let _status = controller.status();
-# Ok(())
-# }
-```
+- Use **`tailtriage`** for most integrations and docs.rs onboarding.
+- Use **`tailtriage-core`** when you only want core request lifecycle instrumentation.
+- Use **`tailtriage-controller`** when capture must be repeatedly armed/disarmed without restarting the service.
+- Use **`tailtriage-tokio`** when you need runtime-pressure evidence in the same run artifact.
+- Use **`tailtriage-axum`** for Axum-specific ergonomics.
+- Use **`tailtriage-cli`** to analyze captured artifacts into evidence-ranked suspects and next checks.
