@@ -1,13 +1,13 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-//! Long-lived capture control layer for repeated bounded tailtriage activations.
-//!
-//! Layering:
-//!
-//! - [`tailtriage_core`] remains the per-run collector and artifact model.
-//! - `tailtriage-controller` provides control-layer scaffolding for live arm/disarm
-//!   workflows that create fresh bounded runs on every activation.
+// Long-lived capture control layer for repeated bounded tailtriage activations.
+//
+// Layering:
+//
+// - [`tailtriage_core`] remains the per-run collector and artifact model.
+// - `tailtriage-controller` provides control-layer scaffolding for live arm/disarm
+//   workflows that create fresh bounded runs on every activation.
 
 use std::fs;
 use std::path::{Path, PathBuf};
