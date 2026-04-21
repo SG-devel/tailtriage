@@ -2,13 +2,45 @@
 
 `tailtriage` is a focused Rust toolkit for **Tokio tail-latency triage**.
 
-It helps you answer a first practical question quickly:
+## Why this exists
+
+When an async Rust service gets slow, `tailtriage` helps you answer a first practical question quickly:
 
 > Is this slowdown mostly app-level queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
 
-The analyzer reports **evidence-ranked suspects** and **next checks**. Suspects are leads, not proof of root cause.
+It produces a triage report with **evidence-ranked suspects** and **next checks**.
 
-## Quick start (default path)
+- Built for Tokio services and teams doing iterative triage.
+- Useful with partial instrumentation.
+- Not an observability backend.
+- Not root-cause proof on its own.
+
+## What you get from the output
+
+### Four bottleneck families
+
+1. **Application queueing**: work waits before execution.
+2. **Blocking-pool pressure**: `spawn_blocking` backlog inflates tails.
+3. **Executor pressure**: scheduler contention delays runnable work.
+4. **Downstream stage latency**: a dependency dominates request time.
+
+### How to read results
+
+- Treat `primary_suspect` as the best lead, not proof.
+- Use `evidence[]` to choose one targeted experiment.
+- Re-run and compare p95 shares plus suspect evidence.
+
+## Why not just tokio-console or tokio-metrics?
+
+Those tools are complementary building blocks. `tailtriage` fills a different gap: it gives you a run-level triage report that ranks likely bottleneck families and recommends concrete next checks from the evidence collected in that run.
+
+In short:
+
+- `tokio-console` helps you inspect live runtime/task behavior.
+- `tokio-metrics` gives you runtime/task metrics signals.
+- `tailtriage` helps you turn request lifecycle timing + optional runtime signals into a focused triage decision loop (`capture -> analyze -> next check -> re-run`).
+
+## 2) Default install path (crates.io)
 
 For most users, start with the facade crate:
 
@@ -37,8 +69,15 @@ From `tailtriage`:
 
 - `tailtriage::Tailtriage` — direct capture lifecycle
 - `tailtriage::controller::TailtriageController` — repeated arm/disarm bounded capture windows for long-lived services
-- `tailtriage::tokio` *(optional feature)* — runtime-pressure sampling
-- `tailtriage::axum` *(optional feature)* — Axum middleware/extractor ergonomics
+- `tailtriage::tokio` _(optional feature)_ — runtime-pressure sampling
+- `tailtriage::axum` _(optional feature)_ — Axum middleware/extractor ergonomics
+
+## Which package should I use?
+
+- **Default:** `tailtriage` + `tailtriage-cli`
+- **Controller-heavy operations:** `tailtriage` (controller is included by default)
+- **Fine-grained dependency control:** direct `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, or `tailtriage-axum`
+- **Analysis only:** `tailtriage-cli`
 
 ## When to choose the controller
 
@@ -92,6 +131,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+### Example output (JSON)
+
+```json
+{
+  "request_count": 250,
+  "p50_latency_us": 782227,
+  "p95_latency_us": 1468239,
+  "p99_latency_us": 1518551,
+  "p95_queue_share_permille": 982,
+  "p95_service_share_permille": 267,
+  "inflight_trend": {
+    "gauge": "queue_service_inflight",
+    "sample_count": 500,
+    "peak_count": 234,
+    "p95_count": 225,
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
+  },
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "score": 90,
+    "confidence": "high",
+    "evidence": ["Queue wait at p95 consumes 98.2% of request time.", "Observed queue depth sample up to 230."],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "score": 55,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'simulated_work' has p95 latency 26566 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 6546159 us.",
+        "Stage 'simulated_work' contributes 33 permille of cumulative request latency."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'simulated_work'.",
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
+      ]
+    }
+  ]
+}
+```
+
 ## Development alternative (workspace checkout)
 
 Use the GitHub/workspace path when you want to run packaged examples/demos or contribute:
@@ -101,12 +189,38 @@ cargo run -p tailtriage-tokio --example minimal_checkout
 cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 ```
 
-## Which package should I use?
+## Examples
 
-- **Default:** `tailtriage` + `tailtriage-cli`
-- **Controller-heavy operations:** `tailtriage` (controller is included by default)
-- **Fine-grained dependency control:** direct `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, or `tailtriage-axum`
-- **Analysis only:** `tailtriage-cli`
+Five public examples to start with:
+
+- `minimal_checkout` — fastest capture→analyze loop
+- `axum_minimal` — smallest axum framework starter (adapter crate)
+- `axum_service_adoption` — service-shaped axum adoption example using the adapter surface
+- `mini_service_integration` — helper-layer/fractured-code instrumentation shape
+- `controller_minimal` — arm/disarm controller lifecycle starter
+
+```bash
+cargo run -p tailtriage-tokio --example minimal_checkout
+cargo run -p tailtriage-axum --example axum_minimal
+cargo run -p tailtriage-axum --example axum_service_adoption
+cargo run -p tailtriage-tokio --example mini_service_integration
+cargo run -p tailtriage-controller --example controller_minimal
+python3 scripts/smoke_public_examples.py
+```
+
+## Demos
+
+The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality proof. If you only run three demos, run the three strongest public proof demos:
+
+```bash
+python3 scripts/demo_tool.py validate queue
+python3 scripts/demo_tool.py validate downstream
+python3 scripts/demo_tool.py validate db-pool
+```
+
+Use before/after comparisons as a reproducible mitigation confirmation loop, not causal proof.
+
+Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 
 ## Documentation map
 
