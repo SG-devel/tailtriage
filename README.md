@@ -2,45 +2,18 @@
 
 `tailtriage` is a focused Rust toolkit for **Tokio tail-latency triage**.
 
-## Why this exists
-
 When an async Rust service gets slow, `tailtriage` helps you answer a first practical question quickly:
 
 > Is this slowdown mostly app-level queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
 
-It produces a triage report with **evidence-ranked suspects** and **next checks**.
+It produces a triage report with **evidence-ranked suspects** and **next checks**. Suspects are leads, not proof of root cause.
 
 - Built for Tokio services and teams doing iterative triage.
 - Useful with partial instrumentation.
 - Not an observability backend.
 - Not root-cause proof on its own.
 
-## What you get from the output
-
-### Four bottleneck families
-
-1. **Application queueing**: work waits before execution.
-2. **Blocking-pool pressure**: `spawn_blocking` backlog inflates tails.
-3. **Executor pressure**: scheduler contention delays runnable work.
-4. **Downstream stage latency**: a dependency dominates request time.
-
-### How to read results
-
-- Treat `primary_suspect` as the best lead, not proof.
-- Use `evidence[]` to choose one targeted experiment.
-- Re-run and compare p95 shares plus suspect evidence.
-
-## Why not just tokio-console or tokio-metrics?
-
-Those tools are complementary building blocks. `tailtriage` fills a different gap: it gives you a run-level triage report that ranks likely bottleneck families and recommends concrete next checks from the evidence collected in that run.
-
-In short:
-
-- `tokio-console` helps you inspect live runtime/task behavior.
-- `tokio-metrics` gives you runtime/task metrics signals.
-- `tailtriage` helps you turn request lifecycle timing + optional runtime signals into a focused triage decision loop (`capture -> analyze -> next check -> re-run`).
-
-## 2) Default install path (crates.io)
+## Quick start (crates.io)
 
 For most users, start with the facade crate:
 
@@ -63,6 +36,33 @@ cargo install tailtriage-cli
 
 > Library crates capture data. `tailtriage-cli` analyzes artifacts.
 
+## Why not just tokio-console or tokio-metrics?
+
+Those tools are complementary building blocks. `tailtriage` fills a different gap: it turns request lifecycle timing plus optional runtime signals into a focused triage loop:
+
+`capture -> analyze -> next check -> re-run`
+
+In short:
+
+- `tokio-console` helps you inspect live runtime/task behavior.
+- `tokio-metrics` gives you runtime/task metrics signals.
+- `tailtriage` helps you rank likely bottleneck families and choose the next targeted check from one captured run.
+
+## What you get from the output
+
+### Four bottleneck families
+
+1. **Application queueing**: work waits before execution.
+2. **Blocking-pool pressure**: `spawn_blocking` backlog inflates tails.
+3. **Executor pressure**: scheduler contention delays runnable work.
+4. **Downstream stage latency**: a dependency dominates request time.
+
+### How to read results
+
+- Treat `primary_suspect` as the best lead, not proof.
+- Use `evidence[]` to choose one targeted experiment.
+- Re-run and compare p95 shares plus suspect evidence.
+
 ## Primary entry points
 
 From `tailtriage`:
@@ -81,7 +81,12 @@ From `tailtriage`:
 
 ## When to choose the controller
 
-Use `tailtriage::controller::TailtriageController` when your service must stay up and you need repeated capture windows over time (arm, collect, disarm, re-arm).
+Use `tailtriage::controller::TailtriageController` when your service must stay up and you need repeated capture windows over time:
+
+- arm
+- collect
+- disarm
+- re-arm
 
 This is a major capability of the facade crate, not a niche add-on.
 
@@ -182,7 +187,7 @@ tailtriage analyze tailtriage-run.json --format json
 
 ## Development alternative (workspace checkout)
 
-Use the GitHub/workspace path when you want to run packaged examples/demos or contribute:
+Use the GitHub/workspace path when you want to run packaged examples, inspect internals, or contribute:
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
@@ -193,10 +198,10 @@ cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
 
 Five public examples to start with:
 
-- `minimal_checkout` — fastest capture→analyze loop
-- `axum_minimal` — smallest axum framework starter (adapter crate)
-- `axum_service_adoption` — service-shaped axum adoption example using the adapter surface
-- `mini_service_integration` — helper-layer/fractured-code instrumentation shape
+- `minimal_checkout` — fastest capture-to-analyze loop
+- `axum_minimal` — smallest Axum framework starter
+- `axum_service_adoption` — service-shaped Axum adoption example
+- `mini_service_integration` — helper-layer or fractured-code instrumentation shape
 - `controller_minimal` — arm/disarm controller lifecycle starter
 
 ```bash
@@ -210,7 +215,9 @@ python3 scripts/smoke_public_examples.py
 
 ## Demos
 
-The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality proof. If you only run three demos, run the three strongest public proof demos:
+The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic, reviewable artifacts, not universal causality proof.
+
+If you only run three demos, start with:
 
 ```bash
 python3 scripts/demo_tool.py validate queue
@@ -218,19 +225,29 @@ python3 scripts/demo_tool.py validate downstream
 python3 scripts/demo_tool.py validate db-pool
 ```
 
-Use before/after comparisons as a reproducible mitigation confirmation loop, not causal proof.
+Use before/after comparisons as a reproducible mitigation-confirmation loop, not causal proof.
 
 Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
+
+## What this is not
+
+`tailtriage` is not:
+
+- an observability backend
+- a distributed tracing system
+- a general telemetry platform
+- a root-cause proof engine
 
 ## Documentation map
 
 - Facade/default crate docs: [`tailtriage/README.md`](tailtriage/README.md)
-- Controller docs + config: [`tailtriage-controller/README.md`](tailtriage-controller/README.md)
+- Controller docs and config: [`tailtriage-controller/README.md`](tailtriage-controller/README.md)
 - Runtime sampler docs: [`tailtriage-tokio/README.md`](tailtriage-tokio/README.md)
 - User workflow guide: [`docs/user-guide.md`](docs/user-guide.md)
-- Analyzer/diagnostics references:
+- Analyzer and diagnostics references:
   - [`tailtriage-cli/README.md`](tailtriage-cli/README.md)
   - [`docs/diagnostics.md`](docs/diagnostics.md)
+
 - Advanced references:
   - [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
   - [`docs/runtime-cost.md`](docs/runtime-cost.md)
