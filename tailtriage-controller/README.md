@@ -16,6 +16,22 @@ Use it when your service must stay running while you repeatedly arm/disarm bound
 cargo add tailtriage-controller
 ```
 
+## Example availability (published crate vs repo checkout)
+
+- **Run examples from a repository checkout/workspace**
+  - Run packaged examples with an explicit package target, for example:
+    `cargo run -p tailtriage-controller --example controller_minimal`.
+- **Published crate source includes examples for reference**
+  - `tailtriage-controller` example source is included in crate source views
+    (for example docs.rs source and crate tarballs), so consumers can copy
+    the same snippets.
+- **Consumer-project path**
+  - In an arbitrary project that only added the dependency, use this README's
+    Rust snippet (or copied example source) in your own crate targets.
+  - Do **not** expect `cargo add tailtriage-controller` followed by
+    `cargo run --example controller_minimal` to work unless that example file
+    exists in your project.
+
 ## Minimal example
 
 ```rust,no_run
