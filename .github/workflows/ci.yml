@@ -110,6 +110,10 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install cargo-deny
+        if: matrix.profile == 'release'
+        uses: taiki-e/install-action@cargo-deny
+
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -124,6 +128,10 @@ jobs:
 
       - name: Cargo test
         run: cargo test --workspace --locked ${{ matrix.profile == 'release' && '--release' || '' }}
+
+      - name: Cargo deny
+        if: matrix.profile == 'release'
+        run: cargo deny check
 
       - name: Validate queue demo
         run: python3 scripts/demo_tool.py validate queue --profile ${{ matrix.profile }}
