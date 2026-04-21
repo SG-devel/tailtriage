@@ -1,34 +1,30 @@
 # Getting started with demos
 
-Demos provide deterministic triage exercises. They give reproducible evidence for diagnosis behavior, not universal causality proof.
+Demos are deterministic triage exercises. They provide reproducible diagnosis behavior for this repository's scenarios, not universal causality proof.
 
-## Demo tiers
+## Recommended first demos
 
-See [`../demos/README.md`](../demos/README.md) for scenario details.
-
-### Strongest public proof demos for first-time evaluation
-
-If you only run three demos, run these three:
+If you run three first, run:
 
 - `queue_service`
 - `downstream_service`
 - `db_pool_saturation_service`
 
-### Useful supporting demos
+Scenario details: [demos/README.md](../demos/README.md)
+
+## Additional useful demos
 
 - `shared_state_lock_service`
 - `retry_storm_service`
 - `mixed_contention_service`
 - `cold_start_burst_service`
 
-### More synthetic analyzer-contract demos
-
-Best treated as contract exercises for suspect behavior:
+Synthetic analyzer-contract demos:
 
 - `blocking_service`
 - `executor_pressure_service`
 
-### Baseline diagnosis contract
+## Baseline diagnosis contract
 
 | Scenario      | Expected baseline primary suspect | Required supporting signal                               |
 | ------------- | --------------------------------- | -------------------------------------------------------- |
@@ -42,19 +38,7 @@ Best treated as contract exercises for suspect behavior:
 | `cold-start`  | `application_queue_saturation`    | Evidence mentions `cold_start_stage` and/or queue impact |
 | `executor`    | `executor_pressure_suspected`     | Runtime snapshot pressure + executor suspect score       |
 
-## CI validation coverage
-
-In `.github/workflows/ci.yml`, CI validates all demos, except `executor`, in **both** `dev` and `release` profiles. `executor` is validated in `release` only due to long runtime in `dev`.
-
-## Before/after comparison guidance
-
-Use fixture-backed before/after results as a reproducible mitigation comparison loop:
-
-- compare one baseline run and one mitigated run
-- inspect p95 movement and suspect/evidence movement
-- treat it as evidence for the next decision, not proof of universal root cause
-
-## Run + validate commands
+## Run and validate
 
 ```bash
 python3 scripts/demo_tool.py run queue
@@ -65,25 +49,17 @@ python3 scripts/demo_tool.py validate downstream
 
 python3 scripts/demo_tool.py run db-pool
 python3 scripts/demo_tool.py validate db-pool
-
-python3 scripts/demo_tool.py run shared-lock
-python3 scripts/demo_tool.py validate shared-lock
-
-python3 scripts/demo_tool.py run retry-storm
-python3 scripts/demo_tool.py validate retry-storm
-
-python3 scripts/demo_tool.py run mixed
-python3 scripts/demo_tool.py validate mixed
-
-python3 scripts/demo_tool.py run cold-start
-python3 scripts/demo_tool.py validate cold-start
-
-python3 scripts/demo_tool.py run blocking
-python3 scripts/demo_tool.py validate blocking
-
-python3 scripts/demo_tool.py run executor
-python3 scripts/demo_tool.py validate executor --profile release
 ```
+
+Run any other scenario with the same pattern.
+
+## Before/after comparison usage
+
+Use fixture-backed before/after runs to evaluate one mitigation at a time:
+
+- compare p95 movement
+- compare suspect/evidence movement
+- treat results as triage evidence for the next step
 
 ## Artifact policy
 

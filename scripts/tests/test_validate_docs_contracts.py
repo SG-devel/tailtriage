@@ -17,14 +17,20 @@ import validate_docs_contracts  # noqa: E402
 class ValidateDocsContractsTests(unittest.TestCase):
     def test_run_end_policy_variants_include_expected_kinds(self) -> None:
         kinds = validate_docs_contracts.extract_run_end_policy_kinds_from_source()
-        self.assertEqual(
-            kinds,
-            {"continue_after_limits_hit", "auto_seal_on_limits_hit"},
-        )
+        self.assertEqual(kinds, {"continue_after_limits_hit", "auto_seal_on_limits_hit"})
 
     def test_markdown_examples_validate_against_contract(self) -> None:
         validate_docs_contracts.validate_readme_analyzer_example()
         validate_docs_contracts.validate_controller_readme_toml()
+
+    def test_docs_index_contract(self) -> None:
+        validate_docs_contracts.validate_docs_index_contract()
+
+    def test_user_guide_contract(self) -> None:
+        validate_docs_contracts.validate_user_guide_contract()
+
+    def test_docs_no_history_framing(self) -> None:
+        validate_docs_contracts.validate_docs_no_history_framing()
 
     def test_controller_readme_does_not_use_misleading_dependency_example_flow(self) -> None:
         readme_text = validate_docs_contracts.CONTROLLER_README_PATH.read_text(encoding="utf-8")

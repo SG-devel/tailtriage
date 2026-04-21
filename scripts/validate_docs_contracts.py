@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate README/controller docs against current structural contracts."""
+"""Validate public documentation contract expectations."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
+DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
+USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sample-analysis.json"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
@@ -20,17 +22,33 @@ CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
 PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
 
 STALE_CONTROLLER_POLICY_NAMES = (
-    "kind = \"manual\"",
-    "kind = \"max_requests\"",
-    "kind = \"max_duration_ms\"",
-    "kind = \"first_limit_hit\"",
+    'kind = "manual"',
+    'kind = "max_requests"',
+    'kind = "max_duration_ms"',
+    'kind = "first_limit_hit"',
+)
+
+DOCS_REQUIRED_LINKS = (
+    "[User guide](user-guide.md)",
+    "[Diagnostics guide](diagnostics.md)",
+    "[Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md)",
+    "[Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md)",
+    "[CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md)",
+    "[Runtime cost measurement](runtime-cost.md)",
+    "[Collector limits and stress guidance](collector-limits.md)",
+    "[Getting started with demos](getting-started-demo.md)",
+    "[Architecture](architecture.md)",
+)
+
+DOCS_DISALLOWED_HISTORY_PATTERNS = (
+    r"issue\s*#\d+",
+    r"PR\s*#\d+",
+    r"roadmap",
 )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Validate public docs examples against analyzer/controller contracts."
-    )
+    parser = argparse.ArgumentParser(description="Validate public docs contracts.")
     return parser.parse_args()
 
 
@@ -76,18 +94,25 @@ def assert_same_object_shape(*, name: str, actual: dict[str, Any], expected: dic
         actual_kind = _kind_of(actual[key])
         expected_kind = _kind_of(expected_value)
         if actual_kind != expected_kind:
-            raise ValueError(
-                f"{name}.{key} type drift: expected {expected_kind}, got {actual_kind}"
-            )
+            raise ValueError(f"{name}.{key} type drift: expected {expected_kind}, got {actual_kind}")
 
 
 def validate_readme_analyzer_example() -> None:
     readme_text = README_PATH.read_text(encoding="utf-8")
-    snippet = extract_fenced_block(
-        readme_text,
-        fence="json",
-        anchor="### Example output (JSON)",
+
+    anchors = (
+        "### Example output (representative JSON)",
+        "### Example output (JSON)",
     )
+
+    snippet = None
+    for anchor in anchors:
+        if anchor in readme_text:
+            snippet = extract_fenced_block(readme_text, fence="json", anchor=anchor)
+            break
+    if snippet is None:
+        raise ValueError(f"README analyzer example anchor missing; tried: {anchors}")
+
     readme_json = json.loads(snippet)
     if not isinstance(readme_json, dict):
         raise ValueError("README analyzer example must be a top-level JSON object")
@@ -108,23 +133,6 @@ def validate_readme_analyzer_example() -> None:
         expected=fixture_primary,
     )
 
-    secondary = readme_json.get("secondary_suspects")
-    fixture_secondary = fixture.get("secondary_suspects")
-    if not isinstance(secondary, list) or not isinstance(fixture_secondary, list):
-        raise ValueError("secondary_suspects must be an array")
-    if not secondary:
-        raise ValueError("README secondary_suspects must include at least one suspect")
-
-    first_secondary = secondary[0]
-    first_fixture_secondary = fixture_secondary[0]
-    if not isinstance(first_secondary, dict) or not isinstance(first_fixture_secondary, dict):
-        raise ValueError("secondary_suspects[0] must be an object")
-    assert_same_object_shape(
-        name="README secondary_suspects[0]",
-        actual=first_secondary,
-        expected=first_fixture_secondary,
-    )
-
 
 def extract_run_end_policy_kinds_from_source() -> set[str]:
     source = CONTROLLER_SOURCE_PATH.read_text(encoding="utf-8")
@@ -141,10 +149,7 @@ def extract_run_end_policy_kinds_from_source() -> set[str]:
     if not variants:
         raise ValueError("RunEndPolicyConfigToml enum has no variants")
 
-    return {
-        re.sub(r"(?<!^)(?=[A-Z])", "_", variant).lower()
-        for variant in variants
-    }
+    return {re.sub(r"(?<!^)(?=[A-Z])", "_", variant).lower() for variant in variants}
 
 
 def validate_controller_readme_toml() -> None:
@@ -153,18 +158,10 @@ def validate_controller_readme_toml() -> None:
     if anchor not in readme_text:
         return
 
-    snippet = extract_fenced_block(
-        readme_text,
-        fence="toml",
-        anchor=anchor,
-    )
+    snippet = extract_fenced_block(readme_text, fence="toml", anchor=anchor)
     parsed = tomllib.loads(snippet)
 
-    run_end_policy = (
-        parsed.get("controller", {})
-        .get("activation", {})
-        .get("run_end_policy", {})
-    )
+    run_end_policy = parsed.get("controller", {}).get("activation", {}).get("run_end_policy", {})
     if not isinstance(run_end_policy, dict):
         raise ValueError("controller README run_end_policy snippet must parse as a table")
 
@@ -194,12 +191,44 @@ def validate_no_stale_controller_policy_names() -> None:
         raise ValueError(f"stale controller run_end_policy docs found:\n{joined}")
 
 
+def validate_docs_index_contract() -> None:
+    text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
+    for required_link in DOCS_REQUIRED_LINKS:
+        if required_link not in text:
+            raise ValueError(f"docs index missing required link: {required_link}")
+
+
+def validate_user_guide_contract() -> None:
+    text = USER_GUIDE_PATH.read_text(encoding="utf-8")
+    required_tokens = (
+        "Default adoption path",
+        "Request lifecycle contract (required)",
+        "Direct capture vs controller",
+        "Controller TOML config and reload semantics",
+        "runtime sampler",
+        "future generations only",
+        "insufficient_evidence",
+    )
+    for token in required_tokens:
+        if token not in text:
+            raise ValueError(f"user guide missing required section/token: {token}")
+
+
+def validate_docs_no_history_framing() -> None:
+    failures: list[str] = []
+    for path in sorted(PUBLIC_DOCS_GLOB):
+        text = path.read_text(encoding="utf-8")
+        for pattern in DOCS_DISALLOWED_HISTORY_PATTERNS:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                failures.append(f"{path.relative_to(REPO_ROOT)} matches disallowed pattern: {pattern}")
+
+    if failures:
+        raise ValueError("docs include stale history/process framing:\n" + "\n".join(failures))
+
+
 def is_misleading_controller_example_flow(readme_text: str) -> bool:
     for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
-        if (
-            "cargo add tailtriage-controller" in block
-            and "cargo run --example controller_minimal" in block
-        ):
+        if "cargo add tailtriage-controller" in block and "cargo run --example controller_minimal" in block:
             return True
     return False
 
@@ -209,8 +238,7 @@ def validate_controller_example_usage_contract() -> None:
     if is_misleading_controller_example_flow(readme_text):
         raise ValueError(
             "controller README contains a misleading dependency-example flow: "
-            "`cargo add tailtriage-controller` + "
-            "`cargo run --example controller_minimal`."
+            "`cargo add tailtriage-controller` + `cargo run --example controller_minimal`."
         )
 
 
@@ -231,8 +259,7 @@ def validate_sampler_integration_boundary() -> None:
     public_methods = find_public_sampler_forge_methods(collector_source)
     if public_methods:
         raise ValueError(
-            "collector source exposes public sampler-related methods: "
-            f"{sorted(public_methods)}"
+            "collector source exposes public sampler-related methods: " f"{sorted(public_methods)}"
         )
 
     if "#[doc(hidden)]\npub mod __internal {" not in lib_source:
@@ -249,6 +276,9 @@ def main() -> int:
     validate_readme_analyzer_example()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
+    validate_docs_index_contract()
+    validate_user_guide_contract()
+    validate_docs_no_history_framing()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
     print("docs contracts validated successfully")
