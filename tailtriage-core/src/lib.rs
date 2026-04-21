@@ -57,7 +57,9 @@ pub mod __internal {
 
     /// Registers Tokio sampler startup metadata after real sampler preconditions pass.
     ///
-    /// This hook is intentionally hidden and not part of the stable public API.
+    /// This is an intentionally narrow cross-crate boundary for
+    /// `tailtriage-tokio` integration. It is hidden from docs and not a
+    /// supported end-user API surface.
     ///
     /// # Errors
     ///
