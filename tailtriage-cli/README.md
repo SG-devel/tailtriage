@@ -47,4 +47,4 @@ Suspects are investigation leads, not proof of root cause.
 
 - User guide workflow: [`../docs/user-guide.md`](../docs/user-guide.md)
 - Diagnostics references: [`../docs/diagnostics.md`](../docs/diagnostics.md)
-- Capture-side facade docs: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Capture-side default crate docs: [`../tailtriage/README.md`](../tailtriage/README.md)

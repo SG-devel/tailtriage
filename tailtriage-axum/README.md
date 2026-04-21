@@ -13,7 +13,7 @@ Use this crate when you want request-boundary integration in Axum without manual
 - **Use `tailtriage-axum`:** Axum middleware/extractor ergonomics.
 - **Use `tailtriage-core` directly:** framework-agnostic manual instrumentation.
 - **Add `tailtriage-tokio`:** if you also need runtime-pressure snapshots.
-- **Use `tailtriage` facade:** default onboarding path with optional `axum` feature.
+- **Use `tailtriage` (default crate):** default starting point with optional `axum` feature.
 
 ## Installation
 
@@ -23,7 +23,7 @@ Direct crates:
 cargo add tailtriage-core tailtriage-axum
 ```
 
-Via facade:
+Via the default crate:
 
 ```bash
 cargo add tailtriage --features axum
@@ -60,6 +60,6 @@ let app: Router<()> = Router::new()
 
 ## Deeper docs
 
-- Facade/default integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Default crate integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
 - Core lifecycle semantics: [`../tailtriage-core/README.md`](../tailtriage-core/README.md)
 - CLI analyzer/report docs: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)

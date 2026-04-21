@@ -2,7 +2,7 @@
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! Official facade crate for the tailtriage toolkit.
+//! Official default crate for the tailtriage toolkit.
 //!
 //! - [`tailtriage_core`] is always re-exported as the foundational API surface.
 //! - [`controller`] is the default convenience layer when the `controller` feature is enabled.
@@ -24,7 +24,7 @@ pub use tailtriage_tokio as tokio;
 mod tests {
     #[test]
     fn core_reexport_exposes_tailtriage() {
-        let _builder = crate::Tailtriage::builder("facade-smoke");
+        let _builder = crate::Tailtriage::builder("default-smoke");
     }
 
     #[cfg(feature = "tokio")]
@@ -36,7 +36,7 @@ mod tests {
     #[cfg(feature = "controller")]
     #[test]
     fn controller_namespace_reexport_compiles() {
-        let _builder = crate::controller::TailtriageController::builder("facade-controller");
+        let _builder = crate::controller::TailtriageController::builder("default-controller");
     }
 
     #[cfg(feature = "axum")]

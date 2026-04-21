@@ -15,13 +15,13 @@ It produces a triage report with **evidence-ranked suspects** and **next checks*
 
 ## Quick start (crates.io)
 
-For most users, start with the facade crate:
+For most users, start with the default crate:
 
 ```bash
 cargo add tailtriage
 ```
 
-Optional facade integrations:
+Optional integrations:
 
 ```bash
 cargo add tailtriage --features tokio
