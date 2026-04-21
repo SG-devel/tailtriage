@@ -27,7 +27,6 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/**/*.yml"
       - ".github/workflows/**/*.yaml"
-  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -46,9 +45,12 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       docs: ${{ steps.filter.outputs.docs }}
+      published_version_changed: ${{ steps.published_version.outputs.published_version_changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Detect changed file groups
         id: filter
@@ -67,6 +69,65 @@ jobs:
               - '.github/workflows/**/*.yaml'
             docs:
               - '**/*.md'
+
+      - name: Detect published workspace version change
+        id: published_version
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import subprocess
+          import tomllib
+
+
+          def read_workspace_version(ref: str) -> str:
+              cargo_toml = subprocess.check_output(
+                  ["git", "show", f"{ref}:Cargo.toml"]
+              ).decode("utf-8")
+              parsed = tomllib.loads(cargo_toml)
+              return parsed["workspace"]["package"]["version"]
+
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          head_ref = os.environ["GITHUB_SHA"]
+          base_ref = ""
+
+          if event_name == "pull_request":
+              base_ref = os.environ.get("GITHUB_BASE_SHA", "")
+          elif event_name == "push":
+              base_ref = os.environ.get("GITHUB_EVENT_BEFORE", "")
+
+          changed = True
+          if base_ref and set(base_ref) != {"0"}:
+              try:
+                  old_version = read_workspace_version(base_ref)
+                  new_version = read_workspace_version(head_ref)
+                  changed = old_version != new_version
+                  print(
+                      "published workspace version comparison:",
+                      f"base={base_ref} ({old_version})",
+                      f"head={head_ref} ({new_version})",
+                  )
+              except Exception as exc:
+                  changed = True
+                  print(
+                      "failed to read workspace version history; "
+                      "failing safe with published_version_changed=true:",
+                      exc,
+                  )
+          else:
+              print(
+                  "missing or zeroed base ref; "
+                  "failing safe with published_version_changed=true"
+              )
+
+          output_value = "true" if changed else "false"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"published_version_changed={output_value}\n")
+          print(f"published_version_changed={output_value}")
+          PY
 
   docs-contracts:
     name: docs contracts
@@ -166,7 +227,7 @@ jobs:
         run: python3 scripts/smoke_public_examples.py
 
       - name: Smoke-check external crates.io consumer adoption flow
-        if: matrix.profile == 'release'
+        if: matrix.profile == 'release' && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.published_version_changed == 'true'
         run: python3 scripts/smoke_external_consumer.py
 
       - name: Smoke-check controller public example

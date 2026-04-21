@@ -2,7 +2,7 @@
 """Smoke-test external crates.io adoption outside the workspace.
 
 This script creates a temporary Cargo app outside the repository, consumes
-`tailtriage-core` from crates.io, produces a run artifact, and analyzes it
+`tailtriage` from crates.io, produces a run artifact, and analyzes it
 with the workspace CLI.
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+import tomllib
 from pathlib import Path
 
 EXPECTED_RUN_TOP_LEVEL_KEYS = {
@@ -37,6 +38,12 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def workspace_version(root: Path) -> str:
+    cargo_toml = root / "Cargo.toml"
+    parsed = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
+    return parsed["workspace"]["package"]["version"]
+
+
 def run_cmd(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
@@ -54,7 +61,7 @@ def assert_keys(payload: dict, expected: set[str], *, context: str) -> None:
         raise SystemExit(f"{context} missing top-level keys: {missing_list}")
 
 
-def write_external_app(project_dir: Path) -> tuple[Path, Path]:
+def write_external_app(project_dir: Path, published_version: str) -> tuple[Path, Path]:
     app_dir = project_dir / "external-tailtriage-smoke"
     run_cmd(["cargo", "new", "--bin", app_dir.name], cwd=project_dir)
 
@@ -64,14 +71,14 @@ version = "0.1.1"
 edition = "2021"
 
 [dependencies]
-tailtriage-core = "0.1.1"
+tailtriage = "{published_version}"
 tokio = {{ version = "1", features = ["macros", "rt", "time"] }}
 """
     (app_dir / "Cargo.toml").write_text(cargo_toml, encoding="utf-8")
 
     main_rs = """use std::time::Duration;
 
-use tailtriage_core::{RequestOptions, Tailtriage};
+use tailtriage::{RequestOptions, Tailtriage};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -110,11 +117,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 def main() -> None:
     root = repo_root()
+    published_version = workspace_version(root)
     print("Smoke-validating external crates.io consumer adoption outside the workspace...")
+    print(f"Using published tailtriage crate version: {published_version}")
 
     with tempfile.TemporaryDirectory(prefix="tailtriage-external-consumer-") as temp_dir:
         external_root = Path(temp_dir)
-        app_dir, artifact_path = write_external_app(external_root)
+        app_dir, artifact_path = write_external_app(external_root, published_version)
 
         print(f"==> created external app: {app_dir}")
         run_cmd(["cargo", "run", "--quiet"], cwd=app_dir)
