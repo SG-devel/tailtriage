@@ -1627,9 +1627,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        ControllerSinkTemplate, DisableOutcome, EnableError, GenerationState, ReloadConfigError,
-        ReloadTemplateError, RunEndPolicy, RuntimeSamplerTemplate, TailtriageController,
-        TailtriageControllerTemplate,
+        ControllerBuildError, ControllerSinkTemplate, DisableOutcome, EnableError, GenerationState,
+        ReloadConfigError, ReloadTemplateError, RunEndPolicy, RuntimeSamplerTemplate,
+        TailtriageController, TailtriageControllerTemplate,
     };
     use tailtriage_core::{
         CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RuntimeSnapshot,
@@ -1705,6 +1705,47 @@ max_runtime_snapshots = 123
 
 [controller.activation.run_end_policy]
 kind = "auto_seal_on_limits_hit"
+"#,
+            output.display()
+        );
+        fs::write(path, content).expect("config write should succeed");
+    }
+
+    fn write_initially_enabled_config(path: &std::path::Path, output: &std::path::Path) {
+        let content = format!(
+            r#"[controller]
+initially_enabled = true
+service_name = "toml-service-name"
+
+[controller.activation]
+mode = "investigation"
+strict_lifecycle = true
+
+[controller.activation.capture_limits_override]
+max_requests = 9
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "{}"
+
+[controller.activation.run_end_policy]
+kind = "auto_seal_on_limits_hit"
+"#,
+            output.display()
+        );
+        fs::write(path, content).expect("config write should succeed");
+    }
+
+    fn write_sparse_config(path: &std::path::Path, output: &std::path::Path, mode: &str) {
+        let content = format!(
+            r#"[controller]
+
+[controller.activation]
+mode = "{mode}"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "{}"
 "#,
             output.display()
         );
@@ -2345,6 +2386,48 @@ kind = "auto_seal_on_limits_hit"
     }
 
     #[test]
+    fn shutdown_active_generation_finalizes_and_disables_even_with_inflight_request() {
+        let output = test_output("shutdown-active");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-inflight-shutdown"),
+        );
+
+        controller.shutdown().expect("shutdown should succeed");
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        assert!(active.artifact_path.exists());
+
+        let run = read_run(&active.artifact_path);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::Shutdown)
+        );
+
+        controller
+            .begin_request_with(
+                "/checkout",
+                RequestOptions::new().request_id("req-post-shutdown"),
+            )
+            .completion
+            .finish_ok();
+
+        let run_after = read_artifact(&active.artifact_path);
+        assert!(!run_after.contains("req-post-shutdown"));
+
+        started.completion.finish_ok();
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
     fn drain_finalization_sink_failure_is_observable_and_retriable() {
         let output = std::env::temp_dir().join(format!(
             "tailtriage-controller-missing-dir-{}-{}",
@@ -2725,6 +2808,191 @@ kind = "continue_after_limits_hit"
         fs::remove_file(gen1.artifact_path).expect("cleanup gen1 should succeed");
         fs::remove_file(gen2.artifact_path).expect("cleanup gen2 should succeed");
         fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn build_from_toml_initially_enabled_starts_generation_with_toml_activation_settings() {
+        let output = test_output("toml-initially-enabled");
+        let config = test_config_path("toml-initially-enabled");
+        write_initially_enabled_config(&config, &output);
+
+        let controller = TailtriageController::builder("builder-service-name")
+            .initially_enabled(false)
+            .strict_lifecycle(false)
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+
+        let status = controller.status();
+        let GenerationState::Active(active) = status.generation else {
+            panic!("config with initially_enabled=true should start generation 1");
+        };
+        assert_eq!(active.generation_id, 1);
+        assert_eq!(
+            active.activation_config.selected_mode,
+            CaptureMode::Investigation
+        );
+        assert!(active.activation_config.strict_lifecycle);
+        assert_eq!(
+            active.activation_config.run_end_policy,
+            RunEndPolicy::AutoSealOnLimitsHit
+        );
+        assert_eq!(
+            active.activation_config.sink_template,
+            ControllerSinkTemplate::LocalJson {
+                output_path: output.clone()
+            }
+        );
+        assert_eq!(
+            active.activation_config.runtime_sampler,
+            RuntimeSamplerTemplate::default()
+        );
+        assert_eq!(
+            active.activation_config.capture_limits_override,
+            CaptureLimitsOverride {
+                max_requests: Some(9),
+                ..CaptureLimitsOverride::default()
+            }
+        );
+        assert_eq!(status.template.service_name, "toml-service-name");
+        assert_eq!(
+            active.artifact_path,
+            output.with_file_name(format!(
+                "{}-generation-1.json",
+                output
+                    .file_stem()
+                    .and_then(std::ffi::OsStr::to_str)
+                    .expect("stem")
+            ))
+        );
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+        let run = read_run(&active.artifact_path);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::ManualDisarm)
+        );
+
+        fs::remove_file(active.artifact_path).expect("artifact cleanup should succeed");
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn enable_with_sampler_without_tokio_runtime_returns_missing_runtime_error() {
+        let output = test_output("missing-runtime");
+        let expected_artifact = output.with_file_name(format!(
+            "{}-generation-1.json",
+            output
+                .file_stem()
+                .and_then(std::ffi::OsStr::to_str)
+                .expect("stem")
+        ));
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .runtime_sampler(RuntimeSamplerTemplate {
+                enabled_for_armed_runs: true,
+                mode_override: None,
+                interval_ms: Some(20),
+                max_runtime_snapshots: Some(10),
+            })
+            .build()
+            .expect("build should succeed");
+
+        let err = controller
+            .enable()
+            .expect_err("enable should fail without runtime");
+        assert!(matches!(err, EnableError::MissingTokioRuntimeForSampler));
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 1 }
+        ));
+        assert!(!expected_artifact.exists());
+    }
+
+    #[test]
+    fn sparse_toml_uses_builder_fallbacks_and_activation_defaults() {
+        let output = test_output("sparse-toml-defaults");
+        let config = test_config_path("sparse-toml-defaults");
+        write_sparse_config(&config, &output, "investigation");
+
+        let controller = TailtriageController::builder("builder-service-name")
+            .initially_enabled(true)
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+
+        let status = controller.status();
+        assert_eq!(status.template.service_name, "builder-service-name");
+        let GenerationState::Active(active) = status.generation else {
+            panic!("builder initially_enabled should be preserved when TOML omits it");
+        };
+        assert_eq!(active.generation_id, 1);
+        assert_eq!(
+            active.activation_config.selected_mode,
+            CaptureMode::Investigation
+        );
+        assert!(!active.activation_config.strict_lifecycle);
+        assert_eq!(
+            active.activation_config.runtime_sampler,
+            RuntimeSamplerTemplate::default()
+        );
+        assert_eq!(
+            active.activation_config.run_end_policy,
+            RunEndPolicy::ContinueAfterLimitsHit
+        );
+        assert_eq!(
+            active.activation_config.capture_limits_override,
+            CaptureLimitsOverride::default()
+        );
+        assert_eq!(
+            active.activation_config.sink_template,
+            ControllerSinkTemplate::LocalJson {
+                output_path: output.clone()
+            }
+        );
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+        fs::remove_file(active.artifact_path).expect("artifact cleanup should succeed");
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn build_with_missing_config_path_returns_config_load_error() {
+        let config = test_config_path("missing-config-build");
+        assert!(!config.exists());
+
+        let err = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect_err("build should fail for missing config path");
+        assert!(matches!(
+            err,
+            ControllerBuildError::ConfigLoad(super::ConfigLoadError::Io { .. })
+        ));
+    }
+
+    #[test]
+    fn reload_config_after_config_file_deleted_returns_load_error() {
+        let output = test_output("reload-deleted-config");
+        let config = test_config_path("reload-deleted-config");
+        write_config(&config, &output, "light", false, false);
+
+        let controller = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+
+        fs::remove_file(&config).expect("config delete should succeed");
+        assert!(matches!(
+            controller.reload_config(),
+            Err(ReloadConfigError::Load(super::ConfigLoadError::Io { .. }))
+        ));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
