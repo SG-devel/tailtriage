@@ -1,261 +1,100 @@
 # IMPLEMENTATION_PLAN.md
 
-Post-MVP plan for `tailtriage`.
+Post-MVP operating plan for `tailtriage`.
 
-The MVP feature set is done. The next phase is not broad feature expansion. The next phase is to put the MVP in front of real users, collect feedback, see whether it survives contact with real usage, and expand only where evidence justifies it.
+`tailtriage` already exists as a focused toolkit for **Tokio tail-latency triage**. This plan keeps the project useful, clear, and tightly scoped while we validate it in real usage.
 
-## Summary
+## Current operating mode
 
-Goal: validate that `tailtriage` is useful in the wild as a focused toolkit for **Tokio tail-latency triage**.
+The product is in a validation-and-tightening phase, not a broad expansion phase.
 
-This plan prioritizes:
+Current priority order:
 
-- real user feedback over speculative scope expansion
-- keeping the project tightly aligned with its stated purpose
-- selective improvements only where they remove real friction or create outsized value
-- maintaining coherence as PRs and issues arrive
-- keeping docs, demos, and tests current with the actual product
+1. validate real user usefulness
+2. remove adoption and interpretation friction
+3. keep docs/examples/demos/tests aligned with current behavior
+4. reject scope drift
 
-## Current status
+The core product promise remains:
 
-The MVP is implemented.
+- capture one run (or bounded controller windows)
+- analyze into evidence-ranked suspects and next checks
+- iterate with targeted re-runs
 
-That means the main question now is no longer “can we build the core concept?” The question is “does this hold up for real users solving real Tokio tail-latency triage problems?”
+Suspects are leads, not proof of root cause.
 
-The purpose remains the same:
+## What we optimize now
 
-- `tailtriage` is for **Tokio tail-latency triage**
-- it produces **evidence-ranked suspects** and **next checks**
-- it is not a root-cause proof engine
-- it is not a general observability platform
-- it should not drift into a different category
+We optimize for:
 
----
+- first-time time-to-value for Tokio users
+- report clarity and actionability
+- reliability and correctness under real workloads
+- documentation quality and consistency
+- coherent APIs and crate boundaries
 
-## Phase 1 — real-world validation and feedback collection
+We do not optimize for speculative breadth.
 
-### Goals
+## Evidence-driven change policy
 
-- get the MVP into real usage
-- learn where users get stuck, where the output is useful, and where it fails
-- determine whether the current scope survives real-world use
+A change is in scope when at least one is true:
 
-### Tasks
+1. it removes repeated real-user friction
+2. it fixes correctness/reliability/security risk
+3. it materially improves usefulness without changing product category
 
-1. collect structured feedback from early users and reviewers, including reproducible examples, run artifacts, confusing outputs, and onboarding pain points where possible
-2. note where onboarding, terminology, or output interpretation breaks down
-3. track recurring confusion around suspects, evidence, confidence, and next checks
-4. identify whether users can reach first value quickly from the current source/workspace path
-5. separate “interesting ideas” from “real repeated pain in the wild”
+A change is out of scope when it mainly adds adjacent platform capabilities or creates a competing onboarding story.
 
-### Deliverables
+## Active workstreams
 
-- a short list of validated user pain points
-- a short list of things users clearly value in the MVP
-- evidence on whether the current product framing lands with the intended audience
+### 1) Real-world validation
 
-### Decision rule
+- Gather reproducible artifacts and concrete user pain points.
+- Prioritize repeated problems over one-off requests.
+- Confirm users can complete capture -> analyze -> next check -> re-run with current surfaces.
 
-Only treat something as a priority if it is one of the following:
+### 2) Product tightening
 
-- a repeated blocker to adoption or correct use
-- a repeated source of misunderstanding about the project’s core purpose
-- a clearly high-leverage improvement that substantially boosts usefulness or adoption
-- a credible, reproducible severe correctness, reliability, or security issue that would materially undermine trust in the tool if left unresolved
+- Improve ergonomics where they reduce real triage friction.
+- Improve diagnosis wording and next-check clarity when users misread results.
+- Keep behavior explicit around lifecycle, truncation, and confidence limits.
 
----
+### 3) Documentation and teaching surface alignment
 
-## Phase 2 — tighten the MVP based on real constraints
+- Keep `README.md`, `docs/`, and crate READMEs synchronized.
+- Keep docs user-facing, present-tense, and truthful to current behavior.
+- Keep examples/demos aligned with the same default usage story.
+- Update docs contract tests when docs structure or required index links change.
 
-### Goals
+### 4) Repository coherence
 
-- improve the MVP where reality shows it is too rough
-- stay within reasonable bounds
-- avoid drift caused by one-off requests, speculative ideas, or adjacent-tool pressure
+- Keep one coherent product story across crates and docs.
+- Reject additions that push the project toward a general observability platform.
+- Prefer smaller cohesive changes over scattered feature growth.
 
-### Tasks
+## Quality gates for changes
 
-1. fix issues that materially block first-time success
-2. fix issues that make output interpretation unreliable or unnecessarily confusing
-3. improve ergonomics only where they preserve the core triage workflow
-4. reject or defer changes that broaden the project beyond Tokio tail-latency triage
-5. prefer small cohesive improvements over scattered capability growth
+For scoped work, completion requires:
 
-### Deliverables
+1. code and tests updated as needed
+2. docs/examples/demos updated when user-facing behavior or guidance changes
+3. formatting/lint/tests passing per repository requirements
+4. no quiet scope expansion
 
-- a tighter MVP that is easier to adopt and trust
-- reduced friction in the capture → analyze → next check → re-run loop
-- a clearly bounded backlog grouped around real needs
+## Explicit anti-goals in this phase
 
-### Scope rule
+Do not use this phase to turn `tailtriage` into:
 
-Expand selectively, and only in two cases:
-
-1. **Something is holding the MVP back**
-   - onboarding friction
-   - confusing output
-   - missing documentation for actual usage
-   - reliability gaps
-   - poor demo coverage for important core cases
-
-2. **Something offers a huge boost**
-   - a feature or refinement that clearly increases adoption, clarity, or practical usefulness
-   - a change that strengthens the core triage promise without changing the product category
-
-If a proposal does not fit one of those two cases, it should usually not be in scope.
-
----
-
-## Phase 3 — keep the project coherent as work arrives
-
-### Goals
-
-- make sure PRs and issues do not pull the project in scattered directions
-- keep the repository coherent, readable, and intentional
-- maintain a single clear product story
-
-### Tasks
-
-1. review incoming issues and PRs against the stated purpose of `tailtriage`
-2. reject or narrow changes that create conceptual drift
-3. group related work together instead of accepting isolated feature fragments
-4. preserve consistent terminology across code, docs, demos, and review discussion
-5. require new changes to fit the existing product shape or explicitly justify why they belong
-
-### Deliverables
-
-- a backlog that remains compact and legible
-- fewer disconnected additions
-- a repo that still feels like one project rather than accumulated requests
-
-### Governance rule
-
-For new PRs or issues:
-
-- keep changes within reasonable bounds
-- keep related work together cleanly
-- do not accept “just one extra thing” additions that push the repo sideways
-- prefer cohesion over breadth
-- preserve the distinction between triage leads and proof of causality
-
-### Maintainer triage rubric
-
-When a new public issue or PR arrives, classify it into one of these buckets:
-
-1. **In scope now**
-   - directly improves Tokio tail-latency triage
-   - removes real user friction
-   - fixes correctness, reliability, or documentation gaps
-   - fits the current product story without broadening category
-
-2. **Needs evidence or reproduction**
-   - plausible and relevant, but missing a reproducer, run artifact, clearer expected behavior, or enough detail to act confidently
-
-3. **Defer**
-   - potentially useful, but not currently justified by repeated pain, severity, or leverage
-   - keep only if there is a clear future reason to revisit
-
-4. **Out of scope**
-   - pushes the repo into observability-platform territory
-   - adds adjacent but non-core capabilities
-   - creates a second product story or a competing onboarding path without strong justification
-
-Maintainers should state the bucket clearly when closing, deferring, or narrowing an issue or PR.
-
----
-
-## Phase 4 — docs, demos, and tests stay current
-
-### Goals
-
-- ensure the repository remains trustworthy
-- keep supporting materials aligned with actual behavior
-- avoid stale examples or claims
-
-### Tasks
-
-1. update docs whenever user-facing behavior or guidance changes
-2. keep demos runnable, current, and aligned with the product promise
-3. keep tests aligned with intended behavior and documented guarantees
-4. ensure README, docs map, diagnostics docs, and demos tell the same story
-5. remove stale wording that reflects old plans rather than current reality
-
-### Deliverables
-
-- up-to-date docs
-- up-to-date demos
-- up-to-date tests
-- a repo where examples and validation still support the public claims
-
-### Maintenance rule
-
-No meaningful product change is complete unless:
-
-- docs reflect it
-- demos still make sense with it
-- tests cover the intended behavior
-
----
-
-## Phase 5 — strengthen positioning if real feedback is positive
-
-### Goals
-
-- become better known in the relevant community if the MVP proves useful
-- improve discoverability without changing the project’s direction
-- make it easy for the right users to understand when `tailtriage` is for them
-
-### Tasks
-
-1. sharpen positioning for the intended Rust/Tokio audience
-2. improve public-facing explanation of what `tailtriage` is and is not
-3. highlight strong demos and credible usage paths
-4. make comparisons with adjacent tools modest and grounded
-5. invest more in visibility only if real user feedback is positive
-
-### Deliverables
-
-- stronger community awareness
-- clearer category understanding
-- better discoverability among people who actually have the problem `tailtriage` solves
-
-### Visibility rule
-
-Community visibility work should follow evidence of usefulness. It should not become a substitute for product validation.
-
-If feedback is positive, it is reasonable to invest more in:
-
-- clearer public documentation
-- better demo presentation
-- community-facing explanations and examples
-- discoverability among Rust/Tokio practitioners
-
-But this should still reinforce the same purpose, not redefine it.
-
----
-
-## Explicit anti-goals for this phase
-
-Do not use this phase to:
-
-- turn `tailtriage` into a general observability platform
-- drift into a broader telemetry product
-- overreact to isolated requests that do not fit the core purpose
-- add scattered features without a coherent product reason
-- confuse evidence-ranked suspects with root-cause proof
-- let docs, demos, and tests lag behind reality
-- optimize for breadth at the expense of clarity and cohesion
-
----
+- a telemetry backend
+- a distributed tracing platform
+- a broad observability suite
+- an automated root-cause proof engine
 
 ## Success criteria
 
-This plan succeeds when:
+This plan succeeds if:
 
-1. the MVP is tested by real users in realistic conditions
-2. feedback shows whether `tailtriage` is genuinely useful in the wild
-3. changes after MVP are selective, evidence-driven, and tightly scoped
-4. incoming PRs and issues do not cause product drift
-5. the repository remains coherent and aligned with Tokio tail-latency triage
-6. docs, demos, and tests stay current with the actual product
-7. if feedback is positive, the project becomes better known in the right community without changing direction
+1. users can repeatedly get useful triage output from real runs
+2. post-MVP changes are evidence-driven and tightly scoped
+3. docs/examples/demos/tests stay current with the real product
+4. the project remains clearly positioned as Tokio tail-latency triage

@@ -66,6 +66,17 @@ Optimize docs for:
 - direct statements of fit and non-fit
 - narrow, honest claims over ambitious language
 
+## Documentation contract
+
+Docs in `docs/` are user-facing product documentation.
+
+- `docs/` pages are for users of `tailtriage`, not repository development workflow.
+- Do not write contributor-process narration, issue-history context, or roadmap-history wording in `docs/` pages.
+- Keep docs crisp, truthful, present-tense, and aligned with the current product surface.
+- Do not claim behavior that is not supported by the code and current public docs.
+- Keep `docs/README.md` as a complete user-journey index to current docs.
+- If docs structure or required docs links change, update the docs contract test in `scripts/validate_docs_contracts.py` and related tests.
+
 ## Scope guardrails
 
 Only expand scope when at least one of these is true:
@@ -170,10 +181,12 @@ If a new dependency is added, document briefly in the PR or task summary:
 
 Expected workspace members:
 
+- `tailtriage`
 - `tailtriage-core`
+- `tailtriage-controller`
 - `tailtriage-tokio`
-- `tailtriage-cli`
 - `tailtriage-axum`
+- `tailtriage-cli`
 
 Possible directories:
 
