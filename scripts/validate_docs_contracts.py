@@ -16,6 +16,7 @@ CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sample-analysis.json"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
+CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
 PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
 
 STALE_CONTROLLER_POLICY_NAMES = (
@@ -148,10 +149,14 @@ def extract_run_end_policy_kinds_from_source() -> set[str]:
 
 def validate_controller_readme_toml() -> None:
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
+    anchor = "## TOML config and manual reload"
+    if anchor not in readme_text:
+        return
+
     snippet = extract_fenced_block(
         readme_text,
         fence="toml",
-        anchor="## TOML config and manual reload",
+        anchor=anchor,
     )
     parsed = tomllib.loads(snippet)
 
@@ -189,13 +194,19 @@ def validate_no_stale_controller_policy_names() -> None:
         raise ValueError(f"stale controller run_end_policy docs found:\n{joined}")
 
 
+def is_misleading_controller_example_flow(readme_text: str) -> bool:
+    for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
+        if (
+            "cargo add tailtriage-controller" in block
+            and "cargo run --example controller_minimal" in block
+        ):
+            return True
+    return False
+
+
 def validate_controller_example_usage_contract() -> None:
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
-    misleading_tokens = (
-        "cargo add tailtriage-controller",
-        "cargo run --example controller_minimal",
-    )
-    if all(token in readme_text for token in misleading_tokens):
+    if is_misleading_controller_example_flow(readme_text):
         raise ValueError(
             "controller README contains a misleading dependency-example flow: "
             "`cargo add tailtriage-controller` + "
@@ -203,12 +214,33 @@ def validate_controller_example_usage_contract() -> None:
         )
 
 
-def validate_no_public_sampler_forge_method() -> None:
-    source = CORE_COLLECTOR_SOURCE_PATH.read_text(encoding="utf-8")
-    if "__tailtriage_internal_register_tokio_runtime_sampler" in source:
+def find_public_sampler_forge_methods(source: str) -> list[str]:
+    return re.findall(r"^\s*pub\s+fn\s+([A-Za-z0-9_]*sampler[A-Za-z0-9_]*)\s*\(", source, re.MULTILINE)
+
+
+def validate_sampler_integration_boundary() -> None:
+    collector_source = CORE_COLLECTOR_SOURCE_PATH.read_text(encoding="utf-8")
+    lib_source = CORE_LIB_SOURCE_PATH.read_text(encoding="utf-8")
+
+    if "__tailtriage_internal_register_tokio_runtime_sampler" in collector_source:
         raise ValueError(
             "collector source still exposes __tailtriage_internal_register_tokio_runtime_sampler; "
             "public sampler metadata forge methods are not allowed"
+        )
+
+    public_methods = find_public_sampler_forge_methods(collector_source)
+    if public_methods:
+        raise ValueError(
+            "collector source exposes public sampler-related methods: "
+            f"{sorted(public_methods)}"
+        )
+
+    if "#[doc(hidden)]\npub mod __internal {" not in lib_source:
+        raise ValueError("tailtriage-core hidden __internal integration module is missing")
+
+    if "pub fn register_tokio_runtime_sampler(" not in lib_source:
+        raise ValueError(
+            "tailtriage-core hidden __internal register_tokio_runtime_sampler hook is missing"
         )
 
 
@@ -218,7 +250,7 @@ def main() -> int:
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_controller_example_usage_contract()
-    validate_no_public_sampler_forge_method()
+    validate_sampler_integration_boundary()
     print("docs contracts validated successfully")
     return 0
 

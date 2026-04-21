@@ -105,6 +105,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+### Example output (JSON)
+
+```json
+{
+  "request_count": 250,
+  "p50_latency_us": 782227,
+  "p95_latency_us": 1468239,
+  "p99_latency_us": 1518551,
+  "p95_queue_share_permille": 982,
+  "p95_service_share_permille": 267,
+  "inflight_trend": {
+    "gauge": "queue_service_inflight",
+    "sample_count": 500,
+    "peak_count": 234,
+    "p95_count": 225,
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
+  },
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "score": 90,
+    "confidence": "high",
+    "evidence": [
+      "Queue wait at p95 consumes 98.2% of request time.",
+      "Observed queue depth sample up to 230."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "score": 55,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'simulated_work' has p95 latency 26566 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 6546159 us.",
+        "Stage 'simulated_work' contributes 33 permille of cumulative request latency."
+      ],
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'simulated_work'.",
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
+      ]
+    }
+  ]
+}
+```
+
 ## 6) GitHub/workspace path (development alternative)
 
 Use the repository workspace when you want to:

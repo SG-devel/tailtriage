@@ -26,6 +26,26 @@ class ValidateDocsContractsTests(unittest.TestCase):
         validate_docs_contracts.validate_readme_analyzer_example()
         validate_docs_contracts.validate_controller_readme_toml()
 
+    def test_controller_readme_does_not_use_misleading_dependency_example_flow(self) -> None:
+        readme_text = validate_docs_contracts.CONTROLLER_README_PATH.read_text(encoding="utf-8")
+        self.assertFalse(validate_docs_contracts.is_misleading_controller_example_flow(readme_text))
+
+    def test_sampler_forge_method_detector_flags_public_methods(self) -> None:
+        source = """
+impl Tailtriage {
+    pub fn register_tokio_runtime_sampler(&self) {}
+    pub fn runtime_sampler_stats(&self) {}
+    pub(crate) fn register_tokio_runtime_sampler_internal(&self) {}
+}
+"""
+        self.assertEqual(
+            validate_docs_contracts.find_public_sampler_forge_methods(source),
+            ["register_tokio_runtime_sampler", "runtime_sampler_stats"],
+        )
+
+    def test_sampler_integration_boundary_contract_validates(self) -> None:
+        validate_docs_contracts.validate_sampler_integration_boundary()
+
 
 if __name__ == "__main__":
     unittest.main()
