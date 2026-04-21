@@ -2,11 +2,11 @@
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! Official default crate for the tailtriage toolkit.
-//!
-//! - [`tailtriage_core`] is always re-exported as the foundational API surface.
-//! - [`controller`] is the default convenience layer when the `controller` feature is enabled.
-//! - [`tokio`] and [`axum`] are opt-in integration namespaces.
+// Official default crate for the tailtriage toolkit.
+//
+// - [`tailtriage_core`] is always re-exported as the foundational API surface.
+// - [`controller`] is the default convenience layer when the `controller` feature is enabled.
+// - [`tokio`] and [`axum`] are opt-in integration namespaces.
 
 pub use tailtriage_core::*;
 

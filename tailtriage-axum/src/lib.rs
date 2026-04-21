@@ -1,10 +1,10 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-//! Axum adoption helpers layered on top of `tailtriage-core`.
-//!
-//! This crate provides a focused middleware + extractor path so handlers can
-//! access request instrumentation without repeating request start/finish wiring.
+// Axum adoption helpers layered on top of `tailtriage-core`.
+//
+// This crate provides a focused middleware + extractor path so handlers can
+// access request instrumentation without repeating request start/finish wiring.
 
 use std::sync::Arc;
 
