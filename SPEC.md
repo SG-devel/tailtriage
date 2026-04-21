@@ -37,7 +37,7 @@ Primary question:
 
 Current workspace members include:
 
-- `tailtriage` (default facade)
+- `tailtriage` (default crate)
 - `tailtriage-core`
 - `tailtriage-controller`
 - `tailtriage-tokio`
@@ -52,7 +52,7 @@ Supporting repository areas:
 
 ## 5. Public integration surfaces
 
-### 5.1 Default entry point: `tailtriage` facade
+### 5.1 Default entry point: `tailtriage` (default crate)
 
 `tailtriage` is the default onboarding crate and re-exports the primary product surfaces:
 

@@ -150,7 +150,7 @@ Defaults:
 
 - **Use `tailtriage-controller`:** repeated arm/disarm windows in a long-lived service.
 - **Use `tailtriage-core`:** single run lifecycle (`build -> capture -> shutdown`).
-- **Use `tailtriage` facade:** default path that includes controller support by default.
+- **Use `tailtriage` (default crate):** default path that includes controller support by default.
 
 ## Installation
 
@@ -199,7 +199,7 @@ fn demo() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Deeper docs
 
-- Facade/default integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Default crate integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
 - Foundation instrumentation semantics: [`../tailtriage-core/README.md`](../tailtriage-core/README.md)
 - Runtime sampler details: [`../tailtriage-tokio/README.md`](../tailtriage-tokio/README.md)
 - CLI analyzer/report contract: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)

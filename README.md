@@ -15,13 +15,13 @@ It produces a triage report with **evidence-ranked suspects** and **next checks*
 
 ## Quick start (crates.io)
 
-For most users, start with the facade crate:
+For most users, start with the default crate:
 
 ```bash
 cargo add tailtriage
 ```
 
-Optional facade integrations:
+Optional integrations:
 
 ```bash
 cargo add tailtriage --features tokio
@@ -247,7 +247,7 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 ## Documentation map
 
-- Facade/default crate docs: [`tailtriage/README.md`](tailtriage/README.md)
+- Default crate docs: [`tailtriage/README.md`](tailtriage/README.md)
 - User workflow guide: [`docs/user-guide.md`](docs/user-guide.md)
 - Controller docs and config: [`tailtriage-controller/README.md`](tailtriage-controller/README.md)
 - Runtime sampler docs: [`tailtriage-tokio/README.md`](tailtriage-tokio/README.md)
