@@ -9,7 +9,7 @@ use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 use axum::Router;
 use tailtriage_axum::TailtriageRequest;
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{Outcome, Tailtriage};
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 
@@ -41,6 +41,21 @@ async fn bad_request_handler(TailtriageRequest(_): TailtriageRequest) -> StatusC
 
 async fn timeout_handler(TailtriageRequest(_): TailtriageRequest) -> StatusCode {
     StatusCode::REQUEST_TIMEOUT
+}
+
+async fn custom_classifier_middleware(
+    State(tailtriage): State<Arc<Tailtriage>>,
+    request: Request<Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    tailtriage_axum::middleware_with_status_classifier(tailtriage, request, next, |status| {
+        if status == StatusCode::BAD_REQUEST {
+            Outcome::Other("client_error".to_owned())
+        } else {
+            tailtriage_axum::default_status_to_outcome(status)
+        }
+    })
+    .await
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -170,4 +185,39 @@ async fn middleware_records_default_http_outcomes_in_snapshot() {
     assert_eq!(outcome_for("/bad"), "rejected");
     assert_eq!(outcome_for("/timeout"), "timeout");
     assert_eq!(outcome_for("/fail"), "error");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn configurable_middleware_classifier_changes_recorded_outcome() {
+    let tailtriage = Arc::new(
+        Tailtriage::builder("axum-adapter-custom-classifier-test")
+            .build()
+            .expect("build should succeed"),
+    );
+
+    let app = Router::new()
+        .route("/bad", get(bad_request_handler))
+        .layer(from_fn_with_state(
+            Arc::clone(&tailtriage),
+            custom_classifier_middleware,
+        ))
+        .with_state(AppState {
+            gate: Arc::new(Semaphore::new(1)),
+        });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/bad")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should succeed");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.requests[0].route, "/bad");
+    assert_eq!(snapshot.requests[0].outcome, "client_error");
 }
