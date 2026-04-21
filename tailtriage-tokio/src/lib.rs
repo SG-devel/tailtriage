@@ -1,12 +1,12 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-//! Tokio runtime integration for tailtriage.
-//!
-//! This crate provides [`RuntimeSampler`] for periodic Tokio runtime metrics
-//! snapshots that feed evidence into the same unified `Tailtriage` API surface.
-//! Use it when you need stronger separation between executor pressure,
-//! blocking-pool pressure, queueing, and downstream-stage slowdowns.
+// Tokio runtime integration for tailtriage.
+//
+// This crate provides [`RuntimeSampler`] for periodic Tokio runtime metrics
+// snapshots that feed evidence into the same unified `Tailtriage` API surface.
+// Use it when you need stronger separation between executor pressure,
+// blocking-pool pressure, queueing, and downstream-stage slowdowns.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -131,7 +131,7 @@ impl RuntimeSampler {
     ///
     /// Use this during incident triage when runtime pressure evidence is needed
     /// to rank suspects (for example: global queue growth or alive-task spikes).
-    /// For lower runtime-cost core-only capture categories, skip sampler startup (see `docs/runtime-cost.md`).
+    /// For lower runtime-cost core-only capture categories, skip sampler startup.
     ///
     /// # Errors
     ///

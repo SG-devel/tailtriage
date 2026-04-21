@@ -8,7 +8,7 @@ use crate::{LocalJsonSink, RunSink};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureMode {
-    /// Lower-runtime-cost mode for core-only capture categories (see `docs/runtime-cost.md`).
+    /// Lower-runtime-cost mode for core-only capture categories.
     ///
     /// Core-owned defaults in this mode are:
     ///
@@ -245,7 +245,7 @@ impl TailtriageBuilder {
 
     /// Sets capture mode to [`CaptureMode::Light`].
     ///
-    /// Light mode is the default and favors lower runtime cost in core-only capture categories (see `docs/runtime-cost.md`) with enough signal for first-pass triage.
+    /// Light mode is the default and favors lower runtime cost in core-only capture categories with enough signal for first-pass triage.
     #[must_use]
     pub fn light(mut self) -> Self {
         self.mode = CaptureMode::Light;
