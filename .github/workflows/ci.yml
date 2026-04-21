@@ -75,59 +75,7 @@ jobs:
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import subprocess
-          import tomllib
-
-
-          def read_workspace_version(ref: str) -> str:
-              cargo_toml = subprocess.check_output(
-                  ["git", "show", f"{ref}:Cargo.toml"]
-              ).decode("utf-8")
-              parsed = tomllib.loads(cargo_toml)
-              return parsed["workspace"]["package"]["version"]
-
-
-          event_name = os.environ["GITHUB_EVENT_NAME"]
-          head_ref = os.environ["GITHUB_SHA"]
-          base_ref = ""
-
-          if event_name == "pull_request":
-              base_ref = os.environ.get("GITHUB_BASE_SHA", "")
-          elif event_name == "push":
-              base_ref = os.environ.get("GITHUB_EVENT_BEFORE", "")
-
-          changed = True
-          if base_ref and set(base_ref) != {"0"}:
-              try:
-                  old_version = read_workspace_version(base_ref)
-                  new_version = read_workspace_version(head_ref)
-                  changed = old_version != new_version
-                  print(
-                      "published workspace version comparison:",
-                      f"base={base_ref} ({old_version})",
-                      f"head={head_ref} ({new_version})",
-                  )
-              except Exception as exc:
-                  changed = True
-                  print(
-                      "failed to read workspace version history; "
-                      "failing safe with published_version_changed=true:",
-                      exc,
-                  )
-          else:
-              print(
-                  "missing or zeroed base ref; "
-                  "failing safe with published_version_changed=true"
-              )
-
-          output_value = "true" if changed else "false"
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"published_version_changed={output_value}\n")
-          print(f"published_version_changed={output_value}")
-          PY
+        run: python3 scripts/ci_detect_published_version_change.py
 
   docs-contracts:
     name: docs contracts
