@@ -99,11 +99,45 @@ Use **controller** (`TailtriageController`) when your service is long-lived and 
 - disable/finalize
 - re-enable later
 
+Minimal controller window example:
+
+```rust,no_run
+use tailtriage::controller::TailtriageController;
+
+# fn demo() -> Result<(), Box<dyn std::error::Error>> {
+let controller = TailtriageController::builder("checkout-service")
+    .initially_enabled(false)
+    .output("tailtriage-run.json")
+    .build()?;
+
+let _generation = controller.enable()?;
+let started = controller.begin_request("/checkout");
+started.completion.finish_ok();
+let _ = controller.disable()?;
+# Ok(())
+# }
+```
+
 Controller details: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
 
 ## 5) Controller TOML config and reload semantics
 
 Controller config is for repeatable operational settings across environments.
+
+Stay with builder defaults when you are exploring locally or need one straightforward capture setup. Move to TOML when you need consistent operational settings (service identity, output path, capture limits, sampler template) across environments without rebuilding.
+
+Minimal TOML shape:
+
+```toml
+service_name = "checkout-service"
+
+[activation]
+mode = "light"
+
+[activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
 
 At contract level:
 

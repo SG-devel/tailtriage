@@ -195,7 +195,13 @@ When behavior or public guidance changes, update relevant public docs together:
 
 - `README.md`
 - `SPEC.md`
-- `IMPLEMENTATION_PLAN.md` (when operating mode changes)
+- `IMPLEMENTATION_PLAN.md`
 - `docs/README.md`
 - `docs/user-guide.md`
-- relevant crate READMEs, examples, demos, and tests
+- `docs/diagnostics.md`
+- `docs/runtime-cost.md`
+- `docs/collector-limits.md`
+- `docs/getting-started-demo.md`
+- `docs/architecture.md`
+- relevant crate READMEs
+- relevant examples, demos, and tests

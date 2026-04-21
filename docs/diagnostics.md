@@ -43,6 +43,17 @@ Each suspect includes:
 
 `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`.
 
+## Field reference (stable report shape)
+
+- `request_count`: number of requests observed in the run artifact.
+- `p50_latency_us` / `p95_latency_us` / `p99_latency_us`: request latency percentiles in microseconds.
+- `p95_queue_share_permille`: p95 queue-time share per request (0..1000 scale).
+- `p95_service_share_permille`: p95 service-time share per request (0..1000 scale).
+- `warnings[]`: analyzer warnings, including truncation and unfinished lifecycle context when present.
+- `primary_suspect`: highest-ranked suspect with evidence and next checks.
+- `secondary_suspects[]`: additional ranked suspects.
+- `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.
+
 ## Suspect kinds
 
 - `application_queue_saturation`

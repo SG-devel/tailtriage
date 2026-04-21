@@ -14,6 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
+DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
+ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sample-analysis.json"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
@@ -40,10 +42,28 @@ DOCS_REQUIRED_LINKS = (
     "[Architecture](architecture.md)",
 )
 
+README_DOC_MAP_REQUIRED_LINKS = (
+    "(docs/user-guide.md)",
+    "(tailtriage-controller/README.md)",
+    "(tailtriage-tokio/README.md)",
+    "(tailtriage-cli/README.md)",
+    "(docs/diagnostics.md)",
+    "(docs/runtime-cost.md)",
+    "(docs/collector-limits.md)",
+    "(docs/getting-started-demo.md)",
+    "(docs/architecture.md)",
+    "(docs/README.md)",
+)
+
 DOCS_DISALLOWED_HISTORY_PATTERNS = (
     r"issue\s*#\d+",
     r"PR\s*#\d+",
     r"roadmap",
+)
+
+DIAGNOSTICS_FIELD_REFERENCE_LABELS = (
+    "field reference",
+    "field-reference",
 )
 
 
@@ -205,6 +225,9 @@ def validate_user_guide_contract() -> None:
         "Request lifecycle contract (required)",
         "Direct capture vs controller",
         "Controller TOML config and reload semantics",
+        "TailtriageController::builder(",
+        "[activation.sink]",
+        'type = "local_json"',
         "runtime sampler",
         "future generations only",
         "insufficient_evidence",
@@ -212,6 +235,40 @@ def validate_user_guide_contract() -> None:
     for token in required_tokens:
         if token not in text:
             raise ValueError(f"user guide missing required section/token: {token}")
+
+
+def validate_root_readme_docs_map_parity() -> None:
+    text = README_PATH.read_text(encoding="utf-8")
+    for required_link in README_DOC_MAP_REQUIRED_LINKS:
+        if required_link not in text:
+            raise ValueError(f"root README docs map missing required link: {required_link}")
+
+
+def validate_diagnostics_contract_truthfulness() -> None:
+    readme_text = README_PATH.read_text(encoding="utf-8")
+    docs_index_text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
+    diagnostics_text = DIAGNOSTICS_PATH.read_text(encoding="utf-8")
+
+    combined_labels_text = f"{readme_text}\n{docs_index_text}".lower()
+    references_field_ref = any(label in combined_labels_text for label in DIAGNOSTICS_FIELD_REFERENCE_LABELS)
+    if references_field_ref and "## Field reference" not in diagnostics_text:
+        raise ValueError(
+            "README/docs index describe diagnostics as field reference, "
+            "but docs/diagnostics.md lacks a matching field reference section"
+        )
+
+
+def validate_architecture_contract() -> None:
+    text = ARCHITECTURE_PATH.read_text(encoding="utf-8")
+    required_tokens = (
+        "`tailtriage`",
+        "`tailtriage-controller`",
+        "default entry point",
+        "file-based",
+    )
+    for token in required_tokens:
+        if token not in text:
+            raise ValueError(f"architecture doc missing required product-contract token: {token}")
 
 
 def validate_docs_no_history_framing() -> None:
@@ -277,7 +334,10 @@ def main() -> int:
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
+    validate_root_readme_docs_map_parity()
     validate_user_guide_contract()
+    validate_diagnostics_contract_truthfulness()
+    validate_architecture_contract()
     validate_docs_no_history_framing()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()

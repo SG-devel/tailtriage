@@ -9,7 +9,7 @@ This is the canonical user-facing docs index for `tailtriage`.
 
 ## Core workflow and interpretation
 
-- [Diagnostics guide](diagnostics.md) — how to read suspects, evidence, confidence, warnings, and next checks.
+- [Diagnostics guide](diagnostics.md) — quick reading flow plus concise field reference for analyzer output.
 - [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — analyzer/report contract and CLI usage.
 
 ## Capture surfaces
