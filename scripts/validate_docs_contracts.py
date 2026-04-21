@@ -84,6 +84,15 @@ def extract_fenced_block(markdown: str, *, fence: str, anchor: str) -> str:
     return match.group(1)
 
 
+def extract_fenced_blocks_after_anchor(markdown: str, *, fence: str, anchor: str) -> list[str]:
+    anchor_index = markdown.find(anchor)
+    if anchor_index < 0:
+        raise ValueError(f"missing anchor heading: {anchor}")
+
+    pattern = re.compile(rf"```{re.escape(fence)}\n(.*?)\n```", re.DOTALL)
+    return [match.group(1) for match in pattern.finditer(markdown, pos=anchor_index)]
+
+
 def _kind_of(value: Any) -> str:
     if value is None:
         return "null"
@@ -174,48 +183,125 @@ def extract_run_end_policy_kinds_from_source() -> set[str]:
 
 def validate_controller_readme_toml() -> None:
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
-    anchor = "## Config file (TOML)"
-    snippet = extract_fenced_block(readme_text, fence="toml", anchor=anchor)
-    parsed = tomllib.loads(snippet)
+    if "## TOML field reference" not in readme_text:
+        raise ValueError("controller README must include a dedicated '## TOML field reference' section")
 
+    required_reference_tokens = (
+        "service_name",
+        "initially_enabled",
+        "mode",
+        "strict_lifecycle",
+        "capture_limits_override",
+        "max_requests",
+        "max_stages",
+        "max_queues",
+        "max_inflight_snapshots",
+        "max_runtime_snapshots",
+        "enabled_for_armed_runs",
+        "mode_override",
+        "interval_ms",
+        "run_end_policy",
+        "continue_after_limits_hit",
+        "auto_seal_on_limits_hit",
+    )
+    for token in required_reference_tokens:
+        if token not in readme_text:
+            raise ValueError(f"controller README TOML field reference missing token: {token}")
+
+    snippets = extract_fenced_blocks_after_anchor(
+        readme_text,
+        fence="toml",
+        anchor="## Config file (TOML)",
+    )
+    if len(snippets) < 2:
+        raise ValueError("controller README must include minimal and expanded TOML examples")
+    minimal_snippet, expanded_snippet = snippets[0], snippets[1]
+    minimal = tomllib.loads(minimal_snippet)
+    expanded = tomllib.loads(expanded_snippet)
+
+    _validate_controller_toml_shape(parsed=minimal, example_name="minimal")
+    _validate_controller_toml_shape(parsed=expanded, example_name="expanded")
+
+    expanded_controller = expanded["controller"]
+    if "initially_enabled" not in expanded_controller:
+        raise ValueError("expanded controller TOML example must include controller.initially_enabled")
+    if expanded_controller["initially_enabled"] is not False:
+        raise ValueError("expanded controller TOML example must set controller.initially_enabled = false")
+
+    expanded_activation = expanded_controller["activation"]
+    for required_table in ("capture_limits_override", "runtime_sampler", "run_end_policy"):
+        if required_table not in expanded_activation or not isinstance(
+            expanded_activation[required_table], dict
+        ):
+            raise ValueError(
+                f"expanded controller TOML example must include [controller.activation.{required_table}]"
+            )
+
+    runtime_sampler = expanded_activation["runtime_sampler"]
+    for key in (
+        "enabled_for_armed_runs",
+        "mode_override",
+        "interval_ms",
+        "max_runtime_snapshots",
+    ):
+        if key not in runtime_sampler:
+            raise ValueError(f"expanded controller TOML example must include runtime_sampler.{key}")
+
+    run_end_policy = expanded_activation["run_end_policy"]
+    if "kind" not in run_end_policy:
+        raise ValueError("expanded controller TOML example must include run_end_policy.kind")
+
+
+def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str) -> None:
     controller = parsed.get("controller")
     if not isinstance(controller, dict):
-        raise ValueError("controller README TOML example must include a [controller] table")
+        raise ValueError(
+            f"{example_name} controller README TOML example must include a [controller] table"
+        )
 
     service_name = controller.get("service_name")
     if not isinstance(service_name, str) or not service_name.strip():
-        raise ValueError("controller README TOML example must include non-empty controller.service_name")
+        raise ValueError(
+            f"{example_name} controller README TOML example must include non-empty controller.service_name"
+        )
 
     activation = controller.get("activation")
     if not isinstance(activation, dict):
-        raise ValueError("controller README TOML example must include a [controller.activation] table")
+        raise ValueError(
+            f"{example_name} controller README TOML example must include a [controller.activation] table"
+        )
 
     mode = activation.get("mode")
     if not isinstance(mode, str) or not mode.strip():
-        raise ValueError("controller README TOML example must include non-empty controller.activation.mode")
+        raise ValueError(
+            f"{example_name} controller README TOML example must include non-empty controller.activation.mode"
+        )
 
     sink = activation.get("sink")
     if not isinstance(sink, dict):
         raise ValueError(
-            "controller README TOML example must include a [controller.activation.sink] table"
+            f"{example_name} controller README TOML example must include a "
+            "[controller.activation.sink] table"
         )
 
     sink_type = sink.get("type")
     output_path = sink.get("output_path")
     if sink_type != "local_json":
         raise ValueError(
-            'controller README TOML example must set controller.activation.sink.type = "local_json"'
+            f'{example_name} controller README TOML example must set '
+            'controller.activation.sink.type = "local_json"'
         )
     if not isinstance(output_path, str) or not output_path.strip():
         raise ValueError(
-            "controller README TOML example must include non-empty controller.activation.sink.output_path"
+            f"{example_name} controller README TOML example must include non-empty "
+            "controller.activation.sink.output_path"
         )
 
     run_end_policy = activation.get("run_end_policy")
     if run_end_policy is None:
         return
     if not isinstance(run_end_policy, dict):
-        raise ValueError("controller README run_end_policy snippet must parse as a table")
+        raise ValueError(f"{example_name} controller README run_end_policy snippet must parse as a table")
 
     documented_kind = run_end_policy.get("kind")
     if not isinstance(documented_kind, str):

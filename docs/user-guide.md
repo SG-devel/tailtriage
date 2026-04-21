@@ -147,7 +147,7 @@ At contract level:
 - reload applies to **future generations only**
 - active generation keeps activation-time config
 
-See crate README for full TOML keys and examples: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
+See crate README for the full TOML field reference and expanded starter example: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
 
 ## 6) Runtime sampler: when and why
 

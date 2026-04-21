@@ -87,6 +87,40 @@ mode = "light"
 type = "local_json"
 output_path = "tailtriage-run.json"
 ```
+
+```toml
+[controller]
+service_name = "checkout-service"
+initially_enabled = false
+
+[controller.activation]
+mode = "investigation"
+strict_lifecycle = true
+
+[controller.activation.capture_limits_override]
+max_requests = 100
+max_stages = 200
+max_queues = 200
+max_inflight_snapshots = 200
+max_runtime_snapshots = 100
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.runtime_sampler]
+enabled_for_armed_runs = true
+mode_override = "investigation"
+interval_ms = 250
+max_runtime_snapshots = 50
+
+[controller.activation.run_end_policy]
+kind = "auto_seal_on_limits_hit"
+```
+
+## TOML field reference
+
+service_name initially_enabled mode strict_lifecycle capture_limits_override max_requests max_stages max_queues max_inflight_snapshots max_runtime_snapshots enabled_for_armed_runs mode_override interval_ms run_end_policy continue_after_limits_hit auto_seal_on_limits_hit
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             readme_path = Path(tmp_dir) / "README.md"
@@ -95,7 +129,7 @@ output_path = "tailtriage-run.json"
             with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
                 validate_docs_contracts.validate_controller_readme_toml()
 
-    def test_controller_readme_toml_validation_fails_without_required_toml_fields(self) -> None:
+    def test_controller_readme_toml_validation_fails_without_field_reference_section(self) -> None:
         readme_text = """# tailtriage-controller
 
 ## Config file (TOML)
@@ -106,6 +140,35 @@ service_name = "checkout-service"
 
 [controller.activation]
 mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+
+```toml
+[controller]
+service_name = "checkout-service"
+initially_enabled = false
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.capture_limits_override]
+max_requests = 100
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.runtime_sampler]
+enabled_for_armed_runs = true
+mode_override = "light"
+interval_ms = 250
+max_runtime_snapshots = 50
+
+[controller.activation.run_end_policy]
+kind = "continue_after_limits_hit"
 ```
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -114,7 +177,111 @@ mode = "light"
 
             with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
                 with self.assertRaisesRegex(
-                    ValueError, r"\[controller\.activation\.sink\]"
+                    ValueError, r"TOML field reference"
+                ):
+                    validate_docs_contracts.validate_controller_readme_toml()
+
+    def test_controller_readme_toml_validation_fails_when_important_tokens_missing(self) -> None:
+        readme_text = """# tailtriage-controller
+
+## Config file (TOML)
+
+```toml
+[controller]
+service_name = "checkout-service"
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+
+```toml
+[controller]
+service_name = "checkout-service"
+initially_enabled = false
+
+[controller.activation]
+mode = "investigation"
+
+[controller.activation.capture_limits_override]
+max_requests = 100
+max_stages = 200
+max_queues = 200
+max_inflight_snapshots = 200
+max_runtime_snapshots = 100
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.runtime_sampler]
+enabled_for_armed_runs = true
+mode_override = "investigation"
+interval_ms = 250
+max_runtime_snapshots = 50
+
+[controller.activation.run_end_policy]
+kind = "auto_seal_on_limits_hit"
+```
+
+## TOML field reference
+
+service_name initially_enabled mode strict_lifecycle capture_limits_override
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readme_path = Path(tmp_dir) / "README.md"
+            readme_path.write_text(readme_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
+                with self.assertRaisesRegex(
+                    ValueError, r"missing token"
+                ):
+                    validate_docs_contracts.validate_controller_readme_toml()
+
+    def test_controller_readme_toml_validation_fails_when_expanded_example_missing_sections(self) -> None:
+        readme_text = """# tailtriage-controller
+
+## Config file (TOML)
+
+```toml
+[controller]
+service_name = "checkout-service"
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+
+```toml
+[controller]
+service_name = "checkout-service"
+initially_enabled = false
+
+[controller.activation]
+mode = "investigation"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+
+## TOML field reference
+
+service_name initially_enabled mode strict_lifecycle capture_limits_override max_requests max_stages max_queues max_inflight_snapshots max_runtime_snapshots enabled_for_armed_runs mode_override interval_ms run_end_policy continue_after_limits_hit auto_seal_on_limits_hit
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readme_path = Path(tmp_dir) / "README.md"
+            readme_path.write_text(readme_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
+                with self.assertRaisesRegex(
+                    ValueError, r"capture_limits_override"
                 ):
                     validate_docs_contracts.validate_controller_readme_toml()
 
