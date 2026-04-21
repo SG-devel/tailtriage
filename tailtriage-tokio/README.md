@@ -1,24 +1,37 @@
 # tailtriage-tokio
 
-`tailtriage-tokio` adds **Tokio runtime-pressure evidence** to a `tailtriage-core` run.
+`tailtriage-tokio` adds **Tokio runtime-pressure evidence** to a `tailtriage-core` run artifact.
 
-Use this crate when core request instrumentation alone is not enough to separate:
+This crate owns runtime sampler behavior and Tokio-specific constraints.
 
-- application queueing,
-- executor pressure,
-- blocking-pool pressure, and
-- downstream stage slowdown.
+## What this crate is for
+
+Use this crate when request lifecycle instrumentation alone is not enough to separate:
+
+- application queueing
+- executor pressure
+- blocking-pool pressure
+- downstream stage slowdown
 
 ## When to use this crate vs others
 
-- Use `tailtriage-core` for request lifecycle instrumentation.
-- Add `tailtriage-tokio` to periodically capture runtime metrics into the same artifact.
-- Use `tailtriage-axum` only for Axum ergonomics (independent of runtime sampling).
+- **Use `tailtriage-tokio`:** runtime-pressure sampling in the same run artifact.
+- **Use `tailtriage-core` only:** if request timing is sufficient for your triage pass.
+- **Use `tailtriage-axum`:** for framework ergonomics (independent from runtime sampling).
+- **Use `tailtriage` facade:** for default onboarding with feature-gated access to this module.
 
 ## Installation
 
+Direct crates:
+
 ```bash
 cargo add tailtriage-core tailtriage-tokio
+```
+
+Via facade:
+
+```bash
+cargo add tailtriage --features tokio
 ```
 
 ## Minimal example
@@ -47,21 +60,20 @@ run.shutdown()?;
 # }
 ```
 
-## Runtime requirements and feature notes
+## Runtime-specific constraints
 
-- `RuntimeSampler::start` must run inside an active Tokio runtime.
-- Each `Tailtriage` run allows only one successful sampler start.
-- `CaptureMode` does not auto-start sampling.
-- Stable Tokio metrics: `alive_tasks`, `global_queue_depth`.
-- `tokio_unstable` metrics: `local_queue_depth`, `blocking_queue_depth`, `remote_schedule_count`.
+- `RuntimeSampler::start()` must run inside an active Tokio runtime.
+- A single `Tailtriage` run allows only one successful runtime sampler start.
+- `CaptureMode` does not auto-start runtime sampling.
+- Runtime snapshot retention is bounded by core capture limits.
 
-## Configuration precedence
+## Metrics availability notes
 
-`RuntimeSampler::builder(...)` resolves settings in this order:
+- Stable Tokio metrics include `alive_tasks` and `global_queue_depth`.
+- Additional metrics such as `local_queue_depth`, `blocking_queue_depth`, and `remote_schedule_count` depend on `tokio_unstable` support.
 
-1. inherited mode from `Tailtriage`
-2. explicit `.mode(...)` override
-3. explicit `.interval(...)` override
-4. explicit `.max_runtime_snapshots(...)` override
+## Deeper docs
 
-Resolved runtime snapshot retention is clamped by core capture limits.
+- Facade/default integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Core lifecycle semantics: [`../tailtriage-core/README.md`](../tailtriage-core/README.md)
+- User workflow and interpretation: [`../docs/user-guide.md`](../docs/user-guide.md)
