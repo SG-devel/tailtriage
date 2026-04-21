@@ -210,14 +210,14 @@ def validate_controller_readme_toml() -> None:
         )
 
     precedence_tokens = (
-        "service_name",
-        "initially_enabled",
-        "fall back to builder values when omitted",
-        "Activation template settings come from TOML",
-        "Omitted optional activation subfields use TOML contract defaults",
+        r"service_name",
+        r"initially_enabled",
+        r"fall[s]?\s+back\s+to\s+(?:the\s+)?builder\s+value[s]?\s+when\s+omitted",
+        r"activation template settings come from TOML",
+        r"omitted optional activation subfields use TOML contract defaults",
     )
     for token in precedence_tokens:
-        if token not in readme_text:
+        if re.search(token, readme_text, flags=re.IGNORECASE) is None:
             raise ValueError(f"controller README precedence guidance missing token: {token}")
 
     required_reference_tokens = (
@@ -242,14 +242,26 @@ def validate_controller_readme_toml() -> None:
         if token not in readme_text:
             raise ValueError(f"controller README TOML field reference missing token: {token}")
 
-    snippets = extract_fenced_blocks_after_anchor(
-        readme_text,
-        fence="toml",
-        anchor="## Config file (TOML)",
-    )
-    if len(snippets) < 2:
-        raise ValueError("controller README must include minimal and expanded TOML examples")
-    minimal_snippet, expanded_snippet = snippets[0], snippets[1]
+    if "## Minimal TOML shape" in readme_text and "### Expanded TOML example" in readme_text:
+        minimal_snippet = extract_fenced_block(
+            readme_text,
+            fence="toml",
+            anchor="## Minimal TOML shape",
+        )
+        expanded_snippet = extract_fenced_block(
+            readme_text,
+            fence="toml",
+            anchor="### Expanded TOML example",
+        )
+    else:
+        snippets = extract_fenced_blocks_after_anchor(
+            readme_text,
+            fence="toml",
+            anchor="## Config file (TOML)",
+        )
+        if len(snippets) < 2:
+            raise ValueError("controller README must include minimal and expanded TOML examples")
+        minimal_snippet, expanded_snippet = snippets[0], snippets[1]
     minimal = tomllib.loads(minimal_snippet)
     expanded = tomllib.loads(expanded_snippet)
 
