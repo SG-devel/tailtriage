@@ -25,6 +25,9 @@ pub const fn crate_name() -> &'static str {
 ///
 /// Use this with `axum::middleware::from_fn_with_state` and pass the same
 /// `Arc<Tailtriage>` in middleware state.
+///
+/// The middleware records route labels from `MatchedPath` when available and
+/// otherwise falls back to the raw URI path.
 pub async fn middleware(
     State(tailtriage): State<Arc<Tailtriage>>,
     mut request: Request<axum::body::Body>,
@@ -46,7 +49,10 @@ pub async fn middleware(
 
 /// Handler extractor for the request-scoped instrumentation handle.
 #[derive(Debug, Clone)]
-pub struct TailtriageRequest(pub OwnedRequestHandle);
+pub struct TailtriageRequest(
+    /// Request-scoped instrumentation handle created by [`middleware`].
+    pub OwnedRequestHandle,
+);
 
 impl TailtriageRequest {
     /// Returns the wrapped request handle.

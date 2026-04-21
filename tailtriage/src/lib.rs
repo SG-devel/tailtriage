@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! Official facade crate for the tailtriage toolkit.
 //!
@@ -10,10 +11,13 @@
 pub use tailtriage_core::*;
 
 #[cfg(feature = "axum")]
+#[cfg_attr(docsrs, doc(cfg(feature = "axum")))]
 pub use tailtriage_axum as axum;
 #[cfg(feature = "controller")]
+#[cfg_attr(docsrs, doc(cfg(feature = "controller")))]
 pub use tailtriage_controller as controller;
 #[cfg(feature = "tokio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
 pub use tailtriage_tokio as tokio;
 
 #[cfg(test)]

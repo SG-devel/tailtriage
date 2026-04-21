@@ -1,35 +1,26 @@
 # tailtriage-axum
 
-Axum adapter crate for `tailtriage` request-boundary triage wiring.
+`tailtriage-axum` provides **Axum ergonomics** for `tailtriage-core` request instrumentation.
 
-This crate isolates framework-specific middleware and extractor ergonomics so `tailtriage-tokio` can stay framework-agnostic.
+It is a focused adapter crate: middleware starts/finishes request lifecycle, and an extractor gives handlers access to the request-scoped instrumentation handle.
 
-## Use from the repo
+## When to use this crate vs others
+
+- Use `tailtriage-core` for framework-agnostic instrumentation.
+- Add `tailtriage-axum` when you want Axum middleware/extractor wiring.
+- Add `tailtriage-tokio` separately if you also need runtime-pressure snapshots.
+
+## Installation
 
 ```bash
-cargo run -p tailtriage-axum --example axum_minimal
-cargo run -p tailtriage-axum --example axum_service_adoption
-cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
+cargo add tailtriage-core tailtriage-axum
 ```
 
-## Add from crates.io
-
-```toml
-[dependencies]
-tailtriage-core = "0.1.1"
-tailtriage-axum = "0.1.1"
-```
-
-## What this crate provides
-
-- `middleware` to start and finish one tailtriage request per axum request
-- `TailtriageRequest` extractor for request-scoped instrumentation handles
-- `TailtriageExtractorError` rejection when middleware wiring is missing
-
-## Minimal usage
+## Minimal example
 
 ```rust,no_run
 use std::sync::Arc;
+
 use axum::{extract::State, middleware::from_fn_with_state, routing::get, Router};
 use tailtriage_axum::{middleware, TailtriageRequest};
 use tailtriage_core::Tailtriage;
@@ -47,11 +38,9 @@ let app: Router<()> = Router::new()
 # }
 ```
 
-Suspects in analysis output are leads, not proof of root cause.
+## Runtime and wiring notes
 
-## Related docs
-
-- Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>
-- Core crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-core>
-- Tokio integration crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-tokio>
-- CLI crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-cli>
+- Add `middleware` before using `TailtriageRequest` extractor.
+- Missing middleware causes `TailtriageExtractorError` (HTTP 500).
+- Route labeling prefers Axum `MatchedPath`; fallback is raw URI path.
+- This crate is ergonomics-only and does not replace analysis from `tailtriage-cli`.

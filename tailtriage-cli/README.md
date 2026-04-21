@@ -1,36 +1,36 @@
 # tailtriage-cli
 
-Command-line triage analyzer for one `tailtriage` run artifact.
+`tailtriage-cli` is the **analysis and report generation** crate for `tailtriage` artifacts.
 
-## Use from the repo
+Use it after capture to produce evidence-ranked suspects and next checks.
 
-```bash
-cargo run -p tailtriage-cli -- analyze tailtriage-run.json --format json
-```
+## When to use this crate vs others
 
-## Install from crates.io
+- `tailtriage-core` / `tailtriage-*` crates capture runtime data.
+- `tailtriage-cli` loads captured artifacts and produces triage reports.
+
+## Installation
 
 ```bash
 cargo install tailtriage-cli
+```
+
+## Minimal usage
+
+```bash
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-## Output shape to inspect first
+## Output fields to inspect first
 
 1. `primary_suspect.kind`
 2. `primary_suspect.evidence[]`
 3. `primary_suspect.next_checks[]`
 
-Suspects are evidence-ranked leads, not proof of root cause.
+Suspects are investigation leads, not proof of root cause.
 
-## Artifact schema contract
+## Artifact contract
 
-`tailtriage-cli` requires a top-level `schema_version` field. Current supported value: `1`.
-
-When artifacts contain unfinished lifecycle metadata, the loader surfaces warnings (unfinished count/sample) but does not fabricate missing completion events.
-
-## Related docs
-
-- Repo docs index: <https://github.com/SG-devel/tailtriage/tree/main/docs>
-- Core crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-core>
-- Tokio integration crate: <https://github.com/SG-devel/tailtriage/tree/main/tailtriage-tokio>
+- Requires top-level `schema_version`.
+- Current supported schema version: `1`.
+- Loader warnings include lifecycle warnings and unfinished request notices when present.
