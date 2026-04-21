@@ -20,6 +20,20 @@ Controller config is intentionally first-class. If you are operating tailtriage 
 - Use `reload_config()` to refresh **future** generations from the config file.
 - Active generations keep their activation-time config.
 
+Minimal TOML shape:
+
+```toml
+[controller]
+service_name = "checkout-service"
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+
 ```rust,no_run
 use tailtriage_controller::TailtriageController;
 

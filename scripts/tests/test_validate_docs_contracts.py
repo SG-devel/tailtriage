@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -68,6 +70,53 @@ impl Tailtriage {
 
     def test_sampler_integration_boundary_contract_validates(self) -> None:
         validate_docs_contracts.validate_sampler_integration_boundary()
+
+    def test_controller_readme_toml_validation_requires_current_anchor(self) -> None:
+        readme_text = """# tailtriage-controller
+
+## Config file (TOML)
+
+```toml
+[controller]
+service_name = "checkout-service"
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readme_path = Path(tmp_dir) / "README.md"
+            readme_path.write_text(readme_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
+                validate_docs_contracts.validate_controller_readme_toml()
+
+    def test_controller_readme_toml_validation_fails_without_required_toml_fields(self) -> None:
+        readme_text = """# tailtriage-controller
+
+## Config file (TOML)
+
+```toml
+[controller]
+service_name = "checkout-service"
+
+[controller.activation]
+mode = "light"
+```
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readme_path = Path(tmp_dir) / "README.md"
+            readme_path.write_text(readme_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
+                with self.assertRaisesRegex(
+                    ValueError, r"\[controller\.activation\.sink\]"
+                ):
+                    validate_docs_contracts.validate_controller_readme_toml()
 
 
 if __name__ == "__main__":

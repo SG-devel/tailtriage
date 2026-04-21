@@ -174,14 +174,46 @@ def extract_run_end_policy_kinds_from_source() -> set[str]:
 
 def validate_controller_readme_toml() -> None:
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
-    anchor = "## TOML config and manual reload"
-    if anchor not in readme_text:
-        return
-
+    anchor = "## Config file (TOML)"
     snippet = extract_fenced_block(readme_text, fence="toml", anchor=anchor)
     parsed = tomllib.loads(snippet)
 
-    run_end_policy = parsed.get("controller", {}).get("activation", {}).get("run_end_policy", {})
+    controller = parsed.get("controller")
+    if not isinstance(controller, dict):
+        raise ValueError("controller README TOML example must include a [controller] table")
+
+    service_name = controller.get("service_name")
+    if not isinstance(service_name, str) or not service_name.strip():
+        raise ValueError("controller README TOML example must include non-empty controller.service_name")
+
+    activation = controller.get("activation")
+    if not isinstance(activation, dict):
+        raise ValueError("controller README TOML example must include a [controller.activation] table")
+
+    mode = activation.get("mode")
+    if not isinstance(mode, str) or not mode.strip():
+        raise ValueError("controller README TOML example must include non-empty controller.activation.mode")
+
+    sink = activation.get("sink")
+    if not isinstance(sink, dict):
+        raise ValueError(
+            "controller README TOML example must include a [controller.activation.sink] table"
+        )
+
+    sink_type = sink.get("type")
+    output_path = sink.get("output_path")
+    if sink_type != "local_json":
+        raise ValueError(
+            'controller README TOML example must set controller.activation.sink.type = "local_json"'
+        )
+    if not isinstance(output_path, str) or not output_path.strip():
+        raise ValueError(
+            "controller README TOML example must include non-empty controller.activation.sink.output_path"
+        )
+
+    run_end_policy = activation.get("run_end_policy")
+    if run_end_policy is None:
+        return
     if not isinstance(run_end_policy, dict):
         raise ValueError("controller README run_end_policy snippet must parse as a table")
 
