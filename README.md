@@ -94,7 +94,7 @@ TOML config is useful when you want to:
 - define runtime sampler template settings when enabled
 - refresh future capture generations with `reload_config()` while leaving the active generation unchanged
 
-See [`tailtriage-controller/README.md`](tailtriage-controller/README.md) for the TOML field reference, expanded starter config, and reload semantics.
+See [`tailtriage-controller/README.md`](tailtriage-controller/README.md) for the TOML field reference, expanded TOML example, and reload semantics.
 
 ## Minimal examples
 

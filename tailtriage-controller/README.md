@@ -22,7 +22,9 @@ Use TOML when you want repeatable operational settings across environments.
 - `config_path(...)` loads TOML-backed template settings during build.
 - `reload_config()` refreshes that template from file for **future generations only**.
 - Active generations keep their activation-time config.
-- If a TOML field is omitted, builder/default values continue to apply where supported by the config contract.
+- With TOML config loaded, `service_name` and `initially_enabled` fall back to builder values when omitted.
+- Activation template settings come from TOML when config is loaded.
+- Omitted optional activation subfields use TOML contract defaults (for example `strict_lifecycle = false`), not prior builder overrides.
 
 Minimal TOML shape:
 
@@ -38,7 +40,7 @@ type = "local_json"
 output_path = "tailtriage-run.json"
 ```
 
-Expanded TOML starter config:
+Expanded TOML example:
 
 ```toml
 [controller]

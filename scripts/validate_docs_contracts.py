@@ -185,6 +185,22 @@ def validate_controller_readme_toml() -> None:
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
     if "## TOML field reference" not in readme_text:
         raise ValueError("controller README must include a dedicated '## TOML field reference' section")
+    if "where supported by the config contract" in readme_text:
+        raise ValueError(
+            "controller README contains misleading TOML precedence wording; "
+            "do not claim broad builder fallback for omitted TOML fields"
+        )
+
+    precedence_tokens = (
+        "service_name",
+        "initially_enabled",
+        "fall back to builder values when omitted",
+        "Activation template settings come from TOML",
+        "Omitted optional activation subfields use TOML contract defaults",
+    )
+    for token in precedence_tokens:
+        if token not in readme_text:
+            raise ValueError(f"controller README precedence guidance missing token: {token}")
 
     required_reference_tokens = (
         "service_name",
