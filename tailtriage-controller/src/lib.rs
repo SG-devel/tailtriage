@@ -2883,6 +2883,13 @@ kind = "continue_after_limits_hit"
     #[test]
     fn enable_with_sampler_without_tokio_runtime_returns_missing_runtime_error() {
         let output = test_output("missing-runtime");
+        let expected_artifact = output.with_file_name(format!(
+            "{}-generation-1.json",
+            output
+                .file_stem()
+                .and_then(std::ffi::OsStr::to_str)
+                .expect("stem")
+        ));
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
             .runtime_sampler(RuntimeSamplerTemplate {
@@ -2902,7 +2909,7 @@ kind = "continue_after_limits_hit"
             controller.status().generation,
             GenerationState::Disabled { next_generation: 1 }
         ));
-        assert!(!output.exists());
+        assert!(!expected_artifact.exists());
     }
 
     #[test]
