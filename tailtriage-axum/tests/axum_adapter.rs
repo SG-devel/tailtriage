@@ -35,6 +35,14 @@ async fn failure_handler(TailtriageRequest(_): TailtriageRequest) -> StatusCode 
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
+async fn bad_request_handler(TailtriageRequest(_): TailtriageRequest) -> StatusCode {
+    StatusCode::BAD_REQUEST
+}
+
+async fn timeout_handler(TailtriageRequest(_): TailtriageRequest) -> StatusCode {
+    StatusCode::REQUEST_TIMEOUT
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn middleware_injects_request_handle_and_finishes_from_response_status() {
     let nanos = SystemTime::now()
@@ -103,4 +111,63 @@ async fn middleware_injects_request_handle_and_finishes_from_response_status() {
         .find(|req| req.route == "/fail")
         .expect("failure request should exist");
     assert_eq!(failure.outcome, "error");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn middleware_records_default_http_outcomes_in_snapshot() {
+    let tailtriage = Arc::new(
+        Tailtriage::builder("axum-adapter-outcomes-test")
+            .build()
+            .expect("build should succeed"),
+    );
+
+    let app = Router::new()
+        .route("/ok", get(ok_handler))
+        .route("/bad", get(bad_request_handler))
+        .route("/timeout", get(timeout_handler))
+        .route("/fail", get(failure_handler))
+        .layer(from_fn_with_state(
+            Arc::clone(&tailtriage),
+            tailtriage_axum::middleware,
+        ))
+        .with_state(AppState {
+            gate: Arc::new(Semaphore::new(1)),
+        });
+
+    for (route, expected_status) in [
+        ("/ok", StatusCode::OK),
+        ("/bad", StatusCode::BAD_REQUEST),
+        ("/timeout", StatusCode::REQUEST_TIMEOUT),
+        ("/fail", StatusCode::INTERNAL_SERVER_ERROR),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(route)
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(response.status(), expected_status);
+    }
+
+    let snapshot = tailtriage.snapshot();
+
+    assert_eq!(snapshot.requests.len(), 4);
+
+    let outcome_for = |route: &str| {
+        snapshot
+            .requests
+            .iter()
+            .find(|request| request.route == route)
+            .map(|request| request.outcome.as_str())
+            .expect("request route should be present")
+    };
+
+    assert_eq!(outcome_for("/ok"), "ok");
+    assert_eq!(outcome_for("/bad"), "rejected");
+    assert_eq!(outcome_for("/timeout"), "timeout");
+    assert_eq!(outcome_for("/fail"), "error");
 }

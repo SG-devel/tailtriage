@@ -27,12 +27,30 @@ pub const fn crate_name() -> &'static str {
 /// `Arc<Tailtriage>` in middleware state.
 ///
 /// The middleware records route labels from `MatchedPath` when available and
-/// otherwise falls back to the raw URI path.
+/// otherwise falls back to the raw URI path. By default it maps 2xx/3xx to
+/// [`Outcome::Ok`], 4xx to [`Outcome::Rejected`] (except 408 to
+/// [`Outcome::Timeout`]), and 5xx to [`Outcome::Error`].
 pub async fn middleware(
     State(tailtriage): State<Arc<Tailtriage>>,
-    mut request: Request<axum::body::Body>,
+    request: Request<axum::body::Body>,
     next: Next,
 ) -> axum::response::Response {
+    middleware_with_status_classifier(tailtriage, request, next, default_status_to_outcome).await
+}
+
+/// Middleware implementation with an explicit response-status classifier.
+///
+/// This keeps [`middleware`] ergonomic as the default path while allowing
+/// future callers to choose a different status-to-outcome policy.
+pub async fn middleware_with_status_classifier<C>(
+    tailtriage: Arc<Tailtriage>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+    classify_status: C,
+) -> axum::response::Response
+where
+    C: Fn(StatusCode) -> Outcome,
+{
     let route = request_route_label(&request);
     let started = tailtriage.begin_request_with_owned(route, RequestOptions::new().kind("http"));
 
@@ -43,7 +61,7 @@ pub async fn middleware(
     let response = next.run(request).await;
     let status = response.status();
 
-    started.completion.finish(status_to_outcome(status));
+    started.completion.finish(classify_status(status));
     response
 }
 
@@ -99,9 +117,15 @@ fn request_route_label(request: &Request<axum::body::Body>) -> String {
         .to_owned()
 }
 
-fn status_to_outcome(status: StatusCode) -> Outcome {
-    if status.is_server_error() {
+/// Default HTTP response status to [`Outcome`] classifier for this crate.
+#[must_use]
+pub fn default_status_to_outcome(status: StatusCode) -> Outcome {
+    if status == StatusCode::REQUEST_TIMEOUT {
+        Outcome::Timeout
+    } else if status.is_server_error() {
         Outcome::Error
+    } else if status.is_client_error() {
+        Outcome::Rejected
     } else {
         Outcome::Ok
     }
@@ -109,7 +133,9 @@ fn status_to_outcome(status: StatusCode) -> Outcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{crate_name, status_to_outcome};
+    use super::{crate_name, default_status_to_outcome};
+    use axum::http::StatusCode;
+    use tailtriage_core::Outcome;
 
     #[test]
     fn crate_name_is_stable() {
@@ -117,14 +143,52 @@ mod tests {
     }
 
     #[test]
-    fn maps_server_errors_to_error_outcome() {
+    fn default_status_mapping_matches_http_contract() {
+        assert_eq!(default_status_to_outcome(StatusCode::OK), Outcome::Ok);
         assert_eq!(
-            status_to_outcome(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
-            tailtriage_core::Outcome::Error
+            default_status_to_outcome(StatusCode::NO_CONTENT),
+            Outcome::Ok
+        );
+        assert_eq!(default_status_to_outcome(StatusCode::FOUND), Outcome::Ok);
+        assert_eq!(
+            default_status_to_outcome(StatusCode::BAD_REQUEST),
+            Outcome::Rejected
         );
         assert_eq!(
-            status_to_outcome(axum::http::StatusCode::BAD_REQUEST),
-            tailtriage_core::Outcome::Ok
+            default_status_to_outcome(StatusCode::UNAUTHORIZED),
+            Outcome::Rejected
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::FORBIDDEN),
+            Outcome::Rejected
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::NOT_FOUND),
+            Outcome::Rejected
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::CONFLICT),
+            Outcome::Rejected
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::UNPROCESSABLE_ENTITY),
+            Outcome::Rejected
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::TOO_MANY_REQUESTS),
+            Outcome::Rejected
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::REQUEST_TIMEOUT),
+            Outcome::Timeout
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::INTERNAL_SERVER_ERROR),
+            Outcome::Error
+        );
+        assert_eq!(
+            default_status_to_outcome(StatusCode::SERVICE_UNAVAILABLE),
+            Outcome::Error
         );
     }
 }
