@@ -1,13 +1,21 @@
 # tailtriage-cli
 
-`tailtriage-cli` is the **analysis and report generation** crate for `tailtriage` artifacts.
+`tailtriage-cli` is the analyzer/report tool for tailtriage artifacts.
 
-Use it after capture to produce evidence-ranked suspects and next checks.
+Use it after capture to generate triage output with evidence-ranked suspects and next checks.
+
+## What this crate is for
+
+This crate owns the **analysis contract**:
+
+- load a captured artifact
+- validate schema compatibility
+- emit human-readable or JSON triage output
 
 ## When to use this crate vs others
 
-- `tailtriage-core` / `tailtriage-*` crates capture runtime data.
-- `tailtriage-cli` loads captured artifacts and produces triage reports.
+- **Use `tailtriage-cli`:** analyze existing artifacts.
+- **Use `tailtriage` / `tailtriage-core` / related crates:** capture instrumentation data.
 
 ## Installation
 
@@ -21,7 +29,7 @@ cargo install tailtriage-cli
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-## Output fields to inspect first
+## What to inspect first in output
 
 1. `primary_suspect.kind`
 2. `primary_suspect.evidence[]`
@@ -29,8 +37,14 @@ tailtriage analyze tailtriage-run.json --format json
 
 Suspects are investigation leads, not proof of root cause.
 
-## Artifact contract
+## Artifact compatibility contract
 
 - Requires top-level `schema_version`.
 - Current supported schema version: `1`.
 - Loader warnings include lifecycle warnings and unfinished request notices when present.
+
+## Deeper docs
+
+- User guide workflow: [`../docs/user-guide.md`](../docs/user-guide.md)
+- Diagnostics references: [`../docs/diagnostics.md`](../docs/diagnostics.md)
+- Capture-side facade docs: [`../tailtriage/README.md`](../tailtriage/README.md)

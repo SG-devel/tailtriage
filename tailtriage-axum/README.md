@@ -1,19 +1,32 @@
 # tailtriage-axum
 
-`tailtriage-axum` provides **Axum ergonomics** for `tailtriage-core` request instrumentation.
+`tailtriage-axum` provides Axum-first ergonomics for request-boundary instrumentation with tailtriage.
 
-It is a focused adapter crate: middleware starts/finishes request lifecycle, and an extractor gives handlers access to the request-scoped instrumentation handle.
+It is an adapter crate: middleware starts/finishes request lifecycle and an extractor exposes the request-scoped handle in handlers.
+
+## What this crate is for
+
+Use this crate when you want request-boundary integration in Axum without manually wiring lifecycle calls in every handler.
 
 ## When to use this crate vs others
 
-- Use `tailtriage-core` for framework-agnostic instrumentation.
-- Add `tailtriage-axum` when you want Axum middleware/extractor wiring.
-- Add `tailtriage-tokio` separately if you also need runtime-pressure snapshots.
+- **Use `tailtriage-axum`:** Axum middleware/extractor ergonomics.
+- **Use `tailtriage-core` directly:** framework-agnostic manual instrumentation.
+- **Add `tailtriage-tokio`:** if you also need runtime-pressure snapshots.
+- **Use `tailtriage` facade:** default onboarding path with optional `axum` feature.
 
 ## Installation
 
+Direct crates:
+
 ```bash
 cargo add tailtriage-core tailtriage-axum
+```
+
+Via facade:
+
+```bash
+cargo add tailtriage --features axum
 ```
 
 ## Minimal example
@@ -38,9 +51,15 @@ let app: Router<()> = Router::new()
 # }
 ```
 
-## Runtime and wiring notes
+## Request-boundary constraints
 
-- Add `middleware` before using `TailtriageRequest` extractor.
-- Missing middleware causes `TailtriageExtractorError` (HTTP 500).
-- Route labeling prefers Axum `MatchedPath`; fallback is raw URI path.
-- This crate is ergonomics-only and does not replace analysis from `tailtriage-cli`.
+- Install `middleware` before using `TailtriageRequest` extractor.
+- Missing middleware yields `TailtriageExtractorError` (HTTP 500).
+- Route labels prefer Axum `MatchedPath`; fallback is raw URI path.
+- This crate handles integration ergonomics only; report generation remains in `tailtriage-cli`.
+
+## Deeper docs
+
+- Facade/default integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Core lifecycle semantics: [`../tailtriage-core/README.md`](../tailtriage-core/README.md)
+- CLI analyzer/report docs: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)

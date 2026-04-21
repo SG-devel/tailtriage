@@ -1,16 +1,27 @@
 # tailtriage-core
 
-`tailtriage-core` is the **instrumentation foundation** for `tailtriage`.
+`tailtriage-core` is the **foundation instrumentation crate** in the tailtriage workspace.
 
-Use this crate when you want to capture request lifecycle timing and emit one bounded JSON run artifact, without pulling framework or runtime-specific adapters.
+It captures request lifecycle timing and writes bounded JSON run artifacts that downstream analysis uses.
+
+## What this crate is for
+
+Use `tailtriage-core` when you want explicit, framework-agnostic instrumentation with minimal dependencies.
+
+This crate owns core lifecycle semantics:
+
+- request admission and request handle APIs
+- queue/stage/inflight measurements
+- completion semantics
+- run artifact writing and shutdown behavior
 
 ## When to use this crate vs others
 
-- Use `tailtriage-core` for direct, explicit request instrumentation.
-- Add `tailtriage-tokio` if you also need Tokio runtime-pressure snapshots.
-- Add `tailtriage-axum` if you want Axum middleware/extractor helpers.
-- Use `tailtriage-controller` if capture must be armed/disarmed repeatedly in a long-lived process.
-- Use `tailtriage-cli` to analyze artifacts.
+- **Use `tailtriage-core`:** direct instrumentation in any async Rust service.
+- **Add `tailtriage-tokio`:** if you also need Tokio runtime-pressure snapshots.
+- **Add `tailtriage-axum`:** if you want Axum middleware/extractor ergonomics.
+- **Use `tailtriage-controller`:** if you need repeated arm/disarm capture windows.
+- **Use `tailtriage` facade:** for default cohesive onboarding.
 
 ## Installation
 
@@ -18,50 +29,62 @@ Use this crate when you want to capture request lifecycle timing and emit one bo
 cargo add tailtriage-core
 ```
 
-## Minimal example
+## Minimal examples
+
+### Basic request lifecycle
+
+```rust,no_run
+use tailtriage_core::Tailtriage;
+
+# fn demo() -> Result<(), Box<dyn std::error::Error>> {
+let run = Tailtriage::builder("checkout-service")
+    .output("tailtriage-run.json")
+    .build()?;
+
+let started = run.begin_request("/checkout");
+started.completion.finish_ok();
+
+run.shutdown()?;
+# Ok(())
+# }
+```
+
+### Explicit queue/stage instrumentation
 
 ```rust,no_run
 use tailtriage_core::{RequestOptions, Tailtriage};
 
 # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
-let tailtriage = Tailtriage::builder("checkout-service")
+let run = Tailtriage::builder("checkout-service")
     .output("tailtriage-run.json")
     .build()?;
 
-let started = tailtriage
-    .begin_request_with("/checkout", RequestOptions::new().request_id("req-1").kind("http"));
-let request = started.handle.clone();
+let started = run.begin_request_with(
+    "/checkout",
+    RequestOptions::new().request_id("req-1").kind("http"),
+);
+let req = started.handle.clone();
 
-request.queue("ingress").await_on(async {}).await;
-request.stage("db").await_on(async { Ok::<(), std::io::Error>(()) }).await?;
+req.queue("ingress").await_on(async {}).await;
+req.stage("db").await_on(async { Ok::<(), std::io::Error>(()) }).await?;
 started.completion.finish_ok();
 
-tailtriage.shutdown()?;
+run.shutdown()?;
 # Ok(())
 # }
 ```
 
-## Runtime and lifecycle notes
+## Core lifecycle constraints
 
-- `CaptureMode` changes only retention defaults.
-- `CaptureMode` does **not** auto-start Tokio runtime sampling.
-- `queue(...)`, `stage(...)`, and `inflight(...)` never finish a request.
-- Every request must be finished exactly once with `finish(...)`, `finish_ok()`, or `finish_result(...)`.
-- `shutdown()` flushes the run artifact and does not fabricate missing completions.
+- `queue(...)`, `stage(...)`, and `inflight(...)` do not finish requests.
+- Every admitted request must be finished exactly once.
+- `shutdown()` flushes artifact data and does not fabricate missing completions.
 - `strict_lifecycle(true)` makes `shutdown()` fail if unfinished requests remain.
+- `CaptureMode` adjusts retention defaults only; it does not start runtime sampling.
 
-## Capture-mode retention defaults
+## Deeper docs
 
-`Light`
-- `max_requests = 100_000`
-- `max_stages = 200_000`
-- `max_queues = 200_000`
-- `max_inflight_snapshots = 200_000`
-- `max_runtime_snapshots = 100_000`
-
-`Investigation`
-- `max_requests = 300_000`
-- `max_stages = 600_000`
-- `max_queues = 600_000`
-- `max_inflight_snapshots = 600_000`
-- `max_runtime_snapshots = 300_000`
+- Facade/default path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Controller capture windows: [`../tailtriage-controller/README.md`](../tailtriage-controller/README.md)
+- Tokio runtime sampling: [`../tailtriage-tokio/README.md`](../tailtriage-tokio/README.md)
+- Analyzer/report generation: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)

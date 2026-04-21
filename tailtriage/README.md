@@ -2,14 +2,22 @@
 
 `tailtriage` is the **default facade crate** for Tokio tail-latency triage.
 
-Use this crate when you want one dependency that can expose:
+If you are adopting tailtriage for the first time, start here.
 
-- `tailtriage-core` (always) as the instrumentation foundation
-- `tailtriage::controller` (default feature) for long-lived arm/disarm capture control
-- `tailtriage::tokio` (feature) for runtime-pressure evidence
-- `tailtriage::axum` (feature) for Axum middleware/extractor ergonomics
+## What this crate is for
 
-If you want tighter dependency control, depend on focused crates directly.
+Use `tailtriage` when you want one dependency that provides the main integration surface:
+
+- direct capture lifecycle (`tailtriage::Tailtriage`)
+- controller-driven bounded windows (`tailtriage::controller::TailtriageController`)
+- optional Tokio runtime sampling (`tailtriage::tokio`, feature `tokio`)
+- optional Axum ergonomics (`tailtriage::axum`, feature `axum`)
+
+## When to use this crate vs others
+
+- **Use `tailtriage` (recommended):** default onboarding path with cohesive API surface.
+- **Use focused crates directly:** only when you need tighter dependency control or a narrower API surface.
+- **Use `tailtriage-cli`:** separately, for analysis/report generation after capture.
 
 ## Installation
 
@@ -24,16 +32,24 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-## Feature flags
+Install analysis CLI separately:
 
-- `controller` (default): enables `tailtriage::controller` (`tailtriage-controller`)
+```bash
+cargo install tailtriage-cli
+```
+
+## Feature flags and namespaces
+
+- `controller` *(default)*: enables `tailtriage::controller` (`tailtriage-controller`)
 - `tokio`: enables `tailtriage::tokio` (`tailtriage-tokio`)
 - `axum`: enables `tailtriage::axum` (`tailtriage-axum`)
 - `full`: enables `controller`, `tokio`, and `axum`
 
-## Minimal example
+## Minimal examples
 
-```no_run
+### Direct capture
+
+```rust,no_run
 use tailtriage::Tailtriage;
 
 # fn demo() -> Result<(), Box<dyn std::error::Error>> {
@@ -49,11 +65,34 @@ run.shutdown()?;
 # }
 ```
 
-## Choosing crates in this workspace
+### Controller window (long-lived service)
 
-- Use **`tailtriage`** for most integrations and docs.rs onboarding.
-- Use **`tailtriage-core`** when you only want core request lifecycle instrumentation.
-- Use **`tailtriage-controller`** when capture must be repeatedly armed/disarmed without restarting the service.
-- Use **`tailtriage-tokio`** when you need runtime-pressure evidence in the same run artifact.
-- Use **`tailtriage-axum`** for Axum-specific ergonomics.
-- Use **`tailtriage-cli`** to analyze captured artifacts into evidence-ranked suspects and next checks.
+```rust,no_run
+use tailtriage::controller::TailtriageController;
+
+# fn demo() -> Result<(), Box<dyn std::error::Error>> {
+let controller = TailtriageController::builder("checkout-service")
+    .initially_enabled(false)
+    .output("tailtriage-run.json")
+    .build()?;
+
+let _generation = controller.enable()?;
+let started = controller.begin_request("/checkout");
+started.completion.finish_ok();
+let _ = controller.disable()?;
+# Ok(())
+# }
+```
+
+## Key constraints
+
+- Library capture and CLI analysis are separate installation/runtime steps.
+- Runtime sampling is optional and requires the `tokio` feature.
+- Axum helpers are optional and require the `axum` feature.
+
+## Deeper docs
+
+- User workflow: [`../docs/user-guide.md`](../docs/user-guide.md)
+- Controller details and config: [`../tailtriage-controller/README.md`](../tailtriage-controller/README.md)
+- Runtime sampler semantics: [`../tailtriage-tokio/README.md`](../tailtriage-tokio/README.md)
+- Analyzer/report contract: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)

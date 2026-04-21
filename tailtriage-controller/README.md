@@ -1,14 +1,50 @@
 # tailtriage-controller
 
-`tailtriage-controller` is the **long-lived control layer** for `tailtriage` capture.
+`tailtriage-controller` is the control layer for **repeated bounded capture windows** in long-lived services.
 
-Use it when your service must stay running while you repeatedly arm/disarm bounded capture generations.
+Use it when you need to arm/disarm capture without restarting the process.
+
+## Quick navigation
+
+- [When to use this crate](#when-to-use-this-crate-vs-others)
+- [Config file (TOML)](#config-file-toml)
+- [Minimal controller lifecycle example](#minimal-controller-lifecycle-example)
+- [Behavioral guarantees](#behavioral-guarantees)
+- [Runtime requirements](#runtime-requirements)
+
+## Config file (TOML)
+
+Controller config is intentionally first-class. If you are operating tailtriage in production-like workflows, start here.
+
+- Use `config_path(...)` on the builder to load TOML-backed template settings.
+- Use `reload_config()` to refresh **future** generations from the config file.
+- Active generations keep their activation-time config.
+
+```rust,no_run
+use tailtriage_controller::TailtriageController;
+
+# fn demo() -> Result<(), Box<dyn std::error::Error>> {
+let controller = TailtriageController::builder("checkout-service")
+    .config_path("tailtriage-controller.toml")
+    .build()?;
+# let _ = controller;
+# Ok(())
+# }
+```
+
+Most important sections to configure in TOML are typically:
+
+1. Service/run identity and artifact output settings
+2. Capture defaults and retention limits
+3. Runtime sampler template settings (when enabled)
+
+See the full controller API docs and examples for exact keys and template fields.
 
 ## When to use this crate vs others
 
-- Use `tailtriage-core` for one run lifecycle (`build -> capture -> shutdown`).
-- Use `tailtriage-controller` for repeated live capture windows with enable/disable control.
-- Add `tailtriage-tokio` integration through controller runtime sampler template when runtime pressure evidence is needed.
+- **Use `tailtriage-controller`:** repeated arm/disarm windows in a long-lived service.
+- **Use `tailtriage-core`:** single run lifecycle (`build -> capture -> shutdown`).
+- **Use `tailtriage` facade:** default path that includes controller support by default.
 
 ## Installation
 
@@ -16,23 +52,7 @@ Use it when your service must stay running while you repeatedly arm/disarm bound
 cargo add tailtriage-controller
 ```
 
-## Example availability (published crate vs repo checkout)
-
-- **Run examples from a repository checkout/workspace**
-  - Run packaged examples with an explicit package target, for example:
-    `cargo run -p tailtriage-controller --example controller_minimal`.
-- **Published crate source includes examples for reference**
-  - `tailtriage-controller` example source is included in crate source views
-    (for example docs.rs source and crate tarballs), so consumers can copy
-    the same snippets.
-- **Consumer-project path**
-  - In an arbitrary project that only added the dependency, use this README's
-    Rust snippet (or copied example source) in your own crate targets.
-  - Do **not** expect `cargo add tailtriage-controller` followed by
-    `cargo run --example controller_minimal` to work unless that example file
-    exists in your project.
-
-## Minimal example
+## Minimal controller lifecycle example
 
 ```rust,no_run
 use tailtriage_controller::TailtriageController;
@@ -60,15 +80,20 @@ fn demo() -> Result<(), Box<dyn std::error::Error>> {
 - Requests admitted to a generation stay bound to that generation.
 - Requests started while disabled/closing are inert wrappers and never migrate into later generations.
 
-## Config/reload summary
+## Reload behavior
 
-- Optional TOML config can be provided via `config_path(...)`.
-- `reload_config()` updates only the template for **future** generations.
-- Active generations keep their original activation config.
+- `reload_config()` updates only the template for future generations.
 - `reload_template(...)` is a compatibility helper that panics on invalid templates.
 - Prefer `try_reload_template(...)` for explicit error handling.
 
 ## Runtime requirements
 
-- Runtime sampler startup (if enabled in template) requires an active Tokio runtime.
-- This crate does not prove root cause; it preserves evidence-ranked suspects and next checks downstream in `tailtriage-cli`.
+- If runtime sampling is enabled in the template, startup requires an active Tokio runtime.
+- This crate controls capture windows; analysis/reporting is done by `tailtriage-cli`.
+
+## Deeper docs
+
+- Facade/default integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Foundation instrumentation semantics: [`../tailtriage-core/README.md`](../tailtriage-core/README.md)
+- Runtime sampler details: [`../tailtriage-tokio/README.md`](../tailtriage-tokio/README.md)
+- CLI analyzer/report contract: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)
