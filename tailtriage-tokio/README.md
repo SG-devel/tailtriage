@@ -98,6 +98,7 @@ use std::sync::Arc;
 use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
 
+# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 let run = Arc::new(
     Tailtriage::builder("checkout-service")
         .light()
@@ -106,9 +107,10 @@ let run = Arc::new(
 );
 
 let sampler = RuntimeSampler::builder(Arc::clone(&run)).start()?;
-# sampler.shutdown().await;
-# run.shutdown()?;
-# Ok::<(), Box<dyn std::error::Error>>(())
+sampler.shutdown().await;
+run.shutdown()?;
+# Ok(())
+# }
 ```
 
 ### Override cadence and runtime snapshot retention
@@ -119,6 +121,7 @@ use std::time::Duration;
 use tailtriage_core::Tailtriage;
 use tailtriage_tokio::RuntimeSampler;
 
+# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 let run = Arc::new(
     Tailtriage::builder("checkout-service")
         .investigation()
@@ -130,9 +133,11 @@ let sampler = RuntimeSampler::builder(Arc::clone(&run))
     .interval(Duration::from_millis(50))
     .max_runtime_snapshots(10_000)
     .start()?;
-# sampler.shutdown().await;
-# run.shutdown()?;
-# Ok::<(), Box<dyn std::error::Error>>(())
+
+sampler.shutdown().await;
+run.shutdown()?;
+# Ok(())
+# }
 ```
 
 ## Mode defaults
