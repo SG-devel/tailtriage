@@ -1752,6 +1752,10 @@ output_path = "{}"
         fs::write(path, content).expect("config write should succeed");
     }
 
+    fn write_raw_config(path: &std::path::Path, content: &str) {
+        fs::write(path, content).expect("config write should succeed");
+    }
+
     #[test]
     fn enable_capture_disable_finalizes_generation() {
         let output = test_output("enable-capture-disable");
@@ -2975,6 +2979,153 @@ kind = "continue_after_limits_hit"
             err,
             ControllerBuildError::ConfigLoad(super::ConfigLoadError::Io { .. })
         ));
+    }
+
+    #[test]
+    fn build_from_toml_with_blank_service_name_returns_empty_service_name_error() {
+        let config = test_config_path("toml-empty-service-name");
+        write_raw_config(
+            &config,
+            r#"[controller]
+service_name = ""
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+"#,
+        );
+
+        let err = TailtriageController::builder("fallback-service-name")
+            .config_path(&config)
+            .build()
+            .expect_err("blank TOML service_name should fail build");
+        assert!(matches!(err, ControllerBuildError::EmptyServiceName));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn build_from_toml_with_invalid_mode_returns_parse_error() {
+        let config = test_config_path("toml-invalid-mode");
+        write_raw_config(
+            &config,
+            r#"[controller]
+
+[controller.activation]
+mode = "not-a-real-mode"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+"#,
+        );
+
+        let err = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect_err("invalid mode should fail build");
+        assert!(matches!(
+            err,
+            ControllerBuildError::ConfigLoad(super::ConfigLoadError::Parse { .. })
+        ));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn build_from_toml_with_invalid_run_end_policy_kind_returns_parse_error() {
+        let config = test_config_path("toml-invalid-run-end-policy");
+        write_raw_config(
+            &config,
+            r#"[controller]
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.run_end_policy]
+kind = "not-a-real-policy"
+"#,
+        );
+
+        let err = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect_err("invalid run_end_policy.kind should fail build");
+        assert!(matches!(
+            err,
+            ControllerBuildError::ConfigLoad(super::ConfigLoadError::Parse { .. })
+        ));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn build_from_toml_with_invalid_sink_type_returns_parse_error() {
+        let config = test_config_path("toml-invalid-sink-type");
+        write_raw_config(
+            &config,
+            r#"[controller]
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "not-a-real-sink"
+output_path = "tailtriage-run.json"
+"#,
+        );
+
+        let err = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect_err("invalid sink.type should fail build");
+        assert!(matches!(
+            err,
+            ControllerBuildError::ConfigLoad(super::ConfigLoadError::Parse { .. })
+        ));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn build_from_toml_initially_enabled_sampler_without_runtime_returns_initial_enable_error() {
+        let config = test_config_path("toml-initially-enabled-missing-runtime");
+        write_raw_config(
+            &config,
+            r#"[controller]
+initially_enabled = true
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.runtime_sampler]
+enabled_for_armed_runs = true
+interval_ms = 20
+max_runtime_snapshots = 10
+"#,
+        );
+
+        let err = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect_err("initially_enabled with sampler should fail outside Tokio runtime");
+        assert!(matches!(
+            err,
+            ControllerBuildError::InitialEnable(EnableError::MissingTokioRuntimeForSampler)
+        ));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
     }
 
     #[test]

@@ -16,10 +16,36 @@ import tempfile
 from pathlib import Path
 
 EXAMPLES = [
-    ("tailtriage-tokio", "minimal_checkout"),
-    ("tailtriage-axum", "axum_minimal"),
-    ("tailtriage-axum", "axum_service_adoption"),
-    ("tailtriage-tokio", "mini_service_integration"),
+    {
+        "package": "tailtriage-tokio",
+        "name": "minimal_checkout",
+        "artifact": "tailtriage-run.json",
+    },
+    {
+        "package": "tailtriage-axum",
+        "name": "axum_minimal",
+        "artifact": "tailtriage-run.json",
+    },
+    {
+        "package": "tailtriage-axum",
+        "name": "axum_service_adoption",
+        "artifact": "tailtriage-run.json",
+    },
+    {
+        "package": "tailtriage-tokio",
+        "name": "mini_service_integration",
+        "artifact": "tailtriage-run.json",
+    },
+    {
+        "package": "tailtriage-controller",
+        "name": "controller_minimal",
+        "artifact": "tailtriage-run-generation-1.json",
+    },
+    {
+        "package": "tailtriage-controller",
+        "name": "controller_toml_startup",
+        "artifact": "tailtriage-run-generation-1.json",
+    },
 ]
 
 EXPECTED_RUN_TOP_LEVEL_KEYS = {
@@ -63,13 +89,16 @@ def assert_keys(payload: dict, expected: set[str], *, context: str) -> None:
         raise SystemExit(f"{context} missing top-level keys: {missing_list}")
 
 
-def validate_example(package: str, name: str) -> None:
+def validate_example(example: dict[str, str]) -> None:
+    package = example["package"]
+    name = example["name"]
+    artifact_name = example["artifact"]
     root = repo_root()
     print(f"==> validating example: {package}::{name}")
 
     with tempfile.TemporaryDirectory(prefix=f"tailtriage-example-smoke-{package}-{name}-") as temp_dir:
         working_dir = Path(temp_dir)
-        artifact_path = working_dir / "tailtriage-run.json"
+        artifact_path = working_dir / artifact_name
 
         run_cmd(
             [
@@ -130,8 +159,8 @@ def validate_example(package: str, name: str) -> None:
 
 def main() -> None:
     print("Smoke-validating public examples...")
-    for package, name in EXAMPLES:
-        validate_example(package, name)
+    for example in EXAMPLES:
+        validate_example(example)
     print("All public examples passed smoke validation.")
 
 
