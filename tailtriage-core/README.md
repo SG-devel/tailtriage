@@ -21,7 +21,7 @@ This crate owns core lifecycle semantics:
 - **Add `tailtriage-tokio`:** if you also need Tokio runtime-pressure snapshots.
 - **Add `tailtriage-axum`:** if you want Axum middleware/extractor ergonomics.
 - **Use `tailtriage-controller`:** if you need repeated arm/disarm capture windows.
-- **Use `tailtriage` facade:** for default cohesive onboarding.
+- **Use `tailtriage` (default crate):** as the default starting point for most users.
 
 ## Installation
 
@@ -84,7 +84,7 @@ run.shutdown()?;
 
 ## Deeper docs
 
-- Facade/default path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Default crate path: [`../tailtriage/README.md`](../tailtriage/README.md)
 - Controller capture windows: [`../tailtriage-controller/README.md`](../tailtriage-controller/README.md)
 - Tokio runtime sampling: [`../tailtriage-tokio/README.md`](../tailtriage-tokio/README.md)
 - Analyzer/report generation: [`../tailtriage-cli/README.md`](../tailtriage-cli/README.md)

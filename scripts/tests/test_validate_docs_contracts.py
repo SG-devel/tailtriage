@@ -51,6 +51,22 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_docs_no_history_framing(self) -> None:
         validate_docs_contracts.validate_docs_no_history_framing()
 
+    def test_user_facing_wording_has_no_facade_term(self) -> None:
+        validate_docs_contracts.validate_no_user_facing_facade_wording()
+
+    def test_user_facing_wording_validation_fails_when_facade_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            temp_path = Path(tmp_dir) / "README.md"
+            temp_path.write_text("start with the facade crate", encoding="utf-8")
+
+            with mock.patch.object(
+                validate_docs_contracts,
+                "USER_FACING_TERMINOLOGY_PATHS",
+                (temp_path,),
+            ):
+                with self.assertRaisesRegex(ValueError, r"stale facade wording"):
+                    validate_docs_contracts.validate_no_user_facing_facade_wording()
+
     def test_controller_readme_does_not_use_misleading_dependency_example_flow(self) -> None:
         readme_text = validate_docs_contracts.CONTROLLER_README_PATH.read_text(encoding="utf-8")
         self.assertFalse(validate_docs_contracts.is_misleading_controller_example_flow(readme_text))

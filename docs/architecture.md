@@ -6,7 +6,7 @@
 
 The default user path is:
 
-1. instrument capture in service code (`tailtriage` facade)
+1. instrument capture in service code (`tailtriage` default crate)
 2. optionally enrich with runtime sampling (`tailtriage-tokio`)
 3. write local run artifact JSON
 4. analyze artifact with `tailtriage-cli`
@@ -15,9 +15,9 @@ The result is a triage report with evidence-ranked suspects and next checks.
 
 ## Crate roles
 
-### `tailtriage` (facade, default entry point)
+### `tailtriage` (default crate, default entry point)
 
-Provides one cohesive surface for:
+Provides one all-in-one entry point for:
 
 - direct capture (`tailtriage::Tailtriage`)
 - controller windows (`tailtriage::controller::TailtriageController`)

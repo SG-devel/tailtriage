@@ -18,7 +18,7 @@ Use this crate when request lifecycle instrumentation alone is not enough to sep
 - **Use `tailtriage-tokio`:** runtime-pressure sampling in the same run artifact.
 - **Use `tailtriage-core` only:** if request timing is sufficient for your triage pass.
 - **Use `tailtriage-axum`:** for framework ergonomics (independent from runtime sampling).
-- **Use `tailtriage` facade:** for default onboarding with feature-gated access to this module.
+- **Use `tailtriage` (default crate):** as the default starting point with feature-gated access to this module.
 
 ## Installation
 
@@ -28,7 +28,7 @@ Direct crates:
 cargo add tailtriage-core tailtriage-tokio
 ```
 
-Via facade:
+Via the default crate:
 
 ```bash
 cargo add tailtriage --features tokio
@@ -74,6 +74,6 @@ run.shutdown()?;
 
 ## Deeper docs
 
-- Facade/default integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
+- Default crate integration path: [`../tailtriage/README.md`](../tailtriage/README.md)
 - Core lifecycle semantics: [`../tailtriage-core/README.md`](../tailtriage-core/README.md)
 - User workflow and interpretation: [`../docs/user-guide.md`](../docs/user-guide.md)

@@ -5,7 +5,7 @@ This is the canonical user-facing docs index for `tailtriage`.
 ## Start here
 
 - [User guide](user-guide.md) — default adoption path (`tailtriage` + `tailtriage-cli`) and the core capture -> analyze -> next check -> re-run workflow.
-- [Facade crate README (`tailtriage`)](../tailtriage/README.md) — fastest way to integrate with one dependency.
+- [Default crate README (`tailtriage`)](../tailtriage/README.md) — fastest way to integrate with one dependency.
 
 ## Core workflow and interpretation
 
@@ -26,5 +26,5 @@ This is the canonical user-facing docs index for `tailtriage`.
 ## Demos and architecture
 
 - [Getting started with demos](getting-started-demo.md) — which demos to run first and how to validate scenario outcomes.
-- [Architecture](architecture.md) — how facade/core/controller/sampler/adapter/CLI fit into one file-based triage pipeline.
+- [Architecture](architecture.md) — how the default crate, focused crates, and CLI fit into one file-based triage pipeline.
 - [Demos catalog](../demos/README.md) — scenario details and fixture layout.

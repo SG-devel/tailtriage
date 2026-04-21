@@ -1,12 +1,12 @@
 # tailtriage
 
-`tailtriage` is the **default facade crate** for Tokio tail-latency triage.
+`tailtriage` is the **default crate** for Tokio tail-latency triage.
 
 If you are adopting tailtriage for the first time, start here.
 
 ## What this crate is for
 
-Use `tailtriage` when you want one dependency that provides the main integration surface:
+Use `tailtriage` when you want one dependency that provides an all-in-one entry point:
 
 - direct capture lifecycle (`tailtriage::Tailtriage`)
 - controller-driven bounded windows (`tailtriage::controller::TailtriageController`)
@@ -15,7 +15,7 @@ Use `tailtriage` when you want one dependency that provides the main integration
 
 ## When to use this crate vs others
 
-- **Use `tailtriage` (recommended):** default onboarding path with cohesive API surface.
+- **Use `tailtriage` (recommended):** default starting point for most users.
 - **Use focused crates directly:** only when you need tighter dependency control or a narrower API surface.
 - **Use `tailtriage-cli`:** separately, for analysis/report generation after capture.
 
