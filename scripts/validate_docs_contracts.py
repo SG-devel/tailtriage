@@ -226,8 +226,9 @@ def validate_user_guide_contract() -> None:
         "Direct capture vs controller",
         "Controller TOML config and reload semantics",
         "TailtriageController::builder(",
-        "[activation.sink]",
-        'type = "local_json"',
+        "[controller]",
+        "[controller.activation]",
+        "[controller.activation.sink]",
         "runtime sampler",
         "future generations only",
         "insufficient_evidence",
@@ -235,6 +236,43 @@ def validate_user_guide_contract() -> None:
     for token in required_tokens:
         if token not in text:
             raise ValueError(f"user guide missing required section/token: {token}")
+
+    toml_snippet = extract_fenced_block(
+        text,
+        fence="toml",
+        anchor="Minimal TOML shape:",
+    )
+    parsed = tomllib.loads(toml_snippet)
+    controller = parsed.get("controller")
+    if not isinstance(controller, dict):
+        raise ValueError("user guide TOML example must include a [controller] table")
+
+    service_name = controller.get("service_name")
+    if not isinstance(service_name, str) or not service_name.strip():
+        raise ValueError("user guide TOML example must include non-empty controller.service_name")
+
+    activation = controller.get("activation")
+    if not isinstance(activation, dict):
+        raise ValueError("user guide TOML example must include a [controller.activation] table")
+
+    mode = activation.get("mode")
+    if not isinstance(mode, str) or not mode.strip():
+        raise ValueError("user guide TOML example must include non-empty controller.activation.mode")
+
+    sink = activation.get("sink")
+    if not isinstance(sink, dict):
+        raise ValueError("user guide TOML example must include a [controller.activation.sink] table")
+
+    sink_type = sink.get("type")
+    output_path = sink.get("output_path")
+    if sink_type != "local_json":
+        raise ValueError(
+            "user guide TOML example must set controller.activation.sink.type = \"local_json\""
+        )
+    if not isinstance(output_path, str) or not output_path.strip():
+        raise ValueError(
+            "user guide TOML example must include non-empty controller.activation.sink.output_path"
+        )
 
 
 def validate_root_readme_docs_map_parity() -> None:

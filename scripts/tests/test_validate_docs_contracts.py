@@ -32,6 +32,14 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_user_guide_contract(self) -> None:
         validate_docs_contracts.validate_user_guide_contract()
 
+    def test_user_guide_uses_controller_scoped_toml_shape(self) -> None:
+        text = validate_docs_contracts.USER_GUIDE_PATH.read_text(encoding="utf-8")
+        self.assertIn("[controller]", text)
+        self.assertIn("[controller.activation]", text)
+        self.assertIn("[controller.activation.sink]", text)
+        self.assertNotIn("\n[activation]\n", text)
+        self.assertNotIn("\n[activation.sink]\n", text)
+
     def test_diagnostics_contract_truthfulness(self) -> None:
         validate_docs_contracts.validate_diagnostics_contract_truthfulness()
 

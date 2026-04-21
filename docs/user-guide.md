@@ -129,12 +129,13 @@ Stay with builder defaults when you are exploring locally or need one straightfo
 Minimal TOML shape:
 
 ```toml
+[controller]
 service_name = "checkout-service"
 
-[activation]
+[controller.activation]
 mode = "light"
 
-[activation.sink]
+[controller.activation.sink]
 type = "local_json"
 output_path = "tailtriage-run.json"
 ```
