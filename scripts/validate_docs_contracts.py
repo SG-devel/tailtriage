@@ -257,7 +257,7 @@ def validate_controller_readme_toml() -> None:
         snippets = extract_fenced_blocks_after_anchor(
             readme_text,
             fence="toml",
-            anchor="## Config file (TOML)",
+            anchor="## Config precedence and reload rules",
         )
         if len(snippets) < 2:
             raise ValueError("controller README must include minimal and expanded TOML examples")
