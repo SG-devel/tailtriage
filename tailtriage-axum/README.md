@@ -45,24 +45,21 @@ cargo add tailtriage --features axum
 ```rust,no_run
 use std::sync::Arc;
 
-use axum::{extract::State, middleware::from_fn_with_state, routing::get, Router};
+use axum::{middleware::from_fn_with_state, routing::get, Router};
 use tailtriage_axum::{middleware, TailtriageRequest};
 use tailtriage_core::Tailtriage;
 
-async fn app(tailtriage: Arc<Tailtriage>) {
-    async fn checkout(TailtriageRequest(req): TailtriageRequest, State(_): State<()>) {
-        let _: Result<(), ()> = req
-            .stage("inventory_lookup")
-            .await_on(async { Ok(()) })
-            .await;
-    }
+async fn checkout(TailtriageRequest(req): TailtriageRequest) {
+    let _: Result<(), ()> = req
+        .stage("inventory_lookup")
+        .await_on(async { Ok(()) })
+        .await;
+}
 
-    let app: Router<()> = Router::new()
+fn app(tailtriage: Arc<Tailtriage>) -> Router {
+    Router::new()
         .route("/checkout", get(checkout))
         .layer(from_fn_with_state(tailtriage, middleware))
-        .with_state(());
-
-    let _ = app;
 }
 ```
 
@@ -73,6 +70,7 @@ Automatic at the Axum boundary:
 - request start
 - request finish
 - request-scoped handle injection into handlers
+- request `kind` is set to `"http"`
 
 Still explicit in your code:
 

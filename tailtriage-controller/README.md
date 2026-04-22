@@ -94,6 +94,26 @@ kind = "auto_seal_on_limits_hit"
 - Requests started while disabled or closing are inert wrappers and never join a later generation.
 - Each activation writes a per-generation artifact using `-generation-N` in the file name.
 
+## Lifecycle states (plain language)
+
+- **enabled**: capture is active and admitting requests.
+- **disabled**: capture is off.
+- **closing**: new captured admissions are blocked; the current generation finalizes after already-admitted captured requests drain.
+- **inert request**: request wrapper returned while disabled/closing; it preserves request metadata but records no capture events.
+
+`disable()` outcomes:
+
+- `already disabled`: no active generation existed.
+- `closing`: admissions were stopped and finalization is waiting on in-flight captured requests.
+- `finalized`: generation finalized immediately (or had already drained) and artifact writing completed.
+
+Artifact path generation for `local_json` sinks:
+
+- generated file names append `-generation-N`
+- parent directory from the configured path is preserved
+- base file stem is reused
+- original extension is preserved when present, otherwise `.json` is used
+
 ## Reload semantics
 
 `reload_config()` updates the template for future generations only.
@@ -159,7 +179,7 @@ The controller can start a Tokio runtime sampler for armed generations when enab
 ### `[controller.activation.sink]`
 
 - `type` *(required string)*: `local_json`.
-- `output_path` *(required string for `local_json`)*: base path template; output uses `-generation-N` suffix.
+- `output_path` *(required string for `local_json`)*: base path template for per-generation files.
 
 ### `[controller.activation.capture_limits_override]`
 

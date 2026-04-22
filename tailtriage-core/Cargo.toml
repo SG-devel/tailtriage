@@ -20,6 +20,9 @@ include = [
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lints]
 workspace = true
 

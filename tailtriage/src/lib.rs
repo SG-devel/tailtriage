@@ -2,22 +2,29 @@
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-// Official default crate for the tailtriage toolkit.
-//
-// - [`tailtriage_core`] is always re-exported as the foundational API surface.
-// - [`controller`] is the default convenience layer when the `controller` feature is enabled.
-// - [`tokio`] and [`axum`] are opt-in integration namespaces.
-
+/// Re-export of `tailtriage-core`, always available at the crate root.
+///
+/// This crate is the recommended default entry point: start with core APIs here,
+/// then enable optional integration namespaces via feature flags as needed.
 pub use tailtriage_core::*;
 
 #[cfg(feature = "axum")]
 #[cfg_attr(docsrs, doc(cfg(feature = "axum")))]
+/// Optional Axum integration namespace (`tailtriage::axum`).
+///
+/// Enable with the `axum` feature.
 pub use tailtriage_axum as axum;
 #[cfg(feature = "controller")]
 #[cfg_attr(docsrs, doc(cfg(feature = "controller")))]
+/// Controller integration namespace (`tailtriage::controller`).
+///
+/// Enabled by default via the `controller` feature.
 pub use tailtriage_controller as controller;
 #[cfg(feature = "tokio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+/// Optional Tokio runtime sampler namespace (`tailtriage::tokio`).
+///
+/// Enable with the `tokio` feature.
 pub use tailtriage_tokio as tokio;
 
 #[cfg(test)]
