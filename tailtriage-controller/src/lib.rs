@@ -2699,6 +2699,10 @@ mode = "light"
 type = "local_json"
 output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
 "#;
+        assert!(config_toml.contains(
+            r#"output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json""#
+        ));
+        assert!(!config_toml.contains(r#"output_path = "C:\\\\Users\\\\someone""#));
         let parsed: super::ControllerConfigFile =
             toml::from_str(config_toml).expect("escaped Windows path should parse in TOML");
 
