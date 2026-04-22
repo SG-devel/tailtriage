@@ -34,6 +34,8 @@ cargo install tailtriage-cli
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+The input artifact must include at least one request event in `requests`.
+
 ## How to read the result
 
 Read output in this order:
@@ -78,8 +80,10 @@ A report can include:
 - request latency percentiles (`p50`, `p95`, `p99`)
 - p95 queue/service share summaries
 - optional in-flight trend summary
-- warnings, including truncation and lifecycle context
+- report warnings from analysis/report generation (for example truncation-related)
 - primary and secondary suspects
+
+`tailtriage analyze` also prints loader/lifecycle warnings to stderr before the report. Those warnings are surfaced separately; they are not merged into the report `warnings` field.
 
 Each suspect includes:
 
@@ -91,7 +95,7 @@ Each suspect includes:
 
 ## Artifact compatibility contract
 
-The analyzer expects a compatible `tailtriage` run artifact.
+The `tailtriage analyze` workflow expects a supported `tailtriage` run artifact with minimum required content.
 
 Current contract:
 
@@ -100,12 +104,14 @@ Current contract:
 - non-integer `schema_version` is rejected
 - unsupported `schema_version` is rejected
 - current supported schema version is `1`
+- `requests` must contain at least one request event
+- artifacts with an empty `requests` array are rejected by the CLI loader
 
 ## Important interpretation notes
 
 - suspects are investigation leads, not proof of root cause
 - truncation warnings mean the diagnosis is based on partial retained data
-- unfinished lifecycle warnings mean some requests were not completed cleanly
+- unfinished lifecycle warnings printed by the CLI indicate some requests were not completed cleanly
 - `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`
 
 ## Suspect kinds

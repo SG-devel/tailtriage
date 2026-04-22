@@ -38,6 +38,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .output("tailtriage-run.json")
         .build()?;
 
+    // output(...) sets a base template; files are written as
+    // tailtriage-run-generation-N.json per activation.
+
     let _generation = controller.enable()?;
 
     let started = controller.begin_request("/checkout");
@@ -78,7 +81,7 @@ Choose `tailtriage` instead when you want the default entry point and may still 
 
 Use builder configuration when you want the simplest local setup.
 
-Use TOML when you want repeatable operational settings across environments.
+Use TOML when you want repeatable operational settings across environments, including selecting `mode`. The builder API does not currently expose capture-mode selection.
 
 Minimal TOML:
 
@@ -164,12 +167,14 @@ Important constraints:
 
 - `config_path(...)`
 - `initially_enabled(...)`
-- `output(...)`
+- `output(...)` *(base artifact path template; actual files use `-generation-N` suffixes)*
 - `capture_limits_override(...)`
 - `strict_lifecycle(...)`
 - `runtime_sampler(...)`
 - `run_end_policy(...)`
 - `build()`
+
+The builder surface does not currently expose capture-mode selection. Use TOML (`[controller.activation].mode`) when you need `mode = "investigation"`.
 
 ### Config file precedence
 
@@ -177,7 +182,7 @@ When TOML is loaded with `config_path(...)`:
 
 - `controller.service_name` falls back to the builder value when omitted
 - `controller.initially_enabled` falls back to the builder value when omitted
-- activation template settings come from TOML when config is loaded
+- activation template settings (including `mode`) come from TOML when config is loaded
 - omitted optional activation subfields use TOML contract defaults, not prior builder overrides
 
 ### Expanded TOML example
