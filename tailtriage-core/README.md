@@ -108,8 +108,9 @@ These semantics are important:
 - `queue(...)`, `stage(...)`, and `inflight(...)` do **not** finish requests
 - every admitted request must be finished exactly once
 - dropping a completion token does **not** auto-finish the request
-- `shutdown()` writes the artifact and does **not** fabricate missing completions
-- `strict_lifecycle(true)` makes `shutdown()` fail if unfinished requests remain
+- with default/non-strict lifecycle, `shutdown()` writes the artifact and records unfinished-request metadata/warnings; it does **not** fabricate missing completions
+- with `strict_lifecycle(true)`, `shutdown()` returns an error if unfinished requests remain
+- when strict lifecycle returns that error, the artifact is **not** written
 
 ## Capture modes
 
