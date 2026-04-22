@@ -6,9 +6,10 @@ Use it when you want middleware to start and finish request lifecycle automatica
 
 ## What this crate does
 
-This crate gives you two Axum-facing pieces:
+This crate gives you three Axum-facing pieces:
 
-- `middleware` to start and finish request lifecycle at the request boundary
+- `middleware` for default request start/finish at the boundary
+- `middleware_with_status_classifier(...)` to customize HTTP-status -> outcome mapping
 - `TailtriageRequest` extractor to access the request-scoped handle in handlers
 
 This crate is about integration ergonomics. It does not replace explicit instrumentation inside the request body.
@@ -65,7 +66,7 @@ async fn app(tailtriage: Arc<Tailtriage>) {
 }
 ```
 
-## What is automatic and what is still explicit
+## Automatic vs explicit responsibilities
 
 Automatic at the Axum boundary:
 
