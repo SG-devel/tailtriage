@@ -59,7 +59,11 @@ impl CaptureMode {
     }
 }
 
-/// Limits that bound in-memory capture growth for each run section.
+/// Limits that bound in-memory capture growth for one run.
+///
+/// Limits apply to retained in-memory data while capture is active. When a
+/// section reaches its cap, additional entries are dropped and truncation
+/// counters are updated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CaptureLimits {
     /// Maximum number of request events retained in-memory for the run.
@@ -337,6 +341,9 @@ impl TailtriageBuilder {
 /// Optional request start settings used by [`crate::Tailtriage::begin_request_with`].
 ///
 /// When `request_id` is not provided, a request ID is generated automatically.
+///
+/// `RequestOptions` configures start metadata only. It does not change request
+/// completion semantics: each request must still be finished exactly once.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RequestOptions {
     /// Optional caller-provided request ID used for request correlation.

@@ -5,7 +5,31 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Run;
 
-/// A sink that can persist a run artifact.
+/// A sink that persists the final run artifact produced at shutdown.
+///
+/// Implement this trait to plug in custom persistence backends.
+///
+/// # Example
+///
+/// ```no_run
+/// use tailtriage_core::{Run, RunSink, SinkError, Tailtriage};
+///
+/// struct StdoutSink;
+///
+/// impl RunSink for StdoutSink {
+///     fn write(&self, run: &Run) -> Result<(), SinkError> {
+///         let bytes = serde_json::to_vec(run).map_err(SinkError::Serialize)?;
+///         println!("{}", String::from_utf8_lossy(&bytes));
+///         Ok(())
+///     }
+/// }
+///
+/// let run = Tailtriage::builder("checkout-service")
+///     .sink(StdoutSink)
+///     .build()?;
+/// # let _ = run;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub trait RunSink {
     /// Persists a run.
     ///
@@ -16,7 +40,9 @@ pub trait RunSink {
     fn write(&self, run: &Run) -> Result<(), SinkError>;
 }
 
-/// Local file sink that writes one JSON document per run.
+/// Local file sink that writes one JSON document per run at shutdown.
+///
+/// This is the default sink used by [`crate::TailtriageBuilder`].
 #[derive(Debug, Clone)]
 pub struct LocalJsonSink {
     path: PathBuf,
