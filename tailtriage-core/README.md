@@ -20,7 +20,7 @@ The artifact produced here is analyzed by `tailtriage-cli`.
 
 Use `tailtriage-core` when you want the smallest framework-agnostic capture surface.
 
-Use `tailtriage` when you want the default all-in-one entry point.
+Use `tailtriage` when you want the recommended default entry point: an aggregator/re-export crate with optional integrations behind features.
 
 ## Installation
 

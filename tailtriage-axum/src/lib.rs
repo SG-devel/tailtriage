@@ -31,7 +31,8 @@ pub const fn crate_name() -> &'static str {
 /// `Arc<Tailtriage>` in middleware state.
 ///
 /// The middleware records route labels from `MatchedPath` when available and
-/// otherwise falls back to the raw URI path. By default it maps 2xx/3xx to
+/// otherwise falls back to the raw URI path. Started requests are tagged with
+/// `RequestOptions::kind("http")`. By default it maps 2xx/3xx to
 /// [`Outcome::Ok`], 4xx to [`Outcome::Rejected`] (except 408 to
 /// [`Outcome::Timeout`]), and 5xx to [`Outcome::Error`].
 pub async fn middleware(

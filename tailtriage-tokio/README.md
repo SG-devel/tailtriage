@@ -79,6 +79,8 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 
 ## What gets added to the artifact
 
+On successful sampler start, tailtriage records effective sampler configuration metadata into the run artifact metadata before runtime snapshots are captured.
+
 When the sampler is running, the run artifact can include runtime snapshots such as:
 
 - `alive_tasks`

@@ -21,5 +21,8 @@ include = [
 tailtriage-core.workspace = true
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lints]
 workspace = true
