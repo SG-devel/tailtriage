@@ -107,14 +107,14 @@ max_runtime_snapshots = 20000
 kind = "auto_seal_on_limits_hit"
 ```
 
-## Config and reload rules
+## Config precedence and reload rules
 
-When you build with `config_path(...)`:
+When TOML is loaded with `config_path(...)`:
 
-- `service_name` falls back to the builder value when omitted
-- `initially_enabled` falls back to the builder value when omitted
-- activation settings come from TOML
-- omitted optional activation fields use their contract defaults
+- `service_name` falls back to the builder value when omitted.
+- `initially_enabled` falls back to the builder value when omitted.
+- activation template settings come from TOML.
+- omitted optional activation subfields use TOML contract defaults.
 
 `reload_config()` updates the template for **future** generations only.
 
