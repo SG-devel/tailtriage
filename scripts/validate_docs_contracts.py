@@ -246,7 +246,7 @@ def validate_controller_readme_toml() -> None:
         minimal_snippet = extract_fenced_block(
             readme_text,
             fence="toml",
-            anchor="## Minimal TOML shape",
+            anchor="## Minimal TOML example",
         )
         expanded_snippet = extract_fenced_block(
             readme_text,
