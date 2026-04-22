@@ -30,6 +30,14 @@ cargo install tailtriage-cli
 
 ## Minimal usage
 
+Default text output:
+
+```bash
+tailtriage analyze tailtriage-run.json
+```
+
+Machine-readable JSON output:
+
 ```bash
 tailtriage analyze tailtriage-run.json --format json
 ```

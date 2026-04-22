@@ -3158,6 +3158,36 @@ kind = "not-a-real-policy"
     }
 
     #[test]
+    fn build_from_toml_with_run_end_policy_table_missing_kind_returns_parse_error() {
+        let config = test_config_path("toml-run-end-policy-missing-kind");
+        write_raw_config(
+            &config,
+            r#"[controller]
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.run_end_policy]
+"#,
+        );
+
+        let err = TailtriageController::builder("checkout-service")
+            .config_path(&config)
+            .build()
+            .expect_err("run_end_policy table without kind should fail build");
+        assert!(matches!(
+            err,
+            ControllerBuildError::ConfigLoad(super::ConfigLoadError::Parse { .. })
+        ));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
     fn build_from_toml_with_invalid_sink_type_returns_parse_error() {
         let config = test_config_path("toml-invalid-sink-type");
         write_raw_config(
