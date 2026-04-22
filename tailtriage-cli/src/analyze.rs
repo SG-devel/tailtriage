@@ -621,63 +621,101 @@ fn percentile_sorted_u64(values: &[u64], numerator: usize, denominator: usize) -
     values.get(index).copied()
 }
 
+fn fmt_opt_u64(value: Option<u64>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => "n/a".to_string(),
+    }
+}
+
+fn fmt_percent_permille(value: Option<u64>) -> String {
+    match value {
+        Some(value) => format!("{}.{:01}%", value / 10, value % 10),
+        None => "n/a".to_string(),
+    }
+}
+
+fn fmt_confidence(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::Low => "low",
+        Confidence::Medium => "medium",
+        Confidence::High => "high",
+    }
+}
+
 #[must_use]
 /// Renders a compact text triage summary from a [`Report`].
 ///
 /// The rendered output is guidance for follow-up checks, not proof of root cause.
 pub fn render_text(report: &Report) -> String {
-    let inflight_line = match &report.inflight_trend {
-        Some(trend) => format!(
-            "inflight_trend gauge={} samples={} peak={} p95={} growth_delta={} growth_per_sec_milli={:?}",
-            trend.gauge,
-            trend.sample_count,
-            trend.peak_count,
-            trend.p95_count,
-            trend.growth_delta,
-            trend.growth_per_sec_milli
-        ),
-        None => "inflight_trend none".to_string(),
-    };
-
     let mut lines = vec![
         "tailtriage diagnosis".to_string(),
-        format!("requests: {}", report.request_count),
+        format!("Requests analyzed: {}", report.request_count),
         format!(
-            "latency_us p50={:?} p95={:?} p99={:?}",
-            report.p50_latency_us, report.p95_latency_us, report.p99_latency_us
+            "Latency (us): p50 {}, p95 {}, p99 {}",
+            fmt_opt_u64(report.p50_latency_us),
+            fmt_opt_u64(report.p95_latency_us),
+            fmt_opt_u64(report.p99_latency_us),
         ),
         format!(
-            "request_time_share_permille p95 queue={:?} service={:?} (independent percentiles; not expected to sum to 1000)",
-            report.p95_queue_share_permille, report.p95_service_share_permille
-        ),
-        inflight_line,
-        format!(
-            "primary: {} (confidence={:?}, score={})",
-            report.primary_suspect.kind.as_str(),
-            report.primary_suspect.confidence,
-            report.primary_suspect.score
+            "Request time at p95: queue {}, non-queue service {}",
+            fmt_percent_permille(report.p95_queue_share_permille),
+            fmt_percent_permille(report.p95_service_share_permille),
         ),
     ];
-    for warning in &report.warnings {
-        lines.push(format!("warning {warning}"));
+
+    match &report.inflight_trend {
+        Some(trend) => {
+            lines.push(format!(
+                "Inflight trend: gauge '{}', samples {}, peak {}, p95 {}, net growth {:+}",
+                trend.gauge,
+                trend.sample_count,
+                trend.peak_count,
+                trend.p95_count,
+                trend.growth_delta,
+            ));
+        }
+        None => {
+            lines.push("Inflight trend: none".to_string());
+        }
     }
 
-    for evidence in &report.primary_suspect.evidence {
-        lines.push(format!("  evidence: {evidence}"));
+    lines.push(format!(
+        "Primary suspect: {} ({} confidence, score {})",
+        report.primary_suspect.kind.as_str(),
+        fmt_confidence(report.primary_suspect.confidence),
+        report.primary_suspect.score,
+    ));
+
+    if !report.warnings.is_empty() {
+        lines.push("Warnings:".to_string());
+        for warning in &report.warnings {
+            lines.push(format!("- {warning}"));
+        }
     }
 
-    for next_check in &report.primary_suspect.next_checks {
-        lines.push(format!("  next: {next_check}"));
+    if !report.primary_suspect.evidence.is_empty() {
+        lines.push("Evidence:".to_string());
+        for evidence in &report.primary_suspect.evidence {
+            lines.push(format!("- {evidence}"));
+        }
+    }
+
+    if !report.primary_suspect.next_checks.is_empty() {
+        lines.push("Next checks:".to_string());
+        for next_check in &report.primary_suspect.next_checks {
+            lines.push(format!("- {next_check}"));
+        }
     }
 
     if !report.secondary_suspects.is_empty() {
-        lines.push("secondary suspects:".to_string());
+        lines.push("Secondary suspects:".to_string());
         for suspect in &report.secondary_suspects {
             lines.push(format!(
-                "  - {} (confidence={:?}, score={})",
+                "- {} ({} confidence, score {})",
                 suspect.kind.as_str(),
-                suspect.confidence,
-                suspect.score
+                fmt_confidence(suspect.confidence),
+                suspect.score,
             ));
         }
     }
@@ -903,10 +941,12 @@ mod tests {
         };
 
         let text = render_text(&report);
-        assert!(text.contains("inflight_trend gauge=queue_inflight"));
-        assert!(text.contains("samples=4"));
-        assert!(text.contains("growth_per_sec_milli=Some(2500)"));
-        assert!(text.contains("independent percentiles; not expected to sum to 1000"));
+        assert!(text.contains("Inflight trend: gauge 'queue_inflight'"));
+        assert!(text.contains("samples 4"));
+        assert!(text.contains("peak 8"));
+        assert!(text.contains("p95 7"));
+        assert!(text.contains("net growth +5"));
+        assert!(text.contains("Request time at p95: queue 10.0%, non-queue service 90.0%"));
     }
 
     #[test]
@@ -931,8 +971,9 @@ mod tests {
         };
 
         let text = render_text(&report);
-        assert!(text.contains("inflight_trend none"));
-        assert!(text.contains("warning Capture truncated requests."));
+        assert!(text.contains("Inflight trend: none"));
+        assert!(text.contains("Warnings:"));
+        assert!(text.contains("- Capture truncated requests."));
     }
 
     #[test]

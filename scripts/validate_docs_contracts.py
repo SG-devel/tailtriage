@@ -242,22 +242,22 @@ def validate_controller_readme_toml() -> None:
         if token not in readme_text:
             raise ValueError(f"controller README TOML field reference missing token: {token}")
 
-    if "## Minimal TOML shape" in readme_text and "### Expanded TOML example" in readme_text:
+    if "## Minimal TOML example" in readme_text and "## Expanded TOML example" in readme_text:
         minimal_snippet = extract_fenced_block(
             readme_text,
             fence="toml",
-            anchor="## Minimal TOML shape",
+            anchor="## Minimal TOML example",
         )
         expanded_snippet = extract_fenced_block(
             readme_text,
             fence="toml",
-            anchor="### Expanded TOML example",
+            anchor="## Expanded TOML example",
         )
     else:
         snippets = extract_fenced_blocks_after_anchor(
             readme_text,
             fence="toml",
-            anchor="## Config file (TOML)",
+            anchor="## Config precedence and reload rules",
         )
         if len(snippets) < 2:
             raise ValueError("controller README must include minimal and expanded TOML examples")
