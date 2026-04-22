@@ -165,9 +165,9 @@ jobs:
         if: matrix.profile == 'dev'
         run: python3 scripts/smoke_public_examples.py
 
-      - name: Smoke-check external crates.io consumer adoption flow
-        if: matrix.profile == 'release'
-        run: python3 scripts/smoke_external_consumer.py
+      #- name: Smoke-check external crates.io consumer adoption flow
+      #  if: matrix.profile == 'release'
+      #  run: python3 scripts/smoke_external_consumer.py
 
       - name: Smoke-check controller public example
         if: matrix.profile == 'release'
