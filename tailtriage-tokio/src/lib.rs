@@ -231,6 +231,9 @@ impl RuntimeSamplerBuilder {
 
                         tailtriage.record_runtime_snapshot(capture_runtime_snapshot(&runtime_handle));
                         captured = captured.saturating_add(1);
+                        if captured >= max_runtime_snapshots {
+                            break;
+                        }
                     }
                 }
             }
@@ -336,6 +339,23 @@ mod tests {
     use super::crate_name;
     use super::{RuntimeSampler, SamplerStartError};
 
+    async fn wait_until(
+        timeout: Duration,
+        mut condition: impl FnMut() -> bool,
+        failure_message: &str,
+    ) {
+        let deadline = tokio::time::Instant::now() + timeout;
+        while tokio::time::Instant::now() < deadline {
+            if condition() {
+                return;
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+
+        assert!(condition(), "{failure_message}");
+    }
+
     #[test]
     fn crate_name_is_stable() {
         assert_eq!(crate_name(), "tailtriage-tokio");
@@ -359,7 +379,12 @@ mod tests {
             .start()
             .expect("sampler should start");
 
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        wait_until(
+            Duration::from_millis(250),
+            || !tailtriage.snapshot().runtime_snapshots.is_empty(),
+            "sampler should record runtime snapshots",
+        )
+        .await;
         sampler.shutdown().await;
 
         let snapshot = tailtriage.snapshot();
@@ -542,7 +567,18 @@ mod tests {
             .start()
             .expect("sampler should start");
 
-        tokio::time::sleep(Duration::from_millis(12)).await;
+        wait_until(
+            Duration::from_millis(250),
+            || {
+                sampler
+                    .task
+                    .as_ref()
+                    .expect("sampler should spawn task when capture is enabled")
+                    .is_finished()
+            },
+            "sampler task should exit after recording the configured cap",
+        )
+        .await;
         sampler.shutdown().await;
 
         let snapshot = tailtriage.snapshot();
@@ -569,15 +605,18 @@ mod tests {
             .start()
             .expect("sampler should start");
 
-        tokio::time::sleep(Duration::from_millis(12)).await;
-        assert!(
-            sampler
-                .task
-                .as_ref()
-                .expect("sampler should spawn task when capture is enabled")
-                .is_finished(),
-            "sampler task should exit at cap"
-        );
+        wait_until(
+            Duration::from_millis(250),
+            || {
+                sampler
+                    .task
+                    .as_ref()
+                    .expect("sampler should spawn task when capture is enabled")
+                    .is_finished()
+            },
+            "sampler task should exit at cap",
+        )
+        .await;
 
         let before = tailtriage.snapshot().runtime_snapshots.len();
         tokio::time::sleep(Duration::from_millis(12)).await;
@@ -602,7 +641,12 @@ mod tests {
             .interval(Duration::from_millis(1))
             .start()
             .expect("sampler should start");
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        wait_until(
+            Duration::from_millis(250),
+            || !tailtriage.snapshot().runtime_snapshots.is_empty(),
+            "sampler should record at least one runtime snapshot after startup",
+        )
+        .await;
         sampler.shutdown().await;
 
         let snapshot = tailtriage.snapshot();
@@ -632,7 +676,12 @@ mod tests {
             .start()
             .expect("sampler should start");
 
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        wait_until(
+            Duration::from_millis(250),
+            || tailtriage.snapshot().runtime_snapshots.len() == 3,
+            "sampler should stop after recording the clamped runtime snapshot limit",
+        )
+        .await;
         sampler.shutdown().await;
 
         let snapshot = tailtriage.snapshot();
