@@ -2690,16 +2690,15 @@ mod tests {
 
     #[test]
     fn toml_parses_windows_style_escaped_output_path() {
-        let config_toml = concat!(
-            "[controller]\n",
-            "\n",
-            "[controller.activation]\n",
-            "mode = \"light\"\n",
-            "\n",
-            "[controller.activation.sink]\n",
-            "type = \"local_json\"\n",
-            "output_path = \"C:\\\\Users\\\\someone\\\\AppData\\\\Local\\\\Temp\\\\tailtriage.json\"\n",
-        );
+        let config_toml = r#"[controller]
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
+"#;
         let parsed: super::ControllerConfigFile =
             toml::from_str(config_toml).expect("escaped Windows path should parse in TOML");
 
