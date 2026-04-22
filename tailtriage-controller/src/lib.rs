@@ -2699,10 +2699,10 @@ mode = "light"
 type = "local_json"
 output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
 "#;
-    
+
         let parsed: super::ControllerConfigFile =
             toml::from_str(config_toml).expect("escaped Windows path should parse in TOML");
-    
+
         let loaded = parsed.into_loaded();
         assert_eq!(
             loaded.activation_template.sink_template,
