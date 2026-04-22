@@ -75,7 +75,14 @@ Docs in `docs/` are user-facing product documentation.
 - Keep docs crisp, truthful, present-tense, and aligned with the current product surface.
 - Do not claim behavior that is not supported by the code and current public docs.
 - Keep `docs/README.md` as a complete user-journey index to current docs.
-- If docs structure or required docs links change, update the docs contract test in `scripts/validate_docs_contracts.py` and related tests.
+- Treat `scripts/validate_docs_contracts.py` and related tests as part of the public documentation contract.
+- If docs structure, required docs links, or enforced public-doc wording changes, update the docs contract validator and related tests in the same change set.
+- Only change docs contract validation when the new docs are more truthful to the code or when the intended public docs contract has actually changed.
+- Do not weaken or bypass docs contract validation just to make CI pass.
+- If a docs change breaks the docs contract validator, either:
+  - update the docs to satisfy the existing contract, or
+  - update the validator and related tests so they enforce the new truthful contract.
+- When changing the validator, keep checks aligned with code truth and current public guidance, not stale phrasing.
 
 ## Scope guardrails
 
@@ -263,11 +270,18 @@ Before considering a task done, run:
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
+- `python3 scripts/validate_docs_contracts.py`
 
 If a task touches benchmarks or performance-sensitive code, also include:
 
 - benchmark notes
 - before/after evidence if behavior changed materially
+
+If a task changes public docs, crate READMEs, rustdoc, docs structure, or documentation contract wording:
+
+- docs contract validation must pass
+- any required updates to `scripts/validate_docs_contracts.py` and related tests must be included in the same change set
+- docs contract changes must be justified by code truth and intended public behavior
 
 ## Definition of done
 
@@ -278,9 +292,10 @@ A task is done only if:
 3. tests pass
 4. docs/comments are updated where needed
 5. public API changes are reflected in public-facing docs
-6. examples are updated where needed
-7. demos are updated where needed
-8. scope did not quietly expand
+6. docs contract validation passes when docs or public guidance changed
+7. examples are updated where needed
+8. demos are updated where needed
+9. scope did not quietly expand
 
 For public ergonomics or behavior changes, work is **not** done until the teaching surface moves too:
 
@@ -417,6 +432,8 @@ If behavior, scope, or public guidance changes, update as needed:
 
 Public docs should teach the intended current path first.
 
+Changes to public docs are not complete until the docs contract validator passes, and any validator changes are justified by code truth.
+
 Do not leave the repository teaching multiple competing onboarding stories after a change.
 
 ## How to approach tasks
@@ -429,7 +446,8 @@ When given a task:
 4. add or update tests
 5. update docs/examples/demos where needed
 6. run format/lint/test
-7. summarize what changed and any remaining limitations
+7. run docs contract validation when docs or public guidance changed
+8. summarize what changed and any remaining limitations
 
 For larger tasks:
 
