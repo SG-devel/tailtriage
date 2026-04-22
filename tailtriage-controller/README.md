@@ -1,14 +1,18 @@
 # tailtriage-controller
 
-`tailtriage-controller` manages repeated, bounded capture generations in long-lived services.
+`tailtriage-controller` manages repeated, bounded capture windows for long-lived services.
 
-Use it to arm capture, collect one generation, disarm/finalize, then re-arm later without restarting the process. This crate controls capture; analysis is done by `tailtriage-cli`.
+Use it when you want to turn capture on, collect one generation, turn capture off, and later start a fresh generation without restarting the process.
+
+Analysis is still done by `tailtriage-cli`.
 
 ## When to use this crate
 
-Use `tailtriage-controller` when you need repeated arm/disarm windows in a long-lived process.
+Use `tailtriage-controller` when you need repeated arm/disarm windows in one process.
 
-Use `tailtriage-core` for one explicit `build -> capture -> shutdown` run. Use `tailtriage` if you want the default entry point and optional controller support behind a feature.
+Use `tailtriage-core` for a single explicit `build -> capture -> shutdown` run.
+
+Use `tailtriage` when you want the default entry point with optional controller support behind a feature.
 
 ## Installation
 
@@ -37,9 +41,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Minimal TOML shape
+## Mental model
 
-Use TOML for repeatable operational settings, including `mode` selection.
+A controller owns a **template** plus at most one **active generation**.
+
+- `enable()` creates a fresh generation from the current template.
+- `disable()` stops new admissions for that generation.
+- If no captured requests are still in flight, the generation finalizes immediately.
+- Otherwise the generation enters **closing** and finalizes after its already-admitted captured requests drain.
+- The next `enable()` creates a new generation with a new artifact path.
+
+Requests started while the controller is disabled or closing are **inert**:
+
+- they preserve request metadata
+- they record no capture events
+- they never join a later generation
+
+Each activation writes a per-generation artifact whose file name includes `-generation-N`.
+
+## Minimal TOML example
+
+Use TOML when you want repeatable operational settings, including mode selection.
 
 ```toml
 [controller]
@@ -53,7 +75,7 @@ type = "local_json"
 output_path = "tailtriage-run.json"
 ```
 
-### Expanded TOML example
+## Expanded TOML example
 
 ```toml
 [controller]
@@ -85,44 +107,7 @@ max_runtime_snapshots = 20000
 kind = "auto_seal_on_limits_hit"
 ```
 
-## Generation semantics
-
-- At most one generation is active at a time.
-- `enable()` creates a fresh generation.
-- A generation keeps the activation-time config it started with.
-- Requests remain bound to the generation that admitted them.
-- Requests started while disabled or closing are inert wrappers and never join a later generation.
-- Each activation writes a per-generation artifact using `-generation-N` in the file name.
-
-## Lifecycle states (plain language)
-
-- **enabled**: capture is active and admitting requests.
-- **disabled**: capture is off.
-- **closing**: new captured admissions are blocked; the current generation finalizes after already-admitted captured requests drain.
-- **inert request**: request wrapper returned while disabled/closing; it preserves request metadata but records no capture events.
-
-`disable()` outcomes:
-
-- `already disabled`: no active generation existed.
-- `closing`: admissions were stopped and finalization is waiting on in-flight captured requests.
-- `finalized`: generation finalized immediately (or had already drained) and artifact writing completed.
-
-Artifact path generation for `local_json` sinks:
-
-- generated file names append `-generation-N`
-- parent directory from the configured path is preserved
-- base file stem is reused
-- original extension is preserved when present, otherwise `.json` is used
-
-## Reload semantics
-
-`reload_config()` updates the template for future generations only.
-
-- Active generation settings do not change after activation.
-- File edits affect the next `enable()`.
-- Generation boundaries remain explicit and stable.
-
-## Config precedence
+## Config precedence and reload rules
 
 When TOML is loaded with `config_path(...)`:
 
@@ -131,59 +116,57 @@ When TOML is loaded with `config_path(...)`:
 - activation template settings come from TOML.
 - omitted optional activation subfields use TOML contract defaults.
 
+`reload_config()` updates the template for **future** generations only.
+
+It does not mutate a generation that is already active.
+
 ## Run-end policies
 
 Supported policies:
 
-- `continue_after_limits_hit`
+- `continue_after_limits_hit` _(default)_
 - `auto_seal_on_limits_hit`
 
 Behavior:
 
-- `continue_after_limits_hit` (default): generation stays active after first truncation (`limits_hit`).
-- `auto_seal_on_limits_hit`: on first `limits_hit`, admissions stop and the generation moves to closing; finalization happens immediately if no captured requests are in flight, otherwise after they drain.
+- `continue_after_limits_hit`: generation stays active after the first truncation
+- `auto_seal_on_limits_hit`: on the first `limits_hit`, new admissions stop and the generation moves to closing; finalization happens immediately if no captured requests are still in flight, otherwise after they drain
 
 TOML contract:
 
-- `[controller.activation.run_end_policy]` is optional.
-- If that table is present, `kind` is required.
-- If the table is omitted, policy defaults to `continue_after_limits_hit`.
-
-Example:
-
-```toml
-[controller.activation.run_end_policy]
-kind = "auto_seal_on_limits_hit"
-```
+- `[controller.activation.run_end_policy]` is optional
+- if that table is present, `kind` is required
 
 ## Runtime sampler template
 
-The controller can start a Tokio runtime sampler for armed generations when enabled in the runtime sampler template.
+The controller can start a Tokio runtime sampler automatically for armed generations.
 
-- Sampler startup still requires an active Tokio runtime.
-- Runtime sampler settings are fixed at activation time.
-- Runtime snapshot retention is still bounded by resolved core capture limits.
+Important constraints:
+
+- sampler startup still requires an active Tokio runtime
+- sampler settings are fixed at activation time
+- runtime snapshot retention is still bounded by the resolved core capture limits
 
 ## TOML field reference
 
 ### `[controller]`
 
-- `service_name` *(optional string)*: overrides builder service name when present; must not be empty.
-- `initially_enabled` *(optional bool)*: when `true`, `build()` starts generation `1`.
+- `service_name` _(optional string)_: overrides the builder service name when present; must not be empty
+- `initially_enabled` _(optional bool)_: when `true`, `build()` starts generation `1`
 
 ### `[controller.activation]`
 
-- `mode` *(required string)*: `light` or `investigation`.
-- `strict_lifecycle` *(optional bool, default `false`)*.
+- `mode` _(required string)_: `light` or `investigation`
+- `strict_lifecycle` _(optional bool, default `false`)_
 
 ### `[controller.activation.sink]`
 
-- `type` *(required string)*: `local_json`.
-- `output_path` *(required string for `local_json`)*: base path template for per-generation files.
+- `type` _(required string)_: `local_json`
+- `output_path` _(required string for `local_json`)_: base path template for per-generation files
 
 ### `[controller.activation.capture_limits_override]`
 
-All optional field-level overrides:
+All fields are optional:
 
 - `max_requests`
 - `max_stages`
@@ -193,7 +176,7 @@ All optional field-level overrides:
 
 ### `[controller.activation.runtime_sampler]`
 
-Optional table. Defaults to disabled.
+Optional table. Default is disabled.
 
 - `enabled_for_armed_runs`
 - `mode_override`
@@ -206,6 +189,13 @@ Optional table. If present, `kind` is required.
 
 - `kind = "continue_after_limits_hit"`
 - `kind = "auto_seal_on_limits_hit"`
+
+## Important constraints
+
+- at most one generation is active at a time
+- active generation settings do not change after activation
+- requests remain bound to the generation that admitted them
+- controller capture and artifact analysis are separate; analysis happens in `tailtriage-cli`
 
 ## Related crates
 

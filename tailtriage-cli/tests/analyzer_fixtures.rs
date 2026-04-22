@@ -55,10 +55,11 @@ fn fixture_reports_render_to_text_and_json() {
     let report = analyze_run(&run);
 
     let text = render_text(&report);
-    assert!(text.contains("primary:"));
-    assert!(text.contains("request_time_share_permille"));
-    assert!(text.contains("independent percentiles; not expected to sum to 1000"));
-    assert!(text.contains("secondary suspects") || report.secondary_suspects.is_empty());
+    assert!(text.contains("Primary suspect:"));
+    assert!(text.contains("Request time at p95:"));
+    assert!(text.contains("queue 66.6%"));
+    assert!(text.contains("non-queue service 50.0%"));
+    assert!(text.contains("Secondary suspects:") || report.secondary_suspects.is_empty());
 
     let json = serde_json::to_string_pretty(&report).expect("json rendering should work");
     assert!(json.contains("primary_suspect"));

@@ -29,7 +29,7 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-Analyzer:
+To install the `tailtriage` binary for analyzing artifacts, install the `tailtriage-cli` crate:
 
 ```bash
 cargo install tailtriage-cli
@@ -74,9 +74,9 @@ Choose a focused crate only when you need a narrower boundary:
 
 ## Feature flags
 
-- `controller` *(default)*: enables `tailtriage::controller`
-- `tokio` *(opt-in)*: enables `tailtriage::tokio`
-- `axum` *(opt-in)*: enables `tailtriage::axum`
+- `controller` _(default)_: enables `tailtriage::controller`
+- `tokio` _(opt-in)_: enables `tailtriage::tokio`
+- `axum` _(opt-in)_: enables `tailtriage::axum`
 - `full`: enables `controller`, `tokio`, and `axum`
 
 ## Important constraints
