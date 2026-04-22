@@ -941,10 +941,12 @@ mod tests {
         };
 
         let text = render_text(&report);
-        assert!(text.contains("inflight_trend gauge=queue_inflight"));
-        assert!(text.contains("samples=4"));
-        assert!(text.contains("growth_per_sec_milli=Some(2500)"));
-        assert!(text.contains("independent percentiles; not expected to sum to 1000"));
+        assert!(text.contains("Inflight trend: gauge 'queue_inflight'"));
+        assert!(text.contains("samples 4"));
+        assert!(text.contains("peak 8"));
+        assert!(text.contains("p95 7"));
+        assert!(text.contains("net growth +5"));
+        assert!(text.contains("Request time at p95: queue 10.0%, non-queue service 90.0%"));
     }
 
     #[test]
@@ -969,8 +971,9 @@ mod tests {
         };
 
         let text = render_text(&report);
-        assert!(text.contains("inflight_trend none"));
-        assert!(text.contains("warning Capture truncated requests."));
+        assert!(text.contains("Inflight trend: none"));
+        assert!(text.contains("Warnings:"));
+        assert!(text.contains("- Capture truncated requests."));
     }
 
     #[test]
