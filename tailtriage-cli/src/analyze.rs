@@ -138,7 +138,7 @@ pub struct Report {
     pub p95_queue_share_permille: Option<u64>,
     /// p95 non-queue service-time share per request in permille (`0..=1000`).
     pub p95_service_share_permille: Option<u64>,
-    /// Dominant in-flight trend signal, if enough samples exist.
+    /// Dominant in-flight trend signal, when at least one in-flight gauge has samples.
     pub inflight_trend: Option<InflightTrend>,
     /// Non-fatal analysis warnings (for example, capture truncation notices).
     pub warnings: Vec<String>,
@@ -154,6 +154,8 @@ pub struct Report {
 /// claim causal certainty or proven root cause.
 ///
 /// # Examples
+///
+/// Library API example (this does not use the CLI file-loader contract):
 ///
 /// ```
 /// use tailtriage_cli::analyze::analyze_run;
@@ -190,6 +192,7 @@ pub struct Report {
 ///     truncation: Default::default(),
 /// };
 ///
+/// // `analyze_run(&Run)` can operate on an in-memory run with zero requests.
 /// let report = analyze_run(&run);
 /// assert_eq!(report.request_count, 0);
 /// ```

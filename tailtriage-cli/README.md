@@ -42,7 +42,7 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-The input artifact must include at least one request event in `requests`.
+The CLI artifact loader requires at least one request event in `requests`.
 
 ## How to read the result
 
@@ -114,6 +114,11 @@ Current contract:
 - current supported schema version is `1`
 - `requests` must contain at least one request event
 - artifacts with an empty `requests` array are rejected by the CLI loader
+
+Library note:
+
+- this crate's library analyzer API, `analyze::analyze_run(&Run)`, can analyze an in-memory `Run` with zero requests
+- the stricter non-empty `requests` rule applies to CLI artifact loading from disk
 
 ## Important interpretation notes
 

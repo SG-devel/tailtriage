@@ -1,8 +1,8 @@
 # tailtriage
 
-`tailtriage` is the default crate for **Tokio tail-latency triage**.
+`tailtriage` is the recommended default entry point for **Tokio tail-latency triage**.
 
-It gives you one capture-side entry point with optional integrations for controller workflows, Tokio runtime sampling, and Axum request boundaries.
+It re-exports `tailtriage-core` at the crate root and exposes integration namespaces for controller workflows, Tokio runtime sampling, and Axum request boundaries. Only `controller` is enabled by default; `tokio` and `axum` are opt-in features.
 
 ## What problem this solves
 
@@ -75,8 +75,8 @@ Choose a focused crate only when you need a narrower boundary:
 ## Feature flags
 
 - `controller` *(default)*: enables `tailtriage::controller`
-- `tokio`: enables `tailtriage::tokio`
-- `axum`: enables `tailtriage::axum`
+- `tokio` *(opt-in)*: enables `tailtriage::tokio`
+- `axum` *(opt-in)*: enables `tailtriage::axum`
 - `full`: enables `controller`, `tokio`, and `axum`
 
 ## Important constraints

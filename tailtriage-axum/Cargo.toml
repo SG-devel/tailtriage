@@ -21,6 +21,9 @@ include = [
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "matched-path", "tokio"] }
 tailtriage-core.workspace = true
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lints]
 workspace = true
 
