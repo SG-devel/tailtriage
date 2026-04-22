@@ -242,7 +242,7 @@ def validate_controller_readme_toml() -> None:
         if token not in readme_text:
             raise ValueError(f"controller README TOML field reference missing token: {token}")
 
-    if "## Minimal TOML shape" in readme_text and "### Expanded TOML example" in readme_text:
+    if "## Minimal TOML example" in readme_text and "## Expanded TOML example" in readme_text:
         minimal_snippet = extract_fenced_block(
             readme_text,
             fence="toml",
