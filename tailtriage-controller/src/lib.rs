@@ -1292,7 +1292,7 @@ impl ControllerConfigFile {
         })?;
         toml::from_str(&raw).map_err(|source| ConfigLoadError::Parse {
             path: path.to_path_buf(),
-            source,
+            source: Box::new(source),
         })
     }
 
@@ -1398,7 +1398,7 @@ pub enum ConfigLoadError {
         /// Path that failed to parse.
         path: PathBuf,
         /// Underlying TOML parse error.
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
 }
 
@@ -1623,6 +1623,7 @@ fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -1631,9 +1632,66 @@ mod tests {
         ReloadConfigError, ReloadTemplateError, RunEndPolicy, RuntimeSamplerTemplate,
         TailtriageController, TailtriageControllerTemplate,
     };
+    use serde::Serialize;
     use tailtriage_core::{
         CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RuntimeSnapshot,
     };
+
+    #[derive(Serialize)]
+    struct TestControllerConfigToml {
+        controller: TestControllerConfigBodyToml,
+    }
+
+    #[derive(Serialize)]
+    struct TestControllerConfigBodyToml {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        service_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        initially_enabled: Option<bool>,
+        activation: TestActivationToml,
+    }
+
+    #[derive(Serialize)]
+    struct TestActivationToml {
+        mode: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        capture_limits_override: Option<TestCaptureLimitsOverrideToml>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        strict_lifecycle: Option<bool>,
+        sink: TestSinkToml,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        runtime_sampler: Option<TestRuntimeSamplerToml>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run_end_policy: Option<TestRunEndPolicyToml>,
+    }
+
+    #[derive(Serialize)]
+    struct TestCaptureLimitsOverrideToml {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_requests: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_stages: Option<u64>,
+    }
+
+    #[derive(Serialize)]
+    struct TestSinkToml {
+        #[serde(rename = "type")]
+        sink_type: &'static str,
+        output_path: PathBuf,
+    }
+
+    #[derive(Serialize)]
+    struct TestRuntimeSamplerToml {
+        enabled_for_armed_runs: bool,
+        mode_override: &'static str,
+        interval_ms: u64,
+        max_runtime_snapshots: u64,
+    }
+
+    #[derive(Serialize)]
+    struct TestRunEndPolicyToml {
+        kind: &'static str,
+    }
 
     fn test_output(base: &str) -> std::path::PathBuf {
         let unique = format!(
@@ -1675,80 +1733,89 @@ mod tests {
     }
 
     fn write_config(
-        path: &std::path::Path,
-        output: &std::path::Path,
-        mode: &str,
+        path: &Path,
+        output: &Path,
+        mode: &'static str,
         strict: bool,
         sampler_enabled: bool,
     ) {
-        let content = format!(
-            r#"[controller]
-initially_enabled = false
-
-[controller.activation]
-mode = "{mode}"
-strict_lifecycle = {strict}
-
-[controller.activation.capture_limits_override]
-max_requests = 17
-max_stages = 18
-
-[controller.activation.sink]
-type = "local_json"
-output_path = "{}"
-
-[controller.activation.runtime_sampler]
-enabled_for_armed_runs = {sampler_enabled}
-mode_override = "investigation"
-interval_ms = 250
-max_runtime_snapshots = 123
-
-[controller.activation.run_end_policy]
-kind = "auto_seal_on_limits_hit"
-"#,
-            output.display()
-        );
+        let content = toml::to_string(&TestControllerConfigToml {
+            controller: TestControllerConfigBodyToml {
+                service_name: None,
+                initially_enabled: Some(false),
+                activation: TestActivationToml {
+                    mode,
+                    capture_limits_override: Some(TestCaptureLimitsOverrideToml {
+                        max_requests: Some(17),
+                        max_stages: Some(18),
+                    }),
+                    strict_lifecycle: Some(strict),
+                    sink: TestSinkToml {
+                        sink_type: "local_json",
+                        output_path: output.to_path_buf(),
+                    },
+                    runtime_sampler: Some(TestRuntimeSamplerToml {
+                        enabled_for_armed_runs: sampler_enabled,
+                        mode_override: "investigation",
+                        interval_ms: 250,
+                        max_runtime_snapshots: 123,
+                    }),
+                    run_end_policy: Some(TestRunEndPolicyToml {
+                        kind: "auto_seal_on_limits_hit",
+                    }),
+                },
+            },
+        })
+        .expect("config TOML serialization should succeed");
         fs::write(path, content).expect("config write should succeed");
     }
 
-    fn write_initially_enabled_config(path: &std::path::Path, output: &std::path::Path) {
-        let content = format!(
-            r#"[controller]
-initially_enabled = true
-service_name = "toml-service-name"
-
-[controller.activation]
-mode = "investigation"
-strict_lifecycle = true
-
-[controller.activation.capture_limits_override]
-max_requests = 9
-
-[controller.activation.sink]
-type = "local_json"
-output_path = "{}"
-
-[controller.activation.run_end_policy]
-kind = "auto_seal_on_limits_hit"
-"#,
-            output.display()
-        );
+    fn write_initially_enabled_config(path: &Path, output: &Path) {
+        let content = toml::to_string(&TestControllerConfigToml {
+            controller: TestControllerConfigBodyToml {
+                service_name: Some("toml-service-name".to_owned()),
+                initially_enabled: Some(true),
+                activation: TestActivationToml {
+                    mode: "investigation",
+                    capture_limits_override: Some(TestCaptureLimitsOverrideToml {
+                        max_requests: Some(9),
+                        max_stages: None,
+                    }),
+                    strict_lifecycle: Some(true),
+                    sink: TestSinkToml {
+                        sink_type: "local_json",
+                        output_path: output.to_path_buf(),
+                    },
+                    runtime_sampler: None,
+                    run_end_policy: Some(TestRunEndPolicyToml {
+                        kind: "auto_seal_on_limits_hit",
+                    }),
+                },
+            },
+        })
+        .expect("config TOML serialization should succeed");
         fs::write(path, content).expect("config write should succeed");
     }
 
-    fn write_sparse_config(path: &std::path::Path, output: &std::path::Path, mode: &str) {
-        let content = format!(
-            r#"[controller]
-
-[controller.activation]
-mode = "{mode}"
-
-[controller.activation.sink]
-type = "local_json"
-output_path = "{}"
-"#,
-            output.display()
-        );
+    fn write_sparse_config(path: &Path, output: &Path, mode: &'static str) {
+        let content = toml::to_string(&TestControllerConfigToml {
+            controller: TestControllerConfigBodyToml {
+                service_name: None,
+                initially_enabled: None,
+                activation: TestActivationToml {
+                    mode,
+                    capture_limits_override: None,
+                    strict_lifecycle: None,
+                    sink: TestSinkToml {
+                        sink_type: "local_json",
+                        output_path: output.to_path_buf(),
+                    },
+                    runtime_sampler: None,
+                    run_end_policy: None,
+                },
+            },
+        })
+        .expect("config TOML serialization should succeed");
         fs::write(path, content).expect("config write should succeed");
     }
 
@@ -2619,6 +2686,30 @@ output_path = "{}"
         assert!(TailtriageController::load_config_from_path(&config).is_err());
 
         fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn toml_parses_windows_style_escaped_output_path() {
+        let config_toml = r#"[controller]
+
+[controller.activation]
+mode = "light"
+   
+[controller.activation.sink]
+type = "local_json"
+output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
+"#;
+
+        let parsed: super::ControllerConfigFile =
+            toml::from_str(config_toml).expect("escaped Windows path should parse in TOML");
+
+        let loaded = parsed.into_loaded();
+        assert_eq!(
+            loaded.activation_template.sink_template,
+            ControllerSinkTemplate::LocalJson {
+                output_path: PathBuf::from(r"C:\Users\someone\AppData\Local\Temp\tailtriage.json"),
+            }
+        );
     }
 
     #[test]
