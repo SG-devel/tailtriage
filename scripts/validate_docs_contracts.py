@@ -251,7 +251,7 @@ def validate_controller_readme_toml() -> None:
         expanded_snippet = extract_fenced_block(
             readme_text,
             fence="toml",
-            anchor="### Expanded TOML example",
+            anchor="## Expanded TOML example",
         )
     else:
         snippets = extract_fenced_blocks_after_anchor(
