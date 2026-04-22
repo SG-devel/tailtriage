@@ -213,7 +213,7 @@ def validate_controller_readme_toml() -> None:
         r"service_name",
         r"initially_enabled",
         r"fall[s]?\s+back\s+to\s+(?:the\s+)?builder\s+value[s]?\s+when\s+omitted",
-        r"activation template settings come from TOML",
+        r"activation template settings(?:\s*\([^)]*\))?\s+come from TOML",
         r"omitted optional activation subfields use TOML contract defaults",
     )
     for token in precedence_tokens:
