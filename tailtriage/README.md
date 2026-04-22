@@ -29,10 +29,10 @@ The analysis result is a triage aid. It ranks likely bottleneck families and giv
 
 With the default crate you can use:
 
-- `tailtriage::Tailtriage` for a direct capture lifecycle
-- `tailtriage::controller::TailtriageController` for repeated bounded windows in long-lived services
-- `tailtriage::tokio` for optional runtime-pressure sampling
-- `tailtriage::axum` for optional Axum ergonomics
+- `tailtriage::Tailtriage` for a direct capture lifecycle *(always available)*
+- `tailtriage::controller::TailtriageController` for repeated bounded windows in long-lived services *(feature-gated: `controller`, enabled by default)*
+- `tailtriage::tokio` for optional runtime-pressure sampling *(feature-gated: `tokio`)*
+- `tailtriage::axum` for optional Axum ergonomics *(feature-gated: `axum`)*
 
 ## Installation
 

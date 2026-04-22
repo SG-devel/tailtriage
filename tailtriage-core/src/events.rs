@@ -158,7 +158,8 @@ pub struct RunMetadata {
     pub unfinished_requests: UnfinishedRequests,
     /// Why the run lifecycle ended.
     ///
-    /// This field may be `None` for older artifacts that predate explicit run-end reasons.
+    /// This field may be `None` for older artifacts and for runs that do not
+    /// record an explicit end reason (including direct `tailtriage-core` runs today).
     #[serde(default)]
     pub run_end_reason: Option<RunEndReason>,
 }

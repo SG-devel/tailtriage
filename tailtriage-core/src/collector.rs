@@ -295,9 +295,16 @@ impl Tailtriage {
 
     /// Writes the current run artifact and finishes the run lifecycle.
     ///
+    /// With default/non-strict lifecycle, unfinished requests are recorded in
+    /// metadata warnings and unfinished-request samples, then the artifact is written.
+    ///
+    /// With `strict_lifecycle(true)`, unfinished requests cause an early
+    /// [`SinkError::Lifecycle`] return and the artifact is not written.
+    ///
     /// # Errors
     ///
-    /// Returns [`SinkError`] if serialization or writing fails.
+    /// Returns [`SinkError`] if lifecycle validation fails in strict mode, or if
+    /// serialization or writing fails.
     pub fn shutdown(&self) -> Result<(), SinkError> {
         let mut pending_samples = Vec::new();
         let pending_count = {
