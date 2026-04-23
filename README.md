@@ -215,14 +215,14 @@ Use the GitHub/workspace path when you want to run packaged examples, inspect in
 Five public examples to start with:
 
 - `minimal_checkout` — fastest capture-to-analyze loop
-- `axum_minimal` — smallest Axum framework starter
+- `axum_core_manual` — manual Axum + `tailtriage-core` framework wiring
 - `axum_service_adoption` — service-shaped Axum adoption example
 - `mini_service_integration` — helper-layer or fractured-code instrumentation shape
 - `controller_minimal` — arm/disarm controller lifecycle starter
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
-cargo run -p tailtriage-axum --example axum_minimal
+cargo run -p tailtriage-axum --example axum_core_manual
 cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
 cargo run -p tailtriage-controller --example controller_minimal

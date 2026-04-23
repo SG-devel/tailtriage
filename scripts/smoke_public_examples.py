@@ -23,7 +23,7 @@ EXAMPLES = [
     },
     {
         "package": "tailtriage-axum",
-        "name": "axum_minimal",
+        "name": "axum_core_manual",
         "artifact": "tailtriage-run.json",
     },
     {

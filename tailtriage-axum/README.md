@@ -14,6 +14,8 @@ This crate gives you three Axum-facing pieces:
 
 This crate is about integration ergonomics. It does not replace explicit instrumentation inside the request body.
 
+The primary integration path in this crate is `middleware`, `middleware_with_status_classifier(...)`, and `TailtriageRequest`.
+
 ## When to choose this crate
 
 Choose `tailtriage-axum` when:
@@ -62,6 +64,11 @@ fn app(tailtriage: Arc<Tailtriage>) -> Router {
         .layer(from_fn_with_state(tailtriage, middleware))
 }
 ```
+
+## Examples
+
+- `axum_service_adoption`: primary service-shaped example using `tailtriage-axum` middleware + `TailtriageRequest`.
+- `axum_core_manual`: manual Axum + `tailtriage-core` wiring for equivalent framework integration without `tailtriage-axum`.
 
 ## Automatic vs explicit responsibilities
 
