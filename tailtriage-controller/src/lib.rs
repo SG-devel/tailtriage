@@ -114,7 +114,15 @@ impl TailtriageControllerBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`ControllerBuildError::EmptyServiceName`] when `service_name` is blank.
+    /// Returns [`ControllerBuildError::EmptyServiceName`] when the builder value and
+    /// any loaded config both resolve to a blank `service_name`.
+    ///
+    /// Returns [`ControllerBuildError::ConfigLoad`] when `config_path(...)` is set and
+    /// reading or parsing the TOML file fails.
+    ///
+    /// Returns [`ControllerBuildError::InitialEnable`] when
+    /// [`Self::initially_enabled`] is `true` and the first generation cannot be
+    /// armed.
     pub fn build(self) -> Result<TailtriageController, ControllerBuildError> {
         let mut service_name = self.service_name;
         if service_name.trim().is_empty() {
@@ -398,8 +406,16 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
-    /// Returns [`EnableError::AlreadyActive`] when another generation is already active,
-    /// and [`EnableError::Build`] when the run cannot be constructed.
+    /// Returns [`EnableError::AlreadyActive`] when another generation is already active.
+    ///
+    /// Returns [`EnableError::Build`] when constructing the generation run fails.
+    ///
+    /// Returns [`EnableError::MissingTokioRuntimeForSampler`] when runtime sampler
+    /// template startup is enabled but `enable()` is called outside an active Tokio runtime.
+    ///
+    /// Returns [`EnableError::StartRuntimeSampler`] when runtime sampler startup is
+    /// enabled but sampler initialization fails (for example, duplicate sampler start
+    /// on the same run).
     ///
     pub fn enable(&self) -> Result<ActiveGenerationState, EnableError> {
         let template = self
