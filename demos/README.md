@@ -1,6 +1,6 @@
 # Demo guide: scenarios
 
-The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality claims.
+The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality proof.
 
 ## Brief introduction
 
@@ -23,7 +23,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 
 **What it does not prove**
 
-- It is not a demonstration of every production queue topology or all burst regimes.
+- It is not proof of every production queue topology or all burst regimes.
 
 **Realistic vs synthetic**
 
@@ -88,7 +88,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 **What it does not prove**
 
 - Still a synthetic model of DB pool saturation.
-- Not a demonstration of behavior under a real DB client/driver stack.
+- Not proof of behavior under a real DB client/driver stack.
 
 **Realistic vs synthetic**
 
@@ -124,7 +124,7 @@ These are valuable and should remain first-class docs, but are best after the co
 
 **What it does not prove**
 
-- Not a demonstration that all lock-contention patterns map identically in every production design.
+- Not proof that all lock-contention patterns map identically in every production design.
 
 **Realistic vs synthetic**
 
