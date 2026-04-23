@@ -95,6 +95,7 @@ TOML config is useful when you want to:
 - refresh future capture generations with `reload_config()` while leaving the active generation unchanged
 
 See [`tailtriage-controller/README.md`](tailtriage-controller/README.md) for the TOML field reference, expanded TOML example, and reload semantics.
+For a runnable TOML-backed startup path, see the public example `controller_toml_startup` in `tailtriage-controller/examples/`.
 
 ## Minimal examples
 
@@ -212,13 +213,16 @@ Use the GitHub/workspace path when you want to run packaged examples, inspect in
 
 ## Examples
 
-Five public examples to start with:
+Six public examples to start with:
 
 - `minimal_checkout` — fastest capture-to-analyze loop
 - `axum_core_manual` — manual Axum + `tailtriage-core` framework wiring
 - `axum_service_adoption` — service-shaped Axum adoption example
 - `mini_service_integration` — helper-layer or fractured-code instrumentation shape
 - `controller_minimal` — arm/disarm controller lifecycle starter
+- `controller_toml_startup` — TOML-backed controller startup and activation example
+
+Start with `controller_toml_startup` when you want the most direct example of config-file-driven controller startup.
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
@@ -226,6 +230,7 @@ cargo run -p tailtriage-axum --example axum_core_manual
 cargo run -p tailtriage-axum --example axum_service_adoption
 cargo run -p tailtriage-tokio --example mini_service_integration
 cargo run -p tailtriage-controller --example controller_minimal
+cargo run -p tailtriage-controller --example controller_toml_startup
 python3 scripts/smoke_public_examples.py
 ```
 
