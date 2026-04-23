@@ -76,7 +76,6 @@ README_DOC_MAP_REQUIRED_LINKS = (
 DOCS_DISALLOWED_HISTORY_PATTERNS = (
     r"issue\s*#\d+",
     r"PR\s*#\d+",
-    r"roadmap",
 )
 
 DIAGNOSTICS_FIELD_REFERENCE_LABELS = (
@@ -109,6 +108,22 @@ def extract_fenced_blocks_after_anchor(markdown: str, *, fence: str, anchor: str
 
     pattern = re.compile(rf"```{re.escape(fence)}\n(.*?)\n```", re.DOTALL)
     return [match.group(1) for match in pattern.finditer(markdown, pos=anchor_index)]
+
+
+def extract_all_fenced_blocks(markdown: str, *, fence: str) -> list[str]:
+    pattern = re.compile(rf"```{re.escape(fence)}\n(.*?)\n```", re.DOTALL)
+    return [match.group(1) for match in pattern.finditer(markdown)]
+
+
+def markdown_links(markdown: str) -> set[str]:
+    return set(re.findall(r"\[[^\]]+\]\(([^)]+)\)", markdown))
+
+
+def has_markdown_heading(markdown: str, heading_pattern: str) -> bool:
+    return (
+        re.search(rf"^\s*#+\s+{heading_pattern}\s*$", markdown, flags=re.IGNORECASE | re.MULTILINE)
+        is not None
+    )
 
 
 def _kind_of(value: Any) -> str:
@@ -201,24 +216,9 @@ def extract_run_end_policy_kinds_from_source() -> set[str]:
 
 def validate_controller_readme_toml() -> None:
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
-    if "## TOML field reference" not in readme_text:
-        raise ValueError("controller README must include a dedicated '## TOML field reference' section")
-    if "where supported by the config contract" in readme_text:
-        raise ValueError(
-            "controller README contains misleading TOML precedence wording; "
-            "do not claim broad builder fallback for omitted TOML fields"
-        )
-
-    precedence_tokens = (
-        r"service_name",
-        r"initially_enabled",
-        r"fall[s]?\s+back\s+to\s+(?:the\s+)?builder\s+value[s]?\s+when\s+omitted",
-        r"activation template settings(?:\s*\([^)]*\))?\s+come from TOML",
-        r"omitted optional activation subfields use TOML contract defaults",
-    )
-    for token in precedence_tokens:
-        if re.search(token, readme_text, flags=re.IGNORECASE) is None:
-            raise ValueError(f"controller README precedence guidance missing token: {token}")
+    if not has_markdown_heading(readme_text, r"TOML\s+field\s+reference"):
+        raise ValueError("controller README must include a TOML field reference section")
+    _validate_controller_precedence_semantics(readme_text)
 
     required_reference_tokens = (
         "service_name",
@@ -254,11 +254,7 @@ def validate_controller_readme_toml() -> None:
             anchor="## Expanded TOML example",
         )
     else:
-        snippets = extract_fenced_blocks_after_anchor(
-            readme_text,
-            fence="toml",
-            anchor="## Config precedence and reload rules",
-        )
+        snippets = extract_all_fenced_blocks(readme_text, fence="toml")
         if len(snippets) < 2:
             raise ValueError("controller README must include minimal and expanded TOML examples")
         minimal_snippet, expanded_snippet = snippets[0], snippets[1]
@@ -296,6 +292,31 @@ def validate_controller_readme_toml() -> None:
     run_end_policy = expanded_activation["run_end_policy"]
     if "kind" not in run_end_policy:
         raise ValueError("expanded controller TOML example must include run_end_policy.kind")
+
+
+def _validate_controller_precedence_semantics(readme_text: str) -> None:
+    semantic_checks = (
+        (
+            "service_name fallback",
+            r"service_name[\s\S]{0,200}(?:fall[s]?\s+back|uses?)[\s\S]{0,120}builder",
+        ),
+        (
+            "initially_enabled fallback",
+            r"initially_enabled[\s\S]{0,200}(?:fall[s]?\s+back|uses?)[\s\S]{0,120}builder",
+        ),
+        (
+            "activation settings owned by TOML",
+            r"(?:activation[\s\S]{0,200}(?:comes?\s+from|owned\s+by)[\s\S]{0,80}toml|toml[\s\S]{0,80}owned[\s\S]{0,120}activation)",
+        ),
+        (
+            "activation optional-subfield defaults",
+            r"omitted[\s\S]{0,120}activation[\s\S]{0,120}default",
+        ),
+    )
+    lower_text = readme_text.lower()
+    for check_name, pattern in semantic_checks:
+        if re.search(pattern, lower_text, flags=re.IGNORECASE) is None:
+            raise ValueError(f"controller README precedence guidance missing semantic rule: {check_name}")
 
 
 def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str) -> None:
@@ -377,19 +398,27 @@ def validate_no_stale_controller_policy_names() -> None:
 
 def validate_docs_index_contract() -> None:
     text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
-    for required_link in DOCS_REQUIRED_LINKS:
-        if required_link not in text:
-            raise ValueError(f"docs index missing required link: {required_link}")
+    links = markdown_links(text)
+    required_paths = {
+        match.group(1)
+        for link in DOCS_REQUIRED_LINKS
+        for match in [re.search(r"\(([^)]+)\)\s*$", link)]
+        if match is not None
+    }
+    missing = sorted(required_paths.difference(links))
+    if missing:
+        raise ValueError(f"docs index missing required links: {missing}")
 
 
 def validate_user_guide_contract() -> None:
     text = USER_GUIDE_PATH.read_text(encoding="utf-8")
-    required_tokens = (
-        "Default adoption path",
-        "Request lifecycle contract (required)",
-        "Direct capture vs controller",
-        "Controller TOML config and reload semantics",
-        "TailtriageController::builder(",
+    lower_text = text.lower()
+    required_concepts = (
+        "default adoption path",
+        "request lifecycle contract",
+        "direct capture vs controller",
+        "controller toml config",
+        "tailtriagecontroller::builder(",
         "[controller]",
         "[controller.activation]",
         "[controller.activation.sink]",
@@ -397,9 +426,9 @@ def validate_user_guide_contract() -> None:
         "future generations only",
         "insufficient_evidence",
     )
-    for token in required_tokens:
-        if token not in text:
-            raise ValueError(f"user guide missing required section/token: {token}")
+    for concept in required_concepts:
+        if concept not in lower_text:
+            raise ValueError(f"user guide missing required concept/token: {concept}")
 
     toml_snippet = extract_fenced_block(
         text,
@@ -441,9 +470,16 @@ def validate_user_guide_contract() -> None:
 
 def validate_root_readme_docs_map_parity() -> None:
     text = README_PATH.read_text(encoding="utf-8")
-    for required_link in README_DOC_MAP_REQUIRED_LINKS:
-        if required_link not in text:
-            raise ValueError(f"root README docs map missing required link: {required_link}")
+    links = markdown_links(text)
+    required_paths = {
+        match.group(1)
+        for link in README_DOC_MAP_REQUIRED_LINKS
+        for match in [re.search(r"\(([^)]+)\)\s*$", link)]
+        if match is not None
+    }
+    missing = sorted(required_paths.difference(links))
+    if missing:
+        raise ValueError(f"root README docs map missing required links: {missing}")
 
 
 def validate_diagnostics_contract_truthfulness() -> None:

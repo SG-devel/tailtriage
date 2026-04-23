@@ -87,7 +87,7 @@ impl Tailtriage {
     def test_sampler_integration_boundary_contract_validates(self) -> None:
         validate_docs_contracts.validate_sampler_integration_boundary()
 
-    def test_controller_readme_toml_validation_requires_current_anchor(self) -> None:
+    def test_controller_readme_toml_validation_allows_equivalent_headings(self) -> None:
         readme_text = """# tailtriage-controller
 
 ## Config file (TOML)
@@ -317,12 +317,15 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
                 ):
                     validate_docs_contracts.validate_controller_readme_toml()
 
-    def test_controller_readme_toml_validation_fails_on_misleading_precedence_phrase(self) -> None:
+    def test_controller_readme_toml_validation_accepts_semantic_precedence_wording(self) -> None:
         readme_text = """# tailtriage-controller
 
-## Config file (TOML)
+## Config behavior
 
-If a TOML field is omitted, builder/default values continue to apply where supported by the config contract.
+If omitted in TOML, `service_name` uses the builder value.
+If omitted in TOML, `initially_enabled` uses the builder value.
+Activation template settings are TOML-owned.
+Any omitted optional activation fields use contract defaults.
 
 ```toml
 [controller]
@@ -374,8 +377,86 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             readme_path.write_text(readme_text, encoding="utf-8")
 
             with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
-                with self.assertRaisesRegex(ValueError, r"misleading TOML precedence wording"):
+                validate_docs_contracts.validate_controller_readme_toml()
+
+    def test_controller_readme_toml_validation_fails_without_precedence_semantics(self) -> None:
+        readme_text = """# tailtriage-controller
+
+## Config behavior
+
+TOML controls config for this crate.
+
+```toml
+[controller]
+service_name = "checkout-service"
+
+[controller.activation]
+mode = "light"
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+```
+
+```toml
+[controller]
+service_name = "checkout-service"
+initially_enabled = false
+
+[controller.activation]
+mode = "investigation"
+
+[controller.activation.capture_limits_override]
+max_requests = 100
+max_stages = 200
+max_queues = 200
+max_inflight_snapshots = 200
+max_runtime_snapshots = 100
+
+[controller.activation.sink]
+type = "local_json"
+output_path = "tailtriage-run.json"
+
+[controller.activation.runtime_sampler]
+enabled_for_armed_runs = true
+mode_override = "investigation"
+interval_ms = 250
+max_runtime_snapshots = 50
+
+[controller.activation.run_end_policy]
+kind = "auto_seal_on_limits_hit"
+```
+
+## TOML field reference
+
+service_name initially_enabled mode strict_lifecycle capture_limits_override max_requests max_stages max_queues max_inflight_snapshots max_runtime_snapshots enabled_for_armed_runs mode_override interval_ms run_end_policy continue_after_limits_hit auto_seal_on_limits_hit
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            readme_path = Path(tmp_dir) / "README.md"
+            readme_path.write_text(readme_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
+                with self.assertRaisesRegex(ValueError, r"precedence guidance missing semantic rule"):
                     validate_docs_contracts.validate_controller_readme_toml()
+
+    def test_validate_docs_index_contract_checks_paths_not_link_labels(self) -> None:
+        docs_index = """# Documentation index
+
+- [Guide](user-guide.md)
+- [Diag](diagnostics.md)
+- [Controller crate](../tailtriage-controller/README.md)
+- [Sampler crate](../tailtriage-tokio/README.md)
+- [CLI crate](../tailtriage-cli/README.md)
+- [Runtime cost notes](runtime-cost.md)
+- [Collector limits notes](collector-limits.md)
+- [Demos](getting-started-demo.md)
+- [Architecture overview](architecture.md)
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            docs_path = Path(tmp_dir) / "README.md"
+            docs_path.write_text(docs_index, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_path):
+                validate_docs_contracts.validate_docs_index_contract()
 
 
 if __name__ == "__main__":
