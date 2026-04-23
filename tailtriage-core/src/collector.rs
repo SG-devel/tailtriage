@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -239,7 +240,7 @@ impl Tailtriage {
             mode: config.mode,
             effective_core_config: Some(config.effective_core),
             effective_tokio_sampler_config: None,
-            host: None,
+            host: lookup_host_name(),
             pid: Some(std::process::id()),
             lifecycle_warnings: Vec::new(),
             unfinished_requests: crate::UnfinishedRequests::default(),
@@ -346,7 +347,8 @@ impl Tailtriage {
     /// the final artifact through the configured sink.
     ///
     /// `snapshot()` is useful for diagnostics and tests while capture is still
-    /// running.
+    /// running. While capture is active, `metadata.finished_at_unix_ms` in this
+    /// in-memory view is not yet finalized.
     #[must_use]
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
@@ -901,7 +903,21 @@ pub(crate) fn duration_to_us(duration: Duration) -> u64 {
 }
 
 fn generate_run_id() -> String {
-    format!("run-{}", unix_time_ms())
+    format!("run-{}", uuid::Uuid::new_v4())
+}
+
+fn lookup_host_name() -> Option<String> {
+    let os_host = hostname::get().ok()?;
+    normalize_host_name(os_host)
+}
+
+fn normalize_host_name(host: OsString) -> Option<String> {
+    let host = host.into_string().ok()?;
+    let trimmed = host.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_owned())
 }
 
 fn generate_request_id(route: &str) -> String {
@@ -915,3 +931,23 @@ fn generate_request_id(route: &str) -> String {
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static PENDING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_host_name;
+    use std::ffi::OsString;
+
+    #[test]
+    fn normalize_host_name_rejects_blank_values() {
+        assert_eq!(normalize_host_name(OsString::from("")), None);
+        assert_eq!(normalize_host_name(OsString::from("   ")), None);
+    }
+
+    #[test]
+    fn normalize_host_name_trims_non_blank_values() {
+        assert_eq!(
+            normalize_host_name(OsString::from(" checkout-host \n")),
+            Some("checkout-host".to_owned())
+        );
+    }
+}

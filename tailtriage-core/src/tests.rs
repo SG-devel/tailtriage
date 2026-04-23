@@ -69,6 +69,31 @@ fn generated_request_ids_are_unique() {
 }
 
 #[test]
+fn generated_default_run_ids_are_unique() {
+    let first = Tailtriage::builder("payments")
+        .build()
+        .expect("first build should succeed");
+    let second = Tailtriage::builder("payments")
+        .build()
+        .expect("second build should succeed");
+
+    assert_ne!(
+        first.snapshot().metadata.run_id,
+        second.snapshot().metadata.run_id
+    );
+}
+
+#[test]
+fn explicit_run_id_is_preserved() {
+    let run = Tailtriage::builder("payments")
+        .run_id("user-supplied-run-id")
+        .build()
+        .expect("build should succeed");
+
+    assert_eq!(run.snapshot().metadata.run_id, "user-supplied-run-id");
+}
+
+#[test]
 fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
     let tailtriage = build_for_test("payments", "tailtriage-core-duplicate-explicit-id.json");
     let first = tailtriage.begin_request_with(
