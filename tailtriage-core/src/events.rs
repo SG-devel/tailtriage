@@ -123,7 +123,10 @@ impl TruncationSummary {
 /// Top-level metadata for one capture run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunMetadata {
-    /// A unique identifier for the run.
+    /// Identifier for the run.
+    ///
+    /// When not supplied by the caller, `tailtriage-core` generates a UUID-based
+    /// identifier.
     pub run_id: String,
     /// Service/application name.
     pub service_name: String,
@@ -132,6 +135,10 @@ pub struct RunMetadata {
     /// Timestamp (milliseconds since epoch UTC) when collection started.
     pub started_at_unix_ms: u64,
     /// Timestamp (milliseconds since epoch UTC) when collection ended.
+    ///
+    /// During active capture, in-memory snapshots may still show the start-time
+    /// placeholder. `shutdown()` writes the finalized end timestamp to the
+    /// persisted artifact.
     pub finished_at_unix_ms: u64,
     /// Capture mode, such as "light" or "investigation".
     pub mode: CaptureMode,
@@ -146,7 +153,7 @@ pub struct RunMetadata {
     /// It may be `None` for runs without Tokio sampling and for older artifacts.
     #[serde(default)]
     pub effective_tokio_sampler_config: Option<EffectiveTokioSamplerConfig>,
-    /// Hostname if available.
+    /// Hostname captured at run creation when available as valid UTF-8.
     pub host: Option<String>,
     /// Process identifier if available.
     pub pid: Option<u32>,

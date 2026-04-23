@@ -114,8 +114,11 @@ impl TailtriageControllerBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`ControllerBuildError::EmptyServiceName`] when the builder value and
-    /// any loaded config both resolve to a blank `service_name`.
+    /// When `config_path(...)` is set, `controller.service_name` from TOML takes
+    /// precedence when present; the builder value is used only when TOML omits it.
+    ///
+    /// Returns [`ControllerBuildError::EmptyServiceName`] when the final resolved
+    /// `service_name` is blank.
     ///
     /// Returns [`ControllerBuildError::ConfigLoad`] when `config_path(...)` is set and
     /// reading or parsing the TOML file fails.
@@ -125,10 +128,6 @@ impl TailtriageControllerBuilder {
     /// armed.
     pub fn build(self) -> Result<TailtriageController, ControllerBuildError> {
         let mut service_name = self.service_name;
-        if service_name.trim().is_empty() {
-            return Err(ControllerBuildError::EmptyServiceName);
-        }
-
         let mut initially_enabled = self.initially_enabled;
         let mut sink_template = self.sink_template;
         let mut selected_mode = CaptureMode::Light;
@@ -1835,6 +1834,32 @@ mod tests {
         fs::write(path, content).expect("config write should succeed");
     }
 
+    fn write_config_with_optional_service_name(
+        path: &Path,
+        output: &Path,
+        service_name: Option<&str>,
+    ) {
+        let content = toml::to_string(&TestControllerConfigToml {
+            controller: TestControllerConfigBodyToml {
+                service_name: service_name.map(str::to_owned),
+                initially_enabled: Some(false),
+                activation: TestActivationToml {
+                    mode: "light",
+                    capture_limits_override: None,
+                    strict_lifecycle: None,
+                    sink: TestSinkToml {
+                        sink_type: "local_json",
+                        output_path: output.to_path_buf(),
+                    },
+                    runtime_sampler: None,
+                    run_end_policy: None,
+                },
+            },
+        })
+        .expect("config TOML serialization should succeed");
+        fs::write(path, content).expect("config write should succeed");
+    }
+
     fn write_raw_config(path: &std::path::Path, content: &str) {
         fs::write(path, content).expect("config write should succeed");
     }
@@ -3086,6 +3111,65 @@ kind = "continue_after_limits_hit"
             err,
             ControllerBuildError::ConfigLoad(super::ConfigLoadError::Io { .. })
         ));
+    }
+
+    #[test]
+    fn config_service_name_overrides_builder_service_name_when_present() {
+        let output = test_output("build-config-service-name-overrides");
+        let config = test_config_path("build-config-service-name-overrides");
+        write_config_with_optional_service_name(&config, &output, Some("toml-service-name"));
+
+        let controller = TailtriageController::builder("builder-service-name")
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+        assert_eq!(
+            controller.status().template.service_name,
+            "toml-service-name"
+        );
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn blank_builder_service_name_uses_non_blank_toml_service_name() {
+        let output = test_output("build-blank-builder-uses-toml");
+        let config = test_config_path("build-blank-builder-uses-toml");
+        write_config_with_optional_service_name(&config, &output, Some("toml-service-name"));
+
+        let controller = TailtriageController::builder("   ")
+            .config_path(&config)
+            .build()
+            .expect("build should succeed");
+        assert_eq!(
+            controller.status().template.service_name,
+            "toml-service-name"
+        );
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn blank_builder_service_name_without_config_fails_build() {
+        let err = TailtriageController::builder("   ")
+            .build()
+            .expect_err("blank builder service_name without config should fail");
+        assert!(matches!(err, ControllerBuildError::EmptyServiceName));
+    }
+
+    #[test]
+    fn blank_builder_and_blank_toml_service_name_fail_build() {
+        let output = test_output("build-blank-builder-blank-toml");
+        let config = test_config_path("build-blank-builder-blank-toml");
+        write_config_with_optional_service_name(&config, &output, Some(""));
+
+        let err = TailtriageController::builder("   ")
+            .config_path(&config)
+            .build()
+            .expect_err("blank builder and blank TOML service_name should fail");
+        assert!(matches!(err, ControllerBuildError::EmptyServiceName));
+
+        fs::remove_file(config).expect("config cleanup should succeed");
     }
 
     #[test]
