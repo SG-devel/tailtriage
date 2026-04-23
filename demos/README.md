@@ -272,7 +272,7 @@ These remain useful and should stay documented, but docs should treat them as mo
 **What it simulates**
 
 - Fanout-heavy request handling with repeated CPU turns and frequent scheduling.
-- Baseline uses fewer worker threads and heavier fanout.
+- Baseline keeps the same worker-thread count as mitigated mode, while increasing fanout tasks, CPU turns, and snapshot depth amplification.
 - Runtime snapshots include runnable-depth signals.
 
 **What it proves well**
