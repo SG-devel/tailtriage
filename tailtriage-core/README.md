@@ -119,7 +119,7 @@ Finalization timestamps:
   - `metadata.finished_at_unix_ms` set to shutdown time
   - `metadata.finalized_at_unix_ms` set to that same timestamp
 - Older artifacts may deserialize with `metadata.finalized_at_unix_ms == None`.
-- When `metadata.finalized_at_unix_ms` is present, prefer that field as the finalization signal; finished_at_unix_ms remains for backward compatibility.
+- When `finalized_at_unix_ms` is present, prefer that field as the finalization signal; `finished_at_unix_ms` remains for backward compatibility.
 
 ## Capture modes
 
