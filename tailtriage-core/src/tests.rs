@@ -84,6 +84,16 @@ fn generated_default_run_ids_are_unique() {
 }
 
 #[test]
+fn active_snapshot_is_not_finalized() {
+    let tailtriage = Tailtriage::builder("payments")
+        .build()
+        .expect("build should succeed");
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.metadata.finalized_at_unix_ms.is_none());
+}
+
+#[test]
 fn explicit_run_id_is_preserved() {
     let run = Tailtriage::builder("payments")
         .run_id("user-supplied-run-id")
@@ -184,6 +194,10 @@ fn shutdown_writes_artifact() {
             .expect("effective core config should be present for new runs")
             .capture_limits,
         CaptureMode::Light.core_defaults()
+    );
+    assert!(
+        run.metadata.finalized_at_unix_ms.is_some(),
+        "shutdown artifact should include finalized timestamp"
     );
 }
 
@@ -620,6 +634,47 @@ fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
     let parsed: crate::Run = serde_json::from_value(legacy).expect("legacy run should parse");
     assert_eq!(parsed.metadata.mode, CaptureMode::Investigation);
     assert!(parsed.metadata.effective_core_config.is_none());
+    assert!(parsed.metadata.finalized_at_unix_ms.is_none());
+}
+
+#[test]
+fn run_deserialization_ignores_unknown_metadata_fields() {
+    let with_extra = serde_json::json!({
+        "schema_version": crate::SCHEMA_VERSION,
+        "metadata": {
+            "run_id": "run-extra",
+            "service_name": "payments",
+            "service_version": null,
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "mode": "light",
+            "host": null,
+            "pid": 123,
+            "lifecycle_warnings": [],
+            "unfinished_requests": {
+                "count": 0,
+                "sample": []
+            },
+            "future_metadata_field": "still-compatible"
+        },
+        "requests": [],
+        "stages": [],
+        "queues": [],
+        "inflight": [],
+        "runtime_snapshots": [],
+        "truncation": {
+            "dropped_requests": 0,
+            "dropped_stages": 0,
+            "dropped_queues": 0,
+            "dropped_inflight_snapshots": 0,
+            "dropped_runtime_snapshots": 0
+        }
+    });
+
+    let parsed: crate::Run =
+        serde_json::from_value(with_extra).expect("run with extra fields should parse");
+    assert_eq!(parsed.metadata.run_id, "run-extra");
+    assert!(parsed.metadata.finalized_at_unix_ms.is_none());
 }
 
 #[test]

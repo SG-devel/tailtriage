@@ -237,6 +237,7 @@ impl Tailtriage {
             service_version: config.service_version,
             started_at_unix_ms: now,
             finished_at_unix_ms: now,
+            finalized_at_unix_ms: None,
             mode: config.mode,
             effective_core_config: Some(config.effective_core),
             effective_tokio_sampler_config: None,
@@ -347,8 +348,8 @@ impl Tailtriage {
     /// the final artifact through the configured sink.
     ///
     /// `snapshot()` is useful for diagnostics and tests while capture is still
-    /// running. While capture is active, `metadata.finished_at_unix_ms` in this
-    /// in-memory view is not yet finalized.
+    /// running. While capture is active, `metadata.finalized_at_unix_ms` remains
+    /// `None` and `metadata.finished_at_unix_ms` is still provisional.
     #[must_use]
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
@@ -380,7 +381,9 @@ impl Tailtriage {
         };
 
         let mut guard = lock_run(&self.run);
-        guard.metadata.finished_at_unix_ms = unix_time_ms();
+        let finalized_at = unix_time_ms();
+        guard.metadata.finished_at_unix_ms = finalized_at;
+        guard.metadata.finalized_at_unix_ms = Some(finalized_at);
         if pending_count > 0 {
             guard.metadata.lifecycle_warnings.push(format!(
                 "{pending_count} unfinished request(s) remained at shutdown; run includes no fabricated completions"

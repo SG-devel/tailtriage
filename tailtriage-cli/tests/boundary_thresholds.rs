@@ -21,6 +21,7 @@ fn base_run() -> Run {
             service_version: None,
             started_at_unix_ms: 1,
             finished_at_unix_ms: 2,
+            finalized_at_unix_ms: Some(2),
             mode: CaptureMode::Light,
             effective_core_config: Some(tailtriage_core::EffectiveCoreConfig {
                 mode: CaptureMode::Light,
