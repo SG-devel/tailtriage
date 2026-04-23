@@ -414,8 +414,8 @@ impl TailtriageController {
     /// template startup is enabled but `enable()` is called outside an active Tokio runtime.
     ///
     /// Returns [`EnableError::StartRuntimeSampler`] when runtime sampler startup is
-    /// enabled but sampler initialization fails (for example, duplicate sampler start
-    /// on the same run).
+    /// enabled but sampler initialization fails (for example, when config sets
+    /// `interval_ms = 0`).
     ///
     pub fn enable(&self) -> Result<ActiveGenerationState, EnableError> {
         let template = self

@@ -218,6 +218,7 @@ def validate_controller_readme_toml() -> None:
     readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
     if not has_markdown_heading(readme_text, r"TOML\s+field\s+reference"):
         raise ValueError("controller README must include a TOML field reference section")
+    _validate_controller_precedence_semantics(readme_text)
 
     required_reference_tokens = (
         "service_name",
@@ -291,6 +292,31 @@ def validate_controller_readme_toml() -> None:
     run_end_policy = expanded_activation["run_end_policy"]
     if "kind" not in run_end_policy:
         raise ValueError("expanded controller TOML example must include run_end_policy.kind")
+
+
+def _validate_controller_precedence_semantics(readme_text: str) -> None:
+    semantic_checks = (
+        (
+            "service_name fallback",
+            r"service_name[\s\S]{0,200}(?:fall[s]?\s+back|uses?)[\s\S]{0,120}builder",
+        ),
+        (
+            "initially_enabled fallback",
+            r"initially_enabled[\s\S]{0,200}(?:fall[s]?\s+back|uses?)[\s\S]{0,120}builder",
+        ),
+        (
+            "activation settings owned by TOML",
+            r"(?:activation[\s\S]{0,200}(?:comes?\s+from|owned\s+by)[\s\S]{0,80}toml|toml[\s\S]{0,80}owned[\s\S]{0,120}activation)",
+        ),
+        (
+            "activation optional-subfield defaults",
+            r"omitted[\s\S]{0,120}activation[\s\S]{0,120}default",
+        ),
+    )
+    lower_text = readme_text.lower()
+    for check_name, pattern in semantic_checks:
+        if re.search(pattern, lower_text, flags=re.IGNORECASE) is None:
+            raise ValueError(f"controller README precedence guidance missing semantic rule: {check_name}")
 
 
 def _validate_controller_toml_shape(*, parsed: dict[str, Any], example_name: str) -> None:
