@@ -78,6 +78,32 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Two easy-to-miss helpers
+
+For infallible async work, `StageTimer::await_value(...)` avoids a dummy `Result`:
+
+```rust,no_run
+# use tailtriage_core::Tailtriage;
+# async fn demo(run: Tailtriage) {
+# let req = run.begin_request("/x").handle;
+let value = req.stage("cache").await_value(async { 42 }).await;
+# let _ = value;
+# }
+```
+
+When queue depth is known at enqueue time, `QueueTimer::with_depth_at_start(...)` records it directly:
+
+```rust,no_run
+# use tailtriage_core::Tailtriage;
+# async fn demo(run: Tailtriage) {
+# let req = run.begin_request("/x").handle;
+req.queue("ingress")
+    .with_depth_at_start(12)
+    .await_on(async {})
+    .await;
+# }
+```
+
 ## Lifecycle contract
 
 - `queue(...)`, `stage(...)`, and `inflight(...)` do **not** finish requests.

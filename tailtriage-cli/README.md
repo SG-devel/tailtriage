@@ -64,6 +64,7 @@ Then run one targeted check, change one thing, and re-run under comparable load.
   "p99_latency_us": 1518551,
   "p95_queue_share_permille": 982,
   "p95_service_share_permille": 267,
+  "inflight_trend": null,
   "warnings": [],
   "primary_suspect": {
     "kind": "application_queue_saturation",
@@ -79,6 +80,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
   "secondary_suspects": []
 }
 ```
+
+`inflight_trend` may be `null` when no in-flight gauges were captured.
 
 ## What the report contains
 
