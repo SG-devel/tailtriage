@@ -6,7 +6,7 @@ The demos are intentionally small services for Tokio tail-latency triage. They a
 
 Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
 
-## Strongest public proof demos
+## Strongest public demonstration scenarios
 
 ### `queue_service`
 
@@ -15,10 +15,10 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 - Requests compete for a limited semaphore (`worker_permit`).
 - Baseline has tighter capacity and slower work; mitigated raises capacity and shortens work.
 
-**What it proves well**
+**What it shows well**
 
 - One of the strongest demos.
-- Clear and convincing proof of queue-dominant latency.
+- Clear and convincing demonstration of queue-dominant latency in this controlled scenario.
 - Good flagship public demo for first-time readers.
 
 **What it does not prove**
@@ -46,11 +46,11 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 - Request flow with a tiny local precheck and a consistently slower downstream stage.
 - No intentional queue bottleneck.
 
-**What it proves well**
+**What it shows well**
 
 - One of the strongest demos.
 - Very clean stage-dominance story.
-- Strong public proof case for downstream-led latency.
+- Strong public demonstration case for downstream-led latency.
 
 **What it does not prove**
 
@@ -79,7 +79,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 - Separate `db_query` stage timing.
 - Baseline shrinks pool and slows query stage; mitigated does the reverse.
 
-**What it proves well**
+**What it shows well**
 
 - One of the best additional demos.
 - Shows queue-like admission bottleneck and downstream stage time in one common service shape.
@@ -116,7 +116,7 @@ These are valuable and should remain first-class docs, but are best after the co
 - Lock wait recorded as queue-like time on `shared_state_write_lock`.
 - Critical-section work recorded separately as `shared_state_critical_section`.
 
-**What it proves well**
+**What it shows well**
 
 - Conceptually strong example of non-obvious queue-like waits.
 - Demonstrates that queue here includes lock admission waits, not only channels/semaphores.
@@ -148,7 +148,7 @@ These are valuable and should remain first-class docs, but are best after the co
 - Per-attempt stages (`downstream_attempt_N`) plus full-loop `downstream_total`.
 - Mitigation changes retry count, backoff, jitter, and circuit-break-like cooldown behavior.
 
-**What it proves well**
+**What it shows well**
 
 - One of the most product-interesting demos.
 - Shows downstream dominance can come from retry policy, not just one slow call.
@@ -156,7 +156,7 @@ These are valuable and should remain first-class docs, but are best after the co
 
 **What it does not prove**
 
-- More conceptually advanced and more instrumentation-shaped than core proof demos.
+- More conceptually advanced and more instrumentation-shaped than core demonstration scenarios.
 
 **Realistic vs synthetic**
 
@@ -179,14 +179,14 @@ These are valuable and should remain first-class docs, but are best after the co
 - Combined queue pressure (semaphore admission) and downstream slowness (periodic slow stage).
 - Mitigation mainly reduces admission contention so rank/score can shift.
 
-**What it proves well**
+**What it shows well**
 
 - Multiple suspects can coexist in one diagnosis.
 - Useful supporting demo showing the analyzer is not single-cause-only.
 
 **What it does not prove**
 
-- Less crisp than queue-only or downstream-only stories, so not ideal as first public proof.
+- Less crisp than queue-only or downstream-only stories, so not ideal as first public demonstration.
 
 **Realistic vs synthetic**
 
@@ -209,7 +209,7 @@ These are valuable and should remain first-class docs, but are best after the co
 - Early cohort pays extra `cold_start_stage` delay while burst traffic competes for admission.
 - Mitigation reduces cold cohort and increases admission capacity.
 
-**What it proves well**
+**What it shows well**
 
 - Useful warmup-plus-burst explanation.
 - Shows how stage-level pathology can induce queue effects.
@@ -235,7 +235,7 @@ These are valuable and should remain first-class docs, but are best after the co
 
 ## More synthetic analyzer-contract demos
 
-These remain useful and should stay documented, but docs should treat them as more synthetic proofs.
+These remain useful and should stay documented, but docs should treat them as more synthetic demonstrations.
 
 ### `blocking_service`
 
@@ -245,13 +245,13 @@ These remain useful and should stay documented, but docs should treat them as mo
 - Baseline constrains `max_blocking_threads` and uses longer blocking work.
 - Runtime snapshots include synthetic `blocking_queue_depth` signals.
 
-**What it proves well**
+**What it shows well**
 
 - Directionally useful for exercising blocking-pool-pressure diagnosis behavior.
 
 **What it does not prove**
 
-- More synthetic than a strongest real-world proof case.
+- More synthetic than a strongest real-world demonstration case.
 
 **Realistic vs synthetic**
 
@@ -275,7 +275,7 @@ These remain useful and should stay documented, but docs should treat them as mo
 - Baseline keeps the same worker-thread count as mitigated mode, while increasing fanout tasks, CPU turns, and snapshot depth amplification.
 - Runtime snapshots include runnable-depth signals.
 
-**What it proves well**
+**What it shows well**
 
 - Useful for exercising executor-pressure diagnosis and rank behavior.
 
