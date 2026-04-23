@@ -139,6 +139,9 @@ impl RuntimeSampler {
     ///
     /// Returns [`SamplerStartError::MissingRuntime`] when called outside an
     /// active Tokio runtime.
+    ///
+    /// Returns [`SamplerStartError::DuplicateStart`] when runtime sampling was
+    /// already started for this run.
     pub fn start(
         tailtriage: Arc<Tailtriage>,
         interval: Duration,
