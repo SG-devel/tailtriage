@@ -99,7 +99,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tailtriage.shutdown()?;
 
     println!("Wrote {artifact_path}");
-    println!("This axum example is a framework adoption starter, not a production case study.");
+    println!("This example shows manual Axum + tailtriage-core wiring.");
+    println!("It intentionally does not use tailtriage-axum middleware/extractor.");
     println!("For a larger service-shaped example, run:");
     println!("  cargo run -p tailtriage-axum --example axum_service_adoption");
     println!("Next step:");

@@ -22,6 +22,8 @@ cargo add tailtriage-controller
 
 ## Quick start
 
+`output("tailtriage-run.json")` configures the base artifact path template. Each activation writes a per-generation artifact with `-generation-N` in the file name (for example, generation 1 writes `tailtriage-run-generation-1.json`).
+
 ```rust,no_run
 use tailtriage_controller::TailtriageController;
 
