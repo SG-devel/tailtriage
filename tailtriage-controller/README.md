@@ -12,7 +12,7 @@ Use `tailtriage-controller` when you need repeated arm/disarm windows in one pro
 
 Use `tailtriage-core` for a single explicit `build -> capture -> shutdown` run.
 
-Use `tailtriage` when you want the default entry point with optional controller support behind a feature.
+Use `tailtriage` when you want the default entry point with controller support enabled by default (or disabled via Cargo features).
 
 ## Installation
 
@@ -113,7 +113,8 @@ kind = "auto_seal_on_limits_hit"
 
 When TOML is loaded with `config_path(...)`:
 
-- `service_name` falls back to the builder value when omitted.
+- `service_name` from TOML overrides the builder value when present.
+- builder `service_name` is a fallback only when TOML omits `service_name`.
 - `initially_enabled` falls back to the builder value when omitted.
 - activation template settings come from TOML.
 - omitted optional activation subfields use TOML contract defaults.
