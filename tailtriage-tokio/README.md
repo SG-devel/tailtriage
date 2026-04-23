@@ -2,7 +2,12 @@
 
 `tailtriage-tokio` adds **Tokio runtime-pressure evidence** to a `tailtriage` run artifact.
 
-Use it when request lifecycle timing alone is not enough to separate likely bottleneck families (executor pressure, blocking-pool pressure, queueing pressure, or slow downstream work that can look like scheduler pressure).
+Use it when request lifecycle timing alone is not enough to separate likely runtime-related bottleneck families such as:
+
+- executor pressure
+- blocking-pool pressure
+- queueing pressure
+- slow downstream work that only looks like scheduler pressure at first glance
 
 ## What this crate does
 
@@ -15,11 +20,15 @@ This crate owns Tokio runtime sampler behavior:
 
 It does not change core request lifecycle semantics.
 
-## Crate selection
+## When to choose this crate
 
-Choose `tailtriage-tokio` when you already use `tailtriage-core` and want runtime snapshots in the same artifact, with direct control over sampler cadence and runtime snapshot retention.
+Choose `tailtriage-tokio` when:
 
-Choose `tailtriage` when you want the default entry point with feature-gated access.
+- you already use `tailtriage-core` and want runtime snapshots in the same artifact
+- you want stronger evidence for runtime-related bottlenecks
+- you want direct control over sampler cadence and runtime snapshot retention
+
+Choose `tailtriage` instead when you want the default entry point and feature-gated access to this crate.
 
 ## Installation
 
@@ -63,16 +72,16 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Important constraints
 
-- `RuntimeSampler::start()` requires an active Tokio runtime.
-- Only one successful sampler start is allowed per `Tailtriage` run.
-- `CaptureMode` does **not** auto-start runtime sampling.
-- Runtime snapshot retention is clamped by the resolved core capture limits.
+- `RuntimeSampler::start()` must run inside an active Tokio runtime
+- only one successful sampler start is allowed per `Tailtriage` run
+- `CaptureMode` does **not** auto-start runtime sampling
+- runtime snapshot retention is bounded by the resolved core capture limits
 
 ## What gets added to the artifact
 
-On successful sampler start, effective sampler configuration metadata is recorded before runtime snapshots are captured.
+On successful sampler start, tailtriage records effective sampler configuration metadata into the run artifact metadata before runtime snapshots are captured.
 
-When running, artifacts can include runtime snapshots such as:
+When the sampler is running, the run artifact can include runtime snapshots such as:
 
 - `alive_tasks`
 - `global_queue_depth`
@@ -80,7 +89,7 @@ When running, artifacts can include runtime snapshots such as:
 - `blocking_queue_depth`
 - `remote_schedule_count`
 
-(Some fields depend on Tokio build/runtime capabilities.)
+Some of these fields depend on Tokio build/runtime capabilities.
 
 ## Minimal configuration examples
 
@@ -135,10 +144,17 @@ run.shutdown()?;
 
 ## Mode defaults
 
-When sampler settings are not overridden, defaults follow the resolved sampler mode:
+When you do not override sampler settings, this crate uses Tokio-owned defaults based on the resolved sampler mode.
 
-- Light: `cadence = 500ms`, `max_runtime_snapshots = 5_000`
-- Investigation: `cadence = 100ms`, `max_runtime_snapshots = 50_000`
+### Light defaults
+
+- cadence: `500ms`
+- `max_runtime_snapshots = 5_000`
+
+### Investigation defaults
+
+- cadence: `100ms`
+- `max_runtime_snapshots = 50_000`
 
 These defaults apply only when the sampler is started.
 
@@ -146,11 +162,51 @@ These defaults apply only when the sampler is started.
 
 `RuntimeSampler::builder(...)` resolves configuration in this order:
 
-1. inherited mode from core-selected `CaptureMode`
+1. inherited mode from the core-selected `CaptureMode`
 2. optional explicit mode override via `.mode(...)`
 3. optional cadence override via `.interval(...)`
 4. optional runtime snapshot retention override via `.max_runtime_snapshots(...)`
 
-Resolved runtime snapshot retention is then clamped by:
+The resolved runtime snapshot retention is then **clamped** by the core run cap:
 
 `effective_core_config.capture_limits.max_runtime_snapshots`
+
+## Metrics availability notes
+
+On stable Tokio, runtime snapshots always include:
+
+- `alive_tasks`
+- `global_queue_depth`
+
+Additional fields such as:
+
+- `local_queue_depth`
+- `blocking_queue_depth`
+- `remote_schedule_count`
+
+depend on `tokio_unstable` support and may be `None`.
+
+That means runtime evidence quality can vary by build and environment.
+
+## What this crate does not do
+
+This crate does not provide:
+
+- request lifecycle instrumentation by itself
+- repeated arm/disarm capture windows
+- framework-boundary integration for Axum
+- analysis or report generation
+
+For those surfaces, use:
+
+- `tailtriage-core`
+- `tailtriage-controller`
+- `tailtriage-axum`
+- `tailtriage-cli`
+
+## Related crates
+
+- `tailtriage`: recommended default entry point
+- `tailtriage-core`: core request instrumentation and artifact writing
+- `tailtriage-controller`: repeated bounded windows
+- `tailtriage-cli`: artifact analysis

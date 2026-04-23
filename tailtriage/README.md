@@ -10,9 +10,11 @@ When a Tokio service slows down, the first triage question is often:
 
 > Is this slowdown mostly application queueing, executor pressure, blocking-pool pressure, or a slow downstream stage?
 
-`tailtriage` helps you run `capture -> analyze -> next check -> re-run`.
+`tailtriage` helps you run the loop:
 
-Analysis output is triage guidance (evidence-ranked suspects plus next checks), not root-cause proof.
+`capture -> analyze -> next check -> re-run`
+
+The analysis result is triage guidance (evidence-ranked suspects plus next checks), not proof of root cause.
 
 ## Installation
 
@@ -27,7 +29,7 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-Install the analyzer CLI separately:
+To install the `tailtriage` binary for analyzing artifacts, install the `tailtriage-cli` crate:
 
 ```bash
 cargo install tailtriage-cli
@@ -61,7 +63,7 @@ tailtriage analyze tailtriage-run.json
 
 ## Crate selection
 
-Start with `tailtriage` for the default integration path and feature-gated siblings.
+Start with `tailtriage` when you want the recommended entry point and optional integrations behind feature flags.
 
 Choose a focused crate only when you need a narrower boundary:
 
@@ -85,8 +87,8 @@ Choose a focused crate only when you need a narrower boundary:
 
 ## Related crates
 
-- `tailtriage-core`: <https://docs.rs/tailtriage-core>
-- `tailtriage-controller`: <https://docs.rs/tailtriage-controller>
-- `tailtriage-tokio`: <https://docs.rs/tailtriage-tokio>
-- `tailtriage-axum`: <https://docs.rs/tailtriage-axum>
-- `tailtriage-cli`: <https://docs.rs/tailtriage-cli>
+- `tailtriage-core`: framework-agnostic instrumentation primitives and artifact model
+- `tailtriage-controller`: repeated bounded capture windows
+- `tailtriage-tokio`: Tokio runtime-pressure sampling
+- `tailtriage-axum`: Axum request-boundary integration
+- `tailtriage-cli`: artifact analysis and report generation

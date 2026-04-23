@@ -2,7 +2,6 @@
 name = "tailtriage-tokio"
 version.workspace = true
 edition.workspace = true
-rust-version = "1.75"
 license.workspace = true
 repository.workspace = true
 description = "Tokio runtime sampling integration for tailtriage run artifacts"

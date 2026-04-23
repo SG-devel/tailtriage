@@ -2,7 +2,7 @@
 
 `tailtriage-core` is the framework-agnostic capture foundation for `tailtriage`.
 
-Use it when you want explicit request lifecycle instrumentation and bounded JSON artifacts without controller, Axum, or Tokio runtime-sampler APIs unless you add those crates separately.
+Use it when you want explicit request lifecycle instrumentation and bounded JSON artifacts without controller, Axum, or Tokio runtime-sampler APIs unless you add them separately.
 
 ## What this crate does
 
@@ -14,13 +14,13 @@ Use it when you want explicit request lifecycle instrumentation and bounded JSON
 - bounded in-memory retention
 - JSON run artifact writing
 
-Artifacts from this crate are analyzed by `tailtriage-cli`.
+The artifact produced here is analyzed by `tailtriage-cli`.
 
 ## Crate selection
 
-Use `tailtriage-core` for the smallest framework-agnostic capture surface.
+Use `tailtriage-core` when you want the smallest framework-agnostic capture surface.
 
-Use `tailtriage` when you want the default entry point with optional integrations behind features.
+Use `tailtriage` when you want the recommended default entry point: an aggregator/re-export crate with optional integrations behind features.
 
 ## Installation
 
@@ -133,4 +133,4 @@ This crate does not provide:
 - Axum middleware/extractors
 - analysis/report generation
 
-For those surfaces, use `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, and `tailtriage-cli`.
+Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, and `tailtriage-cli`.

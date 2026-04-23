@@ -2,7 +2,6 @@
 name = "tailtriage-core"
 version.workspace = true
 edition.workspace = true
-rust-version = "1.75"
 license.workspace = true
 repository.workspace = true
 description = "Framework-agnostic request instrumentation and run schema for tailtriage triage artifacts"
