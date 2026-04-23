@@ -2,7 +2,7 @@
 
 `tailtriage-core` is the framework-agnostic capture foundation for `tailtriage`.
 
-Use it when you want explicit request lifecycle instrumentation and bounded JSON artifacts without controller, Axum, or Tokio runtime-sampler APIs unless you add them separately.
+Use it when you want explicit request lifecycle instrumentation and bounded JSON artifacts without controller, Axum, or Tokio runtime-sampler APIs unless you add those crates separately.
 
 ## What this crate does
 
@@ -14,13 +14,13 @@ Use it when you want explicit request lifecycle instrumentation and bounded JSON
 - bounded in-memory retention
 - JSON run artifact writing
 
-The artifact produced here is analyzed by `tailtriage-cli`.
+Artifacts from this crate are analyzed by `tailtriage-cli`.
 
 ## Crate selection
 
-Use `tailtriage-core` when you want the smallest framework-agnostic capture surface.
+Use `tailtriage-core` for the smallest framework-agnostic capture surface.
 
-Use `tailtriage` when you want the recommended default entry point: an aggregator/re-export crate with optional integrations behind features.
+Use `tailtriage` when you want the default entry point with optional integrations behind features.
 
 ## Installation
 
@@ -78,6 +78,32 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Two easy-to-miss helpers
+
+For infallible async work, `StageTimer::await_value(...)` avoids a dummy `Result`:
+
+```rust,no_run
+# use tailtriage_core::Tailtriage;
+# async fn demo(run: Tailtriage) {
+# let req = run.begin_request("/x").handle;
+let value = req.stage("cache").await_value(async { 42 }).await;
+# let _ = value;
+# }
+```
+
+When queue depth is known at enqueue time, `QueueTimer::with_depth_at_start(...)` records it directly:
+
+```rust,no_run
+# use tailtriage_core::Tailtriage;
+# async fn demo(run: Tailtriage) {
+# let req = run.begin_request("/x").handle;
+req.queue("ingress")
+    .with_depth_at_start(12)
+    .await_on(async {})
+    .await;
+# }
+```
+
 ## Lifecycle contract
 
 - `queue(...)`, `stage(...)`, and `inflight(...)` do **not** finish requests.
@@ -107,4 +133,4 @@ This crate does not provide:
 - Axum middleware/extractors
 - analysis/report generation
 
-Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, and `tailtriage-cli`.
+For those surfaces, use `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, and `tailtriage-cli`.

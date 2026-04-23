@@ -1,30 +1,26 @@
 # tailtriage-axum
 
-`tailtriage-axum` provides Axum-first request-boundary wiring for `tailtriage`.
+`tailtriage-axum` provides Axum request-boundary wiring for `tailtriage`.
 
-Use it when you want middleware to start and finish request lifecycle automatically at the Axum boundary, while still keeping queue/stage/inflight instrumentation explicit inside handlers or helper code.
+Use it when you want middleware to start and finish request lifecycle automatically at the Axum boundary, while keeping queue/stage/inflight instrumentation explicit inside handlers or helper code.
 
 ## What this crate does
 
-This crate gives you three Axum-facing pieces:
+This crate provides:
 
-- `middleware` for default request start/finish at the boundary
-- `middleware_with_status_classifier(...)` to customize HTTP-status -> outcome mapping
-- `TailtriageRequest` extractor to access the request-scoped handle in handlers
+- `middleware` for default request start/finish
+- `middleware_with_status_classifier(...)` for custom HTTP status -> outcome mapping
+- `TailtriageRequest` extractor for request-scoped handles in handlers
 
-This crate is about integration ergonomics. It does not replace explicit instrumentation inside the request body.
+It improves integration ergonomics; it does not replace explicit instrumentation in request logic.
 
-## When to choose this crate
+## Crate selection
 
-Choose `tailtriage-axum` when:
+Choose `tailtriage-axum` when you use Axum and want framework-boundary start/finish wiring.
 
-- you already use Axum
-- you do not want to manually wire request start/finish in every handler
-- you still want explicit queue/stage/inflight instrumentation inside the request path
+Choose `tailtriage-core` for framework-agnostic manual instrumentation.
 
-Choose `tailtriage-core` directly when you want framework-agnostic manual instrumentation.
-
-Choose `tailtriage` when you want the default entry point and feature-gated Axum support.
+Choose `tailtriage` when you want the default entry point with feature-gated Axum support.
 
 ## Installation
 
@@ -67,26 +63,23 @@ fn app(tailtriage: Arc<Tailtriage>) -> Router {
 
 Automatic at the Axum boundary:
 
-- request start
-- request finish
-- request-scoped handle injection into handlers
-- request `kind` is set to `"http"`
+- request start and finish
+- request-scoped handle injection
+- request `kind` set to `"http"`
 
 Still explicit in your code:
 
 - queue timing
 - stage timing
 - in-flight instrumentation
-- interpretation of the resulting artifact
-
-That split is important: this crate helps you integrate capture at the framework boundary, but it does not diagnose the slowdown by itself.
+- report interpretation
 
 ## Important constraints
 
-- install `middleware` before using `TailtriageRequest`
-- missing middleware yields `TailtriageExtractorError` with HTTP 500 behavior
-- route labels prefer Axum `MatchedPath`; the fallback is the raw URI path
-- analysis still happens in `tailtriage-cli`
+- Install `middleware` before using `TailtriageRequest`.
+- Missing middleware yields `TailtriageExtractorError` and HTTP 500 behavior.
+- Route labels prefer Axum `MatchedPath`; fallback is the raw URI path.
+- Default status mapping is: 2xx/3xx => `ok`, 4xx => `rejected` (except 408 => `timeout`), 5xx => `error`.
 
 ## Minimal handler example
 
@@ -98,18 +91,3 @@ async fn checkout(TailtriageRequest(req): TailtriageRequest) {
     let _: Result<(), ()> = req.stage("db_call").await_on(async { Ok(()) }).await;
 }
 ```
-
-## When not to use this crate
-
-Do not add this crate just to analyze artifacts or rank suspects.
-
-It is only for Axum integration ergonomics.
-
-If you do not use Axum, this crate is not the right abstraction boundary.
-
-## Related crates
-
-- `tailtriage`: recommended default entry point
-- `tailtriage-core`: framework-agnostic instrumentation primitives
-- `tailtriage-tokio`: runtime-pressure sampling
-- `tailtriage-cli`: artifact analysis and report generation

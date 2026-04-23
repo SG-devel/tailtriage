@@ -4,7 +4,7 @@
 
 Install it after capture instrumentation is in place.
 
-The binary name is:
+Binary name:
 
 ```bash
 tailtriage
@@ -20,7 +20,7 @@ tailtriage
 - rank likely bottleneck families
 - emit evidence and next checks
 
-The output is intended to guide the next investigation step. It does **not** prove root cause on its own.
+Output guides next checks; it does **not** prove root cause on its own.
 
 ## Installation
 
@@ -64,6 +64,7 @@ Then run one targeted check, change one thing, and re-run under comparable load.
   "p99_latency_us": 1518551,
   "p95_queue_share_permille": 982,
   "p95_service_share_permille": 267,
+  "inflight_trend": null,
   "warnings": [],
   "primary_suspect": {
     "kind": "application_queue_saturation",
@@ -80,6 +81,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
 }
 ```
 
+`inflight_trend` may be `null` when no in-flight gauges were captured.
+
 ## What the report contains
 
 A report can include:
@@ -91,7 +94,7 @@ A report can include:
 - report warnings from analysis/report generation (for example truncation-related)
 - primary and secondary suspects
 
-`tailtriage analyze` also prints loader/lifecycle warnings to stderr before the report. Those warnings are surfaced separately; they are not merged into the report `warnings` field.
+`tailtriage analyze` also prints loader/lifecycle warnings to stderr before the report. Those warnings are separate from the report `warnings` field.
 
 Each suspect includes:
 
@@ -123,13 +126,13 @@ Library note:
 ## Important interpretation notes
 
 - suspects are investigation leads, not proof of root cause
-- truncation warnings mean the diagnosis is based on partial retained data
+- truncation warnings mean diagnosis is based on partial retained data
 - unfinished lifecycle warnings printed by the CLI indicate some requests were not completed cleanly
 - `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`
 
 ## Suspect kinds
 
-The current report surface includes these suspect kinds:
+The current report surface includes:
 
 - `application_queue_saturation`
 - `blocking_pool_pressure`
@@ -146,21 +149,8 @@ Usually the next step is to add more structure to capture:
 - optionally add runtime sampling if runtime pressure is unclear
 - re-run under comparable load
 
-## What this tool does not do
+## Crate boundaries
 
 `tailtriage-cli` does not capture instrumentation data.
 
-Use capture-side crates for that:
-
-- `tailtriage`
-- `tailtriage-core`
-- `tailtriage-controller`
-- `tailtriage-tokio`
-- `tailtriage-axum`
-
-## Related crates
-
-- `tailtriage`: recommended capture-side entry point
-- `tailtriage-core`: direct instrumentation primitives
-- `tailtriage-tokio`: runtime-pressure sampling
-- `tailtriage-controller`: repeated bounded windows
+For capture-side surfaces, use `tailtriage`, `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, and `tailtriage-axum`.

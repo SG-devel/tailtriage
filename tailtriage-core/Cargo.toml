@@ -2,9 +2,10 @@
 name = "tailtriage-core"
 version.workspace = true
 edition.workspace = true
+rust-version = "1.75"
 license.workspace = true
 repository.workspace = true
-description = "Core schema and request instrumentation primitives for Tokio tail-latency triage"
+description = "Framework-agnostic request instrumentation and run schema for tailtriage triage artifacts"
 documentation = "https://docs.rs/tailtriage-core"
 readme = "README.md"
 keywords = ["tokio", "latency", "diagnostics", "performance", "triage"]

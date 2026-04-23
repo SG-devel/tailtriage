@@ -2,6 +2,7 @@
 name = "tailtriage-cli"
 version.workspace = true
 edition.workspace = true
+rust-version = "1.75"
 license.workspace = true
 repository.workspace = true
 description = "CLI for tailtriage artifact loading, diagnosis, and report generation"

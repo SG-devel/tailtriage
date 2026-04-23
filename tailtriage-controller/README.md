@@ -2,17 +2,15 @@
 
 `tailtriage-controller` manages repeated, bounded capture windows for long-lived services.
 
-Use it when you want to turn capture on, collect one generation, turn capture off, and later start a fresh generation without restarting the process.
+Use it to arm capture, collect one generation, disarm, and later start a fresh generation without restarting the process. Analysis is still done by `tailtriage-cli`.
 
-Analysis is still done by `tailtriage-cli`.
+## Crate selection
 
-## When to use this crate
-
-Use `tailtriage-controller` when you need repeated arm/disarm windows in one process.
+Use `tailtriage-controller` for repeated arm/disarm windows in one process.
 
 Use `tailtriage-core` for a single explicit `build -> capture -> shutdown` run.
 
-Use `tailtriage` when you want the default entry point with optional controller support behind a feature.
+Use `tailtriage` when you want the default entry point with optional controller support.
 
 ## Installation
 
@@ -32,10 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let _generation = controller.enable()?;
-
     let started = controller.begin_request("/checkout");
     started.completion.finish_ok();
-
     let _ = controller.disable()?;
     Ok(())
 }
@@ -47,21 +43,14 @@ A controller owns a **template** plus at most one **active generation**.
 
 - `enable()` creates a fresh generation from the current template.
 - `disable()` stops new admissions for that generation.
-- If no captured requests are still in flight, the generation finalizes immediately.
-- Otherwise the generation enters **closing** and finalizes after its already-admitted captured requests drain.
-- The next `enable()` creates a new generation with a new artifact path.
+- If no captured requests are still in flight, finalization is immediate.
+- Otherwise the generation enters **closing** and finalizes after already-admitted captured requests drain.
 
-Requests started while the controller is disabled or closing are **inert**:
-
-- they preserve request metadata
-- they record no capture events
-- they never join a later generation
+Requests started while disabled or closing are **inert**: they keep request metadata, record no capture events, and never join a later generation.
 
 Each activation writes a per-generation artifact whose file name includes `-generation-N`.
 
 ## Minimal TOML example
-
-Use TOML when you want repeatable operational settings, including mode selection.
 
 ```toml
 [controller]
@@ -116,9 +105,7 @@ When TOML is loaded with `config_path(...)`:
 - activation template settings come from TOML.
 - omitted optional activation subfields use TOML contract defaults.
 
-`reload_config()` updates the template for **future** generations only.
-
-It does not mutate a generation that is already active.
+`reload_config()` updates the template for **future** generations only. It does not mutate an already-active generation.
 
 ## Run-end policies
 
@@ -129,29 +116,29 @@ Supported policies:
 
 Behavior:
 
-- `continue_after_limits_hit`: generation stays active after the first truncation
-- `auto_seal_on_limits_hit`: on the first `limits_hit`, new admissions stop and the generation moves to closing; finalization happens immediately if no captured requests are still in flight, otherwise after they drain
+- `continue_after_limits_hit`: generation stays active after first truncation.
+- `auto_seal_on_limits_hit`: on first `limits_hit`, new admissions stop and generation moves to closing; finalization is immediate when no captured requests are in flight, otherwise after drain.
 
 TOML contract:
 
-- `[controller.activation.run_end_policy]` is optional
-- if that table is present, `kind` is required
+- `[controller.activation.run_end_policy]` is optional.
+- if present, `kind` is required.
 
 ## Runtime sampler template
 
-The controller can start a Tokio runtime sampler automatically for armed generations.
+The controller can auto-start a Tokio runtime sampler for armed generations.
 
-Important constraints:
+Constraints:
 
 - sampler startup still requires an active Tokio runtime
 - sampler settings are fixed at activation time
-- runtime snapshot retention is still bounded by the resolved core capture limits
+- runtime snapshot retention is bounded by the resolved core capture limits
 
 ## TOML field reference
 
 ### `[controller]`
 
-- `service_name` _(optional string)_: overrides the builder service name when present; must not be empty
+- `service_name` _(optional string)_: overrides builder service name when present; must not be empty
 - `initially_enabled` _(optional bool)_: when `true`, `build()` starts generation `1`
 
 ### `[controller.activation]`
@@ -189,17 +176,3 @@ Optional table. If present, `kind` is required.
 
 - `kind = "continue_after_limits_hit"`
 - `kind = "auto_seal_on_limits_hit"`
-
-## Important constraints
-
-- at most one generation is active at a time
-- active generation settings do not change after activation
-- requests remain bound to the generation that admitted them
-- controller capture and artifact analysis are separate; analysis happens in `tailtriage-cli`
-
-## Related crates
-
-- `tailtriage`: default entry point
-- `tailtriage-core`: direct instrumentation lifecycle
-- `tailtriage-tokio`: runtime-pressure sampling
-- `tailtriage-cli`: artifact analysis

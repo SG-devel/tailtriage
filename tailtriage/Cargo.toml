@@ -2,6 +2,7 @@
 name = "tailtriage"
 version.workspace = true
 edition.workspace = true
+rust-version = "1.75"
 license.workspace = true
 repository.workspace = true
 description = "Default crate and entry point for tailtriage Tokio tail-latency triage"
