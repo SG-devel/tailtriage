@@ -140,6 +140,12 @@ pub struct RunMetadata {
     /// placeholder. `shutdown()` writes the finalized end timestamp to the
     /// persisted artifact.
     pub finished_at_unix_ms: u64,
+    /// Finalization timestamp (milliseconds since epoch UTC) for persisted artifacts.
+    ///
+    /// This is `None` for active in-memory snapshots and for older artifacts
+    /// written before this field existed.
+    #[serde(default)]
+    pub finalized_at_unix_ms: Option<u64>,
     /// Capture mode, such as "light" or "investigation".
     pub mode: CaptureMode,
     /// Effective resolved core configuration after applying mode defaults and overrides.

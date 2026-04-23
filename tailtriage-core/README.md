@@ -112,6 +112,14 @@ req.queue("ingress")
 - Non-strict lifecycle: `shutdown()` writes the artifact and records unfinished-request warnings/metadata.
 - `strict_lifecycle(true)`: unfinished requests cause `shutdown()` to return an error and no artifact is written.
 
+Finalization timestamps:
+
+- Active `snapshot()` output is not finalized (`metadata.finalized_at_unix_ms == None`).
+- `shutdown()` writes final artifacts with both:
+  - `metadata.finished_at_unix_ms` set to shutdown time
+  - `metadata.finalized_at_unix_ms` set to that same timestamp
+- Older artifacts may deserialize with `metadata.finalized_at_unix_ms == None`.
+
 ## Capture modes
 
 Modes change retention defaults only. They do not change lifecycle semantics and do **not** auto-start runtime sampling.
