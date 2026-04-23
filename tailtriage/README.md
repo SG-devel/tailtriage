@@ -79,6 +79,8 @@ Choose a focused crate only when you need a narrower boundary:
 - `axum` _(opt-in)_: enables `tailtriage::axum`
 - `full`: enables `controller`, `tokio`, and `axum`
 
+Docs.rs note: `tailtriage` docs are built with `all-features = true`, so docs.rs may render optional namespaces such as `tailtriage::tokio` and `tailtriage::axum`. In downstream crates, those namespaces are available only when their Cargo features are enabled.
+
 ## Important constraints
 
 - Capture and analysis are separate: this crate writes artifacts, `tailtriage-cli` analyzes them.

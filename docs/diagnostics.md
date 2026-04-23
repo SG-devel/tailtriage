@@ -30,7 +30,7 @@ Current supported schema version: `1`.
 - request latency percentiles (`p50`, `p95`, `p99`)
 - p95 queue/service share summaries
 - optional in-flight trend summary
-- warnings (including truncation/lifecycle context)
+- warnings (analyzer/report warnings, especially truncation-related)
 - ranked suspects (primary + secondary)
 
 Each suspect includes:
@@ -49,7 +49,7 @@ Each suspect includes:
 - `p50_latency_us` / `p95_latency_us` / `p99_latency_us`: request latency percentiles in microseconds.
 - `p95_queue_share_permille`: p95 queue-time share per request (0..1000 scale).
 - `p95_service_share_permille`: p95 service-time share per request (0..1000 scale).
-- `warnings[]`: analyzer warnings, including truncation and unfinished lifecycle context when present.
+- `warnings[]`: analyzer/report warnings, especially truncation-related warnings from captured-data limits. Loader/lifecycle warnings (including unfinished-request warnings) are emitted separately by the CLI loader to stderr before the report output.
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.
 - `secondary_suspects[]`: additional ranked suspects.
 - `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.
