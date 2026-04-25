@@ -2,15 +2,13 @@
 
 Demos are deterministic triage exercises. They provide reproducible diagnosis behavior for this repository's scenarios, not universal causality proof.
 
-## Recommended first demos
+Scenario details: [demos/README.md](../demos/README.md)
 
-If you run three first, run:
+## Recommended first demos
 
 - `queue_service`
 - `downstream_service`
 - `db_pool_saturation_service`
-
-Scenario details: [demos/README.md](../demos/README.md)
 
 ## Additional useful demos
 
