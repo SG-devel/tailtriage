@@ -70,12 +70,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "kind": "application_queue_saturation",
     "score": 90,
     "confidence": "high",
-    "evidence": [
-      "Queue wait at p95 consumes 98.2% of request time."
-    ],
-    "next_checks": [
-      "Inspect queue admission limits and producer burst patterns."
-    ]
+    "evidence": ["Queue wait at p95 consumes 98.2% of request time."],
+    "next_checks": ["Inspect queue admission limits and producer burst patterns."]
   },
   "secondary_suspects": []
 }
@@ -155,15 +151,8 @@ Usually the next step is to add more structure to capture:
 
 Use capture-side crates for that:
 
-- `tailtriage`
-- `tailtriage-core`
-- `tailtriage-controller`
-- `tailtriage-tokio`
-- `tailtriage-axum`
-
-## Related crates
-
 - `tailtriage`: recommended capture-side entry point
 - `tailtriage-core`: direct instrumentation primitives
-- `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-controller`: repeated bounded windows
+- `tailtriage-tokio`: runtime-pressure sampling
+- `tailtriage-axum`: Axum request-boundary integration
