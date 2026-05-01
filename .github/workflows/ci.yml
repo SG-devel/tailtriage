@@ -7,6 +7,10 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "**/build.rs"
+      - "deny.toml"
+      - "rustfmt.toml"
+      - "clippy.toml"
+      - ".cargo/**/*.toml"
       - "scripts/**/*.py"
       - "**/*.md"
       - "rust-toolchain"
@@ -21,6 +25,10 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "**/build.rs"
+      - "deny.toml"
+      - "rustfmt.toml"
+      - "clippy.toml"
+      - ".cargo/**/*.toml"
       - "scripts/**/*.py"
       - "**/*.md"
       - "rust-toolchain"
@@ -31,7 +39,7 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -39,6 +47,12 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# CI policy:
+# - pull_request and main push use path filters to skip irrelevant runs.
+# - docs-contracts enforces public documentation contracts.
+# - Ubuntu dev/release are the extended legs (demos/smokes/policy checks).
+# - Windows/macOS run Cargo compile/lint/test coverage to catch OS-specific behavior.
+# - The external crates.io consumer smoke step remains intentionally disabled.
 jobs:
   changes:
     name: Detect changed paths
@@ -60,6 +74,10 @@ jobs:
               - '**/Cargo.toml'
               - '**/Cargo.lock'
               - '**/build.rs'
+              - 'deny.toml'
+              - 'rustfmt.toml'
+              - 'clippy.toml'
+              - '.cargo/**/*.toml'
               - 'scripts/**/*.py'
               - 'rust-toolchain'
               - 'rust-toolchain.toml'
@@ -71,7 +89,7 @@ jobs:
   docs-contracts:
     name: docs contracts
     needs: changes
-    if: ${{ needs.changes.outputs.docs == 'true' || needs.changes.outputs.code == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.docs == 'true' || needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -86,21 +104,34 @@ jobs:
         run: python3 -m unittest scripts.tests.test_validate_docs_contracts
 
   verify:
-    name: fmt / clippy / test / demos (${{ matrix.profile }})
+    name: cargo / ${{ matrix.os }} / ${{ matrix.profile }}
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.code == 'true' }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        profile: [dev, release]
+        include:
+          - os: ubuntu-latest
+            profile: dev
+            extended: true
+          - os: ubuntu-latest
+            profile: release
+            extended: true
+          - os: windows-latest
+            profile: dev
+            extended: false
+          - os: macos-latest
+            profile: dev
+            extended: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: matrix.extended
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -111,7 +142,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install cargo-deny
-        if: matrix.profile == 'release'
+        if: matrix.extended && matrix.profile == 'release'
         uses: taiki-e/install-action@cargo-deny
 
       - name: Cache Rust build artifacts
@@ -121,77 +152,93 @@ jobs:
             . -> target
 
       - name: Cargo fmt
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev'
         run: cargo fmt --check
 
       - name: Cargo clippy
-        run: cargo clippy --workspace --all-targets --locked ${{ matrix.profile == 'release' && '--release' || '' }} -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked ${{ matrix.profile == 'release' && '--release' || '' }} -- -D warnings
 
       - name: Cargo test
-        run: cargo test --workspace --locked ${{ matrix.profile == 'release' && '--release' || '' }}
+        run: cargo test --workspace --all-targets --all-features --locked ${{ matrix.profile == 'release' && '--release' || '' }}
+
+      - name: Cargo doc
+        if: matrix.extended && matrix.profile == 'release'
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --all-features --no-deps --locked
 
       - name: Cargo deny
-        if: matrix.profile == 'release'
+        if: matrix.extended && matrix.profile == 'release'
         run: cargo deny check
 
       - name: Validate queue demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate queue --profile ${{ matrix.profile }}
 
       - name: Validate blocking demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate blocking --profile ${{ matrix.profile }}
 
       - name: Validate executor demo
-        if: matrix.profile == 'release'
+        if: matrix.extended && matrix.profile == 'release'
         run: python3 scripts/demo_tool.py validate executor --profile ${{ matrix.profile }}
 
       - name: Validate downstream demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate downstream --profile ${{ matrix.profile }}
 
       - name: Validate mixed demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate mixed --profile ${{ matrix.profile }}
 
       - name: Validate cold-start demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate cold-start --profile ${{ matrix.profile }}
 
       - name: Validate db-pool demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate db-pool --profile ${{ matrix.profile }}
 
       - name: Validate shared-lock demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate shared-lock --profile ${{ matrix.profile }}
 
       - name: Validate retry-storm demo
+        if: matrix.extended
         run: python3 scripts/demo_tool.py validate retry-storm --profile ${{ matrix.profile }}
 
       - name: Smoke-check public examples
-        if: matrix.profile == 'dev'
+        if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/smoke_public_examples.py
 
       #- name: Smoke-check external crates.io consumer adoption flow
-      #  if: matrix.profile == 'release'
+      #  if: matrix.extended && matrix.profile == 'release'
       #  run: python3 scripts/smoke_external_consumer.py
 
       - name: Smoke-check controller public example
-        if: matrix.profile == 'release'
+        if: matrix.extended && matrix.profile == 'release'
         run: python3 scripts/smoke_controller_example.py
 
       - name: Measure collector limits (smoke)
-        if: matrix.profile == 'release'
+        if: matrix.extended && matrix.profile == 'release'
         run: python3 scripts/measure_collector_limits.py --profile smoke
 
       - name: Validate collector limits smoke outputs
-        if: matrix.profile == 'release'
+        if: matrix.extended && matrix.profile == 'release'
         run: |
           python3 scripts/validate_collector_limits_summary.py \
             --raw demos/collector_stress/artifacts/collector-limits-smoke-raw.jsonl \
             --summary demos/collector_stress/artifacts/collector-limits-smoke-summary.json
 
       - name: Validate collector limits summary helper unit tests
-        if: matrix.profile == 'release'
+        if: matrix.extended && matrix.profile == 'release'
         run: python3 -m unittest scripts.tests.test_measure_collector_limits
 
       - name: Check demo fixture drift
-        if: matrix.profile == 'dev'
+        if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
 
       - name: Measure runtime cost (non-blocking)
+        if: matrix.extended
         continue-on-error: true
         run: python3 scripts/measure_runtime_cost.py
