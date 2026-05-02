@@ -561,18 +561,51 @@ def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
         raise SystemExit(
             f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
         )
-    if after_score >= before_score:
+    if after_score > before_score:
         raise SystemExit(
-            f"expected mitigated primary suspect score to drop, got before={before_score} after={after_score}"
+            "expected mitigated suspect score to stay flat or drop, "
+            f"got before={before_score} after={after_score}"
         )
 
+    queue_share_before = before.get("p95_queue_share_permille")
+    queue_share_after = after.get("p95_queue_share_permille")
+    queue_score_before = suspect_score(before, "application_queue_saturation")
+    queue_score_after = suspect_score(after, "application_queue_saturation")
+
+    if after_score == before_score:
+        non_worsening_signals = []
+        if (
+            queue_share_before is not None
+            and queue_share_after is not None
+            and queue_share_after <= queue_share_before
+        ):
+            non_worsening_signals.append("p95_queue_share_permille")
+        if (
+            queue_score_before is not None
+            and queue_score_after is not None
+            and queue_score_after <= queue_score_before
+        ):
+            non_worsening_signals.append("queue_suspect_score")
+
+        if not non_worsening_signals:
+            raise SystemExit(
+                "expected non-worsening queue signal when mitigated primary score saturates, "
+                f"got queue share {queue_share_before}->{queue_share_after}, "
+                f"queue score {queue_score_before}->{queue_score_after}"
+            )
+
     print(
-        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
+        "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}, "
+        "queue-share {} -> {}, queue-score {} -> {}".format(
             before_kind,
             before_p95,
             after_p95,
             before_score,
             after_score,
+            queue_share_before,
+            queue_share_after,
+            queue_score_before,
+            queue_score_after,
         )
     )
     print(

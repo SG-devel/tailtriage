@@ -130,6 +130,53 @@ class DemoWrapperTests(unittest.TestCase):
         ):
             demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
 
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_db_pool")
+    def test_validate_db_pool_allows_flat_saturated_score_with_non_worsening_queue_signal(
+        self,
+        _run_scenario_db_pool_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 100, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 12_000,
+            "p95_queue_share_permille": 820,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 100, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 9_000,
+            "p95_queue_share_permille": 790,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        demo_tool.validate_db_pool(Path("/tmp/tailscope"), profile="dev")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_db_pool")
+    def test_validate_db_pool_rejects_flat_saturated_score_when_queue_signals_worsen(
+        self,
+        _run_scenario_db_pool_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 100, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 12_000,
+            "p95_queue_share_permille": 700,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 100, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 9_000,
+            "p95_queue_share_permille": 730,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        with self.assertRaisesRegex(SystemExit, "non-worsening queue signal"):
+            demo_tool.validate_db_pool(Path("/tmp/tailscope"), profile="dev")
+
     def test_parse_args_accepts_diagnosis_matrix(self) -> None:
         args = parse_args(["diagnosis-matrix", "--scenario", "queue", "--scenario", "executor"])
         self.assertEqual(args.command, "diagnosis-matrix")
