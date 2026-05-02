@@ -340,6 +340,18 @@ fn score_sample_quality(sample_count: usize) -> u8 {
     }
 }
 
+fn score_from_permille(base: u64, permille: u64, scale: u64) -> u64 {
+    base + permille.min(1000) / scale
+}
+
+fn cap_unless_clean_evidence(score: u64, clean: bool, soft_cap: u8) -> u8 {
+    if clean {
+        clamp_score(score)
+    } else {
+        clamp_score(score.min(u64::from(soft_cap)))
+    }
+}
+
 fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
     let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
@@ -355,11 +367,16 @@ fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -
     let growth_bonus = inflight_trend
         .filter(|t| t.growth_delta > 0)
         .map_or(0, |_| 5);
-    let score = clamp_score(
-        40 + (p95_queue_share_permille / 12)
-            + (max_depth.min(40))
-            + growth_bonus
-            + u64::from(score_sample_quality(queue_shares.len())),
+    let depth_bonus = (max_depth.min(40) * 2) / 3;
+    let base = score_from_permille(22, p95_queue_share_permille, 14);
+    let clean_extreme = p95_queue_share_permille >= 985
+        && max_depth >= 12
+        && queue_shares.len() >= 20
+        && inflight_trend.is_some_and(|t| t.growth_delta > 0);
+    let score = cap_unless_clean_evidence(
+        base + depth_bonus + growth_bonus + u64::from(score_sample_quality(queue_shares.len())),
+        clean_extreme,
+        95,
     );
     let mut evidence = vec![format!(
         "Queue wait at p95 consumes {}.{}% of request time.",
@@ -400,11 +417,14 @@ fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
     } else {
         nonzero as u64 * 1000 / blocking_depths.len() as u64
     };
-    let score = clamp_score(
-        28 + (p95_blocking_depth.min(20) * 2)
-            + peak.min(20)
-            + (nz_share_permille / 100)
+    let clean_extreme = p95_blocking_depth >= 16 && peak >= 24 && nz_share_permille >= 900;
+    let score = cap_unless_clean_evidence(
+        32 + p95_blocking_depth.min(24)
+            + (peak.min(24) / 2)
+            + (nz_share_permille / 80)
             + u64::from(score_sample_quality(blocking_depths.len())),
+        clean_extreme,
+        94,
     );
     Some(Suspect::new(DiagnosisKind::BlockingPoolPressure, score, vec![format!("Blocking queue depth p95 is {p95_blocking_depth}, peak is {peak}, with {nonzero}/{} nonzero samples.", blocking_depths.len())], vec!["Audit blocking sections and move avoidable synchronous work out of hot paths.".to_string(),"Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string()]))
 }
@@ -420,12 +440,15 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
     let growth_bonus = inflight_trend
         .filter(|t| t.growth_delta > 0)
         .map_or(0, |_| 4);
-    let score = clamp_score(
-        35 + (p95_global.min(150) / 3)
+    let clean_extreme = p95_global >= 140 && global.len() >= 30;
+    let score = cap_unless_clean_evidence(
+        34 + (p95_global.min(150) / 4)
             + (percentile(&local, 95, 100).unwrap_or(0).min(60) / 6)
             + (percentile(&alive, 95, 100).unwrap_or(0).min(400) / 40)
             + growth_bonus
             + u64::from(score_sample_quality(global.len())),
+        clean_extreme,
+        94,
     );
     let mut evidence = vec![format!(
         "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
@@ -491,8 +514,13 @@ fn downstream_stage_candidates(run: &Run, p95_req: u64, total_req: u64) -> Vec<S
                 .checked_div(tail_total)
                 .unwrap_or(0)
         };
-        let score = clamp_score(
-            35 + (tail_share / 8) + (cum_share / 30) + u64::from(score_sample_quality(ss.len())),
+        let clean_extreme = tail_share >= 960 && cum_share >= 920 && ss.len() >= 20;
+        let score = cap_unless_clean_evidence(
+            score_from_permille(24, tail_share, 11)
+                + (cum_share / 35)
+                + u64::from(score_sample_quality(ss.len())),
+            clean_extreme,
+            95,
         );
         cands.push(StageCandidate {
             stage: name.to_string(),
@@ -566,7 +594,11 @@ fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
         .filter(|s| s.kind != DiagnosisKind::InsufficientEvidence)
         .collect::<Vec<_>>();
     ranked.sort_by_key(|s| std::cmp::Reverse(s.score));
-    if ranked.len() >= 2 && ranked[0].score.abs_diff(ranked[1].score) <= 5 {
+    if ranked.len() >= 2
+        && ranked[0].score >= 60
+        && ranked[1].score >= 60
+        && ranked[0].score.abs_diff(ranked[1].score) <= 4
+    {
         Some("Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string())
     } else {
         None
@@ -581,42 +613,44 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
                 .to_string(),
         );
     }
+    let primary_kind = suspects.first().map(|s| &s.kind);
     if run.queues.is_empty()
-        && suspects
-            .iter()
-            .all(|s| s.kind != DiagnosisKind::DownstreamStageDominates)
+        && primary_kind.is_some_and(|kind| *kind == DiagnosisKind::ApplicationQueueSaturation)
     {
         warnings.push(
             "No queue events captured; queue saturation interpretation is limited.".to_string(),
         );
     }
     if run.stages.is_empty()
-        && suspects
-            .iter()
-            .all(|s| s.kind != DiagnosisKind::ApplicationQueueSaturation)
+        && primary_kind.is_some_and(|kind| *kind == DiagnosisKind::DownstreamStageDominates)
     {
         warnings.push(
             "No stage events captured; downstream-stage interpretation is limited.".to_string(),
         );
     }
+    let runtime_distinction_relevant = suspects.iter().any(|s| {
+        s.kind == DiagnosisKind::BlockingPoolPressure
+            || s.kind == DiagnosisKind::ExecutorPressureSuspected
+    });
     let strong_non_runtime_primary = suspects.first().is_some_and(|s| {
         (s.kind == DiagnosisKind::ApplicationQueueSaturation
             || s.kind == DiagnosisKind::DownstreamStageDominates)
-            && s.score >= 80
+            && s.score >= 85
     });
 
     if run.runtime_snapshots.is_empty() {
         if !strong_non_runtime_primary {
             warnings.push("No runtime snapshots captured; executor and blocking-pressure interpretation is limited.".to_string());
         }
-    } else if run
-        .runtime_snapshots
-        .iter()
-        .all(|s| s.blocking_queue_depth.is_none())
-        || run
+    } else if runtime_distinction_relevant
+        && (run
             .runtime_snapshots
             .iter()
-            .all(|s| s.local_queue_depth.is_none())
+            .all(|s| s.blocking_queue_depth.is_none())
+            || run
+                .runtime_snapshots
+                .iter()
+                .all(|s| s.local_queue_depth.is_none()))
     {
         warnings.push("Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.".to_string());
     }
@@ -1248,5 +1282,79 @@ mod tests {
             report.primary_suspect.kind,
             DiagnosisKind::DownstreamStageDominates
         );
+    }
+
+    #[test]
+    fn score_100_is_reserved_for_overwhelming_queue_evidence() {
+        let mut run = test_run();
+        run.requests = (0..40)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/test".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.queues = run
+            .requests
+            .iter()
+            .map(|r| QueueEvent {
+                request_id: r.request_id.clone(),
+                queue: "q".into(),
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+                wait_us: 990,
+                depth_at_start: Some(20),
+            })
+            .collect();
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::ApplicationQueueSaturation
+        );
+        assert!(report.primary_suspect.score >= 95);
+    }
+
+    #[test]
+    fn ambiguity_warning_requires_close_calibrated_scores() {
+        let suspects = vec![
+            Suspect::new(
+                DiagnosisKind::DownstreamStageDominates,
+                82,
+                vec!["e".into()],
+                vec![],
+            ),
+            Suspect::new(
+                DiagnosisKind::BlockingPoolPressure,
+                79,
+                vec!["e".into()],
+                vec![],
+            ),
+        ];
+        assert!(super::ambiguity_warning(&suspects).is_some());
+    }
+
+    #[test]
+    fn truncation_warnings_remain_additive() {
+        let mut run = test_run();
+        run.truncation.dropped_requests = 1;
+        run.truncation.dropped_stages = 1;
+        run.truncation.dropped_runtime_snapshots = 1;
+        let report = analyze_run(&run);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("dropped 1 request events")));
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("dropped 1 stage events")));
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("dropped 1 entries after reaching max_runtime_snapshots")));
     }
 }
