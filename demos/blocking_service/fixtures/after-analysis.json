@@ -1,25 +1,28 @@
 {
   "request_count": 250,
-  "p50_latency_us": 53571,
-  "p95_latency_us": 93323,
-  "p99_latency_us": 96960,
-  "p95_queue_share_permille": 64,
-  "p95_service_share_permille": 992,
+  "p50_latency_us": 54662,
+  "p95_latency_us": 88566,
+  "p99_latency_us": 90807,
+  "p95_queue_share_permille": 65,
+  "p95_service_share_permille": 990,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
-    "peak_count": 52,
-    "p95_count": 49,
+    "peak_count": 49,
+    "p95_count": 47,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2053
+    "growth_per_sec_milli": -2044
   },
-  "warnings": [],
+  "warnings": [
+    "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.",
+    "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks."
+  ],
   "primary_suspect": {
     "kind": "blocking_pool_pressure",
-    "score": 80,
-    "confidence": "medium",
+    "score": 100,
+    "confidence": "high",
     "evidence": [
-      "Blocking queue depth p95 is 47, indicating sustained spawn_blocking backlog."
+      "Blocking queue depth p95 is 45, peak is 47, with 98/200 nonzero samples."
     ],
     "next_checks": [
       "Audit blocking sections and move avoidable synchronous work out of hot paths.",
@@ -29,12 +32,12 @@
   "secondary_suspects": [
     {
       "kind": "downstream_stage_dominates",
-      "score": 79,
-      "confidence": "medium",
+      "score": 100,
+      "confidence": "high",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 92195 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 13448990 us.",
-        "Stage 'spawn_blocking_path' contributes 979 permille of cumulative request latency."
+        "Stage 'spawn_blocking_path' has p95 latency 87406 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 13153078 us (978 permille of request latency).",
+        "Stage 'spawn_blocking_path' contributes 987 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'spawn_blocking_path'.",

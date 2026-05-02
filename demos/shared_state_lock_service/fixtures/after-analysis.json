@@ -1,26 +1,26 @@
 {
   "request_count": 220,
-  "p50_latency_us": 830082,
-  "p95_latency_us": 1565210,
-  "p99_latency_us": 1623523,
+  "p50_latency_us": 832537,
+  "p95_latency_us": 1574076,
+  "p99_latency_us": 1632197,
   "p95_queue_share_permille": 993,
-  "p95_service_share_permille": 125,
+  "p95_service_share_permille": 126,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
-    "peak_count": 199,
-    "p95_count": 189,
+    "peak_count": 201,
+    "p95_count": 191,
     "growth_delta": -1,
-    "growth_per_sec_milli": -549
+    "growth_per_sec_milli": -552
   },
   "warnings": [],
   "primary_suspect": {
     "kind": "application_queue_saturation",
-    "score": 90,
+    "score": 100,
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 99.3% of request time.",
-      "Observed queue depth sample up to 197."
+      "Observed queue depth sample up to 200."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -30,12 +30,12 @@
   "secondary_suspects": [
     {
       "kind": "downstream_stage_dominates",
-      "score": 55,
+      "score": 43,
       "confidence": "low",
       "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 8361 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 1809272 us.",
-        "Stage 'shared_state_critical_section' contributes 9 permille of cumulative request latency."
+        "Stage 'shared_state_critical_section' has p95 latency 8293 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 1794375 us (9 permille of request latency).",
+        "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'shared_state_critical_section'.",

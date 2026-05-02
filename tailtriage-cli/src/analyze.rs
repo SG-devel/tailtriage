@@ -599,8 +599,16 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
             "No stage events captured; downstream-stage interpretation is limited.".to_string(),
         );
     }
+    let strong_non_runtime_primary = suspects.first().is_some_and(|s| {
+        (s.kind == DiagnosisKind::ApplicationQueueSaturation
+            || s.kind == DiagnosisKind::DownstreamStageDominates)
+            && s.score >= 80
+    });
+
     if run.runtime_snapshots.is_empty() {
-        warnings.push("No runtime snapshots captured; executor and blocking-pressure interpretation is limited.".to_string());
+        if !strong_non_runtime_primary {
+            warnings.push("No runtime snapshots captured; executor and blocking-pressure interpretation is limited.".to_string());
+        }
     } else if run
         .runtime_snapshots
         .iter()
@@ -859,8 +867,8 @@ pub fn render_text(report: &Report) -> String {
 #[cfg(test)]
 mod tests {
     use tailtriage_core::{
-        CaptureMode, EffectiveCoreConfig, RequestEvent, Run, RunMetadata, StageEvent,
-        SCHEMA_VERSION,
+        CaptureMode, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata,
+        RuntimeSnapshot, StageEvent, SCHEMA_VERSION,
     };
 
     use crate::analyze::{
@@ -924,6 +932,21 @@ mod tests {
             inflight: Vec::new(),
             runtime_snapshots: Vec::new(),
             truncation: tailtriage_core::TruncationSummary::default(),
+        }
+    }
+
+    fn runtime_snapshot(
+        global: Option<u64>,
+        local: Option<u64>,
+        blocking: Option<u64>,
+    ) -> RuntimeSnapshot {
+        RuntimeSnapshot {
+            at_unix_ms: 1,
+            global_queue_depth: global,
+            local_queue_depth: local,
+            alive_tasks: Some(20),
+            blocking_queue_depth: blocking,
+            remote_schedule_count: None,
         }
     }
 
@@ -1118,7 +1141,7 @@ mod tests {
         run.truncation.limits_hit = true;
 
         let report = analyze_run(&run);
-        assert_eq!(report.warnings.len(), 3);
+        assert!(report.warnings.len() >= 3);
         assert!(report.warnings.iter().any(|warning| {
             warning.contains("dropped evidence can reduce diagnosis completeness and confidence")
         }));
@@ -1130,5 +1153,100 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("dropped 1 entries")));
+    }
+
+    #[test]
+    fn low_request_count_warning_appears() {
+        let report = analyze_run(&test_run());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("Low completed-request count")));
+    }
+
+    #[test]
+    fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
+        let mut run = test_run();
+        run.queues = vec![
+            QueueEvent {
+                request_id: "req-1".into(),
+                queue: "q".into(),
+                wait_us: 900,
+                waited_from_unix_ms: 0,
+                waited_until_unix_ms: 1,
+                depth_at_start: Some(9),
+            },
+            QueueEvent {
+                request_id: "req-2".into(),
+                queue: "q".into(),
+                wait_us: 900,
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+                depth_at_start: Some(9),
+            },
+            QueueEvent {
+                request_id: "req-3".into(),
+                queue: "q".into(),
+                wait_us: 900,
+                waited_from_unix_ms: 2,
+                waited_until_unix_ms: 3,
+                depth_at_start: Some(9),
+            },
+        ];
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::ApplicationQueueSaturation
+        );
+        assert!(!report
+            .warnings
+            .iter()
+            .any(|w| w.contains("No runtime snapshots captured")));
+    }
+
+    #[test]
+    fn runtime_warning_emitted_when_insufficient_evidence() {
+        let report = analyze_run(&test_run());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("No runtime snapshots captured")));
+    }
+
+    #[test]
+    fn downstream_beats_weak_blocking() {
+        let mut run = test_run();
+        run.stages = vec![
+            StageEvent {
+                request_id: "req-1".into(),
+                stage: "db".into(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 900,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-2".into(),
+                stage: "db".into(),
+                started_at_unix_ms: 2,
+                finished_at_unix_ms: 3,
+                latency_us: 900,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-3".into(),
+                stage: "db".into(),
+                started_at_unix_ms: 3,
+                finished_at_unix_ms: 4,
+                latency_us: 900,
+                success: true,
+            },
+        ];
+        run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::DownstreamStageDominates
+        );
     }
 }

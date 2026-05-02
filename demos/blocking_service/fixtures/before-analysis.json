@@ -1,8 +1,8 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1864277,
-  "p95_latency_us": 3522386,
-  "p99_latency_us": 3670605,
+  "p50_latency_us": 1864140,
+  "p95_latency_us": 3524878,
+  "p99_latency_us": 3672999,
   "p95_queue_share_permille": 5,
   "p95_service_share_permille": 999,
   "inflight_trend": {
@@ -10,16 +10,19 @@
     "sample_count": 500,
     "peak_count": 246,
     "p95_count": 234,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "growth_delta": -1,
+    "growth_per_sec_milli": -264
   },
-  "warnings": [],
+  "warnings": [
+    "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.",
+    "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks."
+  ],
   "primary_suspect": {
     "kind": "blocking_pool_pressure",
-    "score": 80,
-    "confidence": "medium",
+    "score": 100,
+    "confidence": "high",
     "evidence": [
-      "Blocking queue depth p95 is 244, indicating sustained spawn_blocking backlog."
+      "Blocking queue depth p95 is 244, peak is 246, with 200/200 nonzero samples."
     ],
     "next_checks": [
       "Audit blocking sections and move avoidable synchronous work out of hot paths.",
@@ -29,12 +32,12 @@
   "secondary_suspects": [
     {
       "kind": "downstream_stage_dominates",
-      "score": 79,
-      "confidence": "medium",
+      "score": 100,
+      "confidence": "high",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3521207 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 465982486 us.",
-        "Stage 'spawn_blocking_path' contributes 999 permille of cumulative request latency."
+        "Stage 'spawn_blocking_path' has p95 latency 3523552 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 466016917 us (999 permille of request latency).",
+        "Stage 'spawn_blocking_path' contributes 999 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'spawn_blocking_path'.",

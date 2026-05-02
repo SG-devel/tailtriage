@@ -561,9 +561,9 @@ def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
         raise SystemExit(
             f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
         )
-    if after_score >= before_score:
+    if after_score > before_score:
         raise SystemExit(
-            f"expected mitigated primary suspect score to drop, got before={before_score} after={after_score}"
+            f"expected mitigated primary suspect score to stay flat or drop, got before={before_score} after={after_score}"
         )
 
     print(

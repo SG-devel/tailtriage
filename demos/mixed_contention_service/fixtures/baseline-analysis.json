@@ -1,26 +1,26 @@
 {
   "request_count": 220,
-  "p50_latency_us": 394911,
-  "p95_latency_us": 740151,
-  "p99_latency_us": 766264,
+  "p50_latency_us": 387488,
+  "p95_latency_us": 731949,
+  "p99_latency_us": 758739,
   "p95_queue_share_permille": 980,
-  "p95_service_share_permille": 351,
+  "p95_service_share_permille": 399,
   "inflight_trend": {
     "gauge": "mixed_contention_inflight",
     "sample_count": 440,
-    "peak_count": 201,
+    "peak_count": 200,
     "p95_count": 190,
     "growth_delta": -1,
-    "growth_per_sec_milli": -1164
+    "growth_per_sec_milli": -1161
   },
   "warnings": [],
   "primary_suspect": {
     "kind": "application_queue_saturation",
-    "score": 90,
+    "score": 100,
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 98.0% of request time.",
-      "Observed queue depth sample up to 196."
+      "Observed queue depth sample up to 195."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -30,12 +30,12 @@
   "secondary_suspects": [
     {
       "kind": "downstream_stage_dominates",
-      "score": 56,
+      "score": 47,
       "confidence": "low",
       "evidence": [
-        "Stage 'downstream_call' has p95 latency 32525 us across 220 samples.",
-        "Stage 'downstream_call' cumulative latency is 3763876 us.",
-        "Stage 'downstream_call' contributes 43 permille of cumulative request latency."
+        "Stage 'downstream_call' has p95 latency 32365 us across 220 samples.",
+        "Stage 'downstream_call' cumulative latency is 3757826 us (43 permille of request latency).",
+        "Stage 'downstream_call' contributes 25 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'downstream_call'.",
