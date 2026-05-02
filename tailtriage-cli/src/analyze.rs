@@ -351,34 +351,42 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
                 .to_string(),
         );
     }
+    let has_queue_suspect = suspects
+        .iter()
+        .any(|suspect| suspect.kind == DiagnosisKind::ApplicationQueueSaturation);
+    let has_downstream_suspect = suspects
+        .iter()
+        .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominates);
+    let has_runtime_suspect = suspects.iter().any(|suspect| {
+        suspect.kind == DiagnosisKind::ExecutorPressureSuspected
+            || suspect.kind == DiagnosisKind::BlockingPoolPressure
+    });
+    let has_request_signals = !run.requests.is_empty();
+
     if run.queues.is_empty()
-        && !suspects
-            .iter()
-            .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominates)
+        && (has_queue_suspect || (!has_downstream_suspect && has_request_signals))
     {
         warnings.push(
             "No queue events captured; queue saturation interpretation is limited.".to_string(),
         );
     }
-    if run.stages.is_empty() {
+    if run.stages.is_empty()
+        && (has_downstream_suspect || (!has_queue_suspect && has_request_signals))
+    {
         warnings.push(
             "No stage events captured; downstream-stage interpretation is limited.".to_string(),
         );
     }
     if run.runtime_snapshots.is_empty() {
-        if suspects.iter().any(|suspect| {
-            suspect.kind == DiagnosisKind::ExecutorPressureSuspected
-                || suspect.kind == DiagnosisKind::BlockingPoolPressure
-        }) || !run.requests.is_empty()
+        if has_runtime_suspect
+            || (!has_queue_suspect && !has_downstream_suspect && has_request_signals)
         {
             warnings.push(
                 "No runtime snapshots captured; executor vs blocking interpretation is limited."
                     .to_string(),
             );
         }
-    } else if run.runtime_snapshots.iter().all(|snapshot| {
-        snapshot.blocking_queue_depth.is_none() || snapshot.local_queue_depth.is_none()
-    }) {
+    } else if missing_optional_runtime_fields_warning(run.runtime_snapshots.as_slice()) {
         warnings.push(
             "Runtime snapshots are missing blocking_queue_depth or local_queue_depth, so executor vs blocking separation is limited."
                 .to_string(),
@@ -388,6 +396,23 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
         warnings.push(warning);
     }
     warnings
+}
+
+fn missing_optional_runtime_fields_warning(snapshots: &[RuntimeSnapshot]) -> bool {
+    let snapshot_count = snapshots.len();
+    if snapshot_count == 0 {
+        return false;
+    }
+    let missing_blocking = snapshots
+        .iter()
+        .filter(|snapshot| snapshot.blocking_queue_depth.is_none())
+        .count();
+    let missing_local = snapshots
+        .iter()
+        .filter(|snapshot| snapshot.local_queue_depth.is_none())
+        .count();
+
+    missing_blocking * 2 >= snapshot_count || missing_local * 2 >= snapshot_count
 }
 
 fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
@@ -588,6 +613,10 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
     let mut candidates = stage_totals
         .iter()
         .filter_map(|(stage, total_latency)| {
+            let stage_count = run.stages.iter().filter(|s| s.stage == *stage).count();
+            if stage_count < 3 {
+                return None;
+            }
             let tail_stage_total = run
                 .stages
                 .iter()
@@ -599,7 +628,7 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
             } else {
                 tail_stage_total.saturating_mul(1_000) / tail_total_latency
             };
-            Some((*stage, *total_latency, tail_share))
+            Some((*stage, *total_latency, tail_share, stage_count))
         })
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| {
@@ -609,13 +638,8 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
             .then_with(|| right.1.cmp(&left.1))
             .then_with(|| left.0.cmp(right.0))
     });
-    let (dominant_stage, total_latency, tail_share_permille) = candidates.first().copied()?;
-
-    let stage_count = run
-        .stages
-        .iter()
-        .filter(|stage| stage.stage == dominant_stage)
-        .count();
+    let (dominant_stage, total_latency, tail_share_permille, stage_count) =
+        candidates.first().copied()?;
     let stage_latencies = run
         .stages
         .iter()
@@ -633,14 +657,10 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .checked_div(total_request_latency)
         .unwrap_or(0);
     let score = clamp_score(
-        35 + (stage_share_permille / 20) as u16
-            + (tail_share_permille / 15) as u16
+        30 + saturating_u16_from_u64(stage_share_permille / 24)
+            + saturating_u16_from_u64(tail_share_permille / 18)
             + u16::from(score_sample_quality(stage_count)),
     );
-
-    if stage_count < 3 {
-        return None;
-    }
 
     Some(Suspect::new(
         DiagnosisKind::DownstreamStageDominates,
@@ -1165,7 +1185,7 @@ mod tests {
         run.truncation.limits_hit = true;
 
         let report = analyze_run(&run);
-        assert_eq!(report.warnings.len(), 3);
+        assert!(report.warnings.len() >= 3);
         assert!(report.warnings.iter().any(|warning| {
             warning.contains("dropped evidence can reduce diagnosis completeness and confidence")
         }));
@@ -1225,5 +1245,87 @@ mod tests {
             DiagnosisKind::ApplicationQueueSaturation
         );
         assert!(high_report.primary_suspect.score > low_report.primary_suspect.score);
+    }
+
+    #[test]
+    fn downstream_candidate_selection_filters_low_sample_stages_before_ranking() {
+        let mut run = test_run();
+        run.requests.push(RequestEvent {
+            request_id: "req-4".to_owned(),
+            route: "/test".to_owned(),
+            kind: None,
+            started_at_unix_ms: 4,
+            finished_at_unix_ms: 5,
+            latency_us: 3_000,
+            outcome: "ok".to_owned(),
+        });
+        run.stages = vec![
+            StageEvent {
+                request_id: "req-4".to_owned(),
+                stage: "singleton".to_owned(),
+                started_at_unix_ms: 4,
+                finished_at_unix_ms: 5,
+                latency_us: 2_900,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-1".to_owned(),
+                stage: "db".to_owned(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 800,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-2".to_owned(),
+                stage: "db".to_owned(),
+                started_at_unix_ms: 2,
+                finished_at_unix_ms: 3,
+                latency_us: 850,
+                success: true,
+            },
+            StageEvent {
+                request_id: "req-3".to_owned(),
+                stage: "db".to_owned(),
+                started_at_unix_ms: 3,
+                finished_at_unix_ms: 4,
+                latency_us: 900,
+                success: true,
+            },
+        ];
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::DownstreamStageDominates
+        );
+        assert!(report.primary_suspect.evidence[0].contains("db"));
+    }
+
+    #[test]
+    fn missing_optional_runtime_fields_warning_when_runtime_present_but_sparse_optional_fields() {
+        let mut run = test_run();
+        run.runtime_snapshots = vec![
+            tailtriage_core::RuntimeSnapshot {
+                at_unix_ms: 1,
+                global_queue_depth: Some(10),
+                alive_tasks: Some(100),
+                local_queue_depth: None,
+                blocking_queue_depth: Some(0),
+                remote_schedule_count: None,
+            },
+            tailtriage_core::RuntimeSnapshot {
+                at_unix_ms: 2,
+                global_queue_depth: Some(10),
+                alive_tasks: Some(100),
+                local_queue_depth: None,
+                blocking_queue_depth: None,
+                remote_schedule_count: None,
+            },
+        ];
+        let report = analyze_run(&run);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("missing blocking_queue_depth or local_queue_depth")));
     }
 }
