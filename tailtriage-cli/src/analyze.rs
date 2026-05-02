@@ -259,6 +259,8 @@ pub fn analyze_run(run: &Run) -> Report {
         )
     });
 
+    let secondary_suspects = ranked.collect::<Vec<_>>();
+
     Report {
         request_count: run.requests.len(),
         p50_latency_us,
@@ -267,9 +269,9 @@ pub fn analyze_run(run: &Run) -> Report {
         p95_queue_share_permille,
         p95_service_share_permille,
         inflight_trend,
-        warnings: truncation_warnings(run),
+        warnings: analysis_warnings(run, &primary_suspect, &secondary_suspects),
         primary_suspect,
-        secondary_suspects: ranked.collect(),
+        secondary_suspects,
     }
 }
 
@@ -314,6 +316,81 @@ fn truncation_warnings(run: &Run) -> Vec<String> {
     warnings
 }
 
+fn clamp_score(value: u16) -> u8 {
+    value.min(100) as u8
+}
+fn to_u16_saturating(value: u64) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+fn usize_to_u16_saturating(value: usize) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+
+fn nonzero_sample_count(values: &[u64]) -> usize {
+    values.iter().filter(|value| **value > 0).count()
+}
+
+fn max_or_zero(values: &[u64]) -> u64 {
+    values.iter().copied().max().unwrap_or(0)
+}
+
+fn score_sample_quality(sample_count: usize) -> u8 {
+    match sample_count {
+        0..=4 => 0,
+        5..=9 => 2,
+        10..=19 => 4,
+        _ => 6,
+    }
+}
+
+fn analysis_warnings(run: &Run, primary: &Suspect, secondary: &[Suspect]) -> Vec<String> {
+    let mut warnings = truncation_warnings(run);
+    if run.requests.len() < 20 {
+        warnings.push("Low completed request count; suspect ranking may be unstable.".to_string());
+    }
+    if run.queues.is_empty() && primary.kind != DiagnosisKind::DownstreamStageDominates {
+        warnings.push(
+            "No queue events were captured; queue-pressure interpretation is limited.".to_string(),
+        );
+    }
+    if run.stages.is_empty() && primary.kind != DiagnosisKind::ApplicationQueueSaturation {
+        warnings.push(
+            "No stage events were captured; downstream-stage interpretation is limited."
+                .to_string(),
+        );
+    }
+    if run.runtime_snapshots.is_empty()
+        && primary.kind != DiagnosisKind::ApplicationQueueSaturation
+        && primary.kind != DiagnosisKind::DownstreamStageDominates
+    {
+        warnings.push(
+            "No runtime snapshots were captured; executor/blocking interpretation is limited."
+                .to_string(),
+        );
+    }
+    if !run.runtime_snapshots.is_empty()
+        && run
+            .runtime_snapshots
+            .iter()
+            .all(|s| s.blocking_queue_depth.is_none())
+        && run
+            .runtime_snapshots
+            .iter()
+            .all(|s| s.local_queue_depth.is_none())
+    {
+        warnings.push("Runtime snapshots are missing blocking_queue_depth/local_queue_depth; executor vs blocking separation is limited.".to_string());
+    }
+    if let Some(second) = secondary.first() {
+        if primary.kind != DiagnosisKind::InsufficientEvidence
+            && second.kind != DiagnosisKind::InsufficientEvidence
+            && primary.score.abs_diff(second.score) <= 5
+        {
+            warnings.push("Top suspects are close in score; treat ranking as ambiguous and run targeted next checks.".to_string());
+        }
+    }
+    warnings
+}
+
 fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
     let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
@@ -345,7 +422,16 @@ fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -
 
     Some(Suspect::new(
         DiagnosisKind::ApplicationQueueSaturation,
-        90,
+        clamp_score(
+            50 + to_u16_saturating(p95_queue_share_permille / 20)
+                + max_depth.unwrap_or(0).min(20) as u16
+                + if inflight_trend.is_some_and(|t| t.growth_delta > 0) {
+                    8
+                } else {
+                    0
+                }
+                + u16::from(score_sample_quality(run.requests.len())),
+        ),
         evidence,
         vec![
             "Inspect queue admission limits and producer burst patterns.".to_string(),
@@ -365,12 +451,17 @@ fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
         return None;
     }
 
+    let max_depth = max_or_zero(&blocking_depths);
+    let nonzero = nonzero_sample_count(&blocking_depths);
+    let sample_quality = score_sample_quality(blocking_depths.len());
+
     Some(Suspect::new(
         DiagnosisKind::BlockingPoolPressure,
-        80,
-        vec![format!(
-            "Blocking queue depth p95 is {p95_blocking_depth}, indicating sustained spawn_blocking backlog."
-        )],
+        clamp_score(24 + (p95_blocking_depth.min(35) as u16) + (max_depth.min(20) as u16 / 2) + ((usize_to_u16_saturating(nonzero) * 35) / usize_to_u16_saturating(blocking_depths.len().max(1))) + u16::from(sample_quality)),
+        vec![
+            format!("Blocking queue depth p95 is {p95_blocking_depth}, indicating sustained spawn_blocking backlog."),
+            format!("Blocking queue depth peak is {max_depth} with {nonzero}/{} nonzero samples.", blocking_depths.len()),
+        ],
         vec![
             "Audit blocking sections and move avoidable synchronous work out of hot paths."
                 .to_string(),
@@ -400,6 +491,16 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
         ));
     }
 
+    let local_depths = runtime_metric_series(&run.runtime_snapshots, |snapshot| {
+        snapshot.local_queue_depth
+    });
+    let alive_tasks =
+        runtime_metric_series(&run.runtime_snapshots, |snapshot| snapshot.alive_tasks);
+    let p95_local_depth = percentile(&local_depths, 95, 100).unwrap_or(0);
+    let p95_alive_tasks = percentile(&alive_tasks, 95, 100).unwrap_or(0);
+
+    evidence.push(format!("Runtime fields used: global_queue_depth p95={p95_global_depth}, local_queue_depth p95={p95_local_depth}, alive_tasks p95={p95_alive_tasks}."));
+
     let depth_bonus = if p95_global_depth >= 300 {
         20
     } else if p95_global_depth >= 200 {
@@ -410,7 +511,11 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
         0
     };
     let trend_bonus = if positive_growth { 5 } else { 0 };
-    let score = (65 + depth_bonus + trend_bonus).min(90);
+    let local_bonus = (p95_local_depth / 30).min(10) as u8;
+    let alive_bonus = (p95_alive_tasks / 200).min(8) as u8;
+    let score = clamp_score(u16::from(
+        45 + depth_bonus + trend_bonus + local_bonus + alive_bonus,
+    ));
 
     Some(Suspect::new(
         DiagnosisKind::ExecutorPressureSuspected,
@@ -986,7 +1091,7 @@ mod tests {
         run.truncation.limits_hit = true;
 
         let report = analyze_run(&run);
-        assert_eq!(report.warnings.len(), 3);
+        assert!(report.warnings.len() >= 3);
         assert!(report.warnings.iter().any(|warning| {
             warning.contains("dropped evidence can reduce diagnosis completeness and confidence")
         }));
@@ -998,5 +1103,14 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("dropped 1 entries")));
+    }
+
+    #[test]
+    fn low_request_count_warning_is_emitted() {
+        let report = analyze_run(&test_run());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.contains("Low completed request count")));
     }
 }
