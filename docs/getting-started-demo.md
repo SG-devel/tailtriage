@@ -51,6 +51,26 @@ python3 scripts/demo_tool.py validate db-pool
 
 Run any other scenario with the same pattern.
 
+
+
+Interpretation note:
+
+- Some before/after pairs can stay at `score: 100 -> 100` even when mitigation helps.
+- In those cases, validate via p95 movement, suspect rank, and evidence changes rather than requiring an exact score drop.
+
+
+## What to look for in each scenario
+
+- `queue`: queue-share and queue-depth evidence should dominate; after mitigation, p95 should drop materially.
+- `blocking`: blocking queue depth should be primary; `spawn_blocking`-style stage evidence can corroborate blocking pressure.
+- `executor`: runtime queue/local queue/alive-task pressure should drive executor suspicion.
+- `downstream`: tail-stage contribution should drive downstream suspicion.
+- `mixed`: multiple suspects can be plausible; ranking is a triage lead, not proof.
+- `cold-start`, `db-pool`, `shared-lock`: queue-like bottleneck shape should remain visible.
+- `retry-storm`: downstream/retry-tail contribution should drive downstream suspicion.
+
+Avoid exact score expectations; focus on primary kind, evidence, p95 direction, and rank movement.
+
 ## Before/after comparison usage
 
 Use fixture-backed before/after runs to evaluate one mitigation at a time:

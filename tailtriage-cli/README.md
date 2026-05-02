@@ -126,6 +126,34 @@ Library note:
 - unfinished lifecycle warnings printed by the CLI indicate some requests were not completed cleanly
 - `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`
 
+
+## Scoring and warning behavior
+
+Suspect ranking uses deterministic, proportional, evidence-aware scoring (0-100), not fixed suspect priority.
+
+- Scores rank suspects **inside one report**; they are not probabilities.
+- Confidence is score-derived ranking strength, not causal certainty.
+- Strong downstream tail-stage contribution can outrank weak blocking/runtime signals.
+- Strong queue pressure remains a high-confidence lead when queue share/depth evidence is dominant.
+
+How to read before/after runs:
+
+- Compare p95 latency movement first.
+- Confirm primary suspect kind/rank and evidence direction.
+- Use score movement as supporting context, not a standalone pass/fail rule.
+
+Why a score can stay flat or rise after mitigation:
+
+- Scores are relative to the evidence mix in each capture.
+- If total latency drops but the remaining tail is still dominated by one suspect family, that suspect score can remain high or increase.
+- This does not by itself mean mitigation failed when p95 and relevant evidence improve.
+
+`warnings[]` may include:
+
+- evidence-quality warnings (for example low request counts or missing signal families)
+- ambiguity warnings when top suspects are genuinely close after calibration
+- additive truncation warnings when capture limits drop events
+
 ## Suspect kinds
 
 The current report surface includes these suspect kinds:

@@ -135,6 +135,80 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "diagnosis-matrix")
         self.assertEqual(args.scenario, ["queue", "executor"])
 
+    def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
+        before = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
+            "p95_latency_us": 1_000_000,
+            "p95_queue_share_permille": 980,
+        }
+        after = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 100},
+            "p95_latency_us": 40_000,
+            "p95_queue_share_permille": 975,
+        }
+        demo_tool._validate_nonworsening_score_or_explainable_saturation(
+            before=before,
+            after=after,
+            expected_primary_kinds={"application_queue_saturation"},
+            scenario="queue",
+        )
+
+    def test_queue_score_increase_rejected_when_p95_worsens(self) -> None:
+        before = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
+            "p95_latency_us": 40_000,
+            "p95_queue_share_permille": 900,
+        }
+        after = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
+            "p95_latency_us": 45_000,
+            "p95_queue_share_permille": 890,
+        }
+        with self.assertRaisesRegex(SystemExit, "does not materially improve"):
+            demo_tool._validate_nonworsening_score_or_explainable_saturation(
+                before=before,
+                after=after,
+                expected_primary_kinds={"application_queue_saturation"},
+                scenario="queue",
+            )
+
+    def test_queue_score_increase_rejected_when_queue_evidence_worsens(self) -> None:
+        before = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
+            "p95_latency_us": 100_000,
+            "p95_queue_share_permille": 900,
+        }
+        after = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
+            "p95_latency_us": 50_000,
+            "p95_queue_share_permille": 950,
+        }
+        with self.assertRaisesRegex(SystemExit, "non-worsening queue evidence"):
+            demo_tool._validate_nonworsening_score_or_explainable_saturation(
+                before=before,
+                after=after,
+                expected_primary_kinds={"application_queue_saturation"},
+                scenario="queue",
+            )
+
+    def test_queue_score_increase_allows_primary_shift_when_queue_share_drops_materially(self) -> None:
+        before = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
+            "p95_latency_us": 1_000_000,
+            "p95_queue_share_permille": 980,
+        }
+        after = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 100},
+            "p95_latency_us": 40_000,
+            "p95_queue_share_permille": 0,
+        }
+        demo_tool._validate_nonworsening_score_or_explainable_saturation(
+            before=before,
+            after=after,
+            expected_primary_kinds={"application_queue_saturation"},
+            scenario="queue",
+        )
+
 
 class DemoMainRoutingTests(unittest.TestCase):
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))

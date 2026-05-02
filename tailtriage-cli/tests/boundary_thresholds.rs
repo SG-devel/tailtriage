@@ -245,7 +245,7 @@ fn downstream_stage_requires_at_least_three_samples() {
 }
 
 #[test]
-fn mixed_signal_fixtures_rank_higher_score_first() {
+fn mixed_signal_fixtures_preserve_stronger_evidence_ordering() {
     let queue_vs_blocking = analyze_run(&load_fixture("mixed_queue_vs_blocking.json"));
     assert_eq!(
         queue_vs_blocking.primary_suspect.kind,
@@ -269,20 +269,20 @@ fn mixed_signal_fixtures_rank_higher_score_first() {
     let blocking_vs_downstream = analyze_run(&load_fixture("mixed_blocking_vs_downstream.json"));
     assert_eq!(
         blocking_vs_downstream.primary_suspect.kind,
-        DiagnosisKind::BlockingPoolPressure
+        DiagnosisKind::DownstreamStageDominates
     );
     assert!(
         blocking_vs_downstream
             .secondary_suspects
             .iter()
-            .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominates),
-        "mixed fixture should still include downstream stage dominance as a plausible secondary suspect"
+            .any(|suspect| suspect.kind == DiagnosisKind::BlockingPoolPressure),
+        "mixed fixture should still include blocking pressure as a plausible secondary suspect"
     );
     assert!(
         blocking_vs_downstream
             .secondary_suspects
             .first()
-            .is_some_and(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominates),
-        "downstream stage suspect should rank ahead of lower-scoring alternatives"
+            .is_some_and(|suspect| suspect.kind == DiagnosisKind::BlockingPoolPressure),
+        "blocking pressure should remain the top secondary suspect by score"
     );
 }

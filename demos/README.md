@@ -233,6 +233,26 @@ These are valuable and should remain first-class docs, but are best after the co
 - queue-share impact and p95 changes
 - primary suspect score reduction after mitigation
 
+### Demo score interpretation
+
+- A mitigation can improve p95 and evidence quality while suspect score remains saturated at `100 -> 100`.
+- For demo validation, prioritize p95 direction, suspect ordering, and evidence wording over requiring exact score drops in saturated cases.
+
+
+## Analyzer interpretation by scenario
+
+Use these as interpretation targets, not exact numeric score contracts:
+
+- `queue_service`: p95 queue share and queue-depth evidence should dominate; mitigation should reduce p95.
+- `blocking_service`: blocking queue depth should stay primary when strong; blocking-looking stages can corroborate.
+- `executor_pressure_service`: runtime queue depth/local queue/alive-task signals should drive executor suspicion.
+- `downstream_service`: tail-stage contribution should drive downstream suspicion.
+- `mixed_contention_service`: more than one suspect can be plausible; ranking is a triage lead.
+- `cold_start_burst_service`, `db_pool_saturation_service`, `shared_state_lock_service`: queue-like bottleneck shape should remain visible.
+- `retry_storm_service`: retry-driven downstream tail contribution should dominate.
+
+Prefer p95 direction, evidence text, and rank movement over exact score deltas.
+
 ## More synthetic analyzer-contract demos
 
 These remain useful and should stay documented, but docs should treat them as more synthetic demonstrations.
