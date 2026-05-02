@@ -1,8 +1,8 @@
 {
   "request_count": 240,
-  "p50_latency_us": 4611494,
-  "p95_latency_us": 4755588,
-  "p99_latency_us": 4779618,
+  "p50_latency_us": 16236717,
+  "p95_latency_us": 16412208,
+  "p99_latency_us": 16423914,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -11,15 +11,17 @@
     "peak_count": 240,
     "p95_count": 228,
     "growth_delta": -1,
-    "growth_per_sec_milli": -208
+    "growth_per_sec_milli": -60
   },
   "warnings": [],
   "primary_suspect": {
     "kind": "executor_pressure_suspected",
-    "score": 85,
+    "score": 99,
     "confidence": "high",
     "evidence": [
-      "Runtime global queue depth p95 is 720, suggesting scheduler contention."
+      "Runtime global queue depth p95 is 717, suggesting scheduler contention.",
+      "Runtime local queue depth p95 is 1674.",
+      "Runtime alive_tasks p95 is 717."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
