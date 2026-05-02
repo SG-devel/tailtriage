@@ -249,6 +249,8 @@ pub fn analyze_run(run: &Run) -> Report {
 
     suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
+    let warnings = analysis_warnings(run, &suspects);
+
     let mut ranked = suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
         Suspect::new(
@@ -267,7 +269,7 @@ pub fn analyze_run(run: &Run) -> Report {
         p95_queue_share_permille,
         p95_service_share_permille,
         inflight_trend,
-        warnings: truncation_warnings(run),
+        warnings,
         primary_suspect,
         secondary_suspects: ranked.collect(),
     }
@@ -314,27 +316,58 @@ fn truncation_warnings(run: &Run) -> Vec<String> {
     warnings
 }
 
+fn clamp_score(value: u64) -> u8 {
+    u8::try_from(value.min(100)).unwrap_or(100)
+}
+
+fn nonzero_sample_count(values: &[u64]) -> usize {
+    values.iter().filter(|&&v| v > 0).count()
+}
+
+fn max_or_zero(values: &[u64]) -> u64 {
+    values.iter().copied().max().unwrap_or(0)
+}
+
+fn score_sample_quality(sample_count: usize) -> u8 {
+    if sample_count >= 100 {
+        8
+    } else if sample_count >= 40 {
+        5
+    } else if sample_count >= 20 {
+        3
+    } else {
+        u8::from(sample_count >= 8)
+    }
+}
+
 fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
     let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
-    let max_depth = run
-        .queues
-        .iter()
-        .filter_map(|queue| queue.depth_at_start)
-        .max();
-
     if p95_queue_share_permille < 300 {
         return None;
     }
-
-    let whole_percent = p95_queue_share_permille / 10;
-    let tenth_percent = p95_queue_share_permille % 10;
+    let queue_depths = run
+        .queues
+        .iter()
+        .filter_map(|q| q.depth_at_start)
+        .collect::<Vec<_>>();
+    let max_depth = max_or_zero(&queue_depths);
+    let growth_bonus = inflight_trend
+        .filter(|t| t.growth_delta > 0)
+        .map_or(0, |_| 5);
+    let score = clamp_score(
+        40 + (p95_queue_share_permille / 12)
+            + (max_depth.min(40))
+            + growth_bonus
+            + u64::from(score_sample_quality(queue_shares.len())),
+    );
     let mut evidence = vec![format!(
-        "Queue wait at p95 consumes {whole_percent}.{tenth_percent}% of request time."
+        "Queue wait at p95 consumes {}.{}% of request time.",
+        p95_queue_share_permille / 10,
+        p95_queue_share_permille % 10
     )];
-
-    if let Some(depth) = max_depth {
-        evidence.push(format!("Observed queue depth sample up to {depth}."));
+    if max_depth > 0 {
+        evidence.push(format!("Observed queue depth sample up to {max_depth}."));
     }
     if let Some(trend) = inflight_trend.filter(|trend| trend.growth_delta > 0) {
         evidence.push(format!(
@@ -342,10 +375,9 @@ fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -
             trend.gauge, trend.growth_delta, trend.p95_count, trend.peak_count
         ));
     }
-
     Some(Suspect::new(
         DiagnosisKind::ApplicationQueueSaturation,
-        90,
+        score,
         evidence,
         vec![
             "Inspect queue admission limits and producer burst patterns.".to_string(),
@@ -356,62 +388,54 @@ fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -
 }
 
 fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
-    let blocking_depths = runtime_metric_series(&run.runtime_snapshots, |snapshot| {
-        snapshot.blocking_queue_depth
-    });
+    let blocking_depths = runtime_metric_series(&run.runtime_snapshots, |s| s.blocking_queue_depth);
     let p95_blocking_depth = percentile(&blocking_depths, 95, 100)?;
-
-    if p95_blocking_depth == 0 {
+    let nonzero = nonzero_sample_count(&blocking_depths);
+    if p95_blocking_depth == 0 && nonzero < 2 {
         return None;
     }
-
-    Some(Suspect::new(
-        DiagnosisKind::BlockingPoolPressure,
-        80,
-        vec![format!(
-            "Blocking queue depth p95 is {p95_blocking_depth}, indicating sustained spawn_blocking backlog."
-        )],
-        vec![
-            "Audit blocking sections and move avoidable synchronous work out of hot paths."
-                .to_string(),
-            "Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string(),
-        ],
-    ))
+    let peak = max_or_zero(&blocking_depths);
+    let nz_share_permille: u64 = if blocking_depths.is_empty() {
+        0
+    } else {
+        nonzero as u64 * 1000 / blocking_depths.len() as u64
+    };
+    let score = clamp_score(
+        28 + (p95_blocking_depth.min(20) * 2)
+            + peak.min(20)
+            + (nz_share_permille / 100)
+            + u64::from(score_sample_quality(blocking_depths.len())),
+    );
+    Some(Suspect::new(DiagnosisKind::BlockingPoolPressure, score, vec![format!("Blocking queue depth p95 is {p95_blocking_depth}, peak is {peak}, with {nonzero}/{} nonzero samples.", blocking_depths.len())], vec!["Audit blocking sections and move avoidable synchronous work out of hot paths.".to_string(),"Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string()]))
 }
 
 fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
-    let global_queue_depths = runtime_metric_series(&run.runtime_snapshots, |snapshot| {
-        snapshot.global_queue_depth
-    });
-    let p95_global_depth = percentile(&global_queue_depths, 95, 100)?;
-
-    if p95_global_depth == 0 {
+    let global = runtime_metric_series(&run.runtime_snapshots, |s| s.global_queue_depth);
+    let p95_global = percentile(&global, 95, 100)?;
+    if p95_global == 0 {
         return None;
     }
-
+    let local = runtime_metric_series(&run.runtime_snapshots, |s| s.local_queue_depth);
+    let alive = runtime_metric_series(&run.runtime_snapshots, |s| s.alive_tasks);
+    let growth_bonus = inflight_trend
+        .filter(|t| t.growth_delta > 0)
+        .map_or(0, |_| 4);
+    let score = clamp_score(
+        35 + (p95_global.min(150) / 3)
+            + (percentile(&local, 95, 100).unwrap_or(0).min(60) / 6)
+            + (percentile(&alive, 95, 100).unwrap_or(0).min(400) / 40)
+            + growth_bonus
+            + u64::from(score_sample_quality(global.len())),
+    );
     let mut evidence = vec![format!(
-        "Runtime global queue depth p95 is {p95_global_depth}, suggesting scheduler contention."
+        "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
     )];
-    let positive_growth = inflight_trend.is_some_and(|trend| trend.growth_delta > 0);
-    if let Some(trend) = inflight_trend.filter(|trend| trend.growth_delta > 0) {
-        evidence.push(format!(
-            "In-flight gauge '{}' growth is positive (delta={}, peak={}), consistent with accumulating executor pressure.",
-            trend.gauge, trend.growth_delta, trend.peak_count
-        ));
+    if let Some(lp95) = percentile(&local, 95, 100) {
+        evidence.push(format!("Runtime local queue depth p95 is {lp95}."));
     }
-
-    let depth_bonus = if p95_global_depth >= 300 {
-        20
-    } else if p95_global_depth >= 200 {
-        12
-    } else if p95_global_depth >= 100 {
-        6
-    } else {
-        0
-    };
-    let trend_bonus = if positive_growth { 5 } else { 0 };
-    let score = (65 + depth_bonus + trend_bonus).min(90);
-
+    if let Some(ap95) = percentile(&alive, 95, 100) {
+        evidence.push(format!("Runtime alive_tasks p95 is {ap95}."));
+    }
     Some(Suspect::new(
         DiagnosisKind::ExecutorPressureSuspected,
         score,
@@ -423,67 +447,175 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
     ))
 }
 
-fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
-    let mut stage_totals: BTreeMap<&str, u64> = BTreeMap::new();
-    for stage in &run.stages {
-        *stage_totals.entry(stage.stage.as_str()).or_default() = stage_totals
-            .get(stage.stage.as_str())
-            .copied()
-            .unwrap_or_default()
-            .saturating_add(stage.latency_us);
-    }
+#[derive(Clone)]
+struct StageCandidate {
+    stage: String,
+    samples: usize,
+    p95: u64,
+    cumulative: u64,
+    cum_share: u64,
+    tail_share: u64,
+    score: u8,
+}
 
-    let (dominant_stage, total_latency) = stage_totals
-        .iter()
-        .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
-        .map(|(stage, latency)| (*stage, *latency))?;
-
-    let stage_count = run
-        .stages
-        .iter()
-        .filter(|stage| stage.stage == dominant_stage)
-        .count();
-    let stage_latencies = run
-        .stages
-        .iter()
-        .filter(|stage| stage.stage == dominant_stage)
-        .map(|stage| stage.latency_us)
-        .collect::<Vec<_>>();
-    let stage_p95 = percentile(&stage_latencies, 95, 100)?;
-    let total_request_latency = run
+fn downstream_stage_candidates(run: &Run, p95_req: u64, total_req: u64) -> Vec<StageCandidate> {
+    let tail_ids: std::collections::HashMap<&str, u64> = run
         .requests
         .iter()
-        .map(|request| request.latency_us)
-        .fold(0_u64, u64::saturating_add);
-    let stage_share_permille = total_latency
-        .saturating_mul(1_000)
-        .checked_div(total_request_latency)
-        .unwrap_or(0);
-    let share_bonus = (stage_share_permille / 40).min(25) as u8;
-    let score = (55 + share_bonus).min(79);
-
-    if stage_count < 3 {
-        return None;
+        .filter(|r| r.latency_us >= p95_req)
+        .map(|r| (r.request_id.as_str(), r.latency_us))
+        .collect();
+    let tail_total = tail_ids.values().copied().fold(0_u64, u64::saturating_add);
+    let mut by: BTreeMap<&str, Vec<&tailtriage_core::StageEvent>> = BTreeMap::new();
+    for st in &run.stages {
+        by.entry(st.stage.as_str()).or_default().push(st);
     }
+    let mut cands = Vec::new();
+    for (name, ss) in by {
+        if ss.len() < 3 {
+            continue;
+        }
+        let lats = ss.iter().map(|s| s.latency_us).collect::<Vec<_>>();
+        let cum = lats.iter().copied().fold(0_u64, u64::saturating_add);
+        let p95 = percentile(&lats, 95, 100).unwrap_or(0);
+        let cum_share = cum.saturating_mul(1000).checked_div(total_req).unwrap_or(0);
+        let tail_stage = ss
+            .iter()
+            .filter_map(|s| tail_ids.get(s.request_id.as_str()).map(|_| s.latency_us))
+            .fold(0_u64, u64::saturating_add);
+        let tail_share = if tail_total == 0 {
+            0
+        } else {
+            tail_stage
+                .saturating_mul(1000)
+                .checked_div(tail_total)
+                .unwrap_or(0)
+        };
+        let score = clamp_score(
+            35 + (tail_share / 8) + (cum_share / 30) + u64::from(score_sample_quality(ss.len())),
+        );
+        cands.push(StageCandidate {
+            stage: name.to_string(),
+            samples: ss.len(),
+            p95,
+            cumulative: cum,
+            cum_share,
+            tail_share,
+            score,
+        });
+    }
+    cands
+}
 
+fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
+    let p95_req = percentile(
+        &run.requests
+            .iter()
+            .map(|r| r.latency_us)
+            .collect::<Vec<_>>(),
+        95,
+        100,
+    )?;
+    let total_req = run
+        .requests
+        .iter()
+        .map(|r| r.latency_us)
+        .fold(0_u64, u64::saturating_add);
+    let best = downstream_stage_candidates(run, p95_req, total_req)
+        .into_iter()
+        .max_by(|a, b| {
+            a.score
+                .cmp(&b.score)
+                .then_with(|| a.tail_share.cmp(&b.tail_share))
+                .then_with(|| a.cum_share.cmp(&b.cum_share))
+                .then_with(|| b.stage.cmp(&a.stage))
+        })?;
     Some(Suspect::new(
         DiagnosisKind::DownstreamStageDominates,
-        score,
+        best.score,
         vec![
             format!(
-                "Stage '{dominant_stage}' has p95 latency {stage_p95} us across {stage_count} samples."
+                "Stage '{}' has p95 latency {} us across {} samples.",
+                best.stage, best.p95, best.samples
             ),
-            format!("Stage '{dominant_stage}' cumulative latency is {total_latency} us."),
             format!(
-                "Stage '{dominant_stage}' contributes {stage_share_permille} permille of cumulative request latency."
+                "Stage '{}' cumulative latency is {} us ({} permille of request latency).",
+                best.stage, best.cumulative, best.cum_share
+            ),
+            format!(
+                "Stage '{}' contributes {} permille of tail request latency.",
+                best.stage, best.tail_share
             ),
         ],
         vec![
-            format!("Inspect downstream dependency behind stage '{dominant_stage}'."),
-            "Collect downstream service timings and retry behavior during tail windows.".to_string(),
-            "Review downstream SLO/error budget and align retry budget/backoff with it.".to_string(),
+            format!(
+                "Inspect downstream dependency behind stage '{}'.",
+                best.stage
+            ),
+            "Collect downstream service timings and retry behavior during tail windows."
+                .to_string(),
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+                .to_string(),
         ],
     ))
+}
+
+fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
+    let mut ranked = suspects
+        .iter()
+        .filter(|s| s.kind != DiagnosisKind::InsufficientEvidence)
+        .collect::<Vec<_>>();
+    ranked.sort_by_key(|s| std::cmp::Reverse(s.score));
+    if ranked.len() >= 2 && ranked[0].score.abs_diff(ranked[1].score) <= 5 {
+        Some("Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string())
+    } else {
+        None
+    }
+}
+
+fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
+    let mut warnings = truncation_warnings(run);
+    if run.requests.len() < 20 {
+        warnings.push(
+            "Low completed-request count; diagnosis ranking may be unstable for this run window."
+                .to_string(),
+        );
+    }
+    if run.queues.is_empty()
+        && suspects
+            .iter()
+            .all(|s| s.kind != DiagnosisKind::DownstreamStageDominates)
+    {
+        warnings.push(
+            "No queue events captured; queue saturation interpretation is limited.".to_string(),
+        );
+    }
+    if run.stages.is_empty()
+        && suspects
+            .iter()
+            .all(|s| s.kind != DiagnosisKind::ApplicationQueueSaturation)
+    {
+        warnings.push(
+            "No stage events captured; downstream-stage interpretation is limited.".to_string(),
+        );
+    }
+    if run.runtime_snapshots.is_empty() {
+        warnings.push("No runtime snapshots captured; executor and blocking-pressure interpretation is limited.".to_string());
+    } else if run
+        .runtime_snapshots
+        .iter()
+        .all(|s| s.blocking_queue_depth.is_none())
+        || run
+            .runtime_snapshots
+            .iter()
+            .all(|s| s.local_queue_depth.is_none())
+    {
+        warnings.push("Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.".to_string());
+    }
+    if let Some(w) = ambiguity_warning(suspects) {
+        warnings.push(w);
+    }
+    warnings
 }
 
 fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {
