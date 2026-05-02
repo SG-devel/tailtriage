@@ -1,0 +1,420 @@
+[
+  {
+    "id": "queue_before",
+    "artifact": "demos/queue_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for queue_before."
+  },
+  {
+    "id": "queue_after",
+    "artifact": "demos/queue_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Stage 'simulated_work'"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for queue_after."
+  },
+  {
+    "id": "blocking_before",
+    "artifact": "demos/blocking_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "blocking_pool_pressure",
+    "acceptable_top2": [
+      "blocking_pool_pressure"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Blocking queue depth p95"
+    ],
+    "allowed_warnings": [
+      "*"
+    ],
+    "notes": "Labeled from deterministic fixture characteristics for blocking_before."
+  },
+  {
+    "id": "blocking_after",
+    "artifact": "demos/blocking_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "blocking_pool_pressure",
+    "acceptable_top2": [
+      "blocking_pool_pressure"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Blocking queue depth p95"
+    ],
+    "allowed_warnings": [
+      "*"
+    ],
+    "notes": "Labeled from deterministic fixture characteristics for blocking_after."
+  },
+  {
+    "id": "executor_before",
+    "artifact": "demos/executor_pressure_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "executor_pressure_suspected",
+    "acceptable_top2": [
+      "executor_pressure_suspected"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "queue depth"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for executor_before."
+  },
+  {
+    "id": "executor_after",
+    "artifact": "demos/executor_pressure_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "executor_pressure_suspected",
+    "acceptable_top2": [
+      "executor_pressure_suspected"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "queue depth"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for executor_after."
+  },
+  {
+    "id": "downstream_before",
+    "artifact": "demos/downstream_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Stage '"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for downstream_before."
+  },
+  {
+    "id": "downstream_after",
+    "artifact": "demos/downstream_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Stage '"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for downstream_after."
+  },
+  {
+    "id": "mixed_baseline",
+    "artifact": "demos/mixed_contention_service/fixtures/baseline-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for mixed_baseline."
+  },
+  {
+    "id": "mixed_mitigated",
+    "artifact": "demos/mixed_contention_service/fixtures/mitigated-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Stage"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for mixed_mitigated."
+  },
+  {
+    "id": "cold_start_before",
+    "artifact": "demos/cold_start_burst_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for cold_start_before."
+  },
+  {
+    "id": "cold_start_after",
+    "artifact": "demos/cold_start_burst_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "contributes"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for cold_start_after."
+  },
+  {
+    "id": "db_pool_before",
+    "artifact": "demos/db_pool_saturation_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for db_pool_before."
+  },
+  {
+    "id": "db_pool_after",
+    "artifact": "demos/db_pool_saturation_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "contributes"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for db_pool_after."
+  },
+  {
+    "id": "shared_lock_before",
+    "artifact": "demos/shared_state_lock_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for shared_lock_before."
+  },
+  {
+    "id": "shared_lock_after",
+    "artifact": "demos/shared_state_lock_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for shared_lock_after."
+  },
+  {
+    "id": "retry_before",
+    "artifact": "demos/retry_storm_service/fixtures/before-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "downstream_total"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for retry_before."
+  },
+  {
+    "id": "retry_after",
+    "artifact": "demos/retry_storm_service/fixtures/after-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "downstream_total"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for retry_after."
+  },
+  {
+    "id": "insufficient",
+    "artifact": "validation/diagnostics/corpus/insufficient-evidence-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "insufficient_evidence",
+    "acceptable_top2": [
+      "insufficient_evidence"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Not enough queue, stage, or runtime signals"
+    ],
+    "allowed_warnings": [
+      "Missing queue, stage, and runtime signals"
+    ],
+    "notes": "Labeled from deterministic fixture characteristics for insufficient."
+  },
+  {
+    "id": "low_requests",
+    "artifact": "validation/diagnostics/corpus/low-request-count-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Stage 'db_query'"
+    ],
+    "allowed_warnings": [
+      "Low request count"
+    ],
+    "notes": "Labeled from deterministic fixture characteristics for low_requests."
+  },
+  {
+    "id": "missing_runtime",
+    "artifact": "validation/diagnostics/corpus/missing-runtime-snapshots-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [
+      "Runtime snapshots missing"
+    ],
+    "notes": "Labeled from deterministic fixture characteristics for missing_runtime."
+  },
+  {
+    "id": "weak_blocking_strong_downstream",
+    "artifact": "validation/diagnostics/corpus/weak-blocking-strong-downstream-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "downstream_stage_dominates",
+    "acceptable_top2": [
+      "downstream_stage_dominates"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "downstream_total"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for weak_blocking_strong_downstream."
+  },
+  {
+    "id": "blocking_correlated_stage",
+    "artifact": "validation/diagnostics/corpus/blocking-correlated-stage-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "blocking_pool_pressure",
+    "acceptable_top2": [
+      "blocking_pool_pressure"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Blocking queue depth p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for blocking_correlated_stage."
+  },
+  {
+    "id": "queue_sample",
+    "artifact": "demos/queue_service/fixtures/sample-analysis.json",
+    "artifact_type": "analysis_report",
+    "ground_truth": "application_queue_saturation",
+    "acceptable_top2": [
+      "application_queue_saturation"
+    ],
+    "tags": [
+      "validation"
+    ],
+    "must_include_evidence": [
+      "Queue wait at p95"
+    ],
+    "allowed_warnings": [],
+    "notes": "Labeled from deterministic fixture characteristics for queue_sample."
+  }
+]

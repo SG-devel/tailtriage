@@ -1,0 +1,12 @@
+{
+  "request_count": 3,
+  "p50_latency_us": 800,
+  "p95_latency_us": 1400,
+  "p99_latency_us": 1600,
+  "p95_queue_share_permille": null,
+  "p95_service_share_permille": null,
+  "inflight_trend": null,
+  "warnings": ["Missing queue, stage, and runtime signals; diagnosis confidence is limited."],
+  "primary_suspect": {"kind":"insufficient_evidence","score":55,"confidence":"low","evidence":["Not enough queue, stage, or runtime signals to rank a stronger suspect."],"next_checks":["Add queue/stage wrappers and re-run."]},
+  "secondary_suspects": []
+}

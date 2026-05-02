@@ -1,0 +1,12 @@
+{
+  "request_count": 5,
+  "p50_latency_us": 2000,
+  "p95_latency_us": 3000,
+  "p99_latency_us": 3300,
+  "p95_queue_share_permille": 100,
+  "p95_service_share_permille": 900,
+  "inflight_trend": null,
+  "warnings": ["Low request count can reduce diagnosis stability."],
+  "primary_suspect": {"kind":"downstream_stage_dominates","score":66,"confidence":"medium","evidence":["Stage 'db_query' has p95 latency 2600 us.","Tail request latency is largely service-time dominated."],"next_checks":["Inspect DB/query latency under load."]},
+  "secondary_suspects": []
+}
