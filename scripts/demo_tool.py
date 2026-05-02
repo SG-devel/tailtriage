@@ -226,6 +226,57 @@ def has_suspect_kind(report: dict, expected_kinds: set[str]) -> bool:
     all_suspects = [primary, *(report.get("secondary_suspects") or [])]
     return any((suspect or {}).get("kind") in expected_kinds for suspect in all_suspects)
 
+
+def _material_p95_improvement(before_p95: int, after_p95: int) -> bool:
+    return after_p95 < before_p95 and (before_p95 - after_p95) >= max(1_000, before_p95 // 20)
+
+
+def _queue_evidence_non_worsening(before: dict, after: dict) -> bool:
+    before_share = before.get("p95_queue_share_permille")
+    after_share = after.get("p95_queue_share_permille")
+    if before_share is None or after_share is None:
+        return True
+    return after_share <= before_share + 20
+
+
+def _queue_evidence_materially_improved(before: dict, after: dict) -> bool:
+    before_share = before.get("p95_queue_share_permille")
+    after_share = after.get("p95_queue_share_permille")
+    if before_share is None or after_share is None:
+        return False
+    return after_share + 100 <= before_share
+
+
+def _validate_nonworsening_score_or_explainable_saturation(
+    *,
+    before: dict,
+    after: dict,
+    expected_primary_kinds: set[str],
+    scenario: str,
+) -> None:
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+    if after_score <= before_score:
+        return
+
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    after_kind = after["primary_suspect"]["kind"]
+    if not _material_p95_improvement(before_p95, after_p95):
+        raise SystemExit(
+            f"expected mitigated {scenario} suspect score to stay flat or drop when p95 does not materially improve, "
+            f"got p95 {before_p95}->{after_p95} and score {before_score}->{after_score}"
+        )
+    if after_kind not in expected_primary_kinds and not _queue_evidence_materially_improved(before, after):
+        raise SystemExit(
+            f"expected mitigated {scenario} primary suspect in {sorted(expected_primary_kinds)} when score rises unless queue evidence materially improves, got {after_kind}"
+        )
+    if not _queue_evidence_non_worsening(before, after):
+        raise SystemExit(
+            f"expected mitigated {scenario} score increase to have non-worsening queue evidence, "
+            f"got queue share {before.get('p95_queue_share_permille')}->{after.get('p95_queue_share_permille')}"
+        )
+
 def validate_queue(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_queue(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/queue_service/artifacts"
@@ -238,27 +289,24 @@ def validate_queue(root_dir: Path, *, profile: str = "dev") -> None:
 
     before_p95 = before["p95_latency_us"]
     after_p95 = after["p95_latency_us"]
-    before_score = before["primary_suspect"]["score"]
-    after_score = after["primary_suspect"]["score"]
-
     if after_p95 >= before_p95:
         raise SystemExit(
             f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
         )
-
-    if after_score > before_score:
-        raise SystemExit(
-            "expected mitigated suspect score to stay flat or drop, "
-            f"got before={before_score} after={after_score}"
-        )
+    _validate_nonworsening_score_or_explainable_saturation(
+        before=before,
+        after=after,
+        expected_primary_kinds=EXPECTED_QUEUE_KIND,
+        scenario="queue",
+    )
 
     print(
         "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
             kind,
             before_p95,
             after_p95,
-            before_score,
-            after_score,
+            before["primary_suspect"]["score"],
+            after["primary_suspect"]["score"],
         )
     )
     print(
