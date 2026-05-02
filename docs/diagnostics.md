@@ -73,6 +73,29 @@ Ranking is proportional and evidence-weighted, not fixed suspect precedence.
 
 Treat score as within-report ordering guidance, not an absolute SLA or certainty metric.
 
+## How the analyzer ranks suspects
+
+The analyzer is deterministic and rule-based. It does not use probabilistic or ML inference.
+
+- `score` is a **relative evidence-ranking score within one report**.
+- `score` is **not** a probability and **not** absolute severity across different captures.
+- `confidence` is derived from score bands and reflects ranking strength, not causal certainty.
+
+Signal families used for scoring:
+
+- **Queue saturation**: p95 queue-share, queue-depth signal, in-flight growth (when present), and sample quality.
+- **Blocking pool pressure**: p95/peak blocking queue depth, nonzero blocking-sample coverage, and sample quality.
+- **Executor pressure**: global queue depth, local queue depth, alive-task signal (when present), in-flight growth, and sample quality.
+- **Downstream dominance**: eligible stage samples, stage p95, cumulative stage share, and tail-request contribution.
+
+Downstream candidate selection filters out very low-sample stages before ranking. That keeps sparse stage noise from outranking better-supported leads.
+
+Blocking-looking stage names (for example `spawn_blocking`-style paths) can corroborate blocking-pool pressure when runtime blocking signals are strong; they are not always treated as independent downstream root-cause leads.
+
+Warnings show interpretation limits (missing signal families, sparse coverage, ambiguous close scores, truncation). Warnings are additive and do not claim root cause.
+
+As always: suspects are leads for next checks, not proof.
+
 ## Warning semantics
 
 `warnings[]` is additive and can include multiple classes together:

@@ -402,11 +402,12 @@ def validate_downstream(root_dir: Path, *, profile: str = "dev") -> None:
 
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
-    if after_score > before_score:
-        raise SystemExit(
-            "expected mitigated suspect score to stay flat or drop, "
-            f"got before={before_score} after={after_score}"
-        )
+    _validate_nonworsening_score_or_explainable_saturation(
+        before=before,
+        after=after,
+        expected_primary_kinds=EXPECTED_COLD_START_PRIMARY_KINDS,
+        scenario="cold-start",
+    )
 
     print(
         "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
@@ -567,11 +568,12 @@ def validate_cold_start(root_dir: Path, *, profile: str = "dev") -> None:
 
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
-    if after_score > before_score:
-        raise SystemExit(
-            "expected mitigated suspect score to stay flat or drop, "
-            f"got before={before_score} after={after_score}"
-        )
+    _validate_nonworsening_score_or_explainable_saturation(
+        before=before,
+        after=after,
+        expected_primary_kinds=EXPECTED_COLD_START_PRIMARY_KINDS,
+        scenario="cold-start",
+    )
 
     print(
         "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
@@ -609,10 +611,12 @@ def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
         raise SystemExit(
             f"expected mitigated p95 to drop, got before={before_p95}us after={after_p95}us"
         )
-    if after_score > before_score:
-        raise SystemExit(
-            f"expected mitigated primary suspect score to stay flat or drop, got before={before_score} after={after_score}"
-        )
+    _validate_nonworsening_score_or_explainable_saturation(
+        before=before,
+        after=after,
+        expected_primary_kinds=EXPECTED_DB_POOL_PRIMARY_KINDS,
+        scenario="db-pool",
+    )
 
     print(
         "validation passed: baseline suspect kind={}, p95 {}us -> {}us, score {} -> {}".format(
@@ -660,7 +664,7 @@ def validate_shared_lock(root_dir: Path, *, profile: str = "dev") -> None:
         )
     if after_score > before_score:
         raise SystemExit(
-            "expected mitigated suspect score to stay flat or drop, "
+            "expected mitigated score to stay flat/drop or be justified by better evidence; score-only increase is not sufficient, "
             f"got before={before_score} after={after_score}"
         )
 
@@ -709,7 +713,7 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
     after_score = after["primary_suspect"]["score"]
     if after_score > before_score:
         raise SystemExit(
-            "expected mitigated suspect score to stay flat or drop, "
+            "expected mitigated score to stay flat/drop or be justified by better evidence; score-only increase is not sufficient, "
             f"got before={before_score} after={after_score}"
         )
 
