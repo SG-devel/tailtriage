@@ -1,9 +1,9 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1871557,
-  "p95_latency_us": 3528964,
-  "p99_latency_us": 3677216,
-  "p95_queue_share_permille": 5,
+  "p50_latency_us": 1872360,
+  "p95_latency_us": 3548117,
+  "p99_latency_us": 3696181,
+  "p95_queue_share_permille": 6,
   "p95_service_share_permille": 999,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
@@ -11,7 +11,7 @@
     "peak_count": 246,
     "p95_count": 234,
     "growth_delta": -1,
-    "growth_per_sec_milli": -264
+    "growth_per_sec_milli": -263
   },
   "warnings": [
     "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.",
@@ -19,10 +19,10 @@
   ],
   "primary_suspect": {
     "kind": "blocking_pool_pressure",
-    "score": 100,
+    "score": 88,
     "confidence": "high",
     "evidence": [
-      "Blocking queue depth p95 is 244, peak is 246, with 199/200 nonzero samples."
+      "Blocking queue depth p95 is 244, peak is 246, with 200/200 nonzero samples."
     ],
     "next_checks": [
       "Audit blocking sections and move avoidable synchronous work out of hot paths.",
@@ -32,12 +32,13 @@
   "secondary_suspects": [
     {
       "kind": "downstream_stage_dominates",
-      "score": 100,
+      "score": 86,
       "confidence": "high",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3527718 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 466751909 us (999 permille of request latency).",
-        "Stage 'spawn_blocking_path' contributes 999 permille of tail request latency."
+        "Stage 'spawn_blocking_path' has p95 latency 3546732 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 468587693 us (999 permille of request latency).",
+        "Stage 'spawn_blocking_path' contributes 999 permille of tail request latency.",
+        "Stage 'spawn_blocking_path' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'spawn_blocking_path'.",

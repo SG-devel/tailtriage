@@ -1,8 +1,8 @@
 {
   "request_count": 220,
-  "p50_latency_us": 13503,
-  "p95_latency_us": 13981,
-  "p99_latency_us": 14066,
+  "p50_latency_us": 13425,
+  "p95_latency_us": 13964,
+  "p99_latency_us": 14227,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -11,17 +11,17 @@
     "peak_count": 10,
     "p95_count": 10,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2624
+    "growth_per_sec_milli": -2652
   },
   "warnings": [],
   "primary_suspect": {
     "kind": "downstream_stage_dominates",
-    "score": 100,
+    "score": 95,
     "confidence": "high",
     "evidence": [
-      "Stage 'db_query' has p95 latency 11670 us across 220 samples.",
-      "Stage 'db_query' cumulative latency is 2452809 us (830 permille of request latency).",
-      "Stage 'db_query' contributes 826 permille of tail request latency."
+      "Stage 'db_query' has p95 latency 11701 us across 220 samples.",
+      "Stage 'db_query' cumulative latency is 2450346 us (832 permille of request latency).",
+      "Stage 'db_query' contributes 829 permille of tail request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'db_query'.",

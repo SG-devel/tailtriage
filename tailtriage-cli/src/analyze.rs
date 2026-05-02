@@ -404,29 +404,72 @@ fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -
     ))
 }
 
-fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
-    let blocking_depths = runtime_metric_series(&run.runtime_snapshots, |s| s.blocking_queue_depth);
-    let p95_blocking_depth = percentile(&blocking_depths, 95, 100)?;
-    let nonzero = nonzero_sample_count(&blocking_depths);
-    if p95_blocking_depth == 0 && nonzero < 2 {
+#[derive(Clone, Copy)]
+struct BlockingSignal {
+    p95: u64,
+    peak: u64,
+    nonzero: usize,
+    samples: usize,
+    nz_share_permille: u64,
+}
+
+fn blocking_signal(run: &Run) -> Option<BlockingSignal> {
+    let depths = runtime_metric_series(&run.runtime_snapshots, |s| s.blocking_queue_depth);
+    let p95 = percentile(&depths, 95, 100)?;
+    let nonzero = nonzero_sample_count(&depths);
+    if p95 == 0 && nonzero < 2 {
         return None;
     }
-    let peak = max_or_zero(&blocking_depths);
-    let nz_share_permille: u64 = if blocking_depths.is_empty() {
+    let peak = max_or_zero(&depths);
+    let nz_share_permille = if depths.is_empty() {
         0
     } else {
-        nonzero as u64 * 1000 / blocking_depths.len() as u64
+        nonzero as u64 * 1000 / depths.len() as u64
     };
-    let clean_extreme = p95_blocking_depth >= 16 && peak >= 24 && nz_share_permille >= 900;
+    Some(BlockingSignal {
+        p95,
+        peak,
+        nonzero,
+        samples: depths.len(),
+        nz_share_permille,
+    })
+}
+
+fn strong_blocking_signal(signal: BlockingSignal) -> bool {
+    signal.p95 >= 12 && signal.peak >= 20 && signal.nz_share_permille >= 700 && signal.samples >= 30
+}
+
+fn stage_correlates_with_blocking_pool(stage: &str) -> bool {
+    let lower = stage.to_ascii_lowercase();
+    lower.contains("spawn_blocking")
+        || lower.contains("blocking_path")
+        || lower.contains("blocking")
+}
+
+fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
+    let signal = blocking_signal(run)?;
+    let clean_extreme = signal.p95 >= 16 && signal.peak >= 24 && signal.nz_share_permille >= 900;
     let score = cap_unless_clean_evidence(
-        32 + p95_blocking_depth.min(24)
-            + (peak.min(24) / 2)
-            + (nz_share_permille / 80)
-            + u64::from(score_sample_quality(blocking_depths.len())),
+        32 + signal.p95.min(24)
+            + (signal.peak.min(24) / 2)
+            + (signal.nz_share_permille / 80)
+            + u64::from(score_sample_quality(signal.samples)),
         clean_extreme,
         94,
     );
-    Some(Suspect::new(DiagnosisKind::BlockingPoolPressure, score, vec![format!("Blocking queue depth p95 is {p95_blocking_depth}, peak is {peak}, with {nonzero}/{} nonzero samples.", blocking_depths.len())], vec!["Audit blocking sections and move avoidable synchronous work out of hot paths.".to_string(),"Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string()]))
+    Some(Suspect::new(
+        DiagnosisKind::BlockingPoolPressure,
+        score,
+        vec![format!(
+            "Blocking queue depth p95 is {}, peak is {}, with {}/{} nonzero samples.",
+            signal.p95, signal.peak, signal.nonzero, signal.samples
+        )],
+        vec![
+            "Audit blocking sections and move avoidable synchronous work out of hot paths."
+                .to_string(),
+            "Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string(),
+        ],
+    ))
 }
 
 fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
@@ -549,6 +592,19 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .iter()
         .map(|r| r.latency_us)
         .fold(0_u64, u64::saturating_add);
+    let blocking = blocking_signal(run);
+    let blocking_score = blocking.map(|signal| {
+        let clean_extreme =
+            signal.p95 >= 16 && signal.peak >= 24 && signal.nz_share_permille >= 900;
+        cap_unless_clean_evidence(
+            32 + signal.p95.min(24)
+                + (signal.peak.min(24) / 2)
+                + (signal.nz_share_permille / 80)
+                + u64::from(score_sample_quality(signal.samples)),
+            clean_extreme,
+            94,
+        )
+    });
     let best = downstream_stage_candidates(run, p95_req, total_req)
         .into_iter()
         .max_by(|a, b| {
@@ -558,23 +614,40 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
                 .then_with(|| a.cum_share.cmp(&b.cum_share))
                 .then_with(|| b.stage.cmp(&a.stage))
         })?;
+    let mut downstream_score = best.score;
+    let mut correlation_evidence: Option<String> = None;
+    if stage_correlates_with_blocking_pool(&best.stage)
+        && blocking.is_some_and(strong_blocking_signal)
+        && blocking_score.is_some()
+    {
+        let cap = blocking_score.unwrap_or(downstream_score).saturating_sub(2);
+        downstream_score = downstream_score.min(cap);
+        correlation_evidence = Some(format!(
+            "Stage '{}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized.",
+            best.stage
+        ));
+    }
+    let mut evidence = vec![
+        format!(
+            "Stage '{}' has p95 latency {} us across {} samples.",
+            best.stage, best.p95, best.samples
+        ),
+        format!(
+            "Stage '{}' cumulative latency is {} us ({} permille of request latency).",
+            best.stage, best.cumulative, best.cum_share
+        ),
+        format!(
+            "Stage '{}' contributes {} permille of tail request latency.",
+            best.stage, best.tail_share
+        ),
+    ];
+    if let Some(extra) = correlation_evidence {
+        evidence.push(extra);
+    }
     Some(Suspect::new(
         DiagnosisKind::DownstreamStageDominates,
-        best.score,
-        vec![
-            format!(
-                "Stage '{}' has p95 latency {} us across {} samples.",
-                best.stage, best.p95, best.samples
-            ),
-            format!(
-                "Stage '{}' cumulative latency is {} us ({} permille of request latency).",
-                best.stage, best.cumulative, best.cum_share
-            ),
-            format!(
-                "Stage '{}' contributes {} permille of tail request latency.",
-                best.stage, best.tail_share
-            ),
-        ],
+        downstream_score,
+        evidence,
         vec![
             format!(
                 "Inspect downstream dependency behind stage '{}'.",
@@ -1335,6 +1408,53 @@ mod tests {
             ),
         ];
         assert!(super::ambiguity_warning(&suspects).is_some());
+    }
+
+    #[test]
+    fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
+        let mut run = test_run();
+        run.requests = (0..40)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/test".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 4_000_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.stages = run
+            .requests
+            .iter()
+            .map(|r| StageEvent {
+                request_id: r.request_id.clone(),
+                stage: "spawn_blocking_path".into(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 3_900_000,
+                success: true,
+            })
+            .collect();
+        run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::BlockingPoolPressure
+        );
+        assert!(report
+            .secondary_suspects
+            .iter()
+            .any(|s| s.kind == DiagnosisKind::DownstreamStageDominates));
+    }
+
+    #[test]
+    fn retry_or_db_stage_is_not_treated_as_blocking_correlated_stage() {
+        assert!(!super::stage_correlates_with_blocking_pool("db_query"));
+        assert!(!super::stage_correlates_with_blocking_pool("retry_attempt"));
+        assert!(super::stage_correlates_with_blocking_pool(
+            "spawn_blocking_path"
+        ));
     }
 
     #[test]
