@@ -233,6 +233,11 @@ These are valuable and should remain first-class docs, but are best after the co
 - queue-share impact and p95 changes
 - primary suspect score reduction after mitigation
 
+### Demo score interpretation
+
+- A mitigation can improve p95 and evidence quality while suspect score remains saturated at `100 -> 100`.
+- For demo validation, prioritize p95 direction, suspect ordering, and evidence wording over requiring exact score drops in saturated cases.
+
 ## More synthetic analyzer-contract demos
 
 These remain useful and should stay documented, but docs should treat them as more synthetic demonstrations.

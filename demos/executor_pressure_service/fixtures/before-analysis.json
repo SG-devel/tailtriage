@@ -1,8 +1,8 @@
 {
   "request_count": 240,
-  "p50_latency_us": 34815534,
-  "p95_latency_us": 34882778,
-  "p99_latency_us": 34889617,
+  "p50_latency_us": 34466475,
+  "p95_latency_us": 34575455,
+  "p99_latency_us": 34589819,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -10,8 +10,8 @@
     "sample_count": 480,
     "peak_count": 240,
     "p95_count": 228,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -28
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
   },
   "warnings": [
     "No queue events captured; queue saturation interpretation is limited.",
@@ -23,7 +23,7 @@
     "confidence": "high",
     "evidence": [
       "Runtime global queue depth p95 is 1920, suggesting scheduler contention.",
-      "Runtime local queue depth p95 is 41112.",
+      "Runtime local queue depth p95 is 11992.",
       "Runtime alive_tasks p95 is 1920."
     ],
     "next_checks": [

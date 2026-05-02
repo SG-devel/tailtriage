@@ -51,6 +51,13 @@ python3 scripts/demo_tool.py validate db-pool
 
 Run any other scenario with the same pattern.
 
+
+
+Interpretation note:
+
+- Some before/after pairs can stay at `score: 100 -> 100` even when mitigation helps.
+- In those cases, validate via p95 movement, suspect rank, and evidence changes rather than requiring an exact score drop.
+
 ## Before/after comparison usage
 
 Use fixture-backed before/after runs to evaluate one mitigation at a time:
