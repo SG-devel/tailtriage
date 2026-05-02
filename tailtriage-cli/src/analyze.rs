@@ -249,6 +249,7 @@ pub fn analyze_run(run: &Run) -> Report {
 
     suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
+    let warnings = analysis_warnings(run, &suspects);
     let mut ranked = suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
         Suspect::new(
@@ -267,7 +268,7 @@ pub fn analyze_run(run: &Run) -> Report {
         p95_queue_share_permille,
         p95_service_share_permille,
         inflight_trend,
-        warnings: truncation_warnings(run),
+        warnings,
         primary_suspect,
         secondary_suspects: ranked.collect(),
     }
@@ -314,6 +315,94 @@ fn truncation_warnings(run: &Run) -> Vec<String> {
     warnings
 }
 
+fn clamp_score(value: u16) -> u8 {
+    value.min(100) as u8
+}
+fn saturating_u16_from_u64(value: u64) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+fn saturating_u16_from_usize(value: usize) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+
+fn score_sample_quality(sample_count: usize) -> u8 {
+    match sample_count {
+        0..=2 => 0,
+        3..=5 => 2,
+        6..=10 => 4,
+        11..=19 => 6,
+        _ => 8,
+    }
+}
+
+fn nonzero_sample_count(values: &[u64]) -> usize {
+    values.iter().filter(|value| **value > 0).count()
+}
+
+fn max_or_zero(values: &[u64]) -> u64 {
+    values.iter().copied().max().unwrap_or(0)
+}
+
+fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
+    let mut warnings = truncation_warnings(run);
+    if run.requests.len() < 20 {
+        warnings.push(
+            "Low request count (<20 completed requests) can make suspect ranking less stable."
+                .to_string(),
+        );
+    }
+    if run.queues.is_empty()
+        && !suspects
+            .iter()
+            .any(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominates)
+    {
+        warnings.push(
+            "No queue events captured; queue saturation interpretation is limited.".to_string(),
+        );
+    }
+    if run.stages.is_empty() {
+        warnings.push(
+            "No stage events captured; downstream-stage interpretation is limited.".to_string(),
+        );
+    }
+    if run.runtime_snapshots.is_empty() {
+        if suspects.iter().any(|suspect| {
+            suspect.kind == DiagnosisKind::ExecutorPressureSuspected
+                || suspect.kind == DiagnosisKind::BlockingPoolPressure
+        }) || !run.requests.is_empty()
+        {
+            warnings.push(
+                "No runtime snapshots captured; executor vs blocking interpretation is limited."
+                    .to_string(),
+            );
+        }
+    } else if run.runtime_snapshots.iter().all(|snapshot| {
+        snapshot.blocking_queue_depth.is_none() || snapshot.local_queue_depth.is_none()
+    }) {
+        warnings.push(
+            "Runtime snapshots are missing blocking_queue_depth or local_queue_depth, so executor vs blocking separation is limited."
+                .to_string(),
+        );
+    }
+    if let Some(warning) = ambiguity_warning(suspects) {
+        warnings.push(warning);
+    }
+    warnings
+}
+
+fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
+    let mut ranked = suspects
+        .iter()
+        .filter(|suspect| suspect.kind != DiagnosisKind::InsufficientEvidence)
+        .collect::<Vec<_>>();
+    ranked.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
+    let (first, second) = (ranked.first()?, ranked.get(1)?);
+    (first.score.abs_diff(second.score) <= 5).then_some(
+        "Top suspects are close in score; treat diagnosis as ambiguous and validate both leads."
+            .to_string(),
+    )
+}
+
 fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
     let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
@@ -343,9 +432,21 @@ fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -
         ));
     }
 
+    let depth_bonus = max_depth.map_or(0, |depth| (depth / 5).min(10) as u16);
+    let growth_bonus = inflight_trend
+        .filter(|trend| trend.growth_delta > 0)
+        .map_or(0, |_| 5);
+    let sample_bonus = u16::from(score_sample_quality(queue_shares.len()));
+    let score = clamp_score(
+        35 + saturating_u16_from_u64((p95_queue_share_permille * 55) / 1000)
+            + depth_bonus
+            + growth_bonus
+            + sample_bonus,
+    );
+
     Some(Suspect::new(
         DiagnosisKind::ApplicationQueueSaturation,
-        90,
+        score,
         evidence,
         vec![
             "Inspect queue admission limits and producer burst patterns.".to_string(),
@@ -360,17 +461,31 @@ fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
         snapshot.blocking_queue_depth
     });
     let p95_blocking_depth = percentile(&blocking_depths, 95, 100)?;
+    let max_blocking_depth = max_or_zero(&blocking_depths);
+    let nonzero_samples = nonzero_sample_count(&blocking_depths);
 
     if p95_blocking_depth == 0 {
         return None;
     }
+    let nonzero_share_permille = if blocking_depths.is_empty() {
+        0
+    } else {
+        saturating_u16_from_usize((nonzero_samples * 1_000) / blocking_depths.len())
+    };
+    let score = clamp_score(
+        25 + (p95_blocking_depth.min(80) as u16 / 2)
+            + (max_blocking_depth.min(120) as u16 / 4)
+            + (nonzero_share_permille / 40)
+            + u16::from(score_sample_quality(blocking_depths.len())),
+    );
 
     Some(Suspect::new(
         DiagnosisKind::BlockingPoolPressure,
-        80,
-        vec![format!(
-            "Blocking queue depth p95 is {p95_blocking_depth}, indicating sustained spawn_blocking backlog."
-        )],
+        score,
+        vec![
+            format!("Blocking queue depth p95 is {p95_blocking_depth}."),
+            format!("Blocking queue depth peak is {max_blocking_depth}; nonzero samples: {nonzero_samples}/{}.", blocking_depths.len()),
+        ],
         vec![
             "Audit blocking sections and move avoidable synchronous work out of hot paths."
                 .to_string(),
@@ -389,9 +504,27 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
         return None;
     }
 
+    let p95_local_depth = percentile(
+        &runtime_metric_series(&run.runtime_snapshots, |snapshot| {
+            snapshot.local_queue_depth
+        }),
+        95,
+        100,
+    );
+    let p95_alive = percentile(
+        &runtime_metric_series(&run.runtime_snapshots, |snapshot| snapshot.alive_tasks),
+        95,
+        100,
+    );
     let mut evidence = vec![format!(
-        "Runtime global queue depth p95 is {p95_global_depth}, suggesting scheduler contention."
+        "Runtime global queue depth p95 is {p95_global_depth}."
     )];
+    if let Some(local_depth) = p95_local_depth {
+        evidence.push(format!("Runtime local queue depth p95 is {local_depth}."));
+    }
+    if let Some(alive) = p95_alive {
+        evidence.push(format!("Runtime alive_tasks p95 is {alive}."));
+    }
     let positive_growth = inflight_trend.is_some_and(|trend| trend.growth_delta > 0);
     if let Some(trend) = inflight_trend.filter(|trend| trend.growth_delta > 0) {
         evidence.push(format!(
@@ -400,17 +533,16 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
         ));
     }
 
-    let depth_bonus = if p95_global_depth >= 300 {
-        20
-    } else if p95_global_depth >= 200 {
-        12
-    } else if p95_global_depth >= 100 {
-        6
-    } else {
-        0
-    };
-    let trend_bonus = if positive_growth { 5 } else { 0 };
-    let score = (65 + depth_bonus + trend_bonus).min(90);
+    let trend_bonus: u16 = if positive_growth { 5 } else { 0 };
+    let local_bonus = p95_local_depth.map_or(0, |v| (v.min(60) / 5) as u16);
+    let alive_bonus = p95_alive.map_or(0, |v| (v.min(4_000) / 800) as u16);
+    let score = clamp_score(
+        30 + (p95_global_depth.min(250) as u16 / 3)
+            + local_bonus
+            + alive_bonus
+            + trend_bonus
+            + u16::from(score_sample_quality(global_queue_depths.len())),
+    );
 
     Some(Suspect::new(
         DiagnosisKind::ExecutorPressureSuspected,
@@ -433,10 +565,51 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
             .saturating_add(stage.latency_us);
     }
 
-    let (dominant_stage, total_latency) = stage_totals
+    let request_p95 = percentile(
+        &run.requests
+            .iter()
+            .map(|request| request.latency_us)
+            .collect::<Vec<_>>(),
+        95,
+        100,
+    )?;
+    let tail_requests = run
+        .requests
         .iter()
-        .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
-        .map(|(stage, latency)| (*stage, *latency))?;
+        .filter(|request| request.latency_us >= request_p95)
+        .map(|request| request.request_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let tail_total_latency = run
+        .requests
+        .iter()
+        .filter(|request| tail_requests.contains(request.request_id.as_str()))
+        .map(|request| request.latency_us)
+        .fold(0_u64, u64::saturating_add);
+    let mut candidates = stage_totals
+        .iter()
+        .filter_map(|(stage, total_latency)| {
+            let tail_stage_total = run
+                .stages
+                .iter()
+                .filter(|s| s.stage == *stage && tail_requests.contains(s.request_id.as_str()))
+                .map(|s| s.latency_us)
+                .fold(0_u64, u64::saturating_add);
+            let tail_share = if tail_total_latency == 0 {
+                0
+            } else {
+                tail_stage_total.saturating_mul(1_000) / tail_total_latency
+            };
+            Some((*stage, *total_latency, tail_share))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        right
+            .2
+            .cmp(&left.2)
+            .then_with(|| right.1.cmp(&left.1))
+            .then_with(|| left.0.cmp(right.0))
+    });
+    let (dominant_stage, total_latency, tail_share_permille) = candidates.first().copied()?;
 
     let stage_count = run
         .stages
@@ -459,8 +632,11 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .saturating_mul(1_000)
         .checked_div(total_request_latency)
         .unwrap_or(0);
-    let share_bonus = (stage_share_permille / 40).min(25) as u8;
-    let score = (55 + share_bonus).min(79);
+    let score = clamp_score(
+        35 + (stage_share_permille / 20) as u16
+            + (tail_share_permille / 15) as u16
+            + u16::from(score_sample_quality(stage_count)),
+    );
 
     if stage_count < 3 {
         return None;
@@ -476,6 +652,9 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
             format!("Stage '{dominant_stage}' cumulative latency is {total_latency} us."),
             format!(
                 "Stage '{dominant_stage}' contributes {stage_share_permille} permille of cumulative request latency."
+            ),
+            format!(
+                "Stage '{dominant_stage}' contributes {tail_share_permille} permille of tail-request latency."
             ),
         ],
         vec![
@@ -998,5 +1177,53 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("dropped 1 entries")));
+    }
+
+    #[test]
+    fn low_request_count_warning_present() {
+        let report = analyze_run(&test_run());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Low request count")));
+    }
+
+    #[test]
+    fn queue_score_increases_with_queue_share_and_depth() {
+        let mut low = test_run();
+        low.queues = vec![tailtriage_core::QueueEvent {
+            request_id: "req-1".to_string(),
+            queue: "q".to_string(),
+            wait_us: 350,
+            depth_at_start: Some(1),
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+        }];
+        let mut high = low.clone();
+        high.queues = vec![
+            tailtriage_core::QueueEvent {
+                request_id: "req-1".to_string(),
+                queue: "q".to_string(),
+                wait_us: 900,
+                depth_at_start: Some(50),
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+            },
+            tailtriage_core::QueueEvent {
+                request_id: "req-2".to_string(),
+                queue: "q".to_string(),
+                wait_us: 900,
+                depth_at_start: Some(40),
+                waited_from_unix_ms: 2,
+                waited_until_unix_ms: 3,
+            },
+        ];
+        let low_report = analyze_run(&low);
+        let high_report = analyze_run(&high);
+        assert_eq!(
+            low_report.primary_suspect.kind,
+            DiagnosisKind::ApplicationQueueSaturation
+        );
+        assert!(high_report.primary_suspect.score > low_report.primary_suspect.score);
     }
 }
