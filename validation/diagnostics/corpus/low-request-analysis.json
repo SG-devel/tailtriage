@@ -1,0 +1,24 @@
+{
+  "request_count": 12,
+  "p50_latency_us": 1000,
+  "p95_latency_us": 4000,
+  "p99_latency_us": 7000,
+  "p95_queue_share_permille": 300,
+  "p95_service_share_permille": 700,
+  "inflight_trend": null,
+  "warnings": [
+    "Low request count may reduce confidence."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "score": 40,
+    "confidence": "low",
+    "evidence": [
+      "Insufficient evidence to rank a dominant suspect."
+    ],
+    "next_checks": [
+      "Capture more requests and add stage/queue instrumentation."
+    ]
+  },
+  "secondary_suspects": []
+}

@@ -1,0 +1,35 @@
+{
+  "request_count": 120,
+  "p50_latency_us": 1000,
+  "p95_latency_us": 4000,
+  "p99_latency_us": 7000,
+  "p95_queue_share_permille": 300,
+  "p95_service_share_permille": 700,
+  "inflight_trend": null,
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "blocking_pool_pressure",
+    "score": 90,
+    "confidence": "high",
+    "evidence": [
+      "Blocking pool queue depth peak reached 42.",
+      "Stage 'render_pdf' likely waits on spawn_blocking work."
+    ],
+    "next_checks": [
+      "Profile blocking pool saturation."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "score": 58,
+      "confidence": "low",
+      "evidence": [
+        "Stage 'render_pdf' contributes 280 permille of cumulative latency."
+      ],
+      "next_checks": [
+        "Validate whether render_pdf itself is slow."
+      ]
+    }
+  ]
+}

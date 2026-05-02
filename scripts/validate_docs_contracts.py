@@ -51,6 +51,7 @@ STALE_CONTROLLER_POLICY_NAMES = (
 DOCS_REQUIRED_LINKS = (
     "[User guide](user-guide.md)",
     "[Diagnostics guide](diagnostics.md)",
+    "[Diagnostic validation](diagnostic-validation.md)",
     "[Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md)",
     "[Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md)",
     "[CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md)",
@@ -66,6 +67,7 @@ README_DOC_MAP_REQUIRED_LINKS = (
     "(tailtriage-tokio/README.md)",
     "(tailtriage-cli/README.md)",
     "(docs/diagnostics.md)",
+    "(docs/diagnostic-validation.md)",
     "(docs/runtime-cost.md)",
     "(docs/collector-limits.md)",
     "(docs/getting-started-demo.md)",

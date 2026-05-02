@@ -6,6 +6,8 @@ The demos are intentionally small services for Tokio tail-latency triage. They a
 
 Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
 
+Demos teach scenarios and provide smoke-check artifacts. Diagnostic quality measurement lives in [`../validation/diagnostics/`](../validation/diagnostics/) via a labeled validation corpus.
+
 ## Strongest public demonstration scenarios
 
 ### `queue_service`

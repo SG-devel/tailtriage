@@ -1,0 +1,34 @@
+{
+  "request_count": 120,
+  "p50_latency_us": 1000,
+  "p95_latency_us": 4000,
+  "p99_latency_us": 7000,
+  "p95_queue_share_permille": 300,
+  "p95_service_share_permille": 700,
+  "inflight_trend": null,
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "score": 78,
+    "confidence": "medium",
+    "evidence": [
+      "Stage 'db_call' contributes 620 permille of cumulative request latency."
+    ],
+    "next_checks": [
+      "Inspect downstream db_call latency."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "score": 62,
+      "confidence": "low",
+      "evidence": [
+        "Blocking pool queue depth observed, but contribution is limited."
+      ],
+      "next_checks": [
+        "Check spawn_blocking fanout."
+      ]
+    }
+  ]
+}

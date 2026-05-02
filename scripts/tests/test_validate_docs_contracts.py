@@ -444,6 +444,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
 
 - [Guide](user-guide.md)
 - [Diag](diagnostics.md)
+- [Diagnostic validation](diagnostic-validation.md)
 - [Controller crate](../tailtriage-controller/README.md)
 - [Sampler crate](../tailtriage-tokio/README.md)
 - [CLI crate](../tailtriage-cli/README.md)

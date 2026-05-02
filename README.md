@@ -258,6 +258,7 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 - Runtime sampler docs: [`tailtriage-tokio/README.md`](tailtriage-tokio/README.md)
 - Analyzer/report contract: [`tailtriage-cli/README.md`](tailtriage-cli/README.md)
 - Diagnostics field reference and interpretation: [`docs/diagnostics.md`](docs/diagnostics.md)
+- Diagnostic validation corpus and benchmark metrics: [`docs/diagnostic-validation.md`](docs/diagnostic-validation.md)
 - Demo walkthrough and recommended first demos: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 - Runtime-overhead measurement path: [`docs/runtime-cost.md`](docs/runtime-cost.md)
 - Collector-stress, truncation, artifact-size, and memory guidance: [`docs/collector-limits.md`](docs/collector-limits.md)
