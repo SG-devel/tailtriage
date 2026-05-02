@@ -369,14 +369,14 @@ fn analysis_warnings(run: &Run, primary: &Suspect, secondary: &[Suspect]) -> Vec
         );
     }
     if !run.runtime_snapshots.is_empty()
-        && run
+        && (run
             .runtime_snapshots
             .iter()
             .all(|s| s.blocking_queue_depth.is_none())
-        && run
-            .runtime_snapshots
-            .iter()
-            .all(|s| s.local_queue_depth.is_none())
+            || run
+                .runtime_snapshots
+                .iter()
+                .all(|s| s.local_queue_depth.is_none()))
     {
         warnings.push("Runtime snapshots are missing blocking_queue_depth/local_queue_depth; executor vs blocking separation is limited.".to_string());
     }
@@ -528,14 +528,52 @@ fn executor_pressure_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) 
     ))
 }
 
+#[allow(clippy::too_many_lines)]
 fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
+    let request_p95 = percentile(
+        &run.requests
+            .iter()
+            .map(|request| request.latency_us)
+            .collect::<Vec<_>>(),
+        95,
+        100,
+    )?;
+    let mut sorted_requests = run.requests.iter().collect::<Vec<_>>();
+    sorted_requests.sort_unstable_by(|left, right| {
+        right
+            .latency_us
+            .cmp(&left.latency_us)
+            .then_with(|| left.request_id.cmp(&right.request_id))
+    });
+    let tail_min_count = (run.requests.len().saturating_mul(5)).div_ceil(100).max(1);
+    let mut tail_ids = sorted_requests
+        .iter()
+        .filter(|request| request.latency_us >= request_p95)
+        .map(|request| request.request_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    if tail_ids.is_empty() {
+        for request in sorted_requests.into_iter().take(tail_min_count) {
+            tail_ids.insert(request.request_id.as_str());
+        }
+    }
+
     let mut stage_totals: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut stage_tail_totals: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut total_tail_stage_latency = 0_u64;
     for stage in &run.stages {
         *stage_totals.entry(stage.stage.as_str()).or_default() = stage_totals
             .get(stage.stage.as_str())
             .copied()
             .unwrap_or_default()
             .saturating_add(stage.latency_us);
+        if tail_ids.contains(stage.request_id.as_str()) {
+            *stage_tail_totals.entry(stage.stage.as_str()).or_default() = stage_tail_totals
+                .get(stage.stage.as_str())
+                .copied()
+                .unwrap_or_default()
+                .saturating_add(stage.latency_us);
+            total_tail_stage_latency = total_tail_stage_latency.saturating_add(stage.latency_us);
+        }
     }
 
     let (dominant_stage, total_latency) = stage_totals
@@ -564,8 +602,19 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .saturating_mul(1_000)
         .checked_div(total_request_latency)
         .unwrap_or(0);
-    let share_bonus = (stage_share_permille / 40).min(25) as u8;
-    let score = (55 + share_bonus).min(79);
+    let tail_share_permille = stage_tail_totals
+        .get(dominant_stage)
+        .copied()
+        .unwrap_or(0)
+        .saturating_mul(1_000)
+        .checked_div(total_tail_stage_latency.max(1))
+        .unwrap_or(0);
+    let score = clamp_score(
+        22 + to_u16_saturating((stage_p95 / 1_000).min(26))
+            + to_u16_saturating((stage_share_permille / 25).min(22))
+            + to_u16_saturating((tail_share_permille / 12).min(40))
+            + usize_to_u16_saturating(stage_count.min(20) / 3),
+    );
 
     if stage_count < 3 {
         return None;
@@ -581,6 +630,9 @@ fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
             format!("Stage '{dominant_stage}' cumulative latency is {total_latency} us."),
             format!(
                 "Stage '{dominant_stage}' contributes {stage_share_permille} permille of cumulative request latency."
+            ),
+            format!(
+                "Stage '{dominant_stage}' contributes {tail_share_permille} permille of tail-request stage latency."
             ),
         ],
         vec![
