@@ -1,0 +1,713 @@
+{
+  "description": "Diagnostic validation corpus for tailtriage analyzer reports.",
+  "cases": [
+    {
+      "id": "queue_before",
+      "artifact": "../../demos/queue_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "queue",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Queue scenario before mitigation is queue-dominant.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "queue_after",
+      "artifact": "../../demos/queue_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "queue",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "After mitigation, queue contribution drops and work stage dominates.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "blocking_before",
+      "artifact": "../../demos/blocking_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "tags": [
+        "blocking",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Blocking queue depth"
+      ],
+      "notes": "Blocking pool backlog is intentional pre-fix condition.",
+      "expected_warnings": [
+        "Runtime snapshots are missing",
+        "Top suspects are close in score"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "blocking_pool_pressure"
+      ],
+      "acceptable_primary": [
+        "blocking_pool_pressure"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "blocking_after",
+      "artifact": "../../demos/blocking_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "blocking",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "After blocking mitigation, downstream work can dominate residual tail.",
+      "expected_warnings": [
+        "Runtime snapshots are missing"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [
+        "Top suspects are close in score"
+      ],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "blocking_pool_pressure"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "executor_before",
+      "artifact": "../../demos/executor_pressure_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "tags": [
+        "executor",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Global queue depth"
+      ],
+      "notes": "Executor-pressure demo before mitigation should prioritize executor suspect.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "executor_pressure_suspected"
+      ],
+      "acceptable_primary": [
+        "executor_pressure_suspected"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "executor_after",
+      "artifact": "../../demos/executor_pressure_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "tags": [
+        "executor",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Runtime global queue depth"
+      ],
+      "notes": "Post-mitigation executor pressure reduces, but executor remains the expected true cause in this fixture; downstream may appear as an acceptable alternate primary.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "executor_pressure_suspected"
+      ],
+      "acceptable_primary": [
+        "executor_pressure_suspected",
+        "downstream_stage_dominates"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "downstream_before",
+      "artifact": "../../demos/downstream_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "downstream",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "Downstream slowdown scenario should identify downstream stage dominance.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "downstream_after",
+      "artifact": "../../demos/downstream_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "downstream",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "After improvements downstream may still be top but with reduced severity.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "mixed_baseline",
+      "artifact": "../../demos/mixed_contention_service/fixtures/baseline-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "mixed",
+        "demo",
+        "baseline"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Mixed baseline intentionally keeps queue and executor signals close.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "executor_pressure_suspected"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "mixed_mitigated",
+      "artifact": "../../demos/mixed_contention_service/fixtures/mitigated-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "mixed",
+        "demo",
+        "mitigated"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "Mitigated mixed case reduces contention so downstream work often leads.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "cold_start_before",
+      "artifact": "../../demos/cold_start_burst_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "cold-start",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Cold-start burst before mitigation shows admission queue pressure.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "executor_pressure_suspected"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "cold_start_after",
+      "artifact": "../../demos/cold_start_burst_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "cold-start",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "After warmup mitigation queue pressure drops and stage work dominates.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "db_pool_before",
+      "artifact": "../../demos/db_pool_saturation_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "db-pool",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Before pool tuning queueing from limited DB pool appears strongly.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "db_pool_after",
+      "artifact": "../../demos/db_pool_saturation_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "db-pool",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "After queue improvement, dependency stage often dominates residual tails.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "shared_lock_before",
+      "artifact": "../../demos/shared_state_lock_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "shared-lock",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "Shared lock contention manifests through stage latency dominance.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "shared_lock_after",
+      "artifact": "../../demos/shared_state_lock_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "shared-lock",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "After mitigation remaining time is still mostly stage work.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "retry_before",
+      "artifact": "../../demos/retry_storm_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "retry",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "downstream"
+      ],
+      "notes": "Retry storm amplifies downstream latency contribution.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "retry_after",
+      "artifact": "../../demos/retry_storm_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "retry",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "After retry tuning downstream remains dominant but improved.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "queue_sample",
+      "artifact": "../../demos/queue_service/fixtures/sample-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "queue",
+        "demo",
+        "sample"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Queue sample is canonical queue saturation evidence.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "blocking_sample",
+      "artifact": "../../demos/blocking_service/fixtures/sample-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "tags": [
+        "blocking",
+        "demo",
+        "sample"
+      ],
+      "must_include_evidence": [
+        "Blocking queue depth"
+      ],
+      "notes": "Blocking sample is canonical blocking saturation evidence.",
+      "expected_warnings": [
+        "Runtime snapshots are missing",
+        "Top suspects are close in score"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "blocking_pool_pressure"
+      ],
+      "acceptable_primary": [
+        "blocking_pool_pressure"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "executor_sample",
+      "artifact": "../../demos/executor_pressure_service/fixtures/sample-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "tags": [
+        "executor",
+        "demo",
+        "sample"
+      ],
+      "must_include_evidence": [
+        "Global queue depth"
+      ],
+      "notes": "Executor sample has clear runtime queue pressure cues.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "executor_pressure_suspected"
+      ],
+      "acceptable_primary": [
+        "executor_pressure_suspected"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "downstream_sample",
+      "artifact": "../../demos/downstream_service/fixtures/sample-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "downstream",
+        "demo",
+        "sample"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "Downstream sample has clear stage dominance cues.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "synthetic_insufficient",
+      "artifact": "corpus/insufficient-evidence.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "synthetic",
+        "insufficient"
+      ],
+      "must_include_evidence": [
+        "Not enough"
+      ],
+      "notes": "Intentional low-signal report validates insufficient-evidence behavior.",
+      "expected_warnings": [
+        "Missing queue",
+        "Missing stage"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "synthetic_missing_runtime",
+      "artifact": "corpus/missing-runtime-warning.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "tags": [
+        "synthetic",
+        "warning"
+      ],
+      "must_include_evidence": [
+        "Global queue depth"
+      ],
+      "notes": "Runtime warning should be accepted when expected.",
+      "expected_warnings": [
+        "Runtime signals are missing"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "executor_pressure_suspected"
+      ],
+      "acceptable_primary": [
+        "executor_pressure_suspected",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "synthetic_missing_stage",
+      "artifact": "corpus/missing-stage-warning.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "synthetic",
+        "warning"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Stage warning allowed for partial instrumentation cases.",
+      "expected_warnings": [
+        "Stage instrumentation is missing"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "synthetic_truncation",
+      "artifact": "corpus/truncation-warning.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "synthetic",
+        "truncation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Truncation warning validates partial-data handling without changing ranking.",
+      "expected_warnings": [
+        "Truncation"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "executor_pressure_suspected"
+      ],
+      "must_include_next_checks": []
+    },
+    {
+      "id": "synthetic_ambiguous",
+      "artifact": "corpus/weak-mixed-ambiguity.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "synthetic",
+        "mixed"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Close scores case validates ambiguity-warning handling.",
+      "expected_warnings": [
+        "Ambiguous diagnosis"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "must_include_next_checks": []
+    }
+  ],
+  "schema_version": 1
+}

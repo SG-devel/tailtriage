@@ -12,6 +12,7 @@ on:
       - "clippy.toml"
       - ".cargo/**/*.toml"
       - "scripts/**/*.py"
+      - "validation/**/*.json"
       - "**/*.md"
       - "rust-toolchain"
       - "rust-toolchain.toml"
@@ -30,6 +31,7 @@ on:
       - "clippy.toml"
       - ".cargo/**/*.toml"
       - "scripts/**/*.py"
+      - "validation/**/*.json"
       - "**/*.md"
       - "rust-toolchain"
       - "rust-toolchain.toml"
@@ -79,6 +81,7 @@ jobs:
               - 'clippy.toml'
               - '.cargo/**/*.toml'
               - 'scripts/**/*.py'
+              - 'validation/**/*.json'
               - 'rust-toolchain'
               - 'rust-toolchain.toml'
               - '.github/workflows/**/*.yml'
@@ -233,6 +236,10 @@ jobs:
       - name: Validate collector limits summary helper unit tests
         if: matrix.extended && matrix.profile == 'release'
         run: python3 -m unittest scripts.tests.test_measure_collector_limits
+
+      - name: Validate diagnostic benchmark helper unit tests
+        if: matrix.extended && matrix.profile == 'dev'
+        run: python3 -m unittest scripts.tests.test_diagnostic_benchmark
 
       - name: Check demo fixture drift
         if: matrix.extended && matrix.profile == 'dev'

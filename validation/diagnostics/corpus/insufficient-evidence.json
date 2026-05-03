@@ -1,0 +1,1 @@
+{"warnings": ["Missing queue instrumentation", "Missing stage instrumentation"], "primary_suspect": {"kind": "insufficient_evidence", "score": 50, "confidence": "low", "evidence": ["Not enough queue, stage, or runtime signals to rank a stronger suspect."]}, "secondary_suspects": []}
