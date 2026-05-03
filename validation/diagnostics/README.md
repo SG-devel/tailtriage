@@ -55,3 +55,9 @@ python3 scripts/diagnostic_benchmark.py \
   --min-top2 0.90 \
   --max-high-confidence-wrong 0
 ```
+
+## Validation tracks
+- deterministic corpus benchmark: `scripts/diagnostic_benchmark.py`
+- repeated-run controlled matrix runner: `scripts/run_diagnostic_matrix.py`
+
+The deterministic corpus checks fixture-labeled contract behavior. The repeated-run runner checks repeated-run stability for selected controlled demo workloads.
