@@ -1,5 +1,4 @@
 {
-  "version": 1,
   "description": "Diagnostic validation corpus for tailtriage analyzer reports.",
   "cases": [
     {
@@ -18,8 +17,9 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [],
-      "notes": "Queue scenario before mitigation is queue-dominant."
+      "notes": "Queue scenario before mitigation is queue-dominant.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "queue_after",
@@ -38,8 +38,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "After mitigation, queue contribution drops and work stage dominates."
+      "notes": "After mitigation, queue contribution drops and work stage dominates.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "blocking_before",
@@ -57,11 +58,12 @@
       "must_include_evidence": [
         "Blocking queue depth"
       ],
-      "allowed_warnings": [
+      "notes": "Blocking pool backlog is intentional pre-fix condition.",
+      "expected_warnings": [
         "Runtime snapshots are missing",
         "Top suspects are close in score"
       ],
-      "notes": "Blocking pool backlog is intentional pre-fix condition."
+      "top1_required": false
     },
     {
       "id": "blocking_after",
@@ -80,11 +82,12 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [
+      "notes": "After blocking mitigation, downstream work can dominate residual tail.",
+      "expected_warnings": [
         "Runtime snapshots are missing",
         "Top suspects are close in score"
       ],
-      "notes": "After blocking mitigation, downstream work can dominate residual tail."
+      "top1_required": false
     },
     {
       "id": "executor_before",
@@ -102,8 +105,9 @@
       "must_include_evidence": [
         "Global queue depth"
       ],
-      "allowed_warnings": [],
-      "notes": "Executor-pressure demo before mitigation should prioritize executor suspect."
+      "notes": "Executor-pressure demo before mitigation should prioritize executor suspect.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "executor_after",
@@ -122,8 +126,9 @@
       "must_include_evidence": [
         "Runtime global queue depth"
       ],
-      "allowed_warnings": [],
-      "notes": "Post-mitigation executor pressure reduces, downstream dominates."
+      "notes": "Post-mitigation executor pressure reduces, downstream dominates.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "downstream_before",
@@ -141,8 +146,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "Downstream slowdown scenario should identify downstream stage dominance."
+      "notes": "Downstream slowdown scenario should identify downstream stage dominance.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "downstream_after",
@@ -160,8 +166,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "After improvements downstream may still be top but with reduced severity."
+      "notes": "After improvements downstream may still be top but with reduced severity.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "mixed_baseline",
@@ -180,8 +187,9 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [],
-      "notes": "Mixed baseline intentionally keeps queue and executor signals close."
+      "notes": "Mixed baseline intentionally keeps queue and executor signals close.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "mixed_mitigated",
@@ -200,8 +208,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "Mitigated mixed case reduces contention so downstream work often leads."
+      "notes": "Mitigated mixed case reduces contention so downstream work often leads.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "cold_start_before",
@@ -220,8 +229,9 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [],
-      "notes": "Cold-start burst before mitigation shows admission queue pressure."
+      "notes": "Cold-start burst before mitigation shows admission queue pressure.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "cold_start_after",
@@ -240,8 +250,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "After warmup mitigation queue pressure drops and stage work dominates."
+      "notes": "After warmup mitigation queue pressure drops and stage work dominates.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "db_pool_before",
@@ -260,8 +271,9 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [],
-      "notes": "Before pool tuning queueing from limited DB pool appears strongly."
+      "notes": "Before pool tuning queueing from limited DB pool appears strongly.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "db_pool_after",
@@ -280,8 +292,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "After queue improvement, dependency stage often dominates residual tails."
+      "notes": "After queue improvement, dependency stage often dominates residual tails.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "shared_lock_before",
@@ -300,8 +313,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "Shared lock contention manifests through stage latency dominance."
+      "notes": "Shared lock contention manifests through stage latency dominance.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "shared_lock_after",
@@ -319,8 +333,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "After mitigation remaining time is still mostly stage work."
+      "notes": "After mitigation remaining time is still mostly stage work.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "retry_before",
@@ -339,8 +354,9 @@
       "must_include_evidence": [
         "downstream"
       ],
-      "allowed_warnings": [],
-      "notes": "Retry storm amplifies downstream latency contribution."
+      "notes": "Retry storm amplifies downstream latency contribution.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "retry_after",
@@ -358,8 +374,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "After retry tuning downstream remains dominant but improved."
+      "notes": "After retry tuning downstream remains dominant but improved.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "queue_sample",
@@ -377,8 +394,9 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [],
-      "notes": "Queue sample is canonical queue saturation evidence."
+      "notes": "Queue sample is canonical queue saturation evidence.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "blocking_sample",
@@ -396,11 +414,12 @@
       "must_include_evidence": [
         "Blocking queue depth"
       ],
-      "allowed_warnings": [
+      "notes": "Blocking sample is canonical blocking saturation evidence.",
+      "expected_warnings": [
         "Runtime snapshots are missing",
         "Top suspects are close in score"
       ],
-      "notes": "Blocking sample is canonical blocking saturation evidence."
+      "top1_required": false
     },
     {
       "id": "executor_sample",
@@ -418,8 +437,9 @@
       "must_include_evidence": [
         "Global queue depth"
       ],
-      "allowed_warnings": [],
-      "notes": "Executor sample has clear runtime queue pressure cues."
+      "notes": "Executor sample has clear runtime queue pressure cues.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "downstream_sample",
@@ -437,8 +457,9 @@
       "must_include_evidence": [
         "Stage"
       ],
-      "allowed_warnings": [],
-      "notes": "Downstream sample has clear stage dominance cues."
+      "notes": "Downstream sample has clear stage dominance cues.",
+      "expected_warnings": [],
+      "top1_required": false
     },
     {
       "id": "synthetic_insufficient",
@@ -455,11 +476,12 @@
       "must_include_evidence": [
         "Not enough"
       ],
-      "allowed_warnings": [
+      "notes": "Intentional low-signal report validates insufficient-evidence behavior.",
+      "expected_warnings": [
         "Missing queue",
         "Missing stage"
       ],
-      "notes": "Intentional low-signal report validates insufficient-evidence behavior."
+      "top1_required": false
     },
     {
       "id": "synthetic_missing_runtime",
@@ -477,10 +499,11 @@
       "must_include_evidence": [
         "Global queue depth"
       ],
-      "allowed_warnings": [
+      "notes": "Runtime warning should be accepted when expected.",
+      "expected_warnings": [
         "Runtime signals are missing"
       ],
-      "notes": "Runtime warning should be accepted when expected."
+      "top1_required": false
     },
     {
       "id": "synthetic_missing_stage",
@@ -497,10 +520,11 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [
+      "notes": "Stage warning allowed for partial instrumentation cases.",
+      "expected_warnings": [
         "Stage instrumentation is missing"
       ],
-      "notes": "Stage warning allowed for partial instrumentation cases."
+      "top1_required": false
     },
     {
       "id": "synthetic_truncation",
@@ -518,10 +542,11 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [
+      "notes": "Truncation warning validates partial-data handling without changing ranking.",
+      "expected_warnings": [
         "Truncation"
       ],
-      "notes": "Truncation warning validates partial-data handling without changing ranking."
+      "top1_required": false
     },
     {
       "id": "synthetic_ambiguous",
@@ -539,10 +564,12 @@
       "must_include_evidence": [
         "Queue wait"
       ],
-      "allowed_warnings": [
+      "notes": "Close scores case validates ambiguity-warning handling.",
+      "expected_warnings": [
         "Ambiguous diagnosis"
       ],
-      "notes": "Close scores case validates ambiguity-warning handling."
+      "top1_required": false
     }
-  ]
+  ],
+  "schema_version": 1
 }
