@@ -55,3 +55,8 @@ python3 scripts/diagnostic_benchmark.py \
   --min-top2 0.90 \
   --max-high-confidence-wrong 0
 ```
+
+## Validation tracks
+- Deterministic corpus benchmark (`scripts/diagnostic_benchmark.py`)
+- Repeated-run matrix runner (`scripts/run_diagnostic_matrix.py`)
+- Synthetic adversarial corpus coverage in `manifest.json`

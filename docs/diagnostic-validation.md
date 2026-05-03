@@ -6,7 +6,11 @@
 The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
 
 ## Deterministic vs repeated-run validation
-The current gate is deterministic fixture validation. Repeated-run variance validation is future work.
+Deterministic fixture validation checks fixed committed reports. Repeated-run matrix validation runs controlled demo scenarios multiple times, analyzes each run, and summarizes diagnostic stability.
+
+Repeated-run metrics include top-1 stability, required top-2 visibility, high-confidence-wrong count, per-scenario primary-suspect stability, confidence-bucket accuracy, and p95/p99 latency median+IQR summaries. These measurements are controlled-demo and machine/workload scoped, and are not root-cause proof or universal production guarantees.
+
+Repeated-run matrix validation is currently manual/local (not mandatory CI).
 
 ## Top-1 vs required top-2
 - **Top-1**: primary suspect matches `ground_truth`.

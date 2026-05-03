@@ -37,3 +37,8 @@ The corpus now includes deterministic adversarial validation that checks sparse,
 - user-facing methodology: `docs/diagnostic-validation.md`
 
 Demos teach scenarios; validation measures bounded diagnostic behavior.
+
+## Repeated-run matrix validation (manual)
+A manual repeated-run diagnostic matrix runner is available via `scripts/run_diagnostic_matrix.py` to measure stability under controlled Tokio demo workloads. It writes per-run JSONL records plus summary JSON (and optional Markdown scorecard).
+
+This repeated-run validation is workload/machine scoped, does not prove root cause, and is not mandatory CI yet.

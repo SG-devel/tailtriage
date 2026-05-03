@@ -13,6 +13,7 @@
 | missing instrumentation warnings | Initial deterministic adversarial coverage | queue/stage/runtime missing and optional-runtime-field warnings are explicitly checked. |
 | runtime overhead | Measured separately | see `docs/runtime-cost.md`. |
 | collector limits | Measured separately | see `docs/collector-limits.md`. |
+| repeated-run diagnostic matrix | Manual repeated-run validation available | publishable results are generated locally and not committed by default. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
 Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation.
