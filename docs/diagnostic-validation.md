@@ -6,7 +6,7 @@
 The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
 
 ## Deterministic vs repeated-run validation
-The current gate is deterministic fixture validation. Repeated-run variance validation is future work.
+The current gate is deterministic fixture validation. Repeated-run variance validation is available as a manual/local workflow.
 
 ## Top-1 vs required top-2
 - **Top-1**: primary suspect matches `ground_truth`.
@@ -46,7 +46,7 @@ The corpus includes insufficient-evidence scenarios to validate conservative fal
 Schema supports `must_include_next_checks`, but the current initial corpus has no non-empty next-check requirements, so next-check substrings are not currently part of the deterministic gate.
 
 ## Future work
-Repeated-run validation, mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+Mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
 
 ## Repeated-run diagnostic matrix validation (manual)
 A manual repeated-run matrix runner is available at `scripts/run_diagnostic_matrix.py`. It repeatedly executes controlled demo scenarios, analyzes each run, and summarizes stability metrics.

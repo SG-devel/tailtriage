@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -225,7 +224,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scenario", action="append", dest="scenarios")
     parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
     parser.add_argument("--artifact-root", type=Path, default=Path("target/diagnostic-matrix"))
-    parser.add_argument("--keep-artifacts", action="store_true")
     parser.add_argument("--min-top1", type=float, default=0.95)
     parser.add_argument("--min-top2", type=float, default=1.0)
     parser.add_argument("--max-high-confidence-wrong", type=int, default=0)
@@ -266,9 +264,6 @@ def main() -> None:
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.scorecard:
         write_scorecard(args.scorecard, summary)
-
-    if not args.keep_artifacts and args.artifact_root.exists():
-        shutil.rmtree(args.artifact_root)
 
     print(f"records={len(records)}")
     print(f"out={args.out}")
