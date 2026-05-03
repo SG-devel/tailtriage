@@ -20,6 +20,9 @@ This is the canonical user-facing docs index for `tailtriage`.
 
 ## Practical measurement guidance
 
+- [Diagnostic validation](diagnostic-validation.md) — corpus-driven diagnostic quality validation methodology and metrics.
+
+
 - [Runtime cost measurement](runtime-cost.md) — reproducible overhead attribution path (baked-in, core, sampler, post-limit/drop-path).
 - [Collector limits and stress guidance](collector-limits.md) — sustained-load truncation onset, artifact-size growth, and memory trend interpretation.
 

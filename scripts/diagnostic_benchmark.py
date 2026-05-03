@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+import argparse
+import json
+from collections import Counter, defaultdict
+from pathlib import Path
+
+ALLOWED_GROUND_TRUTH = {
+    "application_queue_saturation",
+    "blocking_pool_pressure",
+    "executor_pressure_suspected",
+    "downstream_stage_dominates",
+    "insufficient_evidence",
+}
+CONF_HIGH = {"high", "very_high"}
+
+
+def load_json(path):
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def validate_manifest(manifest):
+    if not isinstance(manifest, dict) or "cases" not in manifest or not isinstance(manifest["cases"], list):
+        raise ValueError("manifest must be an object containing a cases list")
+    seen = set()
+    for case in manifest["cases"]:
+        for field in ["id", "artifact", "artifact_type", "ground_truth", "acceptable_top2", "tags", "must_include_evidence", "allowed_warnings", "notes"]:
+            if field not in case:
+                raise ValueError(f"case missing required field: {field}")
+        cid = case["id"]
+        if cid in seen:
+            raise ValueError(f"duplicate case id: {cid}")
+        seen.add(cid)
+        if case["artifact_type"] != "analysis_report":
+            raise ValueError(f"unsupported artifact_type for {cid}: {case['artifact_type']}")
+        gt = case["ground_truth"]
+        if gt not in ALLOWED_GROUND_TRUTH:
+            raise ValueError(f"unknown ground_truth for {cid}: {gt}")
+        if gt not in case["acceptable_top2"]:
+            raise ValueError(f"acceptable_top2 must include ground_truth for {cid}")
+
+
+def extract(report):
+    primary = report.get("primary_suspect", {})
+    secondary = report.get("secondary_suspects", [])
+    all_suspects = [primary] + secondary
+    return {
+        "top1": primary.get("kind"),
+        "top2": [s.get("kind") for s in all_suspects[:2] if s.get("kind")],
+        "primary_confidence": primary.get("confidence", "unknown"),
+        "primary_score": primary.get("score", 0),
+        "evidence": [e for s in all_suspects for e in s.get("evidence", []) if isinstance(e, str)],
+        "warnings": report.get("warnings", []),
+    }
+
+
+def confidence_bucket(conf):
+    c = (conf or "").lower()
+    if c in ("high", "very_high"):
+        return "high"
+    if c == "medium":
+        return "medium"
+    return "low"
+
+
+def run(manifest_path, min_top1, min_top2):
+    manifest_path = Path(manifest_path)
+    root = manifest_path.parent
+    manifest = load_json(manifest_path)
+    validate_manifest(manifest)
+    cases = manifest["cases"]
+
+    results = []
+    failed_cases = []
+    confusion = defaultdict(Counter)
+    per_gt = Counter()
+    evidence_pass = 0
+    unexpected_warning_count = 0
+    high_conf_wrong = 0
+    conf_buckets = defaultdict(lambda: {"total": 0, "correct": 0})
+
+    for case in cases:
+        report = load_json(root / case["artifact"])
+        ext = extract(report)
+        gt = case["ground_truth"]
+        per_gt[gt] += 1
+        confusion[gt][ext["top1"] or "<none>"] += 1
+
+        top1_ok = ext["top1"] == gt
+        top2_ok = any(k in case["acceptable_top2"] for k in ext["top2"])
+
+        bucket = confidence_bucket(ext["primary_confidence"])
+        conf_buckets[bucket]["total"] += 1
+        if top1_ok:
+            conf_buckets[bucket]["correct"] += 1
+
+        if not top1_ok and str(ext["primary_confidence"]).lower() in CONF_HIGH:
+            high_conf_wrong += 1
+
+        ev_ok = all(any(req.lower() in ev.lower() for ev in ext["evidence"]) for req in case["must_include_evidence"])
+        if ev_ok:
+            evidence_pass += 1
+
+        unexpected = []
+        for warning in ext["warnings"]:
+            if not any(allow.lower() in str(warning).lower() for allow in case["allowed_warnings"]):
+                unexpected.append(warning)
+        unexpected_warning_count += len(unexpected)
+
+        case_failed = (not ev_ok) or (len(unexpected) > 0)
+        results.append({"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "unexpected_warnings": unexpected})
+        if case_failed:
+            failed_cases.append({"id": case["id"], "evidence_ok": ev_ok, "unexpected_warnings": unexpected})
+
+    total = len(cases)
+    top1 = sum(1 for r in results if r["top1_ok"]) / total if total else 0.0
+    top2 = sum(1 for r in results if r["top2_ok"]) / total if total else 0.0
+
+    metrics = {
+        "total_cases": total,
+        "top1_accuracy": top1,
+        "top2_recall": top2,
+        "high_confidence_wrong_count": high_conf_wrong,
+        "per_ground_truth_counts": dict(per_gt),
+        "confusion_matrix": {k: dict(v) for k, v in confusion.items()},
+        "confidence_bucket_accuracy": {k: {"accuracy": (v["correct"] / v["total"] if v["total"] else 0.0), **v} for k, v in conf_buckets.items()},
+        "required_evidence_pass_rate": evidence_pass / total if total else 0.0,
+        "unexpected_warning_count": unexpected_warning_count,
+        "failed_cases": failed_cases,
+    }
+
+    print(f"cases={total} top1={top1:.3f} top2={top2:.3f} evidence_pass={metrics['required_evidence_pass_rate']:.3f}")
+    print(f"high_confidence_wrong={high_conf_wrong} unexpected_warning_count={unexpected_warning_count}")
+
+    failures = []
+    if failed_cases:
+        failures.append("required evidence and/or warning checks failed")
+    if top1 < min_top1:
+        failures.append(f"top1_accuracy {top1:.3f} below threshold {min_top1:.3f}")
+    if top2 < min_top2:
+        failures.append(f"top2_recall {top2:.3f} below threshold {min_top2:.3f}")
+
+    return metrics, failures
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--manifest", required=True)
+    ap.add_argument("--output")
+    ap.add_argument("--min-top1", type=float, default=0.75)
+    ap.add_argument("--min-top2", type=float, default=0.90)
+    args = ap.parse_args()
+
+    try:
+        metrics, failures = run(args.manifest, args.min_top1, args.min_top2)
+    except Exception as exc:
+        print(f"ERROR: {exc}")
+        raise SystemExit(1)
+
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    if failures:
+        for f in failures:
+            print(f"FAIL: {f}")
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

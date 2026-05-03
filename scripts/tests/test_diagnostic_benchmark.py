@@ -1,0 +1,65 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts import diagnostic_benchmark as db
+
+
+class DiagnosticBenchmarkTests(unittest.TestCase):
+    def _write(self, root: Path, rel: str, payload):
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(payload), encoding="utf-8")
+        return p
+
+    def test_manifest_validation_errors(self):
+        with self.assertRaises(ValueError):
+            db.validate_manifest({"cases": [{"id": "x"}]})
+
+    def test_duplicate_ids_and_unknown_ground_truth(self):
+        base = {
+            "artifact": "a.json", "artifact_type": "analysis_report", "acceptable_top2": ["application_queue_saturation"],
+            "tags": [], "must_include_evidence": [], "allowed_warnings": [], "notes": "n"
+        }
+        with self.assertRaises(ValueError):
+            db.validate_manifest({"cases": [{**base, "id": "a", "ground_truth": "application_queue_saturation"}, {**base, "id": "a", "ground_truth": "application_queue_saturation"}]})
+        with self.assertRaises(ValueError):
+            db.validate_manifest({"cases": [{**base, "id": "b", "ground_truth": "not_real"}]})
+
+    def test_acceptable_top2_must_include_ground_truth(self):
+        with self.assertRaises(ValueError):
+            db.validate_manifest({"cases": [{"id": "1", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "insufficient_evidence", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": [], "allowed_warnings": [], "notes": "x"}]})
+
+    def test_metrics_evidence_warnings_buckets_and_threshold_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "ok.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "high", "score": 90, "evidence": ["Queue wait high"]}, "secondary_suspects": [{"kind": "blocking_pool_pressure", "evidence": ["blocking"]}], "warnings": []})
+            self._write(root, "bad.json", {"primary_suspect": {"kind": "blocking_pool_pressure", "confidence": "high", "score": 85, "evidence": ["Blocking queue depth"]}, "secondary_suspects": [{"kind": "application_queue_saturation", "evidence": ["Queue wait"]}], "warnings": ["runtime signal missing"]})
+            manifest = {"cases": [
+                {"id": "c1", "artifact": "ok.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": ["Queue wait"], "allowed_warnings": [], "notes": "n"},
+                {"id": "c2", "artifact": "bad.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation", "blocking_pool_pressure"], "tags": [], "must_include_evidence": ["Queue wait"], "allowed_warnings": ["runtime signal missing"], "notes": "n"}
+            ]}
+            mpath = self._write(root, "manifest.json", manifest)
+            metrics, failures = db.run(str(mpath), 0.9, 1.0)
+            self.assertEqual(metrics["total_cases"], 2)
+            self.assertAlmostEqual(metrics["top1_accuracy"], 0.5)
+            self.assertAlmostEqual(metrics["top2_recall"], 1.0)
+            self.assertEqual(metrics["high_confidence_wrong_count"], 1)
+            self.assertIn("high", metrics["confidence_bucket_accuracy"])
+            self.assertEqual(metrics["unexpected_warning_count"], 0)
+            self.assertTrue(failures)
+
+    def test_json_output_shape_stable(self):
+        required = {"total_cases", "top1_accuracy", "top2_recall", "high_confidence_wrong_count", "per_ground_truth_counts", "confusion_matrix", "confidence_bucket_accuracy", "required_evidence_pass_rate", "unexpected_warning_count", "failed_cases"}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "a.json", {"primary_suspect": {"kind": "insufficient_evidence", "confidence": "low", "score": 50, "evidence": ["Not enough"]}, "secondary_suspects": [], "warnings": []})
+            mpath = self._write(root, "manifest.json", {"cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "insufficient_evidence", "acceptable_top2": ["insufficient_evidence"], "tags": [], "must_include_evidence": ["Not enough"], "allowed_warnings": [], "notes": "n"}]})
+            metrics, failures = db.run(str(mpath), 0.0, 0.0)
+            self.assertFalse(failures)
+            self.assertTrue(required.issubset(set(metrics.keys())))
+
+
+if __name__ == "__main__":
+    unittest.main()
