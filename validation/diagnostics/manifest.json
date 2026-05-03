@@ -707,6 +707,319 @@
         "downstream_stage_dominates"
       ],
       "must_include_next_checks": []
+    },
+    {
+      "id": "low_request_count",
+      "artifact": "corpus/low-request-count.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "sparse-sample"
+      ],
+      "must_include_evidence": [
+        "too few requests"
+      ],
+      "must_include_next_checks": [
+        "re-run with enough requests",
+        "enable queue wait/depth"
+      ],
+      "expected_warnings": [
+        "low request count"
+      ],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "max_primary_confidence": "low",
+      "notes": "Synthetic sparse-sample case ensures low-confidence insufficient-evidence fallback when request count is too small."
+    },
+    {
+      "id": "no_queue_events",
+      "artifact": "corpus/no-queue-events.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "missing-queue"
+      ],
+      "must_include_evidence": [
+        "stage checkout_db dominates",
+        "no queue evidence"
+      ],
+      "must_include_next_checks": [
+        "enable queue wait/depth"
+      ],
+      "expected_warnings": [
+        "queue instrumentation missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic missing-queue instrumentation case: downstream appears primary but queue saturation remains plausible and must stay visible in top-2."
+    },
+    {
+      "id": "no_stage_events",
+      "artifact": "corpus/no-stage-events.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "missing-stage"
+      ],
+      "must_include_evidence": [
+        "queue wait dominates",
+        "no stage evidence"
+      ],
+      "must_include_next_checks": [
+        "enable stage instrumentation"
+      ],
+      "expected_warnings": [
+        "stage instrumentation missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic missing-stage instrumentation case: queue appears primary but downstream remains plausible and must stay top-2."
+    },
+    {
+      "id": "no_runtime_snapshots",
+      "artifact": "corpus/no-runtime-snapshots.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "missing-runtime"
+      ],
+      "must_include_evidence": [
+        "runtime snapshots are missing"
+      ],
+      "must_include_next_checks": [
+        "enable runtime sampling"
+      ],
+      "expected_warnings": [
+        "runtime snapshots are missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "executor_pressure_suspected",
+        "blocking_pool_pressure"
+      ],
+      "acceptable_primary": [
+        "executor_pressure_suspected",
+        "blocking_pool_pressure"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic runtime-missing case ensures executor vs blocking ambiguity remains visible with bounded confidence."
+    },
+    {
+      "id": "missing_optional_runtime_fields",
+      "artifact": "corpus/missing-optional-runtime-fields.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "partial-runtime"
+      ],
+      "must_include_evidence": [
+        "runtime snapshots are partial"
+      ],
+      "must_include_next_checks": [
+        "tokio_unstable",
+        "tokio-console"
+      ],
+      "expected_warnings": [
+        "optional runtime fields missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "blocking_pool_pressure",
+        "executor_pressure_suspected"
+      ],
+      "acceptable_primary": [
+        "blocking_pool_pressure",
+        "executor_pressure_suspected"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic partial-runtime-fields case validates warnings and conservative confidence when optional runtime metrics are unavailable."
+    },
+    {
+      "id": "truncated_artifact_adversarial",
+      "artifact": "corpus/truncated-artifact-adversarial.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "truncation"
+      ],
+      "must_include_evidence": [
+        "artifact truncation means evidence is partial"
+      ],
+      "must_include_next_checks": [
+        "larger capture limits",
+        "drop counters"
+      ],
+      "expected_warnings": [
+        "artifact is truncated"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic truncation case ensures partial artifacts produce truncation warnings and capped confidence while retaining plausible top-2 suspects."
+    },
+    {
+      "id": "weak_blocking_strong_downstream",
+      "artifact": "corpus/weak-blocking-strong-downstream.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "mixed",
+        "downstream"
+      ],
+      "must_include_evidence": [
+        "largest p95 and tail share contribution",
+        "blocking queue depth hints are weak"
+      ],
+      "must_include_next_checks": [
+        "inspect downstream dependency"
+      ],
+      "expected_warnings": [],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "max_primary_confidence": "high",
+      "notes": "Synthetic mixed-signal case where strong downstream evidence should outrank weak blocking hints."
+    },
+    {
+      "id": "blocking_correlated_stage",
+      "artifact": "corpus/blocking-correlated-stage.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "mixed",
+        "blocking"
+      ],
+      "must_include_evidence": [
+        "blocking queue depth remains elevated",
+        "correlated with blocking callsites"
+      ],
+      "must_include_next_checks": [
+        "audit spawn_blocking"
+      ],
+      "expected_warnings": [],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "blocking_pool_pressure",
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "blocking_pool_pressure"
+      ],
+      "max_primary_confidence": "high",
+      "notes": "Synthetic adversarial case where stage latency is blocking-correlated, so blocking pressure should win while downstream remains visible."
+    },
+    {
+      "id": "noise_only_workload",
+      "artifact": "corpus/noise-only-workload.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "noise"
+      ],
+      "must_include_evidence": [
+        "no suspect family has coherent dominant evidence"
+      ],
+      "must_include_next_checks": [
+        "controlled workload"
+      ],
+      "expected_warnings": [
+        "no dominant signal"
+      ],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "max_primary_confidence": "low",
+      "notes": "Synthetic low-signal noise case ensures conservative insufficient-evidence classification with low confidence."
+    },
+    {
+      "id": "high_latency_missing_instrumentation",
+      "artifact": "corpus/high-latency-missing-instrumentation.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "missing-instrumentation"
+      ],
+      "must_include_evidence": [
+        "latency is high, but explanatory queue, stage, and runtime instrumentation is insufficient"
+      ],
+      "must_include_next_checks": [
+        "enable queue, stage, and runtime instrumentation"
+      ],
+      "expected_warnings": [
+        "high latency observed but queue/stage/runtime instrumentation is missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "max_primary_confidence": "low",
+      "notes": "Synthetic high-latency case validates that high latency alone does not justify overconfident specific suspects without explanatory instrumentation."
     }
   ],
   "schema_version": 1

@@ -124,6 +124,15 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(top1_required="yes")))
         with self.assertRaisesRegex(ValueError, "notes"):
             db.validate_manifest(self.make_manifest(self.make_case(notes="")))
+    
+    def test_manifest_max_primary_confidence_rules(self):
+        db.validate_manifest(self.make_manifest(self.make_case()))
+        for value in ["low", "medium", "high", "very_high"]:
+            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=value)))
+        with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
+            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=1)))
+        with self.assertRaisesRegex(ValueError, "unknown max_primary_confidence"):
+            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
 
     # Report validation tests
     def test_report_missing_primary_fails(self):
@@ -243,8 +252,25 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         metrics, _ = self.run_single_case(case, valid_report(primary_kind="blocking_pool_pressure", warnings=[]))
         self.assertEqual(len(metrics["failed_cases"]), 1)
         row = metrics["failed_cases"][0]
-        for field in ["id", "top1_ok", "top2_ok", "evidence_ok", "next_check_ok", "unexpected_warnings", "missing_expected_warnings", "top1_required"]:
+        for field in ["id", "top1_ok", "top2_ok", "evidence_ok", "next_check_ok", "unexpected_warnings", "missing_expected_warnings", "top1_required", "confidence_ceiling_ok", "max_primary_confidence", "primary_confidence"]:
             self.assertIn(field, row)
+
+    def test_confidence_ceiling_behavior_and_metrics(self):
+        case = self.make_case(max_primary_confidence="medium")
+        metrics, failures = self.run_single_case(case, valid_report(confidence="medium"), max_high_confidence_wrong=99)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["confidence_ceiling_cases"], 1)
+        self.assertEqual(metrics["confidence_ceiling_passed_cases"], 1)
+        self.assertEqual(metrics["confidence_ceiling_pass_rate"], 1.0)
+
+        metrics, failures = self.run_single_case(case, valid_report(confidence="low"), max_high_confidence_wrong=99)
+        self.assertFalse(failures)
+
+        metrics, failures = self.run_single_case(case, valid_report(confidence="high"), max_high_confidence_wrong=99)
+        self.assertTrue(failures)
+        self.assertEqual(metrics["confidence_ceiling_passed_cases"], 0)
+        self.assertEqual(metrics["confidence_ceiling_pass_rate"], 0.0)
+        self.assertFalse(metrics["failed_cases"][0]["confidence_ceiling_ok"])
 
     # Threshold and output/path tests
     def test_threshold_failures(self):
@@ -275,7 +301,8 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
                 "per_ground_truth_counts", "confusion_matrix", "confidence_bucket_accuracy",
                 "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases",
                 "next_check_presence_rate", "next_check_pass_rate", "unexpected_warning_count",
-                "missing_expected_warning_count", "failed_cases",
+                "missing_expected_warning_count", "confidence_ceiling_cases",
+                "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "failed_cases",
             }
             self.assertEqual(set(metrics.keys()), expected_keys)
 

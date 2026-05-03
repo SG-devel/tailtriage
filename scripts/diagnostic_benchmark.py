@@ -12,6 +12,7 @@ ALLOWED_GROUND_TRUTH = {
     "insufficient_evidence",
 }
 CONF_HIGH = {"high", "very_high"}
+CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2, "very_high": 3}
 
 
 def load_json(path):
@@ -70,6 +71,12 @@ def validate_manifest(manifest):
             raise ValueError(f"top1_required must be a bool for {cid}")
         if not isinstance(case["notes"], str) or not case["notes"].strip():
             raise ValueError(f"notes must be a non-empty string for {cid}")
+        if "max_primary_confidence" in case:
+            cap = case["max_primary_confidence"]
+            if not isinstance(cap, str):
+                raise ValueError(f"max_primary_confidence must be a string for {cid}")
+            if cap not in CONFIDENCE_ORDER:
+                raise ValueError(f"unknown max_primary_confidence for {cid}: {cap}")
 
 
 def confidence_bucket(conf):
@@ -80,6 +87,10 @@ def confidence_bucket(conf):
     if conf == "low":
         return "low"
     raise ValueError("report.primary_suspect.confidence must be one of low/medium/high/very_high")
+
+
+def confidence_at_or_below(value, ceiling):
+    return CONFIDENCE_ORDER[value] <= CONFIDENCE_ORDER[ceiling]
 
 
 def extract(report):
@@ -149,6 +160,8 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
     evidence_pass = 0
     unexpected_warning_count = 0
     missing_expected_warning_count = 0
+    confidence_ceiling_cases = 0
+    confidence_ceiling_passed_cases = 0
     high_conf_wrong = 0
     conf_buckets = defaultdict(lambda: {"total": 0, "correct": 0})
     next_check_required_cases = 0
@@ -191,9 +204,16 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         missing_expected = [exp for exp in case["expected_warnings"] if not any(exp.lower() in w.lower() for w in ext["warnings"])]
         unexpected_warning_count += len(unexpected)
         missing_expected_warning_count += len(missing_expected)
+        confidence_ceiling = case.get("max_primary_confidence")
+        confidence_ceiling_ok = True
+        if confidence_ceiling is not None:
+            confidence_ceiling_cases += 1
+            confidence_ceiling_ok = confidence_at_or_below(ext["primary_confidence"], confidence_ceiling)
+            if confidence_ceiling_ok:
+                confidence_ceiling_passed_cases += 1
 
-        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (not next_check_ok) or bool(unexpected) or bool(missing_expected)
-        row = {"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected}
+        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (not next_check_ok) or bool(unexpected) or bool(missing_expected) or (not confidence_ceiling_ok)
+        row = {"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected, "confidence_ceiling_ok": confidence_ceiling_ok, "max_primary_confidence": confidence_ceiling, "primary_confidence": ext["primary_confidence"]}
         results.append(row)
         if case_failed:
             failed_cases.append({**row, "top1_required": case["top1_required"]})
@@ -217,6 +237,9 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         "next_check_pass_rate": (next_check_passed_cases / next_check_required_cases) if next_check_required_cases else None,
         "unexpected_warning_count": unexpected_warning_count,
         "missing_expected_warning_count": missing_expected_warning_count,
+        "confidence_ceiling_cases": confidence_ceiling_cases,
+        "confidence_ceiling_passed_cases": confidence_ceiling_passed_cases,
+        "confidence_ceiling_pass_rate": (confidence_ceiling_passed_cases / confidence_ceiling_cases) if confidence_ceiling_cases else None,
         "failed_cases": failed_cases,
     }
 
@@ -258,6 +281,11 @@ def main():
     print(f"high_confidence_wrong_count={metrics['high_confidence_wrong_count']}")
     print(f"required_evidence_pass_rate={metrics['required_evidence_pass_rate']:.3f}")
     print(f"unexpected_warning_count={metrics['unexpected_warning_count']}")
+    cap_rate = metrics["confidence_ceiling_pass_rate"]
+    cap_rate_text = "n/a" if cap_rate is None else f"{cap_rate:.3f}"
+    print(f"confidence_ceiling_cases={metrics['confidence_ceiling_cases']}")
+    print(f"confidence_ceiling_passed_cases={metrics['confidence_ceiling_passed_cases']}")
+    print(f"confidence_ceiling_pass_rate={cap_rate_text}")
     print(f"missing_expected_warning_count={metrics['missing_expected_warning_count']}")
     print(f"next_check_required_cases={metrics['next_check_required_cases']}")
     print(f"next_check_pass_rate={next_check_pass_rate_text}")

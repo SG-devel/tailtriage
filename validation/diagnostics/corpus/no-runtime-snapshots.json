@@ -1,0 +1,24 @@
+{
+  "warnings": [
+    "Runtime snapshots are missing; executor vs blocking separation is limited."
+  ],
+  "primary_suspect": {
+    "kind": "executor_pressure_suspected",
+    "confidence": "medium",
+    "evidence": [
+      "Scheduler pressure hints are present, but runtime snapshots are missing."
+    ],
+    "next_checks": [
+      "Enable runtime sampling and compare runtime global queue depth against blocking queue depth."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "confidence": "medium",
+      "evidence": [
+        "Without runtime snapshots, blocking-pool pressure remains a close alternative."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "warnings": [
+    "Artifact is truncated: partial records/dropped collector events detected."
+  ],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Downstream stage evidence appears strong, but artifact truncation means evidence is partial."
+    ],
+    "next_checks": [
+      "Re-run with larger capture limits and inspect collector drop counters."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "confidence": "low",
+      "evidence": [
+        "Partial artifact may hide queue-side contribution."
+      ]
+    }
+  ]
+}

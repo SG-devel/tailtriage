@@ -1,0 +1,25 @@
+{
+  "warnings": [
+    "Optional runtime fields missing (blocking_queue_depth/local_queue_depth unavailable)."
+  ],
+  "primary_suspect": {
+    "kind": "blocking_pool_pressure",
+    "confidence": "medium",
+    "evidence": [
+      "Runtime snapshots are partial; optional runtime fields are unavailable in this capture."
+    ],
+    "next_checks": [
+      "Use available runtime metrics and validate with tokio-console or tokio-metrics.",
+      "Enable tokio_unstable if appropriate to expose optional runtime fields."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "executor_pressure_suspected",
+      "confidence": "medium",
+      "evidence": [
+        "Partial runtime fields limit executor vs blocking separation."
+      ]
+    }
+  ]
+}

@@ -19,6 +19,7 @@ Demos teach; validation measures.
 - `must_include_next_checks`: next-check substrings that must appear when required by a case. Schema-supported; current initial corpus has no required next-check cases.
 - `expected_warnings`: warning substrings that must appear.
 - `allowed_warnings`: warning substrings that may appear in addition to expected warnings.
+- `max_primary_confidence` (optional): per-case confidence ceiling (`low|medium|high|very_high`) used to enforce conservative confidence on sparse/missing/partial-data scenarios.
 - `notes`: workload-intent note explaining why labels are set.
 - `tags`: non-empty string tags for grouping/filtering.
 
@@ -51,3 +52,12 @@ python3 scripts/diagnostic_benchmark.py \
   --min-top2 0.90 \
   --max-high-confidence-wrong 0
 ```
+
+
+## Negative/adversarial coverage rules
+
+Use `max_primary_confidence` for low-request-count, missing instrumentation, truncation, noise-only, and mixed-signal ambiguity cases to validate humility (not truth probability).
+
+Warning checks are strict: `expected_warnings` are required, while `allowed_warnings` are only tolerated extras.
+
+Synthetic fixtures must remain small, scoped, and report-shaped; they fill validation coverage gaps and are not substitutes for analyzer-generated captures.

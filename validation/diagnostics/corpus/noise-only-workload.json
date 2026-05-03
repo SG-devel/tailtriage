@@ -1,0 +1,24 @@
+{
+  "warnings": [
+    "No dominant signal: mixed low-signal workload across suspects."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "No suspect family has coherent dominant evidence; signals are weak and mixed."
+    ],
+    "next_checks": [
+      "Collect focused instrumentation and re-run a controlled workload."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "confidence": "low",
+      "evidence": [
+        "Minor stage hints are present but not dominant."
+      ]
+    }
+  ]
+}

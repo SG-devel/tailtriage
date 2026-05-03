@@ -1,0 +1,16 @@
+{
+  "warnings": [
+    "High latency observed but queue/stage/runtime instrumentation is missing."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "Overall latency is high, but explanatory queue, stage, and runtime instrumentation is insufficient."
+    ],
+    "next_checks": [
+      "Enable queue, stage, and runtime instrumentation before assigning a bottleneck family."
+    ]
+  },
+  "secondary_suspects": []
+}

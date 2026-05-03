@@ -1,0 +1,23 @@
+{
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "high",
+    "evidence": [
+      "Stage inventory_rpc has the largest p95 and tail share contribution.",
+      "Blocking queue depth hints are weak and non-dominant."
+    ],
+    "next_checks": [
+      "Inspect downstream dependency latency and retry behavior for inventory_rpc."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "confidence": "low",
+      "evidence": [
+        "Weak blocking queue depth signal appears but does not dominate."
+      ]
+    }
+  ]
+}

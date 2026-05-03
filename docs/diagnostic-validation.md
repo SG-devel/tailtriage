@@ -39,3 +39,12 @@ Schema supports `must_include_next_checks`, but the current initial corpus has n
 
 ## Future work
 Repeated-run validation, mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+
+
+## Negative and adversarial validation
+The corpus includes deterministic adversarial fixtures for sparse samples, missing instrumentation, truncated artifacts, noisy workloads, and mixed signals. These cases validate conservative triage behavior and explicit warnings when evidence is limited.
+
+## Confidence ceilings and humility checks
+Cases can set `max_primary_confidence` to prevent overconfident classifications when evidence is sparse, missing, truncated, or mixed. This is a humility check on report behavior, not a probability-of-truth claim.
+
+High latency alone is not sufficient for a high-confidence specific suspect when explanatory queue/stage/runtime instrumentation is missing.

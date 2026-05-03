@@ -4,9 +4,9 @@
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.
 
 ## What this PR establishes
-This PR introduces an initial deterministic validation corpus for controlled Tokio workload fixtures. The corpus and benchmark validate bounded diagnostic behavior on committed fixtures, not universal production behavior.
+This repository maintains deterministic validation for controlled Tokio workload fixtures plus synthetic adversarial fixtures. The corpus and benchmark validate bounded diagnostic behavior on committed fixtures, not universal production behavior.
 
-## Initial deterministic checks
+## Deterministic checks (including adversarial coverage)
 The deterministic benchmark validates:
 - evidence-ranked suspect correctness against corpus labels
 - required top-2 visibility (`required_top2` appears in primary or first secondary)
@@ -36,3 +36,6 @@ Next-check substring validation is schema-supported in the manifest (`must_inclu
 - user-facing methodology: `docs/diagnostic-validation.md`
 
 Demos teach scenarios; validation measures bounded diagnostic behavior.
+
+
+Tailtriage validation now checks that sparse, missing, truncated, or mixed evidence is warned about and does not produce overconfident unsupported classifications.

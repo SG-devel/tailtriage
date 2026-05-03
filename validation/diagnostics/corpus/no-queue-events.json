@@ -1,0 +1,25 @@
+{
+  "warnings": [
+    "Queue instrumentation missing: no queue wait/depth events were observed."
+  ],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Stage checkout_db dominates tail contribution in captured requests.",
+      "No queue evidence was captured so queue saturation cannot be excluded."
+    ],
+    "next_checks": [
+      "Enable queue wait/depth instrumentation to confirm or exclude application queue saturation."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "confidence": "low",
+      "evidence": [
+        "Queue instrumentation is missing; queue saturation remains plausible."
+      ]
+    }
+  ]
+}
