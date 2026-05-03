@@ -1,0 +1,28 @@
+{
+  "warnings": [
+    "Low request count: tail estimates may be unstable."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "Only 14 requests observed; p95/p99 estimates are unstable for triage ranking."
+    ],
+    "next_checks": [
+      "Rerun with enough requests to stabilize tail estimates.",
+      "Enable queue and stage instrumentation during the rerun."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "confidence": "low",
+      "evidence": [
+        "Queue contribution appears elevated in sparse samples."
+      ],
+      "next_checks": [
+        "Collect queue wait and depth over a larger workload window."
+      ]
+    }
+  ]
+}

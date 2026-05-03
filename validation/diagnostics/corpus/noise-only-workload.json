@@ -1,0 +1,26 @@
+{
+  "warnings": [
+    "No dominant signal detected; workload appears noisy with mixed low-signal indicators."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "No bottleneck family reaches dominant tail contribution.",
+      "Signals are weak and mixed across queue, stage, and runtime indicators."
+    ],
+    "next_checks": [
+      "Collect a more controlled workload with focused instrumentation.",
+      "Rerun with queue, stage, and runtime signals enabled together."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "executor_pressure_suspected",
+      "confidence": "low",
+      "evidence": [
+        "Executor pressure appears intermittently but without dominant evidence."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "blocking_pool_pressure",
+    "confidence": "high",
+    "evidence": [
+      "Blocking queue depth remains elevated through the tail window.",
+      "Dominant stage latency is strongly correlated with blocking callsites."
+    ],
+    "next_checks": [
+      "Audit spawn_blocking and other blocking callsites in dominant stage path."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "confidence": "medium",
+      "evidence": [
+        "Stage latency appears high but may be a blocking-correlated symptom."
+      ]
+    }
+  ]
+}

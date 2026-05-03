@@ -1,0 +1,26 @@
+{
+  "warnings": [
+    "Queue instrumentation missing: queue saturation cannot be excluded."
+  ],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Stage process_payment dominates tail latency contribution.",
+      "No queue wait/depth events were captured."
+    ],
+    "next_checks": [
+      "Enable queue wait/depth instrumentation to confirm queue contribution.",
+      "Inspect downstream dependency latency distribution."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "confidence": "low",
+      "evidence": [
+        "Missing queue instrumentation leaves queue saturation plausible."
+      ]
+    }
+  ]
+}

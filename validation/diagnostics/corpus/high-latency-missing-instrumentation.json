@@ -1,0 +1,25 @@
+{
+  "warnings": [
+    "High latency observed but queue/stage/runtime instrumentation is incomplete."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "High p99 latency is present, but explanatory instrumentation is missing."
+    ],
+    "next_checks": [
+      "Enable queue, stage, and runtime instrumentation before assigning a bottleneck family.",
+      "Rerun capture with complete instrumentation coverage."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "confidence": "low",
+      "evidence": [
+        "Downstream dominance is plausible but unsupported without stage/runtime signals."
+      ]
+    }
+  ]
+}
