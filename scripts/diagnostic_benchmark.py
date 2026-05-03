@@ -249,6 +249,21 @@ def main():
         out = Path(args.output)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    next_check_pass_rate = metrics["next_check_pass_rate"]
+    next_check_pass_rate_text = "n/a" if next_check_pass_rate is None else f"{next_check_pass_rate:.3f}"
+    print(f"total_cases={metrics['total_cases']}")
+    print(f"top1_accuracy={metrics['top1_accuracy']:.3f}")
+    print(f"top2_recall={metrics['top2_recall']:.3f}")
+    print(f"high_confidence_wrong_count={metrics['high_confidence_wrong_count']}")
+    print(f"required_evidence_pass_rate={metrics['required_evidence_pass_rate']:.3f}")
+    print(f"unexpected_warning_count={metrics['unexpected_warning_count']}")
+    print(f"missing_expected_warning_count={metrics['missing_expected_warning_count']}")
+    print(f"next_check_required_cases={metrics['next_check_required_cases']}")
+    print(f"next_check_pass_rate={next_check_pass_rate_text}")
+    print(f"next_check_presence_rate={metrics['next_check_presence_rate']:.3f}")
+    print(f"failed_case_count={len(metrics['failed_cases'])}")
+
     if failures:
         for f in failures:
             print(f"FAIL: {f}")
