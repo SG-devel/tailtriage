@@ -1,0 +1,17 @@
+{
+  "warnings": [
+    "missing runtime snapshots"
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "score": 25,
+    "confidence": "low",
+    "evidence": [
+      "Insufficient signal coverage"
+    ],
+    "next_checks": [
+      "Add queue/stage/runtime instrumentation"
+    ]
+  },
+  "secondary_suspects": []
+}

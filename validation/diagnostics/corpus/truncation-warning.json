@@ -1,0 +1,27 @@
+{
+  "warnings": [
+    "Report may be partial: dropped 12 stage events"
+  ],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "score": 70,
+    "confidence": "medium",
+    "evidence": [
+      "Stage 'db_query' has p95 latency 90000 us"
+    ],
+    "next_checks": [
+      "Increase stage capture limits"
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "score": 62,
+      "confidence": "low",
+      "evidence": [
+        "Queue wait at p95 consumes 32.0%"
+      ],
+      "next_checks": []
+    }
+  ]
+}

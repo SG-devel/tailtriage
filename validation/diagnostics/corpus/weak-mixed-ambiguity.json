@@ -1,0 +1,27 @@
+{
+  "warnings": [
+    "Top suspects are close"
+  ],
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "score": 58,
+    "confidence": "medium",
+    "evidence": [
+      "Queue wait at p95 consumes 33.0%"
+    ],
+    "next_checks": [
+      "Run targeted queue admission check"
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "score": 56,
+      "confidence": "medium",
+      "evidence": [
+        "Stage 'downstream_total' contributes 310 permille"
+      ],
+      "next_checks": []
+    }
+  ]
+}

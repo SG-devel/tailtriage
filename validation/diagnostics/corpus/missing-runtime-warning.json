@@ -1,0 +1,17 @@
+{
+  "warnings": [
+    "Runtime-pressure signals are missing"
+  ],
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "score": 78,
+    "confidence": "medium",
+    "evidence": [
+      "Queue wait at p95 consumes 54.0%"
+    ],
+    "next_checks": [
+      "Capture runtime sampler"
+    ]
+  },
+  "secondary_suspects": []
+}

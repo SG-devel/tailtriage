@@ -1,6 +1,7 @@
 # Demo guide: scenarios
 
 The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality proof.
+Demos teach scenario mechanics; validation in `validation/diagnostics/` measures diagnostic quality against labeled cases.
 
 ## Brief introduction
 

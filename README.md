@@ -261,5 +261,6 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 - Demo walkthrough and recommended first demos: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 - Runtime-overhead measurement path: [`docs/runtime-cost.md`](docs/runtime-cost.md)
 - Collector-stress, truncation, artifact-size, and memory guidance: [`docs/collector-limits.md`](docs/collector-limits.md)
+- Validation scope, claims, and corpus benchmark surface: [`VALIDATION.md`](VALIDATION.md)
 - Architecture and crate responsibilities: [`docs/architecture.md`](docs/architecture.md)
 - Full docs index: [`docs/README.md`](docs/README.md)
