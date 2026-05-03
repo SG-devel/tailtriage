@@ -1,0 +1,1 @@
+{"warnings": ["Queue signals are sparse."], "primary_suspect": {"kind": "insufficient_evidence", "score": 50, "confidence": "medium", "evidence": ["Not enough queue, stage, or runtime signals"], "next_checks": []}, "secondary_suspects": []}

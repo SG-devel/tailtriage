@@ -197,6 +197,7 @@ tailtriage analyze tailtriage-run.json --format json
 `tailtriage` includes repo-local measurement paths for both runtime-overhead attribution and sustained collector-stress behavior. These are based on synthetic, controlled tests in this repository and should be treated as machine- and workload-scoped guidance, not universal production guarantees.
 
 For overhead attribution and measurement workflow, see [`docs/runtime-cost.md`](docs/runtime-cost.md). For sustained-load behavior, truncation onset, artifact-size growth, and memory trends under stress-shaped workloads, see [`docs/collector-limits.md`](docs/collector-limits.md).
+For diagnostic-quality validation coverage and claims boundaries, see [`VALIDATION.md`](VALIDATION.md).
 
 ## What this is not
 

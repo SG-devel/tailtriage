@@ -1,0 +1,1 @@
+{"warnings": ["Capture truncation observed: request events were dropped due to limits."], "primary_suspect": {"kind": "application_queue_saturation", "score": 71, "confidence": "high", "evidence": ["Queue wait at p95 consumes 87.0% of request time."], "next_checks": []}, "secondary_suspects": []}
