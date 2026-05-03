@@ -67,7 +67,7 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
     def test_top2_miss_and_missing_expected_warning_fail_case(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            self._write(root, "a.json", {"primary_suspect": {"kind": "blocking_pool_pressure", "confidence": "medium", "evidence": ["x"]}, "secondary_suspects": [{"kind": "executor_pressure_suspected", "evidence": []}], "warnings": []})
+            self._write(root, "a.json", {"primary_suspect": {"kind": "blocking_pool_pressure", "confidence": "medium", "score": 60, "evidence": ["x"]}, "secondary_suspects": [{"kind": "executor_pressure_suspected", "evidence": []}], "warnings": []})
             manifest = {"schema_version": 1, "cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": [], "expected_warnings": ["runtime signal missing"], "allowed_warnings": [], "top1_required": False, "notes": "n"}]}
             mpath = self._write(root, "manifest.json", manifest)
             _metrics, failures = db.run(str(mpath), 0.0, 0.0, 10)
@@ -76,17 +76,27 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
     def test_top1_required_and_high_confidence_wrong_gate(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            self._write(root, "a.json", {"primary_suspect": {"kind": "blocking_pool_pressure", "confidence": "high", "evidence": ["x"]}, "secondary_suspects": [{"kind": "application_queue_saturation", "evidence": ["Queue wait"]}], "warnings": []})
+            self._write(root, "a.json", {"primary_suspect": {"kind": "blocking_pool_pressure", "confidence": "high", "score": 90, "evidence": ["x"]}, "secondary_suspects": [{"kind": "application_queue_saturation", "evidence": ["Queue wait"]}], "warnings": []})
             manifest = {"schema_version": 1, "cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation", "blocking_pool_pressure"], "tags": [], "must_include_evidence": [], "expected_warnings": [], "allowed_warnings": [], "top1_required": True, "notes": "n"}]}
             mpath = self._write(root, "manifest.json", manifest)
             _metrics, failures = db.run(str(mpath), 0.0, 0.0, 0)
             self.assertFalse(any("high_confidence_wrong_count" in f for f in failures))
             self.assertTrue(failures)
 
+    def test_high_confidence_wrong_counts_when_primary_unacceptable_even_if_top2_ok(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "a.json", {"primary_suspect": {"kind": "blocking_pool_pressure", "confidence": "very_high", "score": 99, "evidence": ["x"]}, "secondary_suspects": [{"kind": "application_queue_saturation", "evidence": ["Queue wait"]}], "warnings": []})
+            manifest = {"schema_version": 1, "cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": [], "expected_warnings": [], "allowed_warnings": [], "top1_required": False, "notes": "n"}]}
+            mpath = self._write(root, "manifest.json", manifest)
+            metrics, failures = db.run(str(mpath), 0.0, 0.0, 99)
+            self.assertEqual(metrics["high_confidence_wrong_count"], 1)
+            self.assertFalse(any("high_confidence_wrong_count" in f for f in failures))
+
     def test_allowed_warnings_and_missing_expected_warning_count(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            self._write(root, "a.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "low", "evidence": ["Queue wait"]}, "secondary_suspects": [], "warnings": ["allowed optional noise"]})
+            self._write(root, "a.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "low", "score": 30, "evidence": ["Queue wait"]}, "secondary_suspects": [], "warnings": ["allowed optional noise"]})
             manifest = {"schema_version": 1, "cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": [], "expected_warnings": ["required runtime warning"], "allowed_warnings": ["allowed optional noise"], "top1_required": True, "notes": "n"}]}
             mpath = self._write(root, "manifest.json", manifest)
             metrics, failures = db.run(str(mpath), 0.0, 0.0, 99)
@@ -102,6 +112,39 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             mpath = self._write(root, "manifest.json", manifest)
             with self.assertRaisesRegex(ValueError, "primary_suspect"):
                 db.run(str(mpath), 0.0, 0.0, 0)
+
+    def test_malformed_kind_evidence_warnings_fail_clearly(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            manifest = {"schema_version": 1, "cases": [{"id": "x", "artifact": "bad.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": [], "expected_warnings": [], "allowed_warnings": [], "top1_required": False, "notes": "n"}]}
+            mpath = self._write(root, "manifest.json", manifest)
+
+            self._write(root, "bad.json", {"primary_suspect": {"kind": "not_real", "confidence": "low", "score": 1, "evidence": ["x"]}, "secondary_suspects": [], "warnings": []})
+            with self.assertRaisesRegex(ValueError, "allowed diagnosis kind"):
+                db.run(str(mpath), 0.0, 0.0, 0)
+
+            self._write(root, "bad.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "low", "score": 1, "evidence": "not-a-list"}, "secondary_suspects": [], "warnings": []})
+            with self.assertRaisesRegex(ValueError, "evidence"):
+                db.run(str(mpath), 0.0, 0.0, 0)
+
+            self._write(root, "bad.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "low", "score": 1, "evidence": ["x"]}, "secondary_suspects": [], "warnings": [1]})
+            with self.assertRaisesRegex(ValueError, "warnings"):
+                db.run(str(mpath), 0.0, 0.0, 0)
+
+    def test_run_works_with_absolute_manifest_path_from_different_cwd(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write(root, "a.json", {"primary_suspect": {"kind": "insufficient_evidence", "confidence": "low", "score": 50, "evidence": ["Not enough"]}, "secondary_suspects": [], "warnings": []})
+            mpath = self._write(root, "manifest.json", {"schema_version": 1, "cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "insufficient_evidence", "acceptable_top2": ["insufficient_evidence"], "tags": [], "must_include_evidence": ["Not enough"], "expected_warnings": [], "allowed_warnings": [], "top1_required": False, "notes": "n"}]})
+            prev = Path.cwd()
+            try:
+                import os
+                os.chdir("/")
+                metrics, failures = db.run(str(mpath.resolve()), 0.0, 0.0, 1)
+            finally:
+                os.chdir(prev)
+            self.assertFalse(failures)
+            self.assertEqual(metrics["total_cases"], 1)
 
 
 if __name__ == "__main__":

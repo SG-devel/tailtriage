@@ -26,6 +26,9 @@ Corpus includes low-signal cases to ensure the analyzer can emit `insufficient_e
 ## Warning validation
 Cases require `expected_warnings` to appear and allow optional warnings only when they match `allowed_warnings`.
 
+## Synthetic corpus fixture type
+Synthetic gap-covering cases use `artifact_type: "synthetic_analysis_report"` to keep typing truthful: they are hand-readable report-shaped fixtures for validation gaps, not real demo-emitted `analysis_report` artifacts.
+
 ## Future work
 - repeated runs
 - perturbation validation

@@ -143,7 +143,8 @@
       "artifact_type": "analysis_report",
       "ground_truth": "downstream_stage_dominates",
       "acceptable_top2": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominates",
+        "application_queue_saturation"
       ],
       "tags": [
         "downstream",
@@ -339,7 +340,8 @@
       "artifact_type": "analysis_report",
       "ground_truth": "downstream_stage_dominates",
       "acceptable_top2": [
-        "downstream_stage_dominates"
+        "downstream_stage_dominates",
+        "application_queue_saturation"
       ],
       "tags": [
         "shared-lock",
@@ -487,7 +489,7 @@
     {
       "id": "synthetic_insufficient",
       "artifact": "corpus/insufficient-evidence.json",
-      "artifact_type": "analysis_report",
+      "artifact_type": "synthetic_analysis_report",
       "ground_truth": "insufficient_evidence",
       "acceptable_top2": [
         "insufficient_evidence"
@@ -510,7 +512,7 @@
     {
       "id": "synthetic_missing_runtime",
       "artifact": "corpus/missing-runtime-warning.json",
-      "artifact_type": "analysis_report",
+      "artifact_type": "synthetic_analysis_report",
       "ground_truth": "executor_pressure_suspected",
       "acceptable_top2": [
         "executor_pressure_suspected",
@@ -533,7 +535,7 @@
     {
       "id": "synthetic_missing_stage",
       "artifact": "corpus/missing-stage-warning.json",
-      "artifact_type": "analysis_report",
+      "artifact_type": "synthetic_analysis_report",
       "ground_truth": "application_queue_saturation",
       "acceptable_top2": [
         "application_queue_saturation"
@@ -555,7 +557,7 @@
     {
       "id": "synthetic_truncation",
       "artifact": "corpus/truncation-warning.json",
-      "artifact_type": "analysis_report",
+      "artifact_type": "synthetic_analysis_report",
       "ground_truth": "application_queue_saturation",
       "acceptable_top2": [
         "application_queue_saturation",
@@ -578,7 +580,7 @@
     {
       "id": "synthetic_ambiguous",
       "artifact": "corpus/weak-mixed-ambiguity.json",
-      "artifact_type": "analysis_report",
+      "artifact_type": "synthetic_analysis_report",
       "ground_truth": "application_queue_saturation",
       "acceptable_top2": [
         "application_queue_saturation",

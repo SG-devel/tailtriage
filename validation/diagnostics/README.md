@@ -17,7 +17,7 @@ Demos vs validation:
 - `allowed_warnings` should list optional warning substrings that may appear without failing the case.
 
 ## Synthetic fixtures
-Add synthetic analysis reports only for gaps that committed demo fixtures do not cover (e.g., insufficient evidence, truncation, missing instrumentation warnings, weak/mixed ambiguity).
+Synthetic cases use `artifact_type: "synthetic_analysis_report"` to distinguish them from real demo-produced `analysis_report` fixtures. These synthetic artifacts are intentionally small, hand-readable report-shaped fixtures used only to cover validation gaps (e.g., insufficient evidence, truncation, missing instrumentation warnings, weak/mixed ambiguity).
 
 ## Run benchmark
 ```bash

@@ -53,11 +53,27 @@ def extract(report):
         raise ValueError("report.warnings must be a list")
     primary = report["primary_suspect"]
     secondary = report["secondary_suspects"]
+    kind = primary.get("kind")
+    if kind not in ALLOWED_GROUND_TRUTH:
+        raise ValueError("report.primary_suspect.kind must be an allowed diagnosis kind")
+    confidence = primary.get("confidence")
+    if not isinstance(confidence, str):
+        raise ValueError("report.primary_suspect.confidence must be a string bucket")
+    confidence_bucket(confidence)
+    if "score" in primary and not isinstance(primary["score"], (int, float)):
+        raise ValueError("report.primary_suspect.score must be numeric when present")
+    evidence = primary.get("evidence")
+    if not isinstance(evidence, list) or not all(isinstance(e, str) for e in evidence):
+        raise ValueError("report.primary_suspect.evidence must be a list of strings")
+    if not all(isinstance(s, dict) for s in secondary):
+        raise ValueError("report.secondary_suspects must be a list of objects")
+    if not all(isinstance(w, str) for w in report["warnings"]):
+        raise ValueError("report.warnings must be a list of strings")
     all_suspects = [primary] + secondary
     return {
-        "top1": primary.get("kind"),
+        "top1": kind,
         "top2": [s.get("kind") for s in all_suspects[:2] if s.get("kind")],
-        "primary_confidence": primary.get("confidence", "unknown"),
+        "primary_confidence": confidence,
         "primary_score": primary.get("score", 0),
         "evidence": [e for s in all_suspects for e in s.get("evidence", []) if isinstance(e, str)],
         "warnings": report.get("warnings", []),
@@ -70,11 +86,13 @@ def confidence_bucket(conf):
         return "high"
     if c == "medium":
         return "medium"
-    return "low"
+    if c == "low":
+        return "low"
+    raise ValueError("report.primary_suspect.confidence must be one of low/medium/high/very_high")
 
 
 def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
-    manifest_path = Path(manifest_path)
+    manifest_path = Path(manifest_path).resolve()
     root = manifest_path.parent
     manifest = load_json(manifest_path)
     validate_manifest(manifest)
@@ -105,8 +123,10 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         if top1_ok:
             conf_buckets[bucket]["correct"] += 1
 
-        if (not top1_ok) and (not top2_ok) and str(ext["primary_confidence"]).lower() in CONF_HIGH:
+        if (ext["top1"] not in case["acceptable_top2"]) and str(ext["primary_confidence"]).lower() in CONF_HIGH:
             high_conf_wrong += 1
+        if case["artifact_type"] == "analysis_report" and "score" not in report.get("primary_suspect", {}):
+            raise ValueError("analysis_report requires report.primary_suspect.score")
 
         ev_ok = all(any(req.lower() in ev.lower() for ev in ext["evidence"]) for req in case["must_include_evidence"])
         if ev_ok:
