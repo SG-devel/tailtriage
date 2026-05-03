@@ -43,3 +43,8 @@ Demos teach scenarios; validation measures bounded diagnostic behavior.
 It writes raw JSONL run records plus summary JSON (and optional Markdown scorecard) for stability metrics including top-1 accuracy, top-2 recall, high-confidence-wrong count, per-scenario primary stability, confidence bucket accuracy, and p95/p99 latency distribution summaries.
 
 This repeated-run validation is currently manual/local (not mandatory CI). Publishable repeated-run outputs are generated locally and are not committed by default. Results are machine/workload scoped. It measures stability under bounded controlled Tokio demo workloads on a specific machine/profile; it does not establish production universality or root-cause proof.
+
+## Mitigation matrix validation (manual/local)
+`scripts/run_mitigation_matrix.py` provides paired baseline/mitigated controlled-demo validation that checks whether expected latency and evidence movement occurs after targeted mitigations.
+
+This is manual/local validation (not mandatory CI), machine/workload scoped, and does not prove root cause. Score movement alone is not interpreted as absolute severity across reports.

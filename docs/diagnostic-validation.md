@@ -66,3 +66,15 @@ Key repeated-run metrics:
 Repeated-run validation remains manual/local for now (not mandatory CI), and results are machine-scoped and workload-scoped. It supports triage confidence checks and reproducibility inspection for controlled Tokio workloads.
 
 Like all tool output, these results are evidence for triage and next checks; they do not prove root cause.
+
+
+## Mitigation matrix validation (manual/local)
+A manual mitigation matrix runner is available at `scripts/run_mitigation_matrix.py`.
+
+It compares paired baseline/degraded and targeted-mitigated demo runs, then checks whether expected evidence movement occurs for the bottleneck family under test (for example queue share drops, service/stage share drops, or blocking-queue-depth drops when available) while p95 generally improves in scenarios designed for improvement.
+
+Interpretation guardrails:
+- score changes are not treated as absolute severity across reports
+- movement checks are scenario-specific and rely on concrete evidence movement, not score drop alone
+- results are controlled-demo, machine/workload scoped, manual/local validation
+- this does not prove root cause
