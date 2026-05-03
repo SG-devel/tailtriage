@@ -16,3 +16,6 @@
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
 Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation.
+
+
+| Repeated-run diagnostic matrix | Manual repeated-run validation available; publishable results not committed by default. |

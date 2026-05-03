@@ -46,4 +46,22 @@ The corpus includes insufficient-evidence scenarios to validate conservative fal
 Schema supports `must_include_next_checks`, but the current initial corpus has no non-empty next-check requirements, so next-check substrings are not currently part of the deterministic gate.
 
 ## Future work
-Repeated-run validation, mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+Mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+
+## Repeated-run diagnostic matrix (manual/local)
+Use `scripts/run_diagnostic_matrix.py` to run controlled demo scenarios repeatedly, analyze each run, and summarize stability metrics.
+
+This repeated-run matrix complements deterministic fixture validation:
+- deterministic fixture validation checks bounded behavior on committed fixtures;
+- repeated-run matrix validation checks repeated-run stability on controlled demo workloads.
+
+Key repeated-run metrics:
+- **Top-1**: primary suspect matches scenario ground truth.
+- **Top-2**: expected causes remain visible in primary + first secondary suspects.
+- **High-confidence-wrong**: high/very-high confidence primary suspect is outside acceptable primary kinds.
+- **Primary stability**: most-common primary suspect frequency within a scenario.
+- **Confidence bucket accuracy**: top-1 accuracy within each confidence bucket.
+- **p95 IQR**: interquartile range of repeated p95 latency values (variance summary only, not a gate yet).
+
+Repeated-run validation is manual/local in the current phase (not mandatory CI). Results are workload- and machine-scoped and support triage quality inspection under bounded controlled Tokio workloads; they are not root-cause proof.
+

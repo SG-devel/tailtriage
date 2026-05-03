@@ -37,3 +37,11 @@ The corpus now includes deterministic adversarial validation that checks sparse,
 - user-facing methodology: `docs/diagnostic-validation.md`
 
 Demos teach scenarios; validation measures bounded diagnostic behavior.
+
+
+## Repeated-run matrix validation (manual/local)
+- `scripts/run_diagnostic_matrix.py` runs repeated controlled demo scenarios and summarizes repeated-run diagnostic stability.
+- It reports top-1 accuracy, top-2 recall, high-confidence-wrong count, confidence-bucket accuracy, primary-suspect stability, and p95/p99 median+IQR+range.
+- This is manual/local in the current phase, not mandatory CI.
+- Results are machine/workload scoped and validate stability for controlled demo workloads, not production universality.
+- As with all tool output, this is triage guidance and not root-cause proof.

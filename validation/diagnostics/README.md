@@ -55,3 +55,9 @@ python3 scripts/diagnostic_benchmark.py \
   --min-top2 0.90 \
   --max-high-confidence-wrong 0
 ```
+
+
+## Validation tracks
+- Deterministic corpus benchmark: committed fixtures and deterministic pass/fail semantics.
+- Synthetic adversarial corpus: deterministic humility and warning behavior checks under sparse/missing/truncated/mixed evidence.
+- Repeated-run runner: manual/local repeated controlled demo runs to measure stability metrics across runs.
