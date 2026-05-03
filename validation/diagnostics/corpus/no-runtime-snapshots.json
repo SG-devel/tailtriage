@@ -1,0 +1,25 @@
+{
+  "warnings": [
+    "Runtime snapshots missing: executor and blocking separation is limited."
+  ],
+  "primary_suspect": {
+    "kind": "executor_pressure_suspected",
+    "confidence": "medium",
+    "evidence": [
+      "Request queueing aligns with executor pressure, but runtime snapshots are absent."
+    ],
+    "next_checks": [
+      "Enable runtime sampling snapshots.",
+      "Compare runtime queue depth and blocking queue depth in the same window."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "confidence": "medium",
+      "evidence": [
+        "Without runtime snapshots, blocking pool pressure cannot be ruled out."
+      ]
+    }
+  ]
+}

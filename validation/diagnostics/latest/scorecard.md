@@ -1,15 +1,18 @@
-# Diagnostic validation scorecard (initial)
+# Diagnostic validation scorecard (deterministic + adversarial)
 
 | Area | Status | Notes |
 |---|---|---|
-| queue saturation | Initial deterministic evidence | queue before/sample + mixed/cold-start/db-pool support. |
-| downstream dominance | Initial deterministic evidence | downstream before/after/sample + retry/shared-lock scenarios. |
+| queue saturation | Initial deterministic + adversarial coverage | includes no-stage-events and low-request humility checks. |
+| downstream dominance | Initial deterministic + adversarial coverage | includes no-queue-events and weak-blocking-vs-strong-downstream checks. |
 | db/pool wait | Partially validated | covered via db-pool scenario labels; broaden with non-demo corpora later. |
-| blocking-pool pressure | Initial deterministic evidence | blocking before/sample coverage included. |
-| executor pressure | Initial deterministic evidence | executor before/sample plus mixed coverage. |
-| mixed bottlenecks | Partially validated | mixed baseline + synthetic ambiguity case. |
-| insufficient evidence | Initial deterministic evidence | dedicated synthetic insufficient-evidence case. |
-| truncation handling | Partially validated | synthetic truncation warning case; add real truncated captures later. |
+| blocking-pool pressure | Initial deterministic + adversarial coverage | includes blocking-correlated-stage and partial-runtime-field checks. |
+| executor pressure | Initial deterministic + adversarial coverage | includes no-runtime-snapshots ambiguity checks. |
+| mixed bottlenecks | Initial deterministic adversarial coverage | explicit top-2 checks for mixed and misleading-signal fixtures. |
+| insufficient evidence | Initial deterministic adversarial coverage | low-request-count, noise-only, and high-latency-missing-instrumentation cases enforce low-confidence fallback. |
+| truncation handling | Initial deterministic adversarial coverage | truncated-artifact adversarial case enforces warning + confidence ceiling. |
+| missing instrumentation warnings | Initial deterministic adversarial coverage | queue/stage/runtime missing and optional-runtime-field warnings are explicitly checked. |
 | runtime overhead | Measured separately | see `docs/runtime-cost.md`. |
 | collector limits | Measured separately | see `docs/collector-limits.md`. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
+
+Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation.

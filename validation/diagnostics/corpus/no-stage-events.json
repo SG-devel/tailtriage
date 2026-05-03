@@ -1,0 +1,26 @@
+{
+  "warnings": [
+    "Stage instrumentation missing: downstream stage dominance cannot be excluded."
+  ],
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "confidence": "medium",
+    "evidence": [
+      "Queue wait dominates captured request time.",
+      "No stage latency events were captured."
+    ],
+    "next_checks": [
+      "Enable stage instrumentation around major awaits.",
+      "Re-run to compare queue and stage contributions."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "confidence": "low",
+      "evidence": [
+        "Missing stage data keeps downstream dominance plausible."
+      ]
+    }
+  ]
+}
