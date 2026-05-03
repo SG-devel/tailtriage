@@ -16,6 +16,12 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
     def test_manifest_validation_errors(self):
         with self.assertRaises(ValueError):
             db.validate_manifest({"cases": [{"id": "x"}]})
+        with self.assertRaisesRegex(ValueError, "non-empty string"):
+            db.validate_manifest({"schema_version": 1, "cases": [{"id": "", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": [], "expected_warnings": [], "allowed_warnings": [], "top1_required": False, "notes": "n"}]})
+        with self.assertRaisesRegex(ValueError, "wildcard"):
+            db.validate_manifest({"schema_version": 1, "cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [], "must_include_evidence": [], "expected_warnings": ["*"], "allowed_warnings": [], "top1_required": False, "notes": "n"}]})
+        with self.assertRaisesRegex(ValueError, "tags must be a list"):
+            db.validate_manifest({"schema_version": 1, "cases": [{"id": "x", "artifact": "a.json", "artifact_type": "analysis_report", "ground_truth": "application_queue_saturation", "acceptable_top2": ["application_queue_saturation"], "tags": [""], "must_include_evidence": [], "expected_warnings": [], "allowed_warnings": [], "top1_required": False, "notes": "n"}]})
 
     def test_duplicate_ids_and_unknown_ground_truth(self):
         base = {
@@ -129,6 +135,14 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
 
             self._write(root, "bad.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "low", "score": 1, "evidence": ["x"]}, "secondary_suspects": [], "warnings": [1]})
             with self.assertRaisesRegex(ValueError, "warnings"):
+                db.run(str(mpath), 0.0, 0.0, 0)
+
+            self._write(root, "bad.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "low", "score": 1, "evidence": ["x"]}, "secondary_suspects": [{"kind": "not_real"}], "warnings": []})
+            with self.assertRaisesRegex(ValueError, "secondary_suspects.kind"):
+                db.run(str(mpath), 0.0, 0.0, 0)
+
+            self._write(root, "bad.json", {"primary_suspect": {"kind": "application_queue_saturation", "confidence": "low", "score": 1, "evidence": ["x"]}, "secondary_suspects": [{"evidence": [1]}], "warnings": []})
+            with self.assertRaisesRegex(ValueError, "secondary_suspects.evidence"):
                 db.run(str(mpath), 0.0, 0.0, 0)
 
     def test_run_works_with_absolute_manifest_path_from_different_cwd(self):

@@ -30,16 +30,38 @@ def validate_manifest(manifest):
             if field not in case:
                 raise ValueError(f"case missing required field: {field}")
         cid = case["id"]
+        if not isinstance(cid, str) or not cid.strip():
+            raise ValueError("case id must be a non-empty string")
         if cid in seen:
             raise ValueError(f"duplicate case id: {cid}")
         seen.add(cid)
+        if not isinstance(case["artifact"], str) or not case["artifact"].strip():
+            raise ValueError(f"artifact must be a non-empty string for {cid}")
         if case["artifact_type"] not in {"analysis_report", "synthetic_analysis_report"}:
             raise ValueError(f"unsupported artifact_type for {cid}: {case['artifact_type']}")
         gt = case["ground_truth"]
         if gt not in ALLOWED_GROUND_TRUTH:
             raise ValueError(f"unknown ground_truth for {cid}: {gt}")
+        if not isinstance(case["acceptable_top2"], list) or not case["acceptable_top2"]:
+            raise ValueError(f"acceptable_top2 must be a non-empty list for {cid}")
+        if any(kind not in ALLOWED_GROUND_TRUTH for kind in case["acceptable_top2"]):
+            raise ValueError(f"acceptable_top2 contains unknown diagnosis kind for {cid}")
         if gt not in case["acceptable_top2"]:
             raise ValueError(f"acceptable_top2 must include ground_truth for {cid}")
+        if not isinstance(case["tags"], list) or any((not isinstance(t, str) or not t.strip()) for t in case["tags"]):
+            raise ValueError(f"tags must be a list of non-empty strings for {cid}")
+        if not isinstance(case["must_include_evidence"], list) or any(not isinstance(e, str) for e in case["must_include_evidence"]):
+            raise ValueError(f"must_include_evidence must be a list of strings for {cid}")
+        if not isinstance(case["expected_warnings"], list) or any(not isinstance(w, str) for w in case["expected_warnings"]):
+            raise ValueError(f"expected_warnings must be a list of strings for {cid}")
+        if not isinstance(case["allowed_warnings"], list) or any(not isinstance(w, str) for w in case["allowed_warnings"]):
+            raise ValueError(f"allowed_warnings must be a list of strings for {cid}")
+        if "*" in case["expected_warnings"] or "*" in case["allowed_warnings"]:
+            raise ValueError(f"wildcard '*' is not allowed in warnings lists for {cid}")
+        if not isinstance(case["top1_required"], bool):
+            raise ValueError(f"top1_required must be a bool for {cid}")
+        if not isinstance(case["notes"], str) or not case["notes"].strip():
+            raise ValueError(f"notes must be a non-empty string for {cid}")
 
 
 def extract(report):
@@ -67,6 +89,16 @@ def extract(report):
         raise ValueError("report.primary_suspect.evidence must be a list of strings")
     if not all(isinstance(s, dict) for s in secondary):
         raise ValueError("report.secondary_suspects must be a list of objects")
+    for s in secondary:
+        if "kind" in s and s["kind"] not in ALLOWED_GROUND_TRUTH:
+            raise ValueError("report.secondary_suspects.kind must be an allowed diagnosis kind when present")
+        if "confidence" in s:
+            if not isinstance(s["confidence"], str) or s["confidence"] not in {"low", "medium", "high", "very_high"}:
+                raise ValueError("report.secondary_suspects.confidence must be one of low/medium/high/very_high when present")
+        if "score" in s and not isinstance(s["score"], (int, float)):
+            raise ValueError("report.secondary_suspects.score must be numeric when present")
+        if "evidence" in s and (not isinstance(s["evidence"], list) or not all(isinstance(e, str) for e in s["evidence"])):
+            raise ValueError("report.secondary_suspects.evidence must be a list of strings when present")
     if not all(isinstance(w, str) for w in report["warnings"]):
         raise ValueError("report.warnings must be a list of strings")
     all_suspects = [primary] + secondary
