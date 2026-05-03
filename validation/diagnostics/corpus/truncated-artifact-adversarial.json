@@ -1,0 +1,26 @@
+{
+  "warnings": [
+    "Artifact appears truncated; records may be dropped or partial."
+  ],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Downstream stage parse_order dominates observed tail in captured records.",
+      "Truncation warning indicates partial data for this capture."
+    ],
+    "next_checks": [
+      "Rerun with larger collector limits.",
+      "Check collector drop counters for dropped records."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "confidence": "low",
+      "evidence": [
+        "Weak blocking hints appear but truncated data limits confidence."
+      ]
+    }
+  ]
+}
