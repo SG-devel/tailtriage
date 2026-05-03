@@ -707,6 +707,329 @@
         "downstream_stage_dominates"
       ],
       "must_include_next_checks": []
+    },
+    {
+      "id": "adversarial-low-request-count",
+      "artifact": "corpus/low-request-count.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "sparse-sample"
+      ],
+      "must_include_evidence": [
+        "too few",
+        "stable p95/p99"
+      ],
+      "must_include_next_checks": [
+        "enough requests",
+        "Enable queue and stage instrumentation"
+      ],
+      "expected_warnings": [
+        "Low request count"
+      ],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "max_primary_confidence": "low",
+      "notes": "Synthetic adversarial sparse-sample fixture validating humility when request count is too low for stable tail estimates."
+    },
+    {
+      "id": "adversarial-no-queue-events",
+      "artifact": "corpus/no-queue-events.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "missing-queue"
+      ],
+      "must_include_evidence": [
+        "downstream stage",
+        "No queue events"
+      ],
+      "must_include_next_checks": [
+        "Enable queue wait/depth instrumentation"
+      ],
+      "expected_warnings": [
+        "Queue instrumentation missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic adversarial missing-queue fixture ensuring queue saturation remains visible in top-2 and confidence stays conservative."
+    },
+    {
+      "id": "adversarial-no-stage-events",
+      "artifact": "corpus/no-stage-events.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "missing-stage"
+      ],
+      "must_include_evidence": [
+        "Queue wait dominates",
+        "No stage events"
+      ],
+      "must_include_next_checks": [
+        "Enable stage instrumentation"
+      ],
+      "expected_warnings": [
+        "Stage instrumentation missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic adversarial missing-stage fixture ensuring downstream remains visible when stage timing is absent."
+    },
+    {
+      "id": "adversarial-no-runtime-snapshots",
+      "artifact": "corpus/no-runtime-snapshots.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "missing-runtime"
+      ],
+      "must_include_evidence": [
+        "Runtime snapshots are missing"
+      ],
+      "must_include_next_checks": [
+        "Enable runtime sampling"
+      ],
+      "expected_warnings": [
+        "Runtime snapshots missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "executor_pressure_suspected",
+        "blocking_pool_pressure"
+      ],
+      "acceptable_primary": [
+        "executor_pressure_suspected",
+        "blocking_pool_pressure"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic adversarial runtime-missing fixture validating conservative runtime-family separation and top-2 ambiguity visibility."
+    },
+    {
+      "id": "adversarial-missing-optional-runtime-fields",
+      "artifact": "corpus/missing-optional-runtime-fields.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "partial-runtime"
+      ],
+      "must_include_evidence": [
+        "optional runtime fields",
+        "Partial runtime fields"
+      ],
+      "must_include_next_checks": [
+        "tokio_unstable",
+        "tokio-console/tokio-metrics"
+      ],
+      "expected_warnings": [
+        "Optional runtime fields missing"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "blocking_pool_pressure",
+        "executor_pressure_suspected"
+      ],
+      "acceptable_primary": [
+        "blocking_pool_pressure",
+        "executor_pressure_suspected"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic adversarial partial-runtime fixture for stable/config-limited snapshots where optional runtime fields are unavailable."
+    },
+    {
+      "id": "adversarial-truncated-artifact",
+      "artifact": "corpus/truncated-artifact-adversarial.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "truncation",
+        "partial-artifact"
+      ],
+      "must_include_evidence": [
+        "Artifact truncation",
+        "partial data"
+      ],
+      "must_include_next_checks": [
+        "larger collector limits",
+        "dropped-record counters"
+      ],
+      "expected_warnings": [
+        "truncated"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "max_primary_confidence": "medium",
+      "notes": "Synthetic adversarial truncation fixture enforcing warning correctness and confidence downgrading under partial artifacts."
+    },
+    {
+      "id": "adversarial-weak-blocking-strong-downstream",
+      "artifact": "corpus/weak-blocking-strong-downstream.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "mixed",
+        "blocking",
+        "downstream"
+      ],
+      "must_include_evidence": [
+        "downstream stage contributes most",
+        "weak"
+      ],
+      "must_include_next_checks": [
+        "downstream dependency latency"
+      ],
+      "expected_warnings": [],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "downstream_stage_dominates",
+        "blocking_pool_pressure"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "notes": "Synthetic adversarial mixed-signal fixture validating that weak blocking hints do not override strong downstream dominance evidence."
+    },
+    {
+      "id": "adversarial-blocking-correlated-stage",
+      "artifact": "corpus/blocking-correlated-stage.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "mixed",
+        "blocking-correlated-stage"
+      ],
+      "must_include_evidence": [
+        "Blocking queue depth",
+        "correlated with blocking"
+      ],
+      "must_include_next_checks": [
+        "spawn_blocking",
+        "blocking callsites"
+      ],
+      "expected_warnings": [],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "blocking_pool_pressure",
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "blocking_pool_pressure"
+      ],
+      "notes": "Synthetic adversarial mixed-signal fixture validating blocking_pool_pressure as top-1 when stage latency is blocking-correlated."
+    },
+    {
+      "id": "adversarial-noise-only-workload",
+      "artifact": "corpus/noise-only-workload.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "noise"
+      ],
+      "must_include_evidence": [
+        "No single bottleneck family",
+        "weak and mixed"
+      ],
+      "must_include_next_checks": [
+        "controlled workload",
+        "focused queue, stage, and runtime instrumentation"
+      ],
+      "expected_warnings": [
+        "No dominant signal"
+      ],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "max_primary_confidence": "low",
+      "notes": "Synthetic adversarial noise fixture validating conservative insufficient-evidence fallback under mixed low-signal workloads."
+    },
+    {
+      "id": "adversarial-high-latency-missing-instrumentation",
+      "artifact": "corpus/high-latency-missing-instrumentation.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "synthetic",
+        "adversarial",
+        "high-latency",
+        "missing-instrumentation"
+      ],
+      "must_include_evidence": [
+        "Tail latency is high",
+        "cannot support a specific bottleneck"
+      ],
+      "must_include_next_checks": [
+        "Enable queue wait/depth instrumentation",
+        "Enable stage timing",
+        "Enable runtime sampling"
+      ],
+      "expected_warnings": [
+        "High latency observed with missing queue/stage/runtime instrumentation"
+      ],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "max_primary_confidence": "low",
+      "notes": "Synthetic adversarial high-latency fixture ensuring missing explanatory instrumentation leads to low-confidence insufficient-evidence output."
     }
   ],
   "schema_version": 1

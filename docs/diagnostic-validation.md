@@ -39,3 +39,10 @@ Schema supports `must_include_next_checks`, but the current initial corpus has n
 
 ## Future work
 Repeated-run validation, mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+
+
+## Negative and adversarial validation
+The corpus includes deterministic synthetic adversarial cases for sparse samples, missing queue/stage/runtime signals, truncation, and mixed signals. These cases validate that triage output stays conservative when explanatory evidence is incomplete.
+
+## Confidence ceilings and humility checks
+Case-level `max_primary_confidence` ceilings enforce humility for sparse, missing, truncated, noisy, or mixed evidence. High latency alone should not produce a high-confidence specific suspect when instrumentation is missing.

@@ -1,0 +1,23 @@
+{
+  "warnings": [
+    "Low request count; tail percentiles may be unstable"
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "Only 18 completed requests were observed, which is too few for stable p95/p99 tail estimates"
+    ],
+    "next_checks": [
+      "Re-run with enough requests to stabilize tail percentiles",
+      "Enable queue and stage instrumentation during the rerun"
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "confidence": "low",
+      "evidence": ["Sparse sample hints at downstream wait but evidence is weak"]
+    }
+  ]
+}
