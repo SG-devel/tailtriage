@@ -2,6 +2,8 @@
 
 The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic and reviewable artifacts, not universal causality proof.
 
+The demos are educational scenario artifacts. They teach triage situations, while validation corpus benchmarking measures diagnostic quality separately.
+
 ## Brief introduction
 
 Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
