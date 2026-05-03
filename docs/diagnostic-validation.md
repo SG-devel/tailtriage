@@ -28,6 +28,12 @@ The scorecard includes confidence-bucket accuracy summaries (low/medium/high buc
 - `expected_warnings` substrings are required.
 - observed warnings are allowed only if they match `expected_warnings` or `allowed_warnings`.
 
+## Negative/adversarial validation
+The corpus includes deterministic synthetic adversarial cases for sparse samples, missing instrumentation, truncated artifacts, and mixed-signal ambiguity. These cases validate conservative triage behavior when evidence is partial or misleading.
+
+## Confidence ceilings (humility checks)
+Cases may set `max_primary_confidence` to cap allowed primary confidence (`low` to `very_high`). This checks humility semantics: sparse, missing, truncated, noisy, or ambiguous evidence should not produce overconfident specific suspects.
+
 ## Insufficient-evidence validation
 The corpus includes insufficient-evidence scenarios to validate conservative fallback behavior and warning handling when signal is limited.
 

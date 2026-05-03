@@ -17,6 +17,7 @@ Demos teach; validation measures.
 - `top1_required`: when `true`, primary kind must equal `ground_truth`.
 - `must_include_evidence`: evidence substrings that must appear in primary or secondary evidence.
 - `must_include_next_checks`: next-check substrings that must appear when required by a case. Schema-supported; current initial corpus has no required next-check cases.
+- `max_primary_confidence`: optional per-case confidence ceiling (`low|medium|high|very_high`). If set, primary confidence must be less than or equal to this ceiling.
 - `expected_warnings`: warning substrings that must appear.
 - `allowed_warnings`: warning substrings that may appear in addition to expected warnings.
 - `notes`: workload-intent note explaining why labels are set.
@@ -29,7 +30,10 @@ Demos teach; validation measures.
   - `required_top2` = required visibility of true causes.
   - `acceptable_primary` = tolerated primary classification for ambiguity handling/high-confidence-wrong interpretation.
 - Do not use wildcard warning allowlists (`"*"` is invalid).
+- `expected_warnings` are required; `allowed_warnings` are tolerated extras only.
+- Use `max_primary_confidence` for humility checks in sparse, missing-instrumentation, truncated-artifact, noise-only, or close mixed-signal cases.
 - Keep synthetic fixtures small, hand-readable, and explicitly scoped to gaps.
+- Synthetic fixtures are report-shaped adversarial validation artifacts; they are not substitutes for analyzer-generated capture truth.
 
 ## Running the benchmark
 

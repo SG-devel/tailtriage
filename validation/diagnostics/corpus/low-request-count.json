@@ -1,0 +1,17 @@
+{
+  "warnings": [
+    "Low request count; tail estimates are unstable."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "Only 18 requests were observed, which is too few for stable p95/p99 dominance estimates."
+    ],
+    "next_checks": [
+      "Re-run with enough requests to stabilize tail percentiles.",
+      "Enable queue and stage instrumentation during the rerun."
+    ]
+  },
+  "secondary_suspects": []
+}

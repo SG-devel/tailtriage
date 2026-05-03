@@ -1,0 +1,28 @@
+{
+  "warnings": [
+    "Runtime snapshots are missing; executor/blocking separation may be weak."
+  ],
+  "primary_suspect": {
+    "kind": "executor_pressure_suspected",
+    "confidence": "medium",
+    "evidence": [
+      "In-flight and latency growth suggest runtime contention.",
+      "Runtime snapshot data is missing, limiting executor versus blocking separation."
+    ],
+    "next_checks": [
+      "Enable runtime sampling and compare global queue and blocking metrics."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "confidence": "medium",
+      "evidence": [
+        "Without runtime snapshots, blocking-pool pressure remains plausible."
+      ],
+      "next_checks": [
+        "Collect blocking queue depth snapshots in the same capture window."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "warnings": [
+    "No dominant signal: workload appears noisy with mixed low-strength indicators."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "No suspect family has coherent dominant evidence across queue, stage, or runtime signals."
+    ],
+    "next_checks": [
+      "Re-run a controlled workload with focused instrumentation."
+    ]
+  },
+  "secondary_suspects": []
+}

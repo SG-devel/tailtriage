@@ -1,0 +1,17 @@
+{
+  "warnings": [
+    "High latency observed but explanatory instrumentation is missing.",
+    "Queue, stage, and runtime instrumentation are incomplete for classification."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "p99 latency is high, but missing queue/stage/runtime evidence prevents a supported bottleneck classification."
+    ],
+    "next_checks": [
+      "Enable queue, stage, and runtime instrumentation before assigning a bottleneck family."
+    ]
+  },
+  "secondary_suspects": []
+}

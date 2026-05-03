@@ -1,0 +1,28 @@
+{
+  "warnings": [
+    "Queue instrumentation is missing or sparse; queue saturation cannot be excluded."
+  ],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Stage checkout latency dominates the observed tail.",
+      "Queue evidence is missing, so queue saturation cannot be excluded."
+    ],
+    "next_checks": [
+      "Enable queue wait/depth instrumentation and re-run."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "confidence": "low",
+      "evidence": [
+        "Missing queue events leave a plausible queue bottleneck unresolved."
+      ],
+      "next_checks": [
+        "Capture queue wait and queue depth around admission."
+      ]
+    }
+  ]
+}

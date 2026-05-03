@@ -12,6 +12,7 @@ ALLOWED_GROUND_TRUTH = {
     "insufficient_evidence",
 }
 CONF_HIGH = {"high", "very_high"}
+CONF_ORDER = {"low": 0, "medium": 1, "high": 2, "very_high": 3}
 
 
 def load_json(path):
@@ -70,6 +71,12 @@ def validate_manifest(manifest):
             raise ValueError(f"top1_required must be a bool for {cid}")
         if not isinstance(case["notes"], str) or not case["notes"].strip():
             raise ValueError(f"notes must be a non-empty string for {cid}")
+        if "max_primary_confidence" in case:
+            ceiling = case["max_primary_confidence"]
+            if not isinstance(ceiling, str):
+                raise ValueError(f"max_primary_confidence must be a string for {cid}")
+            if ceiling not in CONF_ORDER:
+                raise ValueError(f"max_primary_confidence must be one of low/medium/high/very_high for {cid}")
 
 
 def confidence_bucket(conf):
@@ -154,6 +161,8 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
     next_check_required_cases = 0
     next_check_passed_cases = 0
     next_check_presence_cases = 0
+    confidence_ceiling_cases = 0
+    confidence_ceiling_passed_cases = 0
 
     for case in manifest["cases"]:
         report = load_json(root / case["artifact"])
@@ -173,6 +182,13 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
             conf_buckets[bucket]["correct"] += 1
         if ext["primary_confidence"] in CONF_HIGH and ext["top1"] not in case["acceptable_primary"]:
             high_conf_wrong += 1
+        confidence_ceiling_ok = True
+        max_primary_confidence = case.get("max_primary_confidence")
+        if max_primary_confidence is not None:
+            confidence_ceiling_cases += 1
+            confidence_ceiling_ok = CONF_ORDER[ext["primary_confidence"]] <= CONF_ORDER[max_primary_confidence]
+            if confidence_ceiling_ok:
+                confidence_ceiling_passed_cases += 1
 
         ev_ok = all(any(req.lower() in ev.lower() for ev in ext["evidence"]) for req in case["must_include_evidence"])
         evidence_pass += 1 if ev_ok else 0
@@ -192,8 +208,8 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         unexpected_warning_count += len(unexpected)
         missing_expected_warning_count += len(missing_expected)
 
-        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (not next_check_ok) or bool(unexpected) or bool(missing_expected)
-        row = {"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected}
+        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (not next_check_ok) or (not confidence_ceiling_ok) or bool(unexpected) or bool(missing_expected)
+        row = {"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "confidence_ceiling_ok": confidence_ceiling_ok, "max_primary_confidence": max_primary_confidence, "primary_confidence": ext["primary_confidence"], "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected}
         results.append(row)
         if case_failed:
             failed_cases.append({**row, "top1_required": case["top1_required"]})
@@ -215,6 +231,9 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         "next_check_passed_cases": next_check_passed_cases,
         "next_check_presence_rate": (next_check_presence_cases / total) if total else 0.0,
         "next_check_pass_rate": (next_check_passed_cases / next_check_required_cases) if next_check_required_cases else None,
+        "confidence_ceiling_cases": confidence_ceiling_cases,
+        "confidence_ceiling_passed_cases": confidence_ceiling_passed_cases,
+        "confidence_ceiling_pass_rate": (confidence_ceiling_passed_cases / confidence_ceiling_cases) if confidence_ceiling_cases else None,
         "unexpected_warning_count": unexpected_warning_count,
         "missing_expected_warning_count": missing_expected_warning_count,
         "failed_cases": failed_cases,
@@ -262,6 +281,11 @@ def main():
     print(f"next_check_required_cases={metrics['next_check_required_cases']}")
     print(f"next_check_pass_rate={next_check_pass_rate_text}")
     print(f"next_check_presence_rate={metrics['next_check_presence_rate']:.3f}")
+    confidence_ceiling_pass_rate = metrics["confidence_ceiling_pass_rate"]
+    confidence_ceiling_pass_rate_text = "n/a" if confidence_ceiling_pass_rate is None else f"{confidence_ceiling_pass_rate:.3f}"
+    print(f"confidence_ceiling_cases={metrics['confidence_ceiling_cases']}")
+    print(f"confidence_ceiling_passed_cases={metrics['confidence_ceiling_passed_cases']}")
+    print(f"confidence_ceiling_pass_rate={confidence_ceiling_pass_rate_text}")
     print(f"failed_case_count={len(metrics['failed_cases'])}")
 
     if failures:

@@ -1,0 +1,23 @@
+{
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "high",
+    "evidence": [
+      "Downstream stage payment_api contributes most p95 tail time.",
+      "Blocking queue depth spikes are weak and intermittent."
+    ],
+    "next_checks": [
+      "Inspect downstream dependency latency and retry behavior first."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "confidence": "low",
+      "evidence": [
+        "Blocking queue depth signal is weak relative to downstream tail contribution."
+      ]
+    }
+  ]
+}

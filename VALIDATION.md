@@ -6,14 +6,16 @@
 ## What this PR establishes
 This PR introduces an initial deterministic validation corpus for controlled Tokio workload fixtures. The corpus and benchmark validate bounded diagnostic behavior on committed fixtures, not universal production behavior.
 
-## Initial deterministic checks
+## Deterministic checks
 The deterministic benchmark validates:
 - evidence-ranked suspect correctness against corpus labels
 - required top-2 visibility (`required_top2` appears in primary or first secondary)
 - warning expectations (`expected_warnings` required; unexpected warnings rejected unless explicitly allowed)
 - required evidence substrings
+- required next-check substrings where configured
+- case-level confidence ceilings (`max_primary_confidence`) for humility checks in sparse/missing/truncated/mixed adversarial cases
 
-Next-check substring validation is schema-supported in the manifest (`must_include_next_checks`) but is not currently gated by the initial corpus because no current case requires next checks.
+Tailtriage validation now checks that sparse, missing, truncated, or mixed evidence is warned about and does not produce overconfident unsupported classifications.
 
 ## What this does **not** validate
 - root-cause proof from one run

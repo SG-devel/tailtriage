@@ -1,0 +1,26 @@
+{
+  "warnings": [
+    "Artifact is truncated or partial; dropped records may hide competing signals."
+  ],
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Stage cache_fill appears dominant in captured tail.",
+      "Capture truncation means the observed ranking is based on partial data."
+    ],
+    "next_checks": [
+      "Re-run with larger capture limits.",
+      "Check collector drop counters for dropped records."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "confidence": "low",
+      "evidence": [
+        "Blocking hints are present but partial data limits ranking certainty."
+      ]
+    }
+  ]
+}
