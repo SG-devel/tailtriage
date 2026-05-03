@@ -148,7 +148,7 @@
       "must_include_evidence": [
         "Runtime global queue depth"
       ],
-      "notes": "Post-mitigation executor pressure reduces, downstream dominates.",
+      "notes": "Post-mitigation executor pressure reduces, but executor remains the expected true cause in this fixture; downstream may appear as an acceptable alternate primary.",
       "expected_warnings": [],
       "top1_required": false,
       "allowed_warnings": [],
@@ -156,8 +156,8 @@
         "executor_pressure_suspected"
       ],
       "acceptable_primary": [
-        "downstream_stage_dominates",
-        "executor_pressure_suspected"
+        "executor_pressure_suspected",
+        "downstream_stage_dominates"
       ],
       "must_include_next_checks": []
     },
