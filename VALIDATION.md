@@ -7,7 +7,7 @@
 Validation is machine-scoped and workload-scoped. Results apply to documented fixtures and corpus cases, not all production environments.
 
 ## Claims validated
-Under controlled and documented Tokio service workloads, `tailtriage` reliably classifies the dominant bottleneck family, avoids high-confidence claims when evidence is weak or mixed, exposes truncation/partial-data limits, and provides useful next checks.
+This is an initial deterministic validation corpus for controlled Tokio workload fixtures. It checks whether evidence-ranked suspects and warnings are consistent with workload intent and expected next checks.
 
 ## Claims not validated
 - Universal production overhead
@@ -37,7 +37,7 @@ Collector-limit behavior is measured separately via `docs/collector-limits.md` a
 Use committed fixtures and run the benchmark locally/CI with explicit thresholds.
 
 ## CI coverage
-Validation harness tests: `python3 -m unittest scripts.tests.test_diagnostic_benchmark`.
+Validation benchmark is currently a local/manual deterministic gate; benchmark unit tests run in CI via `python3 -m unittest scripts.tests.test_diagnostic_benchmark`.
 
 ## Known limitations
 - Deterministic cases do not yet capture repeated-run variance.

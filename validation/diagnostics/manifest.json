@@ -19,7 +19,8 @@
       ],
       "notes": "Queue scenario before mitigation is queue-dominant.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "queue_after",
@@ -40,7 +41,8 @@
       ],
       "notes": "After mitigation, queue contribution drops and work stage dominates.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "blocking_before",
@@ -63,7 +65,8 @@
         "Runtime snapshots are missing",
         "Top suspects are close in score"
       ],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "blocking_after",
@@ -84,10 +87,12 @@
       ],
       "notes": "After blocking mitigation, downstream work can dominate residual tail.",
       "expected_warnings": [
-        "Runtime snapshots are missing",
-        "Top suspects are close in score"
+        "Runtime snapshots are missing"
       ],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": [
+        "Top suspects are close in score"
+      ]
     },
     {
       "id": "executor_before",
@@ -107,7 +112,8 @@
       ],
       "notes": "Executor-pressure demo before mitigation should prioritize executor suspect.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "executor_after",
@@ -128,7 +134,8 @@
       ],
       "notes": "Post-mitigation executor pressure reduces, downstream dominates.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "downstream_before",
@@ -148,7 +155,8 @@
       ],
       "notes": "Downstream slowdown scenario should identify downstream stage dominance.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "downstream_after",
@@ -168,7 +176,8 @@
       ],
       "notes": "After improvements downstream may still be top but with reduced severity.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "mixed_baseline",
@@ -189,7 +198,8 @@
       ],
       "notes": "Mixed baseline intentionally keeps queue and executor signals close.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "mixed_mitigated",
@@ -210,7 +220,8 @@
       ],
       "notes": "Mitigated mixed case reduces contention so downstream work often leads.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "cold_start_before",
@@ -231,7 +242,8 @@
       ],
       "notes": "Cold-start burst before mitigation shows admission queue pressure.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "cold_start_after",
@@ -252,7 +264,8 @@
       ],
       "notes": "After warmup mitigation queue pressure drops and stage work dominates.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "db_pool_before",
@@ -273,7 +286,8 @@
       ],
       "notes": "Before pool tuning queueing from limited DB pool appears strongly.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "db_pool_after",
@@ -294,7 +308,8 @@
       ],
       "notes": "After queue improvement, dependency stage often dominates residual tails.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "shared_lock_before",
@@ -315,7 +330,8 @@
       ],
       "notes": "Shared lock contention manifests through stage latency dominance.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "shared_lock_after",
@@ -335,7 +351,8 @@
       ],
       "notes": "After mitigation remaining time is still mostly stage work.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "retry_before",
@@ -356,7 +373,8 @@
       ],
       "notes": "Retry storm amplifies downstream latency contribution.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "retry_after",
@@ -376,7 +394,8 @@
       ],
       "notes": "After retry tuning downstream remains dominant but improved.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "queue_sample",
@@ -396,7 +415,8 @@
       ],
       "notes": "Queue sample is canonical queue saturation evidence.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "blocking_sample",
@@ -419,7 +439,8 @@
         "Runtime snapshots are missing",
         "Top suspects are close in score"
       ],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "executor_sample",
@@ -439,7 +460,8 @@
       ],
       "notes": "Executor sample has clear runtime queue pressure cues.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "downstream_sample",
@@ -459,7 +481,8 @@
       ],
       "notes": "Downstream sample has clear stage dominance cues.",
       "expected_warnings": [],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_insufficient",
@@ -481,7 +504,8 @@
         "Missing queue",
         "Missing stage"
       ],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_missing_runtime",
@@ -503,7 +527,8 @@
       "expected_warnings": [
         "Runtime signals are missing"
       ],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_missing_stage",
@@ -524,7 +549,8 @@
       "expected_warnings": [
         "Stage instrumentation is missing"
       ],
-      "top1_required": false
+      "top1_required": true,
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_truncation",
@@ -546,7 +572,8 @@
       "expected_warnings": [
         "Truncation"
       ],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_ambiguous",
@@ -568,7 +595,8 @@
       "expected_warnings": [
         "Ambiguous diagnosis"
       ],
-      "top1_required": false
+      "top1_required": false,
+      "allowed_warnings": []
     }
   ],
   "schema_version": 1

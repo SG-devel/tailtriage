@@ -7,13 +7,14 @@ Demos vs validation:
 - Validation measures diagnostic quality against labels.
 
 ## Manifest format
-`manifest.json` contains a `cases` array. Each case defines artifact path, label, acceptable top-2 set, evidence requirements, warning allowances, and rationale notes.
+`manifest.json` contains `schema_version` and a `cases` array. Each case defines artifact path, label, acceptable top-2 set, evidence requirements, expected warnings, allowed warnings, and rationale notes.
 
 ## Labeling guidance
 - `ground_truth` should be independently justified by scenario design, not by analyzer output.
 - `acceptable_top2` must include `ground_truth`; include close alternates only when scenario intentionally mixes signals.
 - `must_include_evidence` should use meaningful substrings (for example `Queue wait`, `Blocking queue depth`, `Stage`).
-- `expected_warnings` should list only expected warning substrings.
+- `expected_warnings` should list warning substrings that must appear.
+- `allowed_warnings` should list optional warning substrings that may appear without failing the case.
 
 ## Synthetic fixtures
 Add synthetic analysis reports only for gaps that committed demo fixtures do not cover (e.g., insufficient evidence, truncation, missing instrumentation warnings, weak/mixed ambiguity).

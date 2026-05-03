@@ -15,7 +15,7 @@ Current foundation is deterministic-case validation. Repeated-run validation is 
 - Top-2 recall tracks whether acceptable alternate suspects remain visible for mixed scenarios.
 
 ## High-confidence-wrong count
-Tracks cases where primary confidence is high but top-1 is wrong. This protects against overconfident misranking.
+Tracks cases where primary confidence is high/very-high and the primary suspect is not in `acceptable_top2`. This protects against overconfident misranking outside accepted alternatives.
 
 ## Confidence calibration
 Confidence is score-derived ranking strength. It is not causal certainty.
@@ -24,7 +24,7 @@ Confidence is score-derived ranking strength. It is not causal certainty.
 Corpus includes low-signal cases to ensure the analyzer can emit `insufficient_evidence` and avoid false certainty.
 
 ## Warning validation
-Cases assert expected warning substrings and fail on unexpected warnings.
+Cases require `expected_warnings` to appear and allow optional warnings only when they match `allowed_warnings`.
 
 ## Future work
 - repeated runs
