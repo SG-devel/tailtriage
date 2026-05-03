@@ -55,3 +55,8 @@ python3 scripts/diagnostic_benchmark.py \
   --min-top2 0.90 \
   --max-high-confidence-wrong 0
 ```
+
+
+## Repeated-run matrix runner
+
+Use `scripts/run_diagnostic_matrix.py` for manual repeated-run stability validation on controlled demos. This complements deterministic corpus benchmarking and synthetic adversarial fixtures.

@@ -47,3 +47,29 @@ Schema supports `must_include_next_checks`, but the current initial corpus has n
 
 ## Future work
 Repeated-run validation, mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+
+## Repeated-run diagnostic matrix (manual/local)
+
+Repeated-run validation complements deterministic fixture validation by re-running controlled demo scenarios and checking stability across runs.
+
+- deterministic fixture validation checks bounded per-fixture diagnosis behavior on committed artifacts.
+- repeated-run matrix validation checks run-to-run stability for the same controlled workload shape.
+
+Run locally:
+
+```bash
+python3 scripts/run_diagnostic_matrix.py --runs 30 --out target/diagnostic-runs.jsonl
+```
+
+Key repeated-run metrics:
+
+- **Top-1**: primary suspect equals scenario ground truth.
+- **Top-2**: required cause kind appears in primary/secondary visibility.
+- **High-confidence-wrong**: high/very-high primary outside acceptable primary set.
+- **Primary stability**: most-common primary kind frequency per scenario.
+- **Confidence bucket accuracy**: top-1 correctness by confidence bucket.
+- **p95 IQR**: interquartile spread of p95 latency across repeated runs.
+
+Repeated-run outputs are controlled-workload and machine scoped. They support triage stability inspection; they do not prove universal behavior or root cause.
+
+Repeated-run validation is currently manual/local and not mandatory CI.
