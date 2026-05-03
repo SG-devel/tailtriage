@@ -6,7 +6,7 @@
 The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
 
 ## Deterministic vs repeated-run validation
-The current gate is deterministic fixture validation. Repeated-run variance validation is future work.
+The current gate is deterministic fixture validation. Repeated-run variance validation is available as a manual/local workflow.
 
 ## Top-1 vs required top-2
 - **Top-1**: primary suspect matches `ground_truth`.
@@ -46,4 +46,23 @@ The corpus includes insufficient-evidence scenarios to validate conservative fal
 Schema supports `must_include_next_checks`, but the current initial corpus has no non-empty next-check requirements, so next-check substrings are not currently part of the deterministic gate.
 
 ## Future work
-Repeated-run validation, mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+Mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+
+## Repeated-run diagnostic matrix validation (manual)
+A manual repeated-run matrix runner is available at `scripts/run_diagnostic_matrix.py`. It repeatedly executes controlled demo scenarios, analyzes each run, and summarizes stability metrics.
+
+This complements deterministic fixture validation:
+- deterministic fixtures validate stable contract behavior on committed artifacts
+- repeated-run matrix validation measures stability across repeated controlled runs on a specific machine/workload profile
+
+Key repeated-run metrics:
+- **Top-1 stability**: fraction of runs where the primary suspect matches the scenario ground truth
+- **Top-2 visibility**: fraction of runs where required causes appear in the top-2 suspects
+- **High-confidence-wrong count**: runs where primary confidence is high/very_high but primary kind is outside acceptable primary kinds
+- **Confidence bucket accuracy**: top-1 accuracy grouped by confidence bucket
+- **Primary stability**: share of runs captured by the most frequent primary suspect kind
+- **p95 IQR**: interquartile range of p95 latency across repeated runs
+
+Repeated-run validation remains manual/local for now (not mandatory CI), and results are machine-scoped and workload-scoped. It supports triage confidence checks and reproducibility inspection for controlled Tokio workloads.
+
+Like all tool output, these results are evidence for triage and next checks; they do not prove root cause.
