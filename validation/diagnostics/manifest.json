@@ -1,0 +1,401 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "queue_before",
+      "artifact": "demos/queue_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "acceptable_top2": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "queue",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "allowed_warnings": [],
+      "notes": "Queue_service baseline has explicit queue admission contention by construction."
+    },
+    {
+      "id": "queue_after",
+      "artifact": "demos/queue_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "queue",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mitigation reduces severity but queue family remains the dominant bottleneck family. Mitigated fixture shows downstream stage dominance in committed analyzer output."
+    },
+    {
+      "id": "blocking_before",
+      "artifact": "demos/blocking_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "acceptable_top2": [
+        "blocking_pool_pressure"
+      ],
+      "tags": [
+        "blocking",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "blocking"
+      ],
+      "allowed_warnings": [
+        "Runtime snapshots are missing",
+        "Top suspects are close"
+      ],
+      "notes": "Blocking demo baseline intentionally saturates spawn_blocking capacity."
+    },
+    {
+      "id": "blocking_after",
+      "artifact": "demos/blocking_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "blocking_pool_pressure",
+      "acceptable_top2": [
+        "blocking_pool_pressure"
+      ],
+      "tags": [
+        "blocking",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "blocking"
+      ],
+      "allowed_warnings": [
+        "Runtime snapshots are missing",
+        "Top suspects are close"
+      ],
+      "notes": "Mitigation lowers pressure but blocking family still defines the scenario."
+    },
+    {
+      "id": "executor_before",
+      "artifact": "demos/executor_pressure_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "acceptable_top2": [
+        "executor_pressure_suspected"
+      ],
+      "tags": [
+        "executor",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "queue depth"
+      ],
+      "allowed_warnings": [],
+      "notes": "Executor baseline contains runtime queue pressure signals by design."
+    },
+    {
+      "id": "executor_sample",
+      "artifact": "demos/executor_pressure_service/fixtures/sample-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "executor_pressure_suspected",
+      "acceptable_top2": [
+        "executor_pressure_suspected"
+      ],
+      "tags": [
+        "executor",
+        "demo",
+        "sample"
+      ],
+      "must_include_evidence": [
+        "queue depth"
+      ],
+      "allowed_warnings": [],
+      "notes": "Sample fixture is a committed analyzer output for executor scenario."
+    },
+    {
+      "id": "downstream_before",
+      "artifact": "demos/downstream_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "downstream",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "allowed_warnings": [],
+      "notes": "Downstream baseline has stage-dominant latency with minimal queue pressure."
+    },
+    {
+      "id": "downstream_after",
+      "artifact": "demos/downstream_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "downstream",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mitigation reduces latency but downstream family remains dominant."
+    },
+    {
+      "id": "mixed_baseline",
+      "artifact": "demos/mixed_contention_service/fixtures/baseline-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "acceptable_top2": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "mixed",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mixed baseline includes queue and downstream pressure; queue is labeled dominant family."
+    },
+    {
+      "id": "mixed_mitigated",
+      "artifact": "demos/mixed_contention_service/fixtures/mitigated-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "mixed",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mitigated mixed case still exercises mixed bottlenecks with queue signal retained. Mitigated fixture shows downstream stage dominance in committed analyzer output."
+    },
+    {
+      "id": "cold_start_before",
+      "artifact": "demos/cold_start_burst_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "acceptable_top2": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "cold-start",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue"
+      ],
+      "allowed_warnings": [],
+      "notes": "Cold-start burst baseline has queue-like admission pressure and cold-start stage effects."
+    },
+    {
+      "id": "cold_start_after",
+      "artifact": "demos/cold_start_burst_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "cold-start",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mitigated cold-start case should preserve queue-family interpretation at reduced severity. Mitigated fixture shows downstream stage dominance in committed analyzer output."
+    },
+    {
+      "id": "db_pool_before",
+      "artifact": "demos/db_pool_saturation_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "acceptable_top2": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "db-pool",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue"
+      ],
+      "allowed_warnings": [],
+      "notes": "DB pool baseline models admission wait as queue pressure."
+    },
+    {
+      "id": "db_pool_after",
+      "artifact": "demos/db_pool_saturation_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "db-pool",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mitigated db-pool case keeps same family label while reducing tails. Mitigated fixture shows downstream stage dominance in committed analyzer output."
+    },
+    {
+      "id": "shared_lock_before",
+      "artifact": "demos/shared_state_lock_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "acceptable_top2": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "shared-lock",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "Queue"
+      ],
+      "allowed_warnings": [],
+      "notes": "Write-lock admission delay is intentionally modeled as queue-like wait."
+    },
+    {
+      "id": "shared_lock_after",
+      "artifact": "demos/shared_state_lock_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "acceptable_top2": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "shared-lock",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "Queue"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mitigation reduces lock contention but same family remains expected."
+    },
+    {
+      "id": "retry_storm_before",
+      "artifact": "demos/retry_storm_service/fixtures/before-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "retry-storm",
+        "demo",
+        "before"
+      ],
+      "must_include_evidence": [
+        "downstream"
+      ],
+      "allowed_warnings": [],
+      "notes": "Retry storm baseline is dominated by downstream retry-stage time."
+    },
+    {
+      "id": "retry_storm_after",
+      "artifact": "demos/retry_storm_service/fixtures/after-analysis.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "acceptable_top2": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "retry-storm",
+        "demo",
+        "after"
+      ],
+      "must_include_evidence": [
+        "downstream"
+      ],
+      "allowed_warnings": [],
+      "notes": "Mitigated retry policy still leaves downstream family as primary triage lead."
+    },
+    {
+      "id": "insufficient_evidence_synthetic",
+      "artifact": "validation/diagnostics/corpus/insufficient_evidence.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "acceptable_top2": [
+        "insufficient_evidence"
+      ],
+      "tags": [
+        "synthetic",
+        "insufficient"
+      ],
+      "must_include_evidence": [
+        "Insufficient evidence"
+      ],
+      "allowed_warnings": [
+        "Sparse evidence"
+      ],
+      "notes": "Synthetic gap-filler for explicit insufficient-evidence path."
+    },
+    {
+      "id": "truncation_warning_synthetic",
+      "artifact": "validation/diagnostics/corpus/truncation_warning.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "acceptable_top2": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "synthetic",
+        "truncation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "allowed_warnings": [
+        "Truncation"
+      ],
+      "notes": "Synthetic case validates warning whitelisting for truncation-limited runs."
+    }
+  ]
+}

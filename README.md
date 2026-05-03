@@ -192,6 +192,10 @@ tailtriage analyze tailtriage-run.json --format json
 }
 ```
 
+## Validation
+
+See [VALIDATION.md](VALIDATION.md) for the public diagnostic validation surface and scorecard.
+
 ## Operations guidance and overhead
 
 `tailtriage` includes repo-local measurement paths for both runtime-overhead attribution and sustained collector-stress behavior. These are based on synthetic, controlled tests in this repository and should be treated as machine- and workload-scoped guidance, not universal production guarantees.

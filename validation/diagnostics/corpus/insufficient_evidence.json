@@ -1,0 +1,31 @@
+{
+  "request_count": 250,
+  "p50_latency_us": 787254,
+  "p95_latency_us": 1472731,
+  "p99_latency_us": 1524462,
+  "p95_queue_share_permille": 981,
+  "p95_service_share_permille": 271,
+  "inflight_trend": {
+    "gauge": "queue_service_inflight",
+    "sample_count": 500,
+    "peak_count": 234,
+    "p95_count": 222,
+    "growth_delta": -1,
+    "growth_per_sec_milli": -598
+  },
+  "warnings": [
+    "Sparse evidence across signal families."
+  ],
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "score": 35,
+    "confidence": "low",
+    "evidence": [
+      "Insufficient evidence: critical queue/stage/runtime signals are missing or sparse."
+    ],
+    "next_checks": [
+      "Add explicit queue and stage instrumentation and re-run."
+    ]
+  },
+  "secondary_suspects": []
+}
