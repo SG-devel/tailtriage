@@ -46,7 +46,19 @@ The corpus includes insufficient-evidence scenarios to validate conservative fal
 Schema supports `must_include_next_checks`, but the current initial corpus has no non-empty next-check requirements, so next-check substrings are not currently part of the deterministic gate.
 
 ## Future work
-Mitigation validation, overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+Overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+
+## Mitigation matrix validation (manual/local)
+A manual mitigation matrix runner is available at `scripts/run_mitigation_matrix.py`. It compares paired baseline/degraded and targeted mitigated runs for controlled demos, then summarizes latency and evidence movement per scenario.
+
+Mitigation validation checks whether evidence-ranked suspects point to useful next checks under controlled workloads. It evaluates scenario-specific movement such as:
+- p95 latency improvement
+- queue-share reduction when queueing is targeted
+- service/stage-share reduction when downstream stages are targeted
+- blocking queue-depth reduction when blocking pressure is targeted
+- explainable primary/top-2 suspect movement after mitigation
+
+Score changes are interpreted as in-report evidence-ranking signals, not absolute cross-report severity values. This validation does not prove root cause, is machine/workload scoped, and remains manual/local (not mandatory CI).
 
 ## Repeated-run diagnostic matrix validation (manual)
 A manual repeated-run matrix runner is available at `scripts/run_diagnostic_matrix.py`. It repeatedly executes controlled demo scenarios, analyzes each run, and summarizes stability metrics.

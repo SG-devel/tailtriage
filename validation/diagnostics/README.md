@@ -59,5 +59,6 @@ python3 scripts/diagnostic_benchmark.py \
 ## Validation tracks
 - deterministic corpus benchmark: `scripts/diagnostic_benchmark.py`
 - repeated-run controlled matrix runner: `scripts/run_diagnostic_matrix.py`
+- mitigation matrix runner: `scripts/run_mitigation_matrix.py`
 
-The deterministic corpus checks fixture-labeled contract behavior. The repeated-run runner checks repeated-run stability for selected controlled demo workloads.
+The deterministic corpus checks fixture-labeled contract behavior. The repeated-run runner checks repeated-run stability for selected controlled demo workloads. The mitigation runner checks baseline/mitigated evidence movement under controlled demos.
