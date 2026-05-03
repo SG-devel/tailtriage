@@ -7,7 +7,7 @@
 Validation is machine-scoped and workload-scoped. Results apply to documented fixtures and corpus cases, not all production environments.
 
 ## Claims validated
-This is an initial deterministic validation corpus for controlled Tokio workload fixtures. It checks whether evidence-ranked suspects and warnings are consistent with workload intent and expected next checks.
+This is an initial deterministic validation corpus for controlled Tokio workload fixtures. It checks whether evidence-ranked suspects and warnings are consistent with workload intent and required next-check substrings.
 
 ## Claims not validated
 - Universal production overhead

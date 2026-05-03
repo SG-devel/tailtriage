@@ -4,7 +4,7 @@
 
 ## Methodology
 - Deterministic analyzer report corpus with labeled `ground_truth`.
-- Benchmark verifies top-1, top-2, evidence presence, and warning expectations.
+- Benchmark verifies top-1, top-2 required causes, evidence presence, and warning expectations.
 - Metrics include high-confidence wrong count and confidence-bucket accuracy.
 
 ## Deterministic vs repeated-run validation
@@ -15,7 +15,7 @@ Current foundation is deterministic-case validation. Repeated-run validation is 
 - Top-2 recall tracks whether acceptable alternate suspects remain visible for mixed scenarios.
 
 ## High-confidence-wrong count
-Tracks cases where primary confidence is high/very-high and the primary suspect is not in `acceptable_top2`. This protects against overconfident misranking outside accepted alternatives.
+Tracks cases where primary confidence is high/very-high and the primary suspect is not in `acceptable_primary`. This protects against overconfident misranking outside accepted alternatives.
 
 ## Confidence calibration
 Confidence is score-derived ranking strength. It is not causal certainty.

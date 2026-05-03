@@ -26,7 +26,7 @@ def validate_manifest(manifest):
         raise ValueError("manifest schema_version must be 1")
     seen = set()
     for case in manifest["cases"]:
-        for field in ["id", "artifact", "artifact_type", "ground_truth", "acceptable_top2", "tags", "must_include_evidence", "expected_warnings", "allowed_warnings", "top1_required", "notes"]:
+        for field in ["id", "artifact", "artifact_type", "ground_truth", "required_top2", "acceptable_primary", "tags", "must_include_evidence", "must_include_next_checks", "expected_warnings", "allowed_warnings", "top1_required", "notes"]:
             if field not in case:
                 raise ValueError(f"case missing required field: {field}")
         cid = case["id"]
@@ -42,16 +42,22 @@ def validate_manifest(manifest):
         gt = case["ground_truth"]
         if gt not in ALLOWED_GROUND_TRUTH:
             raise ValueError(f"unknown ground_truth for {cid}: {gt}")
-        if not isinstance(case["acceptable_top2"], list) or not case["acceptable_top2"]:
-            raise ValueError(f"acceptable_top2 must be a non-empty list for {cid}")
-        if any(kind not in ALLOWED_GROUND_TRUTH for kind in case["acceptable_top2"]):
-            raise ValueError(f"acceptable_top2 contains unknown diagnosis kind for {cid}")
-        if gt not in case["acceptable_top2"]:
-            raise ValueError(f"acceptable_top2 must include ground_truth for {cid}")
+        if not isinstance(case["required_top2"], list) or not case["required_top2"]:
+            raise ValueError(f"required_top2 must be a non-empty list for {cid}")
+        if any(kind not in ALLOWED_GROUND_TRUTH for kind in case["required_top2"]):
+            raise ValueError(f"required_top2 contains unknown diagnosis kind for {cid}")
+        if not isinstance(case["acceptable_primary"], list) or not case["acceptable_primary"]:
+            raise ValueError(f"acceptable_primary must be a non-empty list for {cid}")
+        if any(kind not in ALLOWED_GROUND_TRUTH for kind in case["acceptable_primary"]):
+            raise ValueError(f"acceptable_primary contains unknown diagnosis kind for {cid}")
+        if gt not in case["acceptable_primary"]:
+            raise ValueError(f"acceptable_primary must include ground_truth for {cid}")
         if not isinstance(case["tags"], list) or any((not isinstance(t, str) or not t.strip()) for t in case["tags"]):
             raise ValueError(f"tags must be a list of non-empty strings for {cid}")
         if not isinstance(case["must_include_evidence"], list) or any(not isinstance(e, str) for e in case["must_include_evidence"]):
             raise ValueError(f"must_include_evidence must be a list of strings for {cid}")
+        if not isinstance(case["must_include_next_checks"], list) or any(not isinstance(e, str) for e in case["must_include_next_checks"]):
+            raise ValueError(f"must_include_next_checks must be a list of strings for {cid}")
         if not isinstance(case["expected_warnings"], list) or any(not isinstance(w, str) for w in case["expected_warnings"]):
             raise ValueError(f"expected_warnings must be a list of strings for {cid}")
         if not isinstance(case["allowed_warnings"], list) or any(not isinstance(w, str) for w in case["allowed_warnings"]):
@@ -109,6 +115,7 @@ def extract(report):
         "primary_score": primary.get("score", 0),
         "evidence": [e for s in all_suspects for e in s.get("evidence", []) if isinstance(e, str)],
         "warnings": report.get("warnings", []),
+        "next_checks": [n for s in all_suspects for n in s.get("next_checks", []) if isinstance(n, str)],
     }
 
 
@@ -148,19 +155,20 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         confusion[gt][ext["top1"] or "<none>"] += 1
 
         top1_ok = ext["top1"] == gt
-        top2_ok = any(k in case["acceptable_top2"] for k in ext["top2"])
+        top2_ok = all(kind in ext["top2"] for kind in case["required_top2"])
 
         bucket = confidence_bucket(ext["primary_confidence"])
         conf_buckets[bucket]["total"] += 1
         if top1_ok:
             conf_buckets[bucket]["correct"] += 1
 
-        if (ext["top1"] not in case["acceptable_top2"]) and str(ext["primary_confidence"]).lower() in CONF_HIGH:
+        if (ext["top1"] not in case["acceptable_primary"]) and str(ext["primary_confidence"]).lower() in CONF_HIGH:
             high_conf_wrong += 1
         if case["artifact_type"] == "analysis_report" and "score" not in report.get("primary_suspect", {}):
             raise ValueError("analysis_report requires report.primary_suspect.score")
 
         ev_ok = all(any(req.lower() in ev.lower() for ev in ext["evidence"]) for req in case["must_include_evidence"])
+        next_check_ok = all(any(req.lower() in nc.lower() for nc in ext["next_checks"]) for req in case["must_include_next_checks"])
         if ev_ok:
             evidence_pass += 1
 
@@ -175,10 +183,10 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         unexpected_warning_count += len(unexpected)
         missing_expected_warning_count += len(missing_expected)
 
-        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (len(unexpected) > 0) or (len(missing_expected) > 0)
-        results.append({"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected})
+        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (not next_check_ok) or (len(unexpected) > 0) or (len(missing_expected) > 0)
+        results.append({"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected})
         if case_failed:
-            failed_cases.append({"id": case["id"], "top1_ok": top1_ok, "top1_required": case["top1_required"], "top2_ok": top2_ok, "evidence_ok": ev_ok, "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected})
+            failed_cases.append({"id": case["id"], "top1_ok": top1_ok, "top1_required": case["top1_required"], "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected})
 
     total = len(cases)
     top1 = sum(1 for r in results if r["top1_ok"]) / total if total else 0.0
@@ -193,6 +201,8 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         "confusion_matrix": {k: dict(v) for k, v in confusion.items()},
         "confidence_bucket_accuracy": {k: {"accuracy": (v["correct"] / v["total"] if v["total"] else 0.0), **v} for k, v in conf_buckets.items()},
         "required_evidence_pass_rate": evidence_pass / total if total else 0.0,
+        "next_check_presence_rate": sum(1 for r in results if r["next_check_ok"]) / total if total else 0.0,
+        "next_check_pass_rate": sum(1 for r in results if r["next_check_ok"]) / total if total else 0.0,
         "unexpected_warning_count": unexpected_warning_count,
         "missing_expected_warning_count": missing_expected_warning_count,
         "failed_cases": failed_cases,
