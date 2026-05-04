@@ -14,6 +14,7 @@
 | runtime overhead | Measured separately | see `docs/runtime-cost.md`. |
 | collector limits | Measured separately | see `docs/collector-limits.md`. |
 | repeated-run diagnostic matrix | Manual/local repeated-run validation available | publishable repeated-run outputs are generated locally (JSONL/summary/scorecard) and not committed by default; results are machine/workload scoped. |
+| mitigation validation | Manual/local mitigation matrix available | baseline/mitigated controlled demos compare latency and evidence movement; generated outputs are not committed by default. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
 Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation and do not provide root-cause proof.
