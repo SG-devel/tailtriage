@@ -1,0 +1,70 @@
+name: Validation Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      snapshot_label:
+        description: "Snapshot label, for example v0.3.0, pre-release, or validation-check"
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set snapshot label
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "SNAPSHOT_LABEL=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "SNAPSHOT_LABEL=${{ inputs.snapshot_label }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Sanitize snapshot label for artifact name
+        run: |
+          SAFE_SNAPSHOT_LABEL="$(printf %s "$SNAPSHOT_LABEL" | tr -c "A-Za-z0-9._-" "-")"
+          SAFE_SNAPSHOT_LABEL="${SAFE_SNAPSHOT_LABEL#-}"
+          SAFE_SNAPSHOT_LABEL="${SAFE_SNAPSHOT_LABEL%-}"
+          if [ -z "$SAFE_SNAPSHOT_LABEL" ]; then
+            SAFE_SNAPSHOT_LABEL="snapshot"
+          fi
+          echo "SAFE_SNAPSHOT_LABEL=$SAFE_SNAPSHOT_LABEL" >> "$GITHUB_ENV"
+
+      - name: Generate scorecard snapshot
+        run: |
+          python3 scripts/generate_diagnostic_scorecard.py \
+            --manifest validation/diagnostics/manifest.json \
+            --out-dir target/validation/diagnostics \
+            --snapshot-label "${SNAPSHOT_LABEL}"
+
+      - name: Compute short sha
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-validation-${{ env.SAFE_SNAPSHOT_LABEL }}-${{ env.SHORT_SHA }}
+          path: target/validation/diagnostics
+          retention-days: 90
+
+      - name: TODO release attach
+        run: echo "TODO: optionally attach snapshot artifact to GitHub Releases in a follow-up task."
