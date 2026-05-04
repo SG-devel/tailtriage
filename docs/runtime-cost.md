@@ -75,3 +75,10 @@ If `measurement_quality` reports noisy/unstable, rerun on a quieter machine stat
 
 - `CaptureMode` changes retention defaults; it does not auto-start the runtime sampler.
 - Post-limit overhead improvements come from cheaper drop-path handling after limits are hit, while preserving drop counters and truncation visibility.
+
+
+## Operational validation runner
+
+Use `scripts/run_operational_validation.py --domain runtime-cost` for manual/local runtime-cost validation records, summary JSON, and optional scorecard output under `target/operational-validation/`.
+
+These outputs are machine/workload/profile scoped measurements. p95/p99 overhead ratios are measured outputs, not universal production guarantees. Missing metrics are emitted as `null` rather than guessed.

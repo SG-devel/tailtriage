@@ -80,3 +80,12 @@ Quick smoke profile:
 ```bash
 python3 scripts/measure_collector_limits.py --profile smoke
 ```
+
+
+## Operational collector-limit validation
+
+Use `scripts/run_operational_validation.py --domain collector-limits` for manual/local collector-limit validation.
+
+Claim boundary: drops are bounded, visible, and diagnosis is downgraded or warned appropriately when limits are exceeded. This does **not** claim the collector never drops.
+
+Validation checks visible drops, partial artifacts, truncation signals, and warning/downgrade visibility.
