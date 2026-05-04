@@ -84,6 +84,41 @@ Docs in `docs/` are user-facing product documentation.
   - update the validator and related tests so they enforce the new truthful contract.
 - When changing the validator, keep checks aligned with code truth and current public guidance, not stale phrasing.
 
+
+## Validation documentation contract
+
+Validation docs are part of the public trust surface.
+
+When editing validation-related files, preserve these rules:
+
+- Describe `tailtriage` as a triage tool, not a root-cause proof engine.
+- Keep validation claims bounded to the evidence actually produced.
+- Do not use PR-history wording such as “this PR introduces” in stable public docs.
+- Do not call a validation path a CI gate unless CI actually runs it.
+- Distinguish deterministic fixture validation, repeated-run validation, mitigation validation, runtime-cost validation, collector-limit validation, and real-service validation.
+- State whether each validation path is mandatory CI, manual/local, release-only, or planned.
+- Treat generated runtime-cost, collector-limit, repeated-run, and mitigation outputs as machine/workload/profile scoped unless explicitly proven otherwise.
+- Never present runtime overhead measurements as universal production guarantees.
+- Never present collector-limit validation as “no drops”; it validates visible bounded drops, warnings, and downgrade behavior.
+- Never present mitigation movement as formal causal proof; it supports the capture -> analyze -> next check -> re-run workflow.
+
+If validation corpus schema or benchmark semantics change, update together:
+
+- `VALIDATION.md`
+- `docs/diagnostic-validation.md`
+- `validation/diagnostics/README.md`
+- `validation/diagnostics/latest/scorecard.md`
+- relevant scripts and tests
+- docs contract validation, if public docs requirements changed
+
+Validation scorecards should distinguish:
+
+- covered area
+- latest run status
+- generated metrics, if available
+- manual/local versus CI status
+- known non-claims
+
 ## Scope guardrails
 
 Only expand scope when at least one of these is true:

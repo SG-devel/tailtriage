@@ -49,6 +49,7 @@ Supporting repository areas:
 
 - `docs/`
 - `scripts/`
+- `validation/`
 
 ## 5. Public integration surfaces
 
@@ -167,7 +168,87 @@ Primary suspect kinds:
 
 These are ranked suspects, not proof.
 
-## 8. Runtime-cost and limits measurement contract
+
+## 8. Validation contract
+
+Validation exists to show bounded diagnostic behavior, not root-cause proof.
+
+The validation surface includes:
+
+1. deterministic diagnostic corpus validation
+2. adversarial synthetic fixtures for sparse, missing, truncated, noisy, or mixed evidence
+3. repeated-run controlled demo validation
+4. mitigation matrix validation
+5. runtime-cost operational validation
+6. collector-limit operational validation
+7. future real-service validation
+
+### 8.1 Deterministic diagnostic corpus
+
+The deterministic corpus validates analyzer/report behavior against labeled fixtures.
+
+It may check:
+
+- primary suspect expectations
+- required top-2 suspect visibility
+- expected and allowed warnings
+- required evidence substrings
+- required next-check substrings
+- confidence ceilings for sparse, missing, truncated, noisy, or ambiguous evidence
+- high-confidence-wrong counts
+
+Corpus labels describe expected diagnostic-family behavior for controlled fixtures. They are not production root-cause proof.
+
+### 8.2 Repeated-run validation
+
+Repeated-run validation measures stability across repeated controlled demo runs on a specific machine and workload profile.
+
+It may report:
+
+- top-1 accuracy
+- top-2 visibility
+- primary suspect stability
+- high-confidence-wrong count
+- confidence bucket summaries
+- p95/p99 latency distribution summaries
+
+Repeated-run validation is machine-scoped and workload-scoped.
+
+### 8.3 Mitigation validation
+
+Mitigation validation compares baseline and mitigated controlled runs.
+
+It may check:
+
+- p95/p99 movement
+- queue-share movement
+- service/stage-share movement
+- runtime-pressure movement
+- blocking-depth movement
+- explainable suspect movement
+
+Mitigation validation supports next-check usefulness. It does not prove formal causality.
+
+### 8.4 Operational validation
+
+Runtime-cost validation measures overhead under documented synthetic workloads.
+
+Collector-limit validation measures bounded retention behavior, visible drops, truncation warnings, and confidence downgrade behavior.
+
+Operational validation is machine-scoped, workload-scoped, and profile-scoped. It is not a universal production guarantee.
+
+### 8.5 Validation non-claims
+
+Validation does not claim:
+
+- root-cause proof from one run
+- universal production accuracy
+- universal production overhead
+- replacement of tracing, metrics, tokio-console, or tokio-metrics
+- zero collector drops under all load
+- real-service validation until curated real-service artifacts exist
+
+## 9. Runtime-cost and limits measurement contract
 
 Repository-local measurement paths:
 
@@ -189,7 +270,7 @@ Collector-limits interpretation tracks at least:
 - dropped-category progression
 - artifact-size and memory trends under stress profiles
 
-## 9. Documentation contract
+## 10. Documentation contract
 
 When behavior or public guidance changes, update relevant public docs together:
 

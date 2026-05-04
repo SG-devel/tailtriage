@@ -3,46 +3,38 @@
 ## Summary
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.
 
-## What this PR establishes
-This PR introduces an initial deterministic validation corpus for controlled Tokio workload fixtures. The corpus and benchmark validate bounded diagnostic behavior on committed fixtures, not universal production behavior.
+## Current validation status
+This repository includes an initial deterministic validation corpus for controlled Tokio workload fixtures. The corpus and benchmark validate bounded diagnostic behavior on committed fixtures, not universal production behavior.
 
-## Deterministic checks
+## Evidence levels
+
+| Level | Runs in CI? | What it supports | What it does not prove |
+|---|---|---|---|
+| Unit/helper tests | Yes | script/helper correctness checks for validation tooling | end-to-end diagnostic behavior by itself |
+| Deterministic corpus | No (manual/local) | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
+| Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
+| Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
+| Runtime-cost measurement | Partially (non-blocking measure in CI) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
+| Collector-limit stress | Yes (smoke profile + summary validation) | bounded drop/truncation/warning/downgrade behavior under stress | zero drops under all load |
+| Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
+
+## Deterministic corpus validation
 The deterministic benchmark validates:
 - evidence-ranked suspect correctness against corpus labels
 - required top-2 visibility (`required_top2` appears in primary or first secondary)
 - warning expectations (`expected_warnings` required; unexpected warnings rejected unless explicitly allowed)
 - required evidence substrings
+- required next-check substrings when required by a case
 - case-level confidence ceilings (`max_primary_confidence`) for sparse/missing/truncated/mixed evidence humility checks
 
-The corpus now includes deterministic adversarial validation that checks sparse, missing, truncated, or mixed evidence is warned about and does not produce overconfident unsupported classifications.
-
-## What this does **not** validate
-- root-cause proof from one run
-- universal production overhead claims
-- replacement of tracing/metrics/tokio-console
-- mitigation-effect validation
-- overhead integration into diagnostic accuracy scoring
-- collector-limit integration into diagnostic accuracy scoring
-- real-service validation coverage
-
-## Execution model
-- `scripts/diagnostic_benchmark.py` is currently a local/manual deterministic gate.
-- Benchmark helper unit tests run in CI (`python3 -m unittest scripts.tests.test_diagnostic_benchmark`).
-
-## Related artifacts
-- corpus contract: `validation/diagnostics/README.md`
-- corpus data: `validation/diagnostics/manifest.json`
-- current scorecard: `validation/diagnostics/latest/scorecard.md`
-- user-facing methodology: `docs/diagnostic-validation.md`
-
-Demos teach scenarios; validation measures bounded diagnostic behavior.
+The corpus includes deterministic adversarial validation that checks sparse, missing, truncated, or mixed evidence is warned about and does not produce overconfident unsupported classifications.
 
 ## Repeated-run matrix validation (manual/local)
 `scripts/run_diagnostic_matrix.py` provides repeated-run validation for controlled demo scenarios (queue, blocking, executor, downstream; optional mixed).
 
 It writes raw JSONL run records plus summary JSON (and optional Markdown scorecard) for stability metrics including top-1 accuracy, top-2 recall, high-confidence-wrong count, per-scenario primary stability, confidence bucket accuracy, and p95/p99 latency distribution summaries.
 
-This repeated-run validation is currently manual/local (not mandatory CI). Publishable repeated-run outputs are generated locally and are not committed by default. Results are machine/workload scoped. It measures stability under bounded controlled Tokio demo workloads on a specific machine/profile; it does not establish production universality or root-cause proof.
+This repeated-run validation is manual/local (not mandatory CI). Publishable repeated-run outputs are generated locally and are not committed by default. Results are machine/workload scoped.
 
 ## Mitigation matrix validation (manual/local)
 `scripts/run_mitigation_matrix.py` runs paired baseline/mitigated controlled demo scenarios and compares latency plus evidence movement for targeted mitigations.
@@ -51,31 +43,34 @@ It writes JSONL pair records, summary JSON, and optional scorecard Markdown unde
 
 Mitigation validation checks whether expected evidence-ranked suspect movement appears under controlled workloads (for example: queue-share drops, service-share drops, blocking queue-depth drops, and explainable top-2/primary movement), while treating score movement as intra-report ranking signal rather than absolute cross-report severity.
 
-This workflow is machine/workload scoped and supports triage next checks. It does not prove root cause and is not mandatory CI.
+This workflow is machine/workload scoped and supports triage next checks. Mitigation movement is not formal causal proof.
 
-## Operational validation (manual/local)
+## Runtime-cost / operational validation
+Operational validation has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`.
 
-Operational validation now has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`.
+`scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/operational-validation/`.
 
-`scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/operational-validation/`. Diagnostics scorecards may reference these operational domains, but diagnostics is not the only operational validation location.
+Runtime-cost results are machine/workload/profile scoped and are not universal production guarantees.
 
-Non-claims remain explicit: runtime-cost is machine/workload/profile scoped (not a universal production guarantee), collector-limit checks verify visible bounded drops plus downgrade/warning behavior (not never-drop), and results do not provide root-cause proof.
+## Collector-limit validation
+Collector-limit validation checks visible bounded drops, truncation warnings, and confidence downgrade behavior.
+
+It does not claim no drops.
+
+## Real-service validation (future)
+Real-service validation is planned for curated anonymized real-service artifacts.
 
 ## Unified validation runner
-
-Use `scripts/validate_all.py` to orchestrate existing validation tracks through explicit profiles.
-
-Profiles:
-- `smoke`: fast local sanity, including deterministic diagnostics, docs contracts, and single-scenario smoke runs for diagnostic matrix, mitigation, runtime-cost, and collector-limits (with optional `--no-fail-thresholds`).
-- `ci`: deterministic benchmark + validation/unit-test checks suitable for reasonably fast CI.
-- `full`: manual/local comprehensive run (repeated-run matrix, mitigation matrix, operational validation, optional cargo checks).
-- `publish`: full run plus artifact packaging to a chosen output directory.
+Use `scripts/validate_all.py` to orchestrate existing validation tracks through explicit profiles (`smoke`, `ci`, `full`, `publish`).
 
 The unified runner orchestrates existing scripts; it does not replace domain runners or change analyzer behavior.
 
-Generated-output policy:
-- default output for smoke/ci/full is `target/validation/<profile>/`
-- publish output may target `validation/artifacts/<date>-git-<sha>/`
-- generated artifacts are local by default and are not committed automatically
+## Validation non-claims
+Validation does not claim:
+- root-cause proof from one run
+- universal production overhead
+- replacement for tracing, metrics, tokio-console, or tokio-metrics
+- real-service validation unless curated real-service artifacts exist
+- mitigation movement as formal causal proof
 
-Non-claims remain explicit: no root-cause proof, runtime-cost is machine/workload scoped, and collector-limit checks do not claim zero drops.
+Demos teach scenarios; validation measures bounded diagnostic behavior.
