@@ -6,11 +6,14 @@
 The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
 
 ## Deterministic vs repeated-run validation
-The current gate is deterministic fixture validation. Repeated-run variance validation is available as a manual/local workflow.
+Deterministic fixture validation is a manual/local validation path. Repeated-run variance validation is also manual/local. CI currently runs helper/unit checks for validation scripts, not the full deterministic corpus benchmark.
 
 ## Top-1 vs required top-2
 - **Top-1**: primary suspect matches `ground_truth`.
 - **Required top-2**: every kind in `required_top2` appears in primary or first secondary suspect.
+
+## Ground-truth interpretation
+`ground_truth` means the expected diagnostic family for the controlled fixture intent. It does not mean production root-cause proof.
 
 ## `acceptable_primary`
 `acceptable_primary` defines which primary kinds are acceptable for ambiguous/mixed interpretation and high-confidence-wrong classification. It does not replace `required_top2`.
@@ -43,7 +46,9 @@ The corpus includes insufficient-evidence scenarios to validate conservative fal
 `synthetic_analysis_report` entries are small, hand-readable, report-shaped fixtures used only to cover gaps that real demo fixtures do not cover.
 
 ## Next-check validation status
-Schema supports `must_include_next_checks`, but the current initial corpus has no non-empty next-check requirements, so next-check substrings are not currently part of the deterministic gate.
+The corpus supports `must_include_next_checks`, and selected adversarial cases use it to validate that reports suggest relevant follow-up actions.
+
+Next-check validation is substring-based rather than exact-output based. This keeps the diagnostic contract stable while allowing wording to improve.
 
 ## Future work
 Overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.

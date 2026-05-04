@@ -47,30 +47,75 @@ A change is out of scope when it mainly adds adjacent platform capabilities or c
 
 ## Active workstreams
 
-### 1) Real-world validation
+### 1) Validation truth and presentation
 
-- Gather reproducible artifacts and concrete user pain points.
-- Prioritize repeated problems over one-off requests.
-- Confirm users can complete capture -> analyze -> next check -> re-run with current surfaces.
+Make validation easy to understand, truthful, and reproducible.
 
-### 2) Product tightening
+Near-term tasks:
 
-- Improve ergonomics where they reduce real triage friction.
-- Improve diagnosis wording and next-check clarity when users misread results.
-- Keep behavior explicit around lifecycle, truncation, and confidence limits.
+- remove PR-history wording from public validation docs
+- keep deterministic, repeated-run, mitigation, runtime-cost, and collector-limit validation clearly separated
+- make CI/manual/release status explicit for each validation path
+- add generated metrics to scorecards where available
+- keep validation non-claims visible
+- ensure docs match the current manifest and scripts
 
-### 3) Documentation and teaching surface alignment
+### 2) Diagnostic corpus tightening
 
-- Keep `README.md`, `docs/`, and crate READMEs synchronized.
-- Keep docs user-facing, present-tense, and truthful to current behavior.
-- Keep examples/demos aligned with the same default usage story.
-- Update docs contract tests when docs structure or required index links change.
+Improve deterministic validation without turning fixtures into marketing claims.
 
-### 4) Repository coherence
+Near-term tasks:
 
-- Keep one coherent product story across crates and docs.
-- Reject additions that push the project toward a general observability platform.
-- Prefer smaller cohesive changes over scattered feature growth.
+- keep adversarial sparse/missing/truncated/mixed cases small and reviewable
+- require next-check substrings where next-check behavior is part of the contract
+- preserve confidence ceilings for weak or ambiguous evidence
+- avoid labeling analyzer output as causal proof
+- keep `ground_truth` defined as fixture intent, not production truth
+
+### 3) Real-world validation
+
+Gather reproducible artifacts and concrete user pain points.
+
+Near-term tasks:
+
+- collect anonymized real-service artifacts when available
+- compare user interpretation against intended report semantics
+- identify repeated adoption friction
+- prioritize changes backed by observed confusion or real triage failures
+
+### 4) Product tightening
+
+Improve ergonomics where they reduce real triage friction.
+
+Near-term tasks:
+
+- improve diagnosis wording and next-check clarity when users misread results
+- keep lifecycle, truncation, and confidence behavior explicit
+- remove stale examples or docs that teach superseded paths
+- avoid adding new product categories
+
+### 5) Documentation and teaching surface alignment
+
+Keep public docs synchronized.
+
+Near-term tasks:
+
+- keep `README.md`, `docs/README.md`, crate READMEs, demos, and examples aligned
+- keep validation docs present-tense and stable, not PR-history oriented
+- update docs contract tests when public docs structure intentionally changes
+
+## Near-term sequencing
+
+Before the next public promotion or release:
+
+1. update repository guidance for validation docs and scorecards
+2. update the product spec with the validation contract
+3. update this implementation plan with validation-presentation work
+4. clean `VALIDATION.md` public wording
+5. fix stale diagnostic-validation wording
+6. add generated metric summaries to the deterministic scorecard
+7. clarify which validation profiles run in CI
+8. run docs contract validation and relevant validation scripts
 
 ## Quality gates for changes
 
