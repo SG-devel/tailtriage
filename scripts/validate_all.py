@@ -56,8 +56,21 @@ def _py(args: argparse.Namespace, *extra: str) -> list[str]:
 def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
     out = Path(args.out)
     operational_artifact_root = out / "operational" / "artifacts"
+    deterministic_benchmark_args = [
+        "scripts/diagnostic_benchmark.py",
+        "--manifest",
+        "validation/diagnostics/manifest.json",
+        "--min-top1",
+        "0.75",
+        "--min-top2",
+        "0.90",
+        "--max-high-confidence-wrong",
+        "0",
+        "--output",
+        str(out / "diagnostics/benchmark-summary.json"),
+    ]
     cmds: list[CommandSpec] = [
-        CommandSpec("deterministic benchmark", "diagnostics", _py(args, "scripts/diagnostic_benchmark.py", "--manifest", "validation/diagnostics/manifest.json", "--output", str(out / "diagnostics/benchmark-summary.json"))),
+        CommandSpec("deterministic benchmark", "diagnostics", _py(args, *deterministic_benchmark_args)),
         CommandSpec("docs contract", "docs", _py(args, "scripts/validate_docs_contracts.py")),
     ]
     nfts = ["--no-fail-thresholds"] if args.no_fail_thresholds else []
