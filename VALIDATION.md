@@ -11,7 +11,7 @@ This repository includes an initial deterministic validation corpus for controll
 | Level | Runs in CI? | What it supports | What it does not prove |
 |---|---|---|---|
 | Unit/helper tests | Yes | script/helper correctness checks for validation tooling | end-to-end diagnostic behavior by itself |
-| Deterministic corpus | No (manual/local) | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
+| Deterministic corpus | Yes (correctness checks only) | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
 | Runtime-cost measurement | Partially (non-blocking measure in CI) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
@@ -74,3 +74,9 @@ Validation does not claim:
 - mitigation movement as formal causal proof
 
 Demos teach scenarios; validation measures bounded diagnostic behavior.
+
+
+## Versioned/manual diagnostic snapshots
+Durable diagnostic validation scorecards are generated only by `.github/workflows/validation-snapshot.yml` on `workflow_dispatch` and `v*` tags. Normal CI does not publish durable diagnostic scorecards and does not auto-overwrite `validation/diagnostics/latest/scorecard.md`.
+
+Snapshot artifacts include deterministic benchmark metrics, thresholds, git/ref metadata, `tailtriage` workspace/package version metadata, GitHub Actions metadata when available, software/hardware metadata, and manifest/referenced-artifact hashes.

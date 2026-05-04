@@ -22,3 +22,11 @@ Deterministic synthetic adversarial cases validate benchmark/report contract beh
 ## Generated metrics snapshot
 
 Latest committed scorecard does not embed benchmark numbers directly. Generate fresh metrics with `python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --output target/diagnostic-benchmark.json` and report them alongside machine/workload context when publishing.
+
+## Versioned/manual scorecards
+
+The committed scorecard is a stable repository note, not an automatically updated latest-run file.
+
+For a versioned or manually requested snapshot, run the `validation-snapshot.yml` workflow. It uploads a generated scorecard plus `benchmark-summary.json` and `environment.json` as a GitHub Actions artifact. Snapshot artifacts include the `tailtriage` package version, git metadata, runner metadata, software/hardware metadata, manifest hash, referenced-artifact hash, thresholds, and deterministic benchmark metrics.
+
+Normal CI does not publish durable diagnostic scorecards and does not auto-overwrite this committed file.

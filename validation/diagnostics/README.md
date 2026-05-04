@@ -68,3 +68,16 @@ Validation tracks currently include deterministic corpus benchmark, adversarial 
 ## Unified runner orchestration
 
 For profile-based orchestration across validation tracks, use `scripts/validate_all.py` (`smoke`, `ci`, `full`, `publish`). Keep using this diagnostics runner directly for diagnostics-specific validation workflows.
+
+
+## Versioned/manual scorecard generation
+Use `.github/workflows/validation-snapshot.yml` to generate durable diagnostic snapshots on manual dispatch or `v*` tag pushes. Normal CI does not upload durable diagnostic scorecards.
+
+Snapshot output directory: `target/validation/diagnostics/`
+- `benchmark-summary.json`
+- `environment.json`
+- `scorecard.md`
+
+`environment.json` includes `tailtriage` workspace version and per-crate versions, git metadata, GitHub Actions metadata when available, software/hardware metadata, manifest hash, referenced-artifact hash, and benchmark thresholds.
+
+Deterministic fixture metrics validate committed fixtures only; they are not root-cause proof, universal production accuracy, universal production overhead, or real-service validation.
