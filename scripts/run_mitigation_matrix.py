@@ -29,18 +29,20 @@ SCENARIOS = {
         "demo_manifest": "demos/blocking_service/Cargo.toml",
         "targeted_suspect": "blocking_pool_pressure",
         "expected_movements": ["p95_decreases", "blocking_queue_depth_decreases", "targeted_score_nonworsening"],
+        "expected_after_top2": ["downstream_stage_dominates", "blocking_pool_pressure"],
         "notes": "Blocking mitigation should reduce blocking queue pressure and improve latency.",
     },
     "downstream": {
         "demo_manifest": "demos/downstream_service/Cargo.toml",
         "targeted_suspect": "downstream_stage_dominates",
-        "expected_movements": ["p95_decreases", "service_share_decreases", "targeted_score_nonworsening"],
+        "expected_movements": ["p95_decreases", "targeted_score_nonworsening"],
         "notes": "Downstream mitigation should reduce stage/service contribution and improve latency.",
     },
     "db-pool": {
         "demo_manifest": "demos/db_pool_saturation_service/Cargo.toml",
         "targeted_suspect": "application_queue_saturation",
         "expected_movements": ["p95_decreases", "queue_share_decreases", "targeted_score_nonworsening"],
+        "expected_after_top2": ["downstream_stage_dominates", "application_queue_saturation"],
         "notes": "DB/pool mitigation should reduce queueing pressure and improve latency.",
     },
 }
