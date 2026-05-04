@@ -22,12 +22,20 @@ class OperationalValidationTests(unittest.TestCase):
     def test_runtime_summary(self):
         s=op.summarize_runtime_cost([{"p95_overhead_ratio":0.1,"p99_overhead_ratio":0.2,"artifact_bytes_per_request":5,"measurement_quality":"partial"},{"p95_overhead_ratio":0.3,"p99_overhead_ratio":0.4,"artifact_bytes_per_request":7,"measurement_quality":"partial"}])
         self.assertEqual(s["p95_overhead_ratio"]["max"],0.3)
-    def test_collector_visibility_fail(self):
+    def test_collector_drops_visible_without_warning_fails(self):
+        rec={"dropped_requests":1,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"limit_visibility_passed":True,"diagnosis_downgraded_or_warned":False}
+        out=op.evaluate_collector_limits(rec,True,False)
+        self.assertFalse(out["passed"])
+    def test_collector_drops_visible_with_warning_passes(self):
+        rec={"dropped_requests":1,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"limit_visibility_passed":True,"diagnosis_downgraded_or_warned":True}
+        out=op.evaluate_collector_limits(rec,True,False)
+        self.assertTrue(out["passed"])
+    def test_collector_drops_not_visible_fails(self):
         rec={"dropped_requests":1,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"limit_visibility_passed":False,"diagnosis_downgraded_or_warned":False}
         out=op.evaluate_collector_limits(rec,True,False)
         self.assertFalse(out["passed"])
-    def test_collector_visibility_pass(self):
-        rec={"dropped_requests":1,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"limit_visibility_passed":True,"diagnosis_downgraded_or_warned":True}
+    def test_collector_no_drops_passes(self):
+        rec={"dropped_requests":0,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"limit_visibility_passed":False,"diagnosis_downgraded_or_warned":False}
         out=op.evaluate_collector_limits(rec,True,False)
         self.assertTrue(out["passed"])
     def test_extractors(self):
@@ -40,9 +48,9 @@ class OperationalValidationTests(unittest.TestCase):
         s=op.summarize_records(records,"dev",["runtime-cost","collector-limits"])
         self.assertIn("schema_version",s)
         with tempfile.TemporaryDirectory() as d:
-            j=Path(d)/"a.jsonl"; op.write_jsonl(j,records)
+            j=Path(d)/"nested"/"a.jsonl"; op.write_jsonl(j,records)
             self.assertEqual(len(j.read_text().strip().splitlines()),2)
-            sc=Path(d)/"s.md"; op.write_scorecard(sc,s)
+            sc=Path(d)/"nested"/"s.md"; op.write_scorecard(sc,s)
             t=sc.read_text()
             self.assertIn("## Runtime cost",t)
             self.assertIn("## Collector limits",t)

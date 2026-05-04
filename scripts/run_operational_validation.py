@@ -58,8 +58,12 @@ def evaluate_collector_limits(record, require_visibility=True, no_fail=False):
     failed=[]
     drops=sum(record.get(k,0) or 0 for k in ("dropped_requests","dropped_stages","dropped_queues","dropped_inflight_snapshots","dropped_runtime_snapshots"))
     visible=record.get("limit_visibility_passed", False)
-    if (not no_fail) and require_visibility and drops>0 and not visible:
-        failed.append("drops observed but not visible in warnings/signals")
+    warned_or_downgraded=record.get("diagnosis_downgraded_or_warned", False)
+    if (not no_fail) and drops>0:
+        if require_visibility and not visible:
+            failed.append("drops observed but not visible in warnings/signals")
+        if not warned_or_downgraded:
+            failed.append("drops observed but diagnosis was not downgraded/warned")
     record["failed_expectations"]=failed
     record["passed"]=not failed
     return record
@@ -86,6 +90,7 @@ def write_jsonl(path, records):
     p.write_text("".join(json.dumps(r)+"\n" for r in records), encoding="utf-8")
 
 def write_scorecard(path, summary):
+    p=Path(path); p.parent.mkdir(parents=True, exist_ok=True)
     lines=["# Operational validation scorecard","",f"Profile: {summary['profile']}","","## Runtime cost","","| Scenario | Records | p95 overhead median | p95 overhead max | artifact bytes/request median | Measurement quality |","|---|---:|---:|---:|---:|---|"]
     rc=summary.get("runtime_cost")
     if rc:
@@ -96,7 +101,7 @@ def write_scorecard(path, summary):
     cl=summary.get("collector_limits")
     if cl:
         lines.append(f"| queue-limit-pressure | {'yes' if cl['limit_hit_records'] else 'no'} | {'yes' if (cl['limit_visibility_pass_rate'] or 0)>0 else 'no'} | {'yes' if (cl['diagnosis_downgraded_or_warned_rate'] or 0)>0 else 'no'} | {'yes' if summary['failed_records']==0 else 'no'} | drops are bounded and visible |")
-    Path(path).write_text("\n".join(lines)+"\n", encoding="utf-8")
+    p.write_text("\n".join(lines)+"\n", encoding="utf-8")
 
 def main():
     ap=argparse.ArgumentParser()
@@ -147,6 +152,7 @@ def main():
     write_jsonl(args.out, records)
     summary_path=Path(args.summary) if args.summary else Path(args.out).with_name(Path(args.out).stem+"-summary.json")
     summary=summarize_records(records,args.profile,domains)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
     if args.scorecard: write_scorecard(args.scorecard,summary)
 

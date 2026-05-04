@@ -55,6 +55,8 @@ This workflow is machine/workload scoped and supports triage next checks. It doe
 
 ## Operational validation (manual/local)
 
-`scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/`.
+Operational validation now has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`.
 
-Non-claims remain explicit: no universal production overhead guarantee, no zero-drop claim, and no root-cause proof.
+`scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/operational-validation/`. Diagnostics scorecards may reference these operational domains, but diagnostics is not the only operational validation location.
+
+Non-claims remain explicit: runtime-cost is machine/workload/profile scoped (not a universal production guarantee), collector-limit checks verify visible bounded drops plus downgrade/warning behavior (not never-drop), and results do not provide root-cause proof.
