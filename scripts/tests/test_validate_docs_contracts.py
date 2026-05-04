@@ -45,6 +45,107 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_diagnostics_contract_truthfulness(self) -> None:
         validate_docs_contracts.validate_diagnostics_contract_truthfulness()
 
+    def test_validation_ci_contract_checks_committed_workflow_and_docs(self) -> None:
+        validate_docs_contracts.validate_diagnostic_benchmark_ci_contract()
+        validate_docs_contracts.validate_validation_docs_ci_contract()
+
+    def test_validation_ci_contract_fails_without_diagnostic_benchmark_command(self) -> None:
+        workflow_text = """name: CI
+
+jobs:
+  verify:
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate diagnostic benchmark helper unit tests
+        run: python3 -m unittest scripts.tests.test_diagnostic_benchmark
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workflow_path = Path(tmp_dir) / "ci.yml"
+            workflow_path.write_text(workflow_text, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"diagnostic_benchmark.py"):
+                validate_docs_contracts.validate_diagnostic_benchmark_ci_contract(
+                    workflow_path=workflow_path
+                )
+
+    def test_validation_ci_contract_fails_without_required_benchmark_args(self) -> None:
+        workflow_text = """name: CI
+
+jobs:
+  verify:
+    steps:
+      - name: Validate deterministic diagnostics benchmark corpus
+        run: >
+          python3 scripts/diagnostic_benchmark.py
+          --manifest validation/diagnostics/manifest.json
+          --min-top1 0.75
+          --max-high-confidence-wrong 0
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workflow_path = Path(tmp_dir) / "ci.yml"
+            workflow_path.write_text(workflow_text, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"--min-top2 0.90"):
+                validate_docs_contracts.validate_diagnostic_benchmark_ci_contract(
+                    workflow_path=workflow_path
+                )
+
+    def test_validation_ci_contract_fails_when_benchmark_step_can_continue_on_error(self) -> None:
+        workflow_text = """name: CI
+
+jobs:
+  verify:
+    steps:
+      - name: Validate deterministic diagnostics benchmark corpus
+        continue-on-error: true
+        run: |
+          python3 scripts/diagnostic_benchmark.py \
+            --manifest validation/diagnostics/manifest.json \
+            --min-top1 0.75 \
+            --min-top2 0.90 \
+            --max-high-confidence-wrong 0
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workflow_path = Path(tmp_dir) / "ci.yml"
+            workflow_path.write_text(workflow_text, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"continue-on-error"):
+                validate_docs_contracts.validate_diagnostic_benchmark_ci_contract(
+                    workflow_path=workflow_path
+                )
+
+    def test_validation_docs_contract_fails_on_stale_normal_pr_ci_wording(self) -> None:
+        doc_text = """# Validation
+
+Deterministic corpus: no in normal PR CI.
+Durable scorecards come from `.github/workflows/validation-snapshot.yml`.
+Normal CI does not publish durable diagnostic scorecards.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            doc_path = Path(tmp_dir) / "VALIDATION.md"
+            doc_path.write_text(doc_text, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"no in normal pr ci"):
+                validate_docs_contracts.validate_validation_docs_ci_contract(
+                    doc_paths=(doc_path,)
+                )
+
+    def test_validation_docs_contract_requires_snapshot_workflow_scorecard_source(self) -> None:
+        doc_text = """# Validation
+
+Durable scorecards come from normal CI artifacts.
+Normal CI does not publish durable diagnostic scorecards.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            doc_path = Path(tmp_dir) / "VALIDATION.md"
+            doc_path.write_text(doc_text, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"validation-snapshot.yml"):
+                validate_docs_contracts.validate_validation_docs_ci_contract(
+                    doc_paths=(doc_path,)
+                )
+
     def test_architecture_contract(self) -> None:
         validate_docs_contracts.validate_architecture_contract()
 
