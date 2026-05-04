@@ -15,6 +15,8 @@ README_PATH = REPO_ROOT / "README.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
+DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
+CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sample-analysis.json"
@@ -81,6 +83,24 @@ DOCS_DISALLOWED_HISTORY_PATTERNS = (
 DIAGNOSTICS_FIELD_REFERENCE_LABELS = (
     "field reference",
     "field-reference",
+)
+
+VALIDATION_DOC_PATHS = (
+    REPO_ROOT / "VALIDATION.md",
+    DIAGNOSTIC_VALIDATION_PATH,
+    REPO_ROOT / "validation" / "diagnostics" / "README.md",
+    REPO_ROOT / "validation" / "diagnostics" / "latest" / "scorecard.md",
+)
+
+DIAGNOSTIC_BENCHMARK_CI_ARGS = (
+    "--manifest validation/diagnostics/manifest.json",
+    "--min-top1 0.75",
+    "--min-top2 0.90",
+    "--max-high-confidence-wrong 0",
+)
+
+STALE_VALIDATION_DOC_PHRASES = (
+    "no in normal pr ci",
 )
 
 
@@ -496,6 +516,99 @@ def validate_diagnostics_contract_truthfulness() -> None:
         )
 
 
+def _active_yaml_lines(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def _workflow_step_blocks(workflow_text: str) -> list[str]:
+    starts = [
+        match.start()
+        for match in re.finditer(r"(?m)^\s*-\s+name\s*:", workflow_text)
+    ]
+    if not starts:
+        return []
+
+    starts.append(len(workflow_text))
+    return [workflow_text[starts[index] : starts[index + 1]] for index in range(len(starts) - 1)]
+
+
+def _compact_command_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def validate_diagnostic_benchmark_ci_contract(
+    *, workflow_path: Path = CI_WORKFLOW_PATH
+) -> None:
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    matching_steps = [
+        _active_yaml_lines(block)
+        for block in _workflow_step_blocks(workflow_text)
+        if "scripts/diagnostic_benchmark.py" in _active_yaml_lines(block)
+    ]
+
+    if not matching_steps:
+        raise ValueError(
+            ".github/workflows/ci.yml must run scripts/diagnostic_benchmark.py "
+            "as a normal CI step"
+        )
+
+    benchmark_step = matching_steps[0]
+    if re.search(
+        r"(?im)^\s*continue-on-error\s*:\s*[\"']?true[\"']?\s*$", benchmark_step
+    ):
+        raise ValueError(
+            "deterministic diagnostics benchmark CI step must not set "
+            "continue-on-error: true"
+        )
+
+    command_text = _compact_command_text(benchmark_step)
+    missing_args = [arg for arg in DIAGNOSTIC_BENCHMARK_CI_ARGS if arg not in command_text]
+    if missing_args:
+        raise ValueError(
+            "deterministic diagnostics benchmark CI command missing required arguments: "
+            f"{missing_args}"
+        )
+
+
+def validate_validation_docs_ci_contract(
+    *, doc_paths: tuple[Path, ...] = VALIDATION_DOC_PATHS
+) -> None:
+    failures: list[str] = []
+    combined_text_parts: list[str] = []
+    for path in doc_paths:
+        text = path.read_text(encoding="utf-8")
+        combined_text_parts.append(text)
+        lower_text = text.lower()
+        for phrase in STALE_VALIDATION_DOC_PHRASES:
+            if phrase in lower_text:
+                try:
+                    display_path = str(path.relative_to(REPO_ROOT))
+                except ValueError:
+                    display_path = str(path)
+                failures.append(f"{display_path} contains stale validation-CI wording: {phrase}")
+
+    if failures:
+        raise ValueError("validation docs contain stale CI wording:\n" + "\n".join(failures))
+
+    combined_text = "\n".join(combined_text_parts)
+    if ".github/workflows/validation-snapshot.yml" not in combined_text:
+        raise ValueError(
+            "validation docs must state durable/versioned scorecards are produced by "
+            ".github/workflows/validation-snapshot.yml"
+        )
+
+    if re.search(
+        r"normal\s+CI.{0,160}(?:does\s+not|doesn't).{0,120}"
+        r"(?:publish|upload|auto-overwrite).{0,120}"
+        r"(?:durable\s+)?(?:diagnostic\s+)?scorecards?",
+        combined_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    ) is None:
+        raise ValueError(
+            "validation docs must state normal CI does not publish durable diagnostic scorecards"
+        )
+
+
 def validate_architecture_contract() -> None:
     text = ARCHITECTURE_PATH.read_text(encoding="utf-8")
     required_tokens = (
@@ -592,6 +705,8 @@ def main() -> int:
     validate_root_readme_docs_map_parity()
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
+    validate_diagnostic_benchmark_ci_contract()
+    validate_validation_docs_ci_contract()
     validate_architecture_contract()
     validate_docs_no_history_framing()
     validate_no_user_facing_facade_wording()

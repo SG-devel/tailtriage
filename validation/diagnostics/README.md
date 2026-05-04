@@ -4,6 +4,8 @@ This directory defines the deterministic diagnostic-validation corpus used by `s
 
 Demos teach; validation measures.
 
+Normal CI runs the deterministic corpus benchmark against `validation/diagnostics/manifest.json` as a required gate for schema/corpus drift. Durable/versioned scorecards remain manual/tag snapshot artifacts from `.github/workflows/validation-snapshot.yml`.
+
 ## Case schema fields
 
 - `schema_version`: manifest schema version (currently `1`).
