@@ -79,3 +79,7 @@ Key repeated-run metrics:
 Repeated-run validation remains manual/local for now (not mandatory CI), and results are machine-scoped and workload-scoped. It supports triage confidence checks and reproducibility inspection for controlled Tokio workloads.
 
 Like all tool output, these results are evidence for triage and next checks; they do not prove root cause.
+
+
+## Operational trust-boundary validation
+Operational validation complements deterministic, adversarial, repeated-run, and mitigation tracks. Use `scripts/run_operational_validation.py` to measure runtime-cost overhead and collector-limit behavior as machine/workload scoped evidence for triage interpretation.

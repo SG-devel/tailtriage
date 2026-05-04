@@ -11,8 +11,8 @@
 | insufficient evidence | Initial deterministic adversarial coverage | low-request-count, noise-only, and high-latency-missing-instrumentation cases enforce low-confidence fallback. |
 | truncation handling | Initial deterministic adversarial coverage | truncated-artifact adversarial case enforces warning + confidence ceiling. |
 | missing instrumentation warnings | Initial deterministic adversarial coverage | queue/stage/runtime missing and optional-runtime-field warnings are explicitly checked. |
-| runtime overhead | Measured separately | see `docs/runtime-cost.md`. |
-| collector limits | Measured separately | see `docs/collector-limits.md`. |
+| runtime overhead | Manual/local operational validation available | machine/workload scoped; generated outputs not committed by default. |
+| collector limits | Manual/local operational validation available | validates visible bounded drops and warning/downgrade behavior. |
 | repeated-run diagnostic matrix | Manual/local repeated-run validation available | publishable repeated-run outputs are generated locally (JSONL/summary/scorecard) and not committed by default; results are machine/workload scoped. |
 | mitigation validation | Manual/local mitigation matrix available | baseline/mitigated controlled demos compare latency and evidence movement; generated outputs are not committed by default. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
