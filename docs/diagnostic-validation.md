@@ -6,7 +6,7 @@
 The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
 
 ## Deterministic vs repeated-run validation
-Deterministic fixture validation is a manual/local validation path. Repeated-run variance validation is also manual/local. CI currently runs helper/unit checks for validation scripts, not the full deterministic corpus benchmark.
+Deterministic fixture validation is exercised by the scorecard generator and can be used as a correctness gate. Durable scorecards are generated only by the versioned/manual snapshot workflow (`validation-snapshot.yml`) on `workflow_dispatch` and `v*` tags. Normal CI runs helper/unit checks for validation scripts and does not publish durable diagnostic scorecards.
 
 ## Top-1 vs required top-2
 - **Top-1**: primary suspect matches `ground_truth`.
@@ -96,3 +96,11 @@ Operational validation has dedicated domain folders under `validation/runtime-co
 You can run diagnostic validation directly with domain scripts or orchestrate tracks with `scripts/validate_all.py` profiles.
 
 The unified runner coordinates existing validation scripts and outputs; it does not replace or redefine diagnostics-specific validation semantics.
+
+
+## Versioned/manual snapshot workflow
+Use `.github/workflows/validation-snapshot.yml` for auditable snapshots. It generates `benchmark-summary.json`, `environment.json`, and `scorecard.md` under `target/validation/diagnostics` and uploads them as an artifact.
+
+The snapshot captures deterministic benchmark metrics, thresholds, `tailtriage` workspace and per-crate versions, git metadata, GitHub Actions runner metadata (when available), software metadata, hardware metadata, and manifest/referenced-artifact hashes.
+
+Deterministic fixture metrics validate committed fixture behavior only. They do not prove production root cause, universal production accuracy, universal production overhead, or real-service behavior. Repeated-run, runtime-cost, and collector-limit results are more hardware-sensitive than deterministic fixture validation.
