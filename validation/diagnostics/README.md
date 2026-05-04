@@ -70,6 +70,14 @@ Validation tracks currently include deterministic corpus benchmark, adversarial 
 For profile-based orchestration across validation tracks, use `scripts/validate_all.py` (`smoke`, `ci`, `full`, `publish`). Keep using this diagnostics runner directly for diagnostics-specific validation workflows.
 
 
+
+
+## CI gating and scorecard publication boundaries
+- Normal CI runs the deterministic diagnostics benchmark against `validation/diagnostics/manifest.json` as a required gate.
+- Normal CI validates fixture/schema drift and fails on invalid manifests or fixture contract breaks.
+- Durable/versioned diagnostic scorecards are generated only by `.github/workflows/validation-snapshot.yml` on manual dispatch or `v*` tags.
+- Normal CI does not publish durable diagnostic scorecards.
+
 ## Versioned/manual scorecard generation
 Use `.github/workflows/validation-snapshot.yml` to generate durable diagnostic snapshots on manual dispatch or `v*` tag pushes. Normal CI does not upload durable diagnostic scorecards.
 

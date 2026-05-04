@@ -11,7 +11,7 @@ This repository includes an initial deterministic validation corpus for controll
 | Level | Runs in CI? | What it supports | What it does not prove |
 |---|---|---|---|
 | Unit/helper tests | Yes | script/helper correctness checks for validation tooling | end-to-end diagnostic behavior by itself |
-| Deterministic corpus | Yes in `validation-snapshot.yml`; no in normal PR CI | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
+| Deterministic corpus | Yes in normal CI and `validation-snapshot.yml` | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
 | Runtime-cost measurement | Partially (non-blocking measure in CI) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |

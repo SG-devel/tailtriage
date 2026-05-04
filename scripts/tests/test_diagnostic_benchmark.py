@@ -133,6 +133,14 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=1)))
 
+
+
+    def test_committed_manifest_requires_schema_version_one(self):
+        manifest_path = Path(__file__).resolve().parents[2] / "validation" / "diagnostics" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest.get("schema_version"), 1)
+        db.validate_manifest(manifest)
+
     # Report validation tests
     def test_report_missing_primary_fails(self):
         with self.assertRaisesRegex(ValueError, "primary_suspect"):
