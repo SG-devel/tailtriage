@@ -85,3 +85,7 @@ Like all tool output, these results are evidence for triage and next checks; the
 Operational validation complements deterministic corpus, adversarial synthetic checks, repeated-run matrix validation, and mitigation validation. Use `scripts/run_operational_validation.py` for runtime-cost and collector-limit trust boundaries with machine/workload-scoped outputs.
 
 Operational validation has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`. The diagnostics scorecard can reference these operational domains, but it is not the only operational validation location. Generated operational outputs remain under `target/operational-validation/` and are not committed by default.
+
+
+## Unified runner orchestration
+Diagnostic validation can run directly with domain scripts or through `scripts/validate_all.py` profiles. The unified runner orchestrates existing validation tracks and outputs; it does not replace diagnostics-specific scripts.
