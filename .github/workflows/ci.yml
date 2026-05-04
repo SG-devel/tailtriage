@@ -241,6 +241,15 @@ jobs:
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_diagnostic_benchmark
 
+      - name: Validate deterministic diagnostics benchmark corpus
+        if: matrix.extended && matrix.profile == 'dev'
+        run: |
+          python3 scripts/diagnostic_benchmark.py \
+            --manifest validation/diagnostics/manifest.json \
+            --min-top1 0.75 \
+            --min-top2 0.90 \
+            --max-high-confidence-wrong 0
+
       - name: Validate diagnostic scorecard generator unit tests
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_generate_diagnostic_scorecard
