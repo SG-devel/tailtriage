@@ -8,3 +8,6 @@ This directory is the operational validation domain for collector-limit checks.
 Generated outputs are written under `target/operational-validation/` and are not committed by default.
 
 Collector-limit validation checks bounded/visible drops plus downgrade/warning behavior; it does not claim the collector never drops.
+
+
+Unified runner note: `scripts/validate_all.py` full/publish profiles invoke collector-limit operational validation while preserving this direct runner path for domain-focused checks.

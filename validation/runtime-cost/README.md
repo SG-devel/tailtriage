@@ -8,3 +8,6 @@ This directory is the operational validation domain for runtime-cost checks.
 Generated outputs are written under `target/operational-validation/` and are not committed by default.
 
 Runtime-cost numbers are machine/workload/profile scoped for local triage validation and are not universal production guarantees.
+
+
+Unified runner note: `scripts/validate_all.py` full/publish profiles invoke operational runtime-cost validation while preserving this direct runner path for domain-focused checks.
