@@ -80,3 +80,9 @@ Quick smoke profile:
 ```bash
 python3 scripts/measure_collector_limits.py --profile smoke
 ```
+
+## Operational validation runner
+
+For manual/local collector-limit trust-boundary validation, use `scripts/run_operational_validation.py --domain collector-limits`.
+
+The claim is bounded and visible drops with diagnosis downgrade/warning behavior under limit pressure. This does **not** claim the collector never drops. When partial/truncation conditions occur, outputs must surface visible drop counters and warning/downgrade signals.

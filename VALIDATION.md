@@ -52,3 +52,8 @@ It writes JSONL pair records, summary JSON, and optional scorecard Markdown unde
 Mitigation validation checks whether expected evidence-ranked suspect movement appears under controlled workloads (for example: queue-share drops, service-share drops, blocking queue-depth drops, and explainable top-2/primary movement), while treating score movement as intra-report ranking signal rather than absolute cross-report severity.
 
 This workflow is machine/workload scoped and supports triage next checks. It does not prove root cause and is not mandatory CI.
+
+## Operational validation (manual/local)
+`scripts/run_operational_validation.py` adds manual/local validation for runtime cost and collector limits. It writes JSONL run records, summary JSON, and optional scorecard markdown under `target/`.
+
+Non-claims remain explicit: no universal production overhead guarantee, no zero-drop claim, and no root-cause proof.
