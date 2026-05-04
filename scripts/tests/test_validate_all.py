@@ -30,6 +30,30 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("scripts.tests.test_run_operational_validation", joined)
         self.assertIn("scripts.tests.test_validate_docs_contracts", joined)
 
+    def test_ci_plan_deterministic_benchmark_uses_ci_thresholds(self):
+        plan = va.build_plan(self.args("ci"))
+        benchmark = next(
+            c
+            for c in plan
+            if c.name == "deterministic benchmark"
+            and "scripts/diagnostic_benchmark.py" in c.argv
+        )
+
+        self.assertIn("--manifest", benchmark.argv)
+        self.assertEqual(
+            benchmark.argv[benchmark.argv.index("--manifest") + 1],
+            "validation/diagnostics/manifest.json",
+        )
+        self.assertIn("--min-top1", benchmark.argv)
+        self.assertEqual(benchmark.argv[benchmark.argv.index("--min-top1") + 1], "0.75")
+        self.assertIn("--min-top2", benchmark.argv)
+        self.assertEqual(benchmark.argv[benchmark.argv.index("--min-top2") + 1], "0.90")
+        self.assertIn("--max-high-confidence-wrong", benchmark.argv)
+        self.assertEqual(
+            benchmark.argv[benchmark.argv.index("--max-high-confidence-wrong") + 1],
+            "0",
+        )
+
     def test_full_includes_live_tracks(self):
         a = self.args("full"); a.runs = 7
         plan = va.build_plan(a)
