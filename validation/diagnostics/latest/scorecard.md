@@ -18,3 +18,7 @@
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
 Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation and do not provide root-cause proof.
+
+## Generated metrics snapshot
+
+Latest committed scorecard does not embed benchmark numbers directly. Generate fresh metrics with `python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --output target/diagnostic-benchmark.json` and report them alongside machine/workload context when publishing.
