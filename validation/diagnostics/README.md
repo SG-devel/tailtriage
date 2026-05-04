@@ -1,6 +1,6 @@
 # Diagnostic validation corpus contract
 
-This directory defines the deterministic diagnostic-validation corpus used by `scripts/diagnostic_benchmark.py`.
+This directory defines the deterministic diagnostic-validation corpus used by `scripts/diagnostic_benchmark.py` and the normal CI deterministic benchmark gate.
 
 Demos teach; validation measures.
 
@@ -71,7 +71,7 @@ For profile-based orchestration across validation tracks, use `scripts/validate_
 
 
 ## Versioned/manual scorecard generation
-Use `.github/workflows/validation-snapshot.yml` to generate durable diagnostic snapshots on manual dispatch or `v*` tag pushes. Normal CI does not upload durable diagnostic scorecards.
+Use `.github/workflows/validation-snapshot.yml` to generate durable diagnostic snapshots on manual dispatch or `v*` tag pushes. Normal CI runs the deterministic benchmark gate, but it does not upload durable diagnostic scorecards.
 
 Snapshot output directory: `target/validation/diagnostics/`
 - `benchmark-summary.json`

@@ -21,7 +21,7 @@ Deterministic synthetic adversarial cases validate benchmark/report contract beh
 
 ## Generated metrics snapshot
 
-Latest committed scorecard does not embed benchmark numbers directly. Generate fresh metrics with `python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --output target/diagnostic-benchmark.json` and report them alongside machine/workload context when publishing.
+Latest committed scorecard does not embed benchmark numbers directly. Normal CI gates deterministic corpus quality by running `python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --min-top1 0.75 --min-top2 0.90 --max-high-confidence-wrong 0`. Generate fresh metrics with `python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --output target/diagnostic-benchmark.json` and report them alongside machine/workload context when publishing.
 
 ## Versioned/manual scorecards
 

@@ -68,6 +68,12 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "schema_version"):
             db.validate_manifest(self.make_manifest(self.make_case(), schema_version=0))
 
+    def test_committed_manifest_has_supported_schema_version(self):
+        manifest_path = Path(__file__).resolve().parents[2] / "validation/diagnostics/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        db.validate_manifest(manifest)
+        self.assertEqual(manifest.get("schema_version"), 1)
+
     def test_manifest_duplicate_ids_fail(self):
         c1 = self.make_case(id="dup", artifact="a.json")
         c2 = self.make_case(id="dup", artifact="b.json")

@@ -6,7 +6,7 @@
 The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
 
 ## Deterministic vs repeated-run validation
-Deterministic fixture validation is exercised by the scorecard generator and can be used as a correctness gate. Durable scorecards are generated only by the versioned/manual snapshot workflow (`validation-snapshot.yml`) on `workflow_dispatch` and `v*` tags. Normal CI runs helper/unit checks for validation scripts and does not publish durable diagnostic scorecards.
+Deterministic fixture validation is exercised by the benchmark and scorecard generator, and normal CI runs the deterministic benchmark gate against the committed manifest. Durable scorecards are generated only by the versioned/manual snapshot workflow (`validation-snapshot.yml`) on `workflow_dispatch` and `v*` tags. Normal CI does not publish durable diagnostic scorecards.
 
 ## Top-1 vs required top-2
 - **Top-1**: primary suspect matches `ground_truth`.
