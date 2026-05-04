@@ -22,6 +22,7 @@ Deterministic synthetic adversarial cases validate benchmark/report contract beh
 ## Generated metrics snapshot
 
 Latest committed scorecard does not embed benchmark numbers directly. Generate fresh metrics with `python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --output target/diagnostic-benchmark.json` and report them alongside machine/workload context when publishing.
+Normal CI runs the same deterministic benchmark command family as a required gate for committed manifest/fixture validity, but CI does not publish durable scorecard artifacts.
 
 ## Versioned/manual scorecards
 
