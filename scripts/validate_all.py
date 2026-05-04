@@ -55,6 +55,7 @@ def _py(args: argparse.Namespace, *extra: str) -> list[str]:
 
 def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
     out = Path(args.out)
+    operational_artifact_root = out / "operational" / "artifacts"
     cmds: list[CommandSpec] = [
         CommandSpec("deterministic benchmark", "diagnostics", _py(args, "scripts/diagnostic_benchmark.py", "--manifest", "validation/diagnostics/manifest.json", "--output", str(out / "diagnostics/benchmark-summary.json"))),
         CommandSpec("docs contract", "docs", _py(args, "scripts/validate_docs_contracts.py")),
@@ -66,8 +67,8 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
         cmds += [
             CommandSpec("diag matrix smoke", "diagnostic_matrix", _py(args, "scripts/run_diagnostic_matrix.py", "--runs", "1", "--scenario", "queue", "--out", str(out / "diagnostic-matrix/runs.jsonl"), "--summary", str(out / "diagnostic-matrix/summary.json"), "--scorecard", str(out / "diagnostic-matrix/scorecard.md"), *mode, *nfts)),
             CommandSpec("mitigation smoke", "mitigation", _py(args, "scripts/run_mitigation_matrix.py", "--scenario", "queue", "--out", str(out / "mitigation/runs.jsonl"), "--summary", str(out / "mitigation/summary.json"), "--scorecard", str(out / "mitigation/scorecard.md"), *mode, *nfts)),
-            CommandSpec("runtime-cost smoke", "runtime_cost", _py(args, "scripts/run_operational_validation.py", "--domain", "runtime-cost", "--scenario", "queue", "--runs", "1", "--out", str(out / "operational/runtime-cost.jsonl"), "--summary", str(out / "operational/runtime-cost-summary.json"), "--scorecard", str(out / "operational/runtime-cost-scorecard.md"), *mode, *nfts)),
-            CommandSpec("collector-limits smoke", "collector_limits", _py(args, "scripts/run_operational_validation.py", "--domain", "collector-limits", "--scenario", "queue-limit-pressure", "--out", str(out / "operational/collector-limits.jsonl"), "--summary", str(out / "operational/collector-limits-summary.json"), "--scorecard", str(out / "operational/collector-limits-scorecard.md"), *mode, *nfts)),
+            CommandSpec("runtime-cost smoke", "runtime_cost", _py(args, "scripts/run_operational_validation.py", "--domain", "runtime-cost", "--scenario", "queue", "--runs", "1", "--artifact-root", str(operational_artifact_root), "--out", str(out / "operational/runtime-cost.jsonl"), "--summary", str(out / "operational/runtime-cost-summary.json"), "--scorecard", str(out / "operational/runtime-cost-scorecard.md"), *mode, *nfts)),
+            CommandSpec("collector-limits smoke", "collector_limits", _py(args, "scripts/run_operational_validation.py", "--domain", "collector-limits", "--scenario", "queue-limit-pressure", "--artifact-root", str(operational_artifact_root), "--out", str(out / "operational/collector-limits.jsonl"), "--summary", str(out / "operational/collector-limits-summary.json"), "--scorecard", str(out / "operational/collector-limits-scorecard.md"), *mode, *nfts)),
         ]
     if args.profile in {"ci", "full", "publish"}:
         cmds += [
@@ -82,7 +83,8 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
         cmds += [
             CommandSpec("diag matrix full", "diagnostic_matrix", _py(args, "scripts/run_diagnostic_matrix.py", "--runs", str(args.runs), "--scenario", "queue", "--scenario", "blocking", "--scenario", "executor", "--scenario", "downstream", "--out", str(out / "diagnostic-matrix/runs.jsonl"), "--summary", str(out / "diagnostic-matrix/summary.json"), "--scorecard", str(out / "diagnostic-matrix/scorecard.md"), *mode, *nfts)),
             CommandSpec("mitigation full", "mitigation", _py(args, "scripts/run_mitigation_matrix.py", "--scenario", "queue", "--scenario", "blocking", "--scenario", "downstream", "--scenario", "db-pool", "--out", str(out / "mitigation/runs.jsonl"), "--summary", str(out / "mitigation/summary.json"), "--scorecard", str(out / "mitigation/scorecard.md"), *mode, *nfts)),
-            CommandSpec("operational full", "operational", _py(args, "scripts/run_operational_validation.py", "--domain", "all", "--runs", str(args.runs), "--out", str(out / "operational/operational-validation.jsonl"), "--summary", str(out / "operational/operational-validation-summary.json"), "--scorecard", str(out / "operational/operational-validation-scorecard.md"), *mode, *nfts)),
+            CommandSpec("runtime-cost full", "runtime_cost", _py(args, "scripts/run_operational_validation.py", "--domain", "runtime-cost", "--runs", str(args.runs), "--artifact-root", str(operational_artifact_root), "--out", str(out / "operational/runtime-cost.jsonl"), "--summary", str(out / "operational/runtime-cost-summary.json"), "--scorecard", str(out / "operational/runtime-cost-scorecard.md"), *mode, *nfts)),
+            CommandSpec("collector-limits full", "collector_limits", _py(args, "scripts/run_operational_validation.py", "--domain", "collector-limits", "--runs", str(args.runs), "--artifact-root", str(operational_artifact_root), "--out", str(out / "operational/collector-limits.jsonl"), "--summary", str(out / "operational/collector-limits-summary.json"), "--scorecard", str(out / "operational/collector-limits-scorecard.md"), *mode, *nfts)),
         ]
 
     include_cargo = (args.profile in {"full", "publish"} and not args.skip_cargo) or args.include_cargo
@@ -131,10 +133,12 @@ def summarize_results(results: list[CommandResult], profile: str, profile_mode: 
     for t in ["diagnostics", "diagnostic_matrix", "mitigation", "runtime_cost", "collector_limits", "docs", "cargo", "operational"]:
         tr = [r for r in results if r.spec.track == t]
         tracks[t] = {"status": "skipped" if not tr else ("passed" if all(x.exit_code == 0 for x in tr) else "failed")}
-    return {"schema_version": 1, "profile": profile, "profile_mode": profile_mode, "out_dir": str(out_dir), "started_at_utc": started, "finished_at_utc": finished, "duration_seconds": None, "status": "passed" if not failed else "failed", "commands": {"total": len(results), "passed": len(results) - len(failed), "failed": len(failed)}, "tracks": tracks, "failed_commands": [{"name": r.spec.name, "argv": r.spec.argv, "exit_code": r.exit_code} for r in failed]}
+    duration_seconds = sum(r.duration_seconds for r in results)
+    return {"schema_version": 1, "profile": profile, "profile_mode": profile_mode, "out_dir": str(out_dir), "started_at_utc": started, "finished_at_utc": finished, "duration_seconds": duration_seconds, "status": "passed" if not failed else "failed", "commands": {"total": len(results), "passed": len(results) - len(failed), "failed": len(failed)}, "tracks": tracks, "failed_commands": [{"name": r.spec.name, "argv": r.spec.argv, "exit_code": r.exit_code} for r in failed]}
 
 
 def write_scorecard(path: Path, summary: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# Tailtriage validation scorecard", "", f"Profile: {summary['profile']}", f"Build profile: {summary['profile_mode']}", f"Status: {summary['status']}", f"Generated: {summary['finished_at_utc']}", "", "| Track | Status | Output | Notes |", "|---|---|---|---|", "| Deterministic diagnostics | {} | diagnostics/benchmark-summary.json | corpus benchmark |".format(summary["tracks"]["diagnostics"]["status"]), "| Repeated-run diagnostic matrix | {} | diagnostic-matrix/summary.json | machine/workload scoped |".format(summary["tracks"]["diagnostic_matrix"]["status"]), "| Mitigation matrix | {} | mitigation/summary.json | baseline vs mitigated evidence movement |".format(summary["tracks"]["mitigation"]["status"]), "| Runtime cost | {} | operational/runtime-cost-summary.json | measured, not universal |".format(summary["tracks"].get("runtime_cost", {}).get("status", "skipped")), "| Collector limits | {} | operational/collector-limits-summary.json | bounded drops + warnings/downgrades |".format(summary["tracks"].get("collector_limits", {}).get("status", "skipped")), "| Docs contracts | {} | logs/commands.jsonl | docs consistency |".format(summary["tracks"]["docs"]["status"]), "| Cargo checks | {} | logs/commands.jsonl | profile/config dependent |".format(summary["tracks"]["cargo"]["status"]), "", "Root cause is not proven by this triage validation.", "Runtime-cost numbers are machine/workload/profile scoped.", "Collector-limit checks do not claim no drops.", "Generated outputs are local unless explicitly published."]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
