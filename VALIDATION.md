@@ -60,3 +60,22 @@ Operational validation now has dedicated domain folders under `validation/runtim
 `scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/operational-validation/`. Diagnostics scorecards may reference these operational domains, but diagnostics is not the only operational validation location.
 
 Non-claims remain explicit: runtime-cost is machine/workload/profile scoped (not a universal production guarantee), collector-limit checks verify visible bounded drops plus downgrade/warning behavior (not never-drop), and results do not provide root-cause proof.
+
+## Unified validation runner
+
+Use `scripts/validate_all.py` to orchestrate existing validation tracks through explicit profiles.
+
+Profiles:
+- `smoke`: fast local sanity, including deterministic diagnostics, docs contracts, and single-scenario smoke runs for diagnostic matrix, mitigation, runtime-cost, and collector-limits (with optional `--no-fail-thresholds`).
+- `ci`: deterministic benchmark + validation/unit-test checks suitable for reasonably fast CI.
+- `full`: manual/local comprehensive run (repeated-run matrix, mitigation matrix, operational validation, optional cargo checks).
+- `publish`: full run plus artifact packaging to a chosen output directory.
+
+The unified runner orchestrates existing scripts; it does not replace domain runners or change analyzer behavior.
+
+Generated-output policy:
+- default output for smoke/ci/full is `target/validation/<profile>/`
+- publish output may target `validation/artifacts/<date>-git-<sha>/`
+- generated artifacts are local by default and are not committed automatically
+
+Non-claims remain explicit: no root-cause proof, runtime-cost is machine/workload scoped, and collector-limit checks do not claim zero drops.
