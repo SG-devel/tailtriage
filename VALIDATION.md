@@ -11,7 +11,7 @@ This repository includes an initial deterministic validation corpus for controll
 | Level | Runs in CI? | What it supports | What it does not prove |
 |---|---|---|---|
 | Unit/helper tests | Yes | script/helper correctness checks for validation tooling | end-to-end diagnostic behavior by itself |
-| Deterministic corpus | Yes in `validation-snapshot.yml`; no in normal PR CI | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
+| Deterministic corpus | Yes in normal CI and in `validation-snapshot.yml` | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
 | Runtime-cost measurement | Partially (non-blocking measure in CI) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
@@ -26,6 +26,8 @@ The deterministic benchmark validates:
 - required evidence substrings
 - required next-check substrings when required by a case
 - case-level confidence ceilings (`max_primary_confidence`) for sparse/missing/truncated/mixed evidence humility checks
+
+Normal CI enforces this deterministic benchmark directly against `validation/diagnostics/manifest.json` and referenced fixtures. This is a correctness gate for committed corpus/schema drift, not a durable scorecard publication path.
 
 The corpus includes deterministic adversarial validation that checks sparse, missing, truncated, or mixed evidence is warned about and does not produce overconfident unsupported classifications.
 
