@@ -67,6 +67,15 @@ class RunMitigationMatrixTests(unittest.TestCase):
         out = rmm.evaluate_movements(rec, {"targeted_suspect": "application_queue_saturation", "expected_movements": [], "expected_after_top2": ["application_queue_saturation"]}, {"min_p95_improvement_ratio": 0.05})
         self.assertFalse(out["movement_passed"])
 
+    def test_unknown_movement_key_fails_loudly(self):
+        rec = rmm.build_pair_record(self.report(), self.report(p95=800), {"targeted_suspect": "application_queue_saturation"}, before_artifact=Path("b1"), before_analysis=Path("b2"), after_artifact=Path("a1"), after_analysis=Path("a2"), profile="dev", scenario="queue")
+        meta = {"targeted_suspect": "application_queue_saturation", "expected_movements": ["p95_decreases", "typo_queue_share_decreases"]}
+        out = rmm.evaluate_movements(rec, meta, {"min_p95_improvement_ratio": 0.05})
+        self.assertTrue(out["expected_movements"]["p95_decreases"])
+        self.assertFalse(out["expected_movements"]["typo_queue_share_decreases"])
+        self.assertFalse(out["movement_passed"])
+        self.assertIn("unknown_movement_key:typo_queue_share_decreases", out["failed_expectations"])
+
     def test_summary_jsonl_scorecard(self):
         rec = {"scenario": "queue", "movement_passed": True, "failed_expectations": [], "p95_delta_us": -10, "p95_delta_ratio": -0.1, "before_primary_kind": "a", "after_primary_kind": "b", "before_targeted_score": 90, "after_targeted_score": 70, "queue_share_delta_permille": -100, "high_confidence_wrong_after": False, "expected_movements": {"p95_decreases": True}, "targeted_suspect": "application_queue_saturation", "notes": "n"}
         summary = rmm.summarize_records([rec], "dev")

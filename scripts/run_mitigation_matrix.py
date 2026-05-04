@@ -161,10 +161,23 @@ def evaluate_movements(record: dict[str, Any], scenario_meta: dict[str, Any], th
         elif key == "primary_changes_from_targeted":
             passed = record.get("before_primary_kind") == record["targeted_suspect"] and record.get("after_primary_kind") != record["targeted_suspect"]
         else:
-            passed = True
+            passed = False
         checks[key] = passed
         if not passed:
-            failed.append(key)
+            if key in {
+                "p95_decreases",
+                "p99_nonworsening",
+                "queue_share_decreases",
+                "service_share_decreases",
+                "blocking_queue_depth_decreases",
+                "targeted_score_nonworsening",
+                "targeted_score_decreases",
+                "top2_retains_target_or_expected_successor",
+                "primary_changes_from_targeted",
+            }:
+                failed.append(key)
+            else:
+                failed.append(f"unknown_movement_key:{key}")
 
     after_conf = record.get("after_primary_confidence")
     record["high_confidence_wrong_after"] = bool(after_conf in CONF_HIGH and record.get("after_primary_kind") not in set(scenario_meta.get("expected_after_top2") or [record["targeted_suspect"]]))
