@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,6 +39,16 @@ jobs:
             echo "SNAPSHOT_LABEL=${{ inputs.snapshot_label }}" >> "$GITHUB_ENV"
           fi
 
+      - name: Sanitize snapshot label for artifact name
+        run: |
+          SAFE_SNAPSHOT_LABEL="$(printf %s "$SNAPSHOT_LABEL" | tr -c "A-Za-z0-9._-" "-")"
+          SAFE_SNAPSHOT_LABEL="${SAFE_SNAPSHOT_LABEL#-}"
+          SAFE_SNAPSHOT_LABEL="${SAFE_SNAPSHOT_LABEL%-}"
+          if [ -z "$SAFE_SNAPSHOT_LABEL" ]; then
+            SAFE_SNAPSHOT_LABEL="snapshot"
+          fi
+          echo "SAFE_SNAPSHOT_LABEL=$SAFE_SNAPSHOT_LABEL" >> "$GITHUB_ENV"
+
       - name: Generate scorecard snapshot
         run: |
           python3 scripts/generate_diagnostic_scorecard.py \
@@ -50,7 +62,7 @@ jobs:
       - name: Upload snapshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: diagnostic-validation-${{ env.SNAPSHOT_LABEL }}-${{ env.SHORT_SHA }}
+          name: diagnostic-validation-${{ env.SAFE_SNAPSHOT_LABEL }}-${{ env.SHORT_SHA }}
           path: target/validation/diagnostics
           retention-days: 90
 

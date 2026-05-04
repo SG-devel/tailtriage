@@ -54,7 +54,6 @@ def get_tailtriage_versions(repo_root: Path):
     workspace_version = data.get("workspace", {}).get("package", {}).get("version")
     members = data.get("workspace", {}).get("members", [])
     versions = {name: None for name in EXPECTED_PACKAGES}
-
     for member in members:
         manifest_path = repo_root / member / "Cargo.toml"
         if not manifest_path.exists():
@@ -71,11 +70,7 @@ def get_tailtriage_versions(repo_root: Path):
             versions[name] = version
         elif isinstance(version, dict) and version.get("workspace") is True:
             versions[name] = workspace_version
-
-    return {
-        "workspace_package_version": workspace_version,
-        "packages": versions,
-    }
+    return {"workspace_package_version": workspace_version, "packages": versions}
 
 
 def manifest_and_artifact_hashes(manifest_path: Path):
@@ -84,7 +79,6 @@ def manifest_and_artifact_hashes(manifest_path: Path):
     manifest = json.loads(manifest_bytes)
     root = manifest_path.parent
     artifacts = sorted({case["artifact"] for case in manifest.get("cases", [])})
-
     hasher = hashlib.sha256()
     for rel in artifacts:
         artifact_path = (root / rel).resolve()
@@ -119,7 +113,6 @@ def _linux_mem_kib():
 
 def collect_environment(repo_root: Path, manifest_path: Path, snapshot_label, thresholds):
     manifest_sha, artifacts_sha = manifest_and_artifact_hashes(manifest_path)
-    os_release = _read_text(Path("/etc/os-release"))
     return {
         "schema_version": 1,
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -153,7 +146,7 @@ def collect_environment(repo_root: Path, manifest_path: Path, snapshot_label, th
             "cargo": _cmd_output(["cargo", "--version"]),
             "platform": platform.platform(),
             "kernel": platform.release(),
-            "os_release": os_release,
+            "os_release": _read_text(Path("/etc/os-release")),
         },
         "hardware": {
             "machine": platform.machine(),
@@ -176,48 +169,19 @@ def render_failed_cases(failed_cases):
         return "None\n"
     lines = ["| id | top1_ok | top2_ok | evidence_ok | next_check_ok | confidence_ceiling_ok |", "|---|---:|---:|---:|---:|---:|"]
     for case in failed_cases:
-        lines.append(
-            f"| {case['id']} | {case['top1_ok']} | {case['top2_ok']} | {case['evidence_ok']} | {case['next_check_ok']} | {case['confidence_ceiling_ok']} |"
-        )
+        lines.append(f"| {case['id']} | {case['top1_ok']} | {case['top2_ok']} | {case['evidence_ok']} | {case['next_check_ok']} | {case['confidence_ceiling_ok']} |")
     return "\n".join(lines) + "\n"
 
 
 def render_scorecard(metrics, env):
     metric_keys = ["total_cases", "top1_accuracy", "top2_recall", "high_confidence_wrong_count", "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases", "next_check_pass_rate", "next_check_presence_rate", "confidence_ceiling_cases", "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "unexpected_warning_count", "missing_expected_warning_count"]
-    failed_count = len(metrics.get("failed_cases", []))
-    parts = [
-        "# Diagnostic validation scorecard\n",
-        "## Snapshot\n",
-        f"- Generated at (UTC): {env['generated_at_utc']}",
-        f"- Snapshot label: {env.get('snapshot_label')}",
-        f"- Git SHA: {env['git'].get('sha')}",
-        f"- Git tag: {env['git'].get('tag')}",
-        f"- Git describe: {env['git'].get('describe')}\n",
-        "## Environment\n",
-        f"- tailtriage workspace package version: {env['tailtriage'].get('workspace_package_version')}",
-    ]
+    parts = ["# Diagnostic validation scorecard\n", "## Snapshot\n", f"- Generated at (UTC): {env['generated_at_utc']}", f"- Snapshot label: {env.get('snapshot_label')}", f"- Git SHA: {env['git'].get('sha')}", f"- Git tag: {env['git'].get('tag')}", f"- Git describe: {env['git'].get('describe')}\n", "## Environment\n", f"- tailtriage workspace package version: {env['tailtriage'].get('workspace_package_version')}"]
     for k, v in env["tailtriage"]["packages"].items():
         parts.append(f"- {k}: {v}")
-    parts.extend([
-        f"- GitHub run: {env['github_actions'].get('run_id')} ({env['github_actions'].get('ref')})",
-        f"- Runner: {env['github_actions'].get('runner_os')} {env['github_actions'].get('runner_arch')} / {env['github_actions'].get('image_version')}",
-        f"- Python: {env['software'].get('python')}",
-        f"- rustc: {env['software'].get('rustc')}",
-        f"- cargo: {env['software'].get('cargo')}",
-        f"- CPU model: {env['hardware'].get('cpu_model')}",
-        f"- Logical cores: {env['hardware'].get('logical_cores')}",
-        f"- Memory KiB: {env['hardware'].get('memory_total_kib')}\n",
-        "## Inputs\n",
-        f"- Manifest SHA256: {env['inputs']['manifest_sha256']}",
-        f"- Referenced artifacts SHA256: {env['inputs']['referenced_artifacts_sha256']}",
-        f"- Thresholds: {json.dumps(env['inputs']['thresholds'], sort_keys=True)}\n",
-        "## Metrics\n",
-        "| metric | value |",
-        "|---|---:|",
-    ])
+    parts.extend([f"- GitHub run: {env['github_actions'].get('run_id')} ({env['github_actions'].get('ref')})", f"- Runner: {env['github_actions'].get('runner_os')} {env['github_actions'].get('runner_arch')} / {env['github_actions'].get('image_version')}", f"- Python: {env['software'].get('python')}", f"- rustc: {env['software'].get('rustc')}", f"- cargo: {env['software'].get('cargo')}", f"- CPU model: {env['hardware'].get('cpu_model')}", f"- Logical cores: {env['hardware'].get('logical_cores')}", f"- Memory KiB: {env['hardware'].get('memory_total_kib')}\n", "## Inputs\n", f"- Manifest SHA256: {env['inputs']['manifest_sha256']}", f"- Referenced artifacts SHA256: {env['inputs']['referenced_artifacts_sha256']}", f"- Thresholds: {json.dumps(env['inputs']['thresholds'], sort_keys=True)}\n", "## Metrics\n", "| metric | value |", "|---|---:|"])
     for k in metric_keys:
         parts.append(f"| {k} | {metrics.get(k)} |")
-    parts.append(f"| failed_case_count | {failed_count} |\n")
+    parts.append(f"| failed_case_count | {len(metrics.get('failed_cases', []))} |\n")
     parts.append("## Per-ground-truth case counts\n")
     for k, v in sorted(metrics.get("per_ground_truth_counts", {}).items()):
         parts.append(f"- {k}: {v}")
@@ -227,14 +191,21 @@ def render_scorecard(metrics, env):
     parts.append("\n## Failed cases\n")
     parts.append(render_failed_cases(metrics.get("failed_cases", [])))
     parts.append("## Non-claims\n")
-    parts.extend([
-        "- This is not root-cause proof.",
-        "- This is not universal production accuracy.",
-        "- This is not universal production overhead.",
-        "- This is not real-service validation.",
-        "- `ground_truth` labels are controlled fixture intent, not production truth.",
-    ])
+    parts.extend(["- This is not root-cause proof.", "- This is not universal production accuracy.", "- This is not universal production overhead.", "- This is not real-service validation.", "- `ground_truth` labels are controlled fixture intent, not production truth."])
     return "\n".join(parts) + "\n"
+
+
+def generate_scorecard(repo_root: Path, manifest_rel: str, out_dir_rel: str, min_top1: float, min_top2: float, max_high_confidence_wrong: int, snapshot_label):
+    manifest_path = (repo_root / manifest_rel).resolve()
+    out_dir = (repo_root / out_dir_rel).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    metrics, failures = run_diagnostic_benchmark(manifest_path, min_top1, min_top2, max_high_confidence_wrong)
+    thresholds = {"min_top1": min_top1, "min_top2": min_top2, "max_high_confidence_wrong": max_high_confidence_wrong}
+    environment = collect_environment(repo_root, manifest_path, snapshot_label, thresholds)
+    (out_dir / "benchmark-summary.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out_dir / "environment.json").write_text(json.dumps(environment, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out_dir / "scorecard.md").write_text(render_scorecard(metrics, environment), encoding="utf-8")
+    return failures
 
 
 def main():
@@ -246,20 +217,7 @@ def main():
     ap.add_argument("--max-high-confidence-wrong", type=int, default=0)
     ap.add_argument("--snapshot-label")
     args = ap.parse_args()
-
-    repo_root = REPO_ROOT
-    manifest_path = (repo_root / args.manifest).resolve()
-    out_dir = (repo_root / args.out_dir).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    metrics, failures = run_diagnostic_benchmark(manifest_path, args.min_top1, args.min_top2, args.max_high_confidence_wrong)
-    thresholds = {"min_top1": args.min_top1, "min_top2": args.min_top2, "max_high_confidence_wrong": args.max_high_confidence_wrong}
-    environment = collect_environment(repo_root, manifest_path, args.snapshot_label, thresholds)
-
-    (out_dir / "benchmark-summary.json").write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (out_dir / "environment.json").write_text(json.dumps(environment, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (out_dir / "scorecard.md").write_text(render_scorecard(metrics, environment), encoding="utf-8")
-
+    failures = generate_scorecard(REPO_ROOT, args.manifest, args.out_dir, args.min_top1, args.min_top2, args.max_high_confidence_wrong, args.snapshot_label)
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")

@@ -241,6 +241,10 @@ jobs:
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_diagnostic_benchmark
 
+      - name: Validate diagnostic scorecard generator unit tests
+        if: matrix.extended && matrix.profile == 'dev'
+        run: python3 -m unittest scripts.tests.test_generate_diagnostic_scorecard
+
       - name: Check demo fixture drift
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
