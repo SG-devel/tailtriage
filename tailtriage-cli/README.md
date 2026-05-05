@@ -162,6 +162,7 @@ Suspect ranking uses deterministic, proportional, evidence-aware scoring (0-100)
 
 - Scores rank suspects **inside one report**; they are not probabilities.
 - Confidence is score-derived ranking strength and may be evidence-quality capped; it is not causal certainty.
+- `confidence_notes[]` explain caps, including sparse samples, truncation, missing instrumentation, ambiguous top scores, and partial-vs-missing runtime snapshot limits.
 - Strong downstream tail-stage contribution can outrank weak blocking/runtime signals.
 - Strong queue pressure remains a high-confidence lead when queue share/depth evidence is dominant.
 
