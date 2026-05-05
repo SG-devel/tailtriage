@@ -254,6 +254,17 @@ jobs:
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_generate_diagnostic_scorecard
 
+      - name: Smoke-check diagnostic scorecard snapshot generation
+        if: matrix.extended && matrix.profile == 'release'
+        run: |
+          python3 scripts/generate_diagnostic_scorecard.py \
+            --manifest validation/diagnostics/manifest.json \
+            --out-dir target/validation/diagnostics-ci-smoke \
+            --min-top1 0.75 \
+            --min-top2 0.90 \
+            --max-high-confidence-wrong 0 \
+            --snapshot-label ci-smoke
+
       - name: Check demo fixture drift
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
