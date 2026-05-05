@@ -57,6 +57,7 @@ Each suspect includes:
 - `secondary_suspects[]`: additional ranked suspects.
 - `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.
 - `route_breakdowns`: always present and usually empty. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal (for example, different route-level primary suspects or a large route p95 latency spread). Route breakdowns are supporting context only; global `primary_suspect` remains the primary full-run triage lead. Route breakdowns use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals and are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
+- `temporal_segments`: always present and usually empty. It is populated only when bounded early/late segmentation adds signal (for example, different segment-level primary suspects or a large segment p95 latency shift). Temporal segments are within-run hints only; global `primary_suspect` remains global. Segment-level runtime/in-flight attribution is limited to timestamp-filtered samples when reliable, and segment summaries do not prove phase-specific root cause.
 
 ## Suspect kinds
 
