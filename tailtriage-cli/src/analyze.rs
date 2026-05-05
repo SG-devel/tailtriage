@@ -1854,4 +1854,55 @@ mod tests {
             EvidenceQualityLevel::Strong
         );
     }
+
+    #[test]
+    fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
+        let mut run = test_run();
+        run.requests = (0..30)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/t".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.queues = run
+            .requests
+            .iter()
+            .map(|r| QueueEvent {
+                request_id: r.request_id.clone(),
+                queue: "q".into(),
+                wait_us: 500,
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+                depth_at_start: Some(2),
+            })
+            .collect();
+        run.stages = run
+            .requests
+            .iter()
+            .map(|r| StageEvent {
+                request_id: r.request_id.clone(),
+                stage: "db".into(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 400,
+                success: true,
+            })
+            .collect();
+        run.truncation.dropped_queues = 2;
+
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.evidence_quality.queues,
+            SignalCoverageStatus::Truncated
+        );
+        assert_ne!(
+            report.evidence_quality.quality,
+            EvidenceQualityLevel::Strong
+        );
+    }
 }
