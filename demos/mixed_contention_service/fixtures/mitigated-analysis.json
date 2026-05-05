@@ -1,27 +1,49 @@
 {
   "request_count": 220,
-  "p50_latency_us": 14492,
-  "p95_latency_us": 34767,
-  "p99_latency_us": 35164,
+  "p50_latency_us": 14399,
+  "p95_latency_us": 34450,
+  "p99_latency_us": 35029,
   "p95_queue_share_permille": 0,
-  "p95_service_share_permille": 999,
+  "p95_service_share_permille": 1000,
   "inflight_trend": {
     "gauge": "mixed_contention_inflight",
     "sample_count": 440,
-    "peak_count": 13,
+    "peak_count": 14,
     "p95_count": 13,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2380
+    "growth_per_sec_milli": -2631
   },
   "warnings": [],
+  "evidence_quality": {
+    "request_count": 220,
+    "queue_event_count": 220,
+    "stage_event_count": 440,
+    "runtime_snapshot_count": 0,
+    "inflight_snapshot_count": 440,
+    "requests": "present",
+    "queues": "present",
+    "stages": "present",
+    "runtime_snapshots": "missing",
+    "inflight_snapshots": "present",
+    "truncated": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "quality": "strong",
+    "limitations": [
+      "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+    ]
+  },
   "primary_suspect": {
     "kind": "downstream_stage_dominates",
     "score": 95,
     "confidence": "high",
     "evidence": [
-      "Stage 'downstream_call' has p95 latency 32473 us across 220 samples.",
-      "Stage 'downstream_call' cumulative latency is 3739540 us (876 permille of request latency).",
-      "Stage 'downstream_call' contributes 932 permille of tail request latency."
+      "Stage 'downstream_call' has p95 latency 32570 us across 220 samples.",
+      "Stage 'downstream_call' cumulative latency is 3763084 us (889 permille of request latency).",
+      "Stage 'downstream_call' contributes 933 permille of tail request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'downstream_call'.",

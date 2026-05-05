@@ -31,6 +31,7 @@ Current supported schema version: `1`.
 - p95 queue/service share summaries
 - optional in-flight trend summary
 - warnings (analyzer/report warnings, especially truncation-related)
+- evidence_quality (structured coverage/completeness/interpretability summary)
 - ranked suspects (primary + secondary)
 
 Each suspect includes:
@@ -50,6 +51,7 @@ Each suspect includes:
 - `p95_queue_share_permille`: p95 queue-time share per request (0..1000 scale).
 - `p95_service_share_permille`: p95 service-time share per request (0..1000 scale).
 - `warnings[]`: analyzer/report warnings, especially truncation-related warnings from captured-data limits. Loader/lifecycle warnings (including unfinished-request warnings) are emitted separately by the CLI loader to stderr before the report output.
+- `evidence_quality`: structured signal coverage status, truncation counters, and overall evidence quality (`strong`/`partial`/`weak`).
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.
 - `secondary_suspects[]`: additional ranked suspects.
 - `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.
@@ -105,6 +107,19 @@ As always: suspects are leads for next checks, not proof.
 - truncation warnings when capture limits dropped events
 
 Warnings lower interpretation confidence; they do not automatically invalidate suspect ranking.
+
+## Evidence quality semantics
+
+`evidence_quality` describes capture completeness and interpretation limits. It does **not** claim causal certainty, and suspects remain evidence-ranked leads, not proof.
+
+- `requests`: `missing`, `partial`, `truncated`, or `present` based on completed-request count and request drops.
+- `queues`, `stages`, `runtime_snapshots`, `inflight_snapshots`: per-family coverage status.
+- `quality`:
+  - `weak`: sparse/missing request evidence, request truncation, or no explanatory evidence families.
+  - `partial`: non-request truncation or major evidence-family limitations.
+  - `strong`: enough request evidence, queue or stage evidence present, no truncation limits active.
+
+Runtime snapshots are optional input. Missing runtime snapshots add a limitation for executor/blocking interpretation, but they do not by themselves force `quality` to `partial` when queue/stage evidence is otherwise strong.
 
 ## Runtime-pressure caveat
 
