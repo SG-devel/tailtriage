@@ -39,6 +39,7 @@ Each suspect includes:
 - `kind`
 - `score`
 - `confidence`
+- `confidence_notes[]` (only when evidence limitations cap confidence)
 - `evidence[]`
 - `next_checks[]`
 
@@ -81,7 +82,7 @@ The analyzer is deterministic and rule-based. It does not use probabilistic or M
 
 - `score` is a **relative evidence-ranking score within one report**.
 - `score` is **not** a probability and **not** absolute severity across different captures.
-- `confidence` is derived from score bands and reflects ranking strength, not causal certainty.
+- `confidence` is derived from score bands and then evidence-quality capped when evidence is weak/truncated/missing/ambiguous; it reflects ranking strength, not causal certainty.
 
 Signal families used for scoring:
 

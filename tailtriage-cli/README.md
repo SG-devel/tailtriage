@@ -90,6 +90,7 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "kind": "application_queue_saturation",
     "score": 90,
     "confidence": "high",
+    "confidence_notes": [],
     "evidence": ["Queue wait at p95 consumes 98.2% of request time."],
     "next_checks": ["Inspect queue admission limits and producer burst patterns."]
   },
@@ -120,6 +121,7 @@ Each suspect includes:
 - `confidence`
 - `evidence[]`
 - `next_checks[]`
+- `confidence_notes[]` (only present when evidence quality caps confidence or ambiguity explicitly caps confidence)
 
 ## Artifact compatibility contract
 
@@ -153,7 +155,7 @@ Library note:
 Suspect ranking uses deterministic, proportional, evidence-aware scoring (0-100), not fixed suspect priority.
 
 - Scores rank suspects **inside one report**; they are not probabilities.
-- Confidence is score-derived ranking strength, not causal certainty.
+- Confidence is score-derived ranking strength and can be evidence-quality-capped, not causal certainty.
 - Strong downstream tail-stage contribution can outrank weak blocking/runtime signals.
 - Strong queue pressure remains a high-confidence lead when queue share/depth evidence is dominant.
 
