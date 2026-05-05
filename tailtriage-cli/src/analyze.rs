@@ -18,6 +18,7 @@ const ROUTE_MIN_REQUEST_COUNT: usize = 3;
 const ROUTE_BREAKDOWN_LIMIT: usize = 10;
 const TEMPORAL_MIN_REQUEST_COUNT: usize = 20;
 const TEMPORAL_MIN_SEGMENT_REQUEST_COUNT: usize = 8;
+const TEMPORAL_MIN_RUNTIME_ATTRIBUTION_SAMPLES: usize = 2;
 const TEMPORAL_SHARE_SHIFT_PERMILLE_THRESHOLD: u64 = 200;
 const ROUTE_DIVERGENCE_WARNING: &str =
     "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
@@ -531,13 +532,18 @@ fn build_temporal_segment(
     requests: &[tailtriage_core::RequestEvent],
 ) -> TemporalSegment {
     let ids: Vec<String> = requests.iter().map(|r| r.request_id.clone()).collect();
-    let window = requests
-        .first()
-        .zip(requests.last())
-        .map(|(first, last)| (first.started_at_unix_ms, last.finished_at_unix_ms));
+    let segment_start = requests.first().map(|r| r.started_at_unix_ms);
+    let segment_finish = requests.iter().map(|r| r.finished_at_unix_ms).max();
+    let window = segment_start.zip(segment_finish);
+    let runtime_present_full = !run.runtime_snapshots.is_empty();
+    let inflight_present_full = !run.inflight.is_empty();
     let filtered = filtered_run_for_request_ids_and_time(run, &ids, window);
     let mut analyzed = analyze_run_internal(&filtered);
-    if !filtered.runtime_snapshots.is_empty() || !filtered.inflight.is_empty() {
+    let runtime_limited = runtime_present_full
+        && filtered.runtime_snapshots.len() < TEMPORAL_MIN_RUNTIME_ATTRIBUTION_SAMPLES;
+    let inflight_limited =
+        inflight_present_full && filtered.inflight.len() < TEMPORAL_MIN_RUNTIME_ATTRIBUTION_SAMPLES;
+    if runtime_limited || inflight_limited {
         analyzed
             .warnings
             .push(TEMPORAL_RUNTIME_FILTER_WARNING.to_string());
@@ -545,8 +551,8 @@ fn build_temporal_segment(
     TemporalSegment {
         name: name.to_string(),
         request_count: analyzed.request_count,
-        started_at_unix_ms: requests.first().map(|r| r.started_at_unix_ms),
-        finished_at_unix_ms: requests.last().map(|r| r.finished_at_unix_ms),
+        started_at_unix_ms: segment_start,
+        finished_at_unix_ms: segment_finish,
         p50_latency_us: analyzed.p50_latency_us,
         p95_latency_us: analyzed.p95_latency_us,
         p99_latency_us: analyzed.p99_latency_us,
@@ -2897,7 +2903,7 @@ mod tests {
     #[test]
     fn temporal_segments_emit_and_are_deterministic() {
         let mut run = test_run();
-        run.requests = (0..20)
+        run.requests = (0_u64..20)
             .map(|i| RequestEvent {
                 request_id: format!("req-{i:02}"),
                 route: "/test".to_string(),
@@ -2916,5 +2922,75 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w == TEMPORAL_LATENCY_SHIFT_WARNING));
+    }
+
+    #[test]
+    fn temporal_segments_empty_when_not_meaningfully_different() {
+        let mut run = test_run();
+        run.requests = (0_u64..20)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i:02}"),
+                route: "/test".to_string(),
+                kind: None,
+                started_at_unix_ms: 10 + i,
+                finished_at_unix_ms: 11 + i,
+                latency_us: 5_000,
+                outcome: "ok".to_string(),
+            })
+            .collect();
+        let report = analyze_run(&run);
+        assert!(report.temporal_segments.is_empty());
+    }
+
+    #[test]
+    fn temporal_segment_window_uses_max_finish_timestamp() {
+        let mut run = test_run();
+        run.requests = (0_u64..20)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i:02}"),
+                route: "/test".to_string(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 2,
+                latency_us: if i < 10 { 1_000 } else { 10_000 },
+                outcome: "ok".to_string(),
+            })
+            .collect();
+        run.requests[0].finished_at_unix_ms = 100;
+        run.requests[9].finished_at_unix_ms = 11;
+        let report = analyze_run(&run);
+        let early = report
+            .temporal_segments
+            .iter()
+            .find(|s| s.name == "early")
+            .unwrap();
+        assert_eq!(early.finished_at_unix_ms, Some(100));
+    }
+
+    #[test]
+    fn temporal_runtime_warning_only_when_attribution_is_limited() {
+        let mut run = test_run();
+        run.requests = (0_u64..20)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i:02}"),
+                route: "/test".to_string(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: if i < 10 { 1_000 } else { 8_000 },
+                outcome: "ok".to_string(),
+            })
+            .collect();
+        run.runtime_snapshots = vec![
+            runtime_snapshot(Some(1), Some(1), Some(1)),
+            runtime_snapshot(Some(2), Some(2), Some(2)),
+        ];
+        run.runtime_snapshots[0].at_unix_ms = 2;
+        run.runtime_snapshots[1].at_unix_ms = 17;
+        let report = analyze_run(&run);
+        assert!(report.temporal_segments.iter().any(|s| s
+            .warnings
+            .iter()
+            .any(|w| w == super::TEMPORAL_RUNTIME_FILTER_WARNING)));
     }
 }
