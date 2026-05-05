@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 2546348,
-  "p95_latency_us": 4817353,
-  "p99_latency_us": 4999343,
+  "p50_latency_us": 2558638,
+  "p95_latency_us": 4846012,
+  "p99_latency_us": 5028958,
   "p95_queue_share_permille": 994,
-  "p95_service_share_permille": 98,
+  "p95_service_share_permille": 102,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
     "peak_count": 217,
     "p95_count": 206,
     "growth_delta": -1,
-    "growth_per_sec_milli": -194
+    "growth_per_sec_milli": -193
   },
   "warnings": [],
   "evidence_quality": {
@@ -42,12 +42,13 @@
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 99.4% of request time.",
-      "Observed queue depth sample up to 216."
+      "Observed queue depth sample up to 215."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -55,15 +56,17 @@
       "score": 32,
       "confidence": "low",
       "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 23447 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 5109039 us (9 permille of request latency).",
+        "Stage 'shared_state_critical_section' has p95 latency 23584 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 5135694 us (9 permille of request latency).",
         "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": []
     }
-  ]
+  ],
+  "route_breakdowns": []
 }

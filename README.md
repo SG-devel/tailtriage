@@ -190,8 +190,10 @@ tailtriage analyze tailtriage-run.json --format json
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
+  "route_breakdowns": [],
   "secondary_suspects": [
     {
       "kind": "downstream_stage_dominates",
@@ -206,7 +208,8 @@ tailtriage analyze tailtriage-run.json --format json
         "Inspect downstream dependency behind stage 'simulated_work'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": ["Top suspects are close in score; confidence is capped by ambiguity."]
     }
   ]
 }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Serialize, Serializer};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
@@ -230,6 +230,35 @@ pub struct Report {
     pub primary_suspect: Suspect,
     /// Lower-ranked suspects retained for follow-up triage.
     pub secondary_suspects: Vec<Suspect>,
+    /// Supporting per-route triage summaries when route-level divergence adds signal.
+    pub route_breakdowns: Vec<RouteBreakdown>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+/// Supporting per-route triage summary emitted when route-level divergence adds signal.
+pub struct RouteBreakdown {
+    /// Captured route label from completed request events.
+    pub route: String,
+    /// Completed requests analyzed for this route.
+    pub request_count: usize,
+    /// p50 request latency in microseconds.
+    pub p50_latency_us: Option<u64>,
+    /// p95 request latency in microseconds.
+    pub p95_latency_us: Option<u64>,
+    /// p99 request latency in microseconds.
+    pub p99_latency_us: Option<u64>,
+    /// p95 queue-time share per request in permille (`0..=1000`).
+    pub p95_queue_share_permille: Option<u64>,
+    /// p95 non-queue service-time share per request in permille (`0..=1000`).
+    pub p95_service_share_permille: Option<u64>,
+    /// Structured evidence coverage and interpretation quality summary.
+    pub evidence_quality: EvidenceQuality,
+    /// Highest-ranked suspect for this route-filtered request set.
+    pub primary_suspect: Suspect,
+    /// Lower-ranked route suspects retained for follow-up triage.
+    pub secondary_suspects: Vec<Suspect>,
+    /// Non-fatal route-scoped warnings and attribution limits.
+    pub warnings: Vec<String>,
 }
 
 /// Analyzes one run artifact with rule-based heuristics and returns a triage report.
@@ -283,6 +312,14 @@ pub struct Report {
 /// ```
 #[must_use]
 pub fn analyze_run(run: &Run) -> Report {
+    let mut report = analyze_filtered_run(run);
+    let (route_breakdowns, route_warnings) = build_route_breakdowns(run, &report);
+    report.route_breakdowns = route_breakdowns;
+    report.warnings.extend(route_warnings);
+    report
+}
+
+fn analyze_filtered_run(run: &Run) -> Report {
     let request_latencies = run
         .requests
         .iter()
@@ -360,7 +397,133 @@ pub fn analyze_run(run: &Run) -> Report {
         evidence_quality,
         primary_suspect,
         secondary_suspects: ranked.collect(),
+        route_breakdowns: Vec::new(),
     }
+}
+
+const ROUTE_MIN_REQUESTS: usize = 3;
+const ROUTE_DIVERGENCE_WARNING: &str = "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
+const ROUTE_ATTRIBUTION_WARNING: &str =
+    "Runtime and in-flight signals are global and are not attributed to this route.";
+
+fn build_route_breakdowns(run: &Run, global_report: &Report) -> (Vec<RouteBreakdown>, Vec<String>) {
+    let mut routes: HashMap<&str, Vec<&str>> = HashMap::new();
+    for req in &run.requests {
+        routes
+            .entry(req.route.as_str())
+            .or_default()
+            .push(req.request_id.as_str());
+    }
+    let mut eligible = Vec::new();
+    let mut omitted = 0usize;
+    for (route, request_ids) in routes {
+        if request_ids.len() < ROUTE_MIN_REQUESTS {
+            omitted += 1;
+            continue;
+        }
+        let ids: HashSet<&str> = request_ids.into_iter().collect();
+        let filtered = Run {
+            schema_version: run.schema_version,
+            metadata: run.metadata.clone(),
+            requests: run
+                .requests
+                .iter()
+                .filter(|r| ids.contains(r.request_id.as_str()))
+                .cloned()
+                .collect(),
+            stages: run
+                .stages
+                .iter()
+                .filter(|s| ids.contains(s.request_id.as_str()))
+                .cloned()
+                .collect(),
+            queues: run
+                .queues
+                .iter()
+                .filter(|q| ids.contains(q.request_id.as_str()))
+                .cloned()
+                .collect(),
+            inflight: Vec::new(),
+            runtime_snapshots: Vec::new(),
+            truncation: run.truncation.clone(),
+        };
+        let mut rr = analyze_filtered_run(&filtered);
+        rr.warnings.push(ROUTE_ATTRIBUTION_WARNING.to_string());
+        rr.evidence_quality
+            .limitations
+            .push(ROUTE_ATTRIBUTION_WARNING.to_string());
+        eligible.push(RouteBreakdown {
+            route: route.to_string(),
+            request_count: rr.request_count,
+            p50_latency_us: rr.p50_latency_us,
+            p95_latency_us: rr.p95_latency_us,
+            p99_latency_us: rr.p99_latency_us,
+            p95_queue_share_permille: rr.p95_queue_share_permille,
+            p95_service_share_permille: rr.p95_service_share_permille,
+            evidence_quality: rr.evidence_quality,
+            primary_suspect: rr.primary_suspect,
+            secondary_suspects: rr.secondary_suspects,
+            warnings: rr.warnings,
+        });
+    }
+    if !should_emit_route_breakdowns(&eligible, global_report) {
+        return (Vec::new(), Vec::new());
+    }
+    eligible.sort_by(|a, b| {
+        b.p95_latency_us
+            .cmp(&a.p95_latency_us)
+            .then_with(|| b.request_count.cmp(&a.request_count))
+            .then_with(|| a.route.cmp(&b.route))
+    });
+    eligible.truncate(10);
+    let mut warnings = Vec::new();
+    let kinds: HashSet<&str> = eligible
+        .iter()
+        .map(|r| r.primary_suspect.kind.as_str())
+        .collect();
+    if kinds.len() >= 2
+        || eligible
+            .iter()
+            .any(|r| r.primary_suspect.kind != global_report.primary_suspect.kind)
+    {
+        warnings.push(ROUTE_DIVERGENCE_WARNING.to_string());
+    }
+    if omitted > 0 {
+        warnings.push(format!("Route breakdowns omit {omitted} routes with fewer than {ROUTE_MIN_REQUESTS} completed requests."));
+    }
+    (eligible, warnings)
+}
+
+fn should_emit_route_breakdowns(eligible: &[RouteBreakdown], global_report: &Report) -> bool {
+    if eligible.len() == 1 {
+        return eligible[0].primary_suspect.kind != global_report.primary_suspect.kind;
+    }
+    if eligible.len() < 2 {
+        return false;
+    }
+    let kind_div = eligible
+        .iter()
+        .map(|r| r.primary_suspect.kind.as_str())
+        .collect::<HashSet<_>>()
+        .len()
+        >= 2;
+    let global_div = eligible
+        .iter()
+        .any(|r| r.primary_suspect.kind != global_report.primary_suspect.kind);
+    let p95s: Vec<u64> = eligible.iter().filter_map(|r| r.p95_latency_us).collect();
+    let mut gap_fast = false;
+    let mut gap_global = false;
+    if let (Some(min), Some(max)) = (p95s.iter().min(), p95s.iter().max()) {
+        if *min > 0 {
+            gap_fast = *max >= ((*min * 150) / 100);
+        }
+        if let Some(g) = global_report.p95_latency_us {
+            if g > 0 {
+                gap_global = *max >= ((g * 125) / 100);
+            }
+        }
+    }
+    kind_div || global_div || gap_fast || gap_global
 }
 
 fn apply_evidence_aware_confidence_caps(
@@ -1320,6 +1483,20 @@ pub fn render_text(report: &Report) -> String {
         }
     }
 
+    if !report.route_breakdowns.is_empty() {
+        lines.push("Route breakdowns:".to_string());
+        for rb in &report.route_breakdowns {
+            lines.push(format!(
+                "- {}: requests {}, p95 {}, suspect {} ({} confidence)",
+                rb.route,
+                rb.request_count,
+                fmt_opt_u64(rb.p95_latency_us),
+                rb.primary_suspect.kind.as_str(),
+                fmt_confidence(rb.primary_suspect.confidence)
+            ));
+        }
+    }
+
     if !report.secondary_suspects.is_empty() {
         lines.push("Secondary suspects:".to_string());
         for suspect in &report.secondary_suspects {
@@ -1601,6 +1778,7 @@ mod tests {
                 confidence_notes: Vec::new(),
             },
             secondary_suspects: Vec::new(),
+            route_breakdowns: Vec::new(),
         };
 
         let text = render_text(&report);
@@ -1652,6 +1830,7 @@ mod tests {
                 confidence_notes: Vec::new(),
             },
             secondary_suspects: Vec::new(),
+            route_breakdowns: Vec::new(),
         };
 
         let text = render_text(&report);
@@ -2370,5 +2549,11 @@ mod tests {
             .confidence_notes
             .iter()
             .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
+    }
+
+    #[test]
+    fn route_breakdowns_field_defaults_empty_for_single_route() {
+        let report = analyze_run(&test_run());
+        assert!(report.route_breakdowns.is_empty());
     }
 }

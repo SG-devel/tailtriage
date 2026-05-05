@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 393750,
-  "p95_latency_us": 738845,
-  "p99_latency_us": 767621,
-  "p95_queue_share_permille": 980,
-  "p95_service_share_permille": 402,
+  "p50_latency_us": 388675,
+  "p95_latency_us": 752024,
+  "p99_latency_us": 784895,
+  "p95_queue_share_permille": 979,
+  "p95_service_share_permille": 393,
   "inflight_trend": {
     "gauge": "mixed_contention_inflight",
     "sample_count": 440,
-    "peak_count": 200,
+    "peak_count": 198,
     "p95_count": 190,
     "growth_delta": -1,
-    "growth_per_sec_milli": -1160
+    "growth_per_sec_milli": -1137
   },
   "warnings": [],
   "evidence_quality": {
@@ -41,13 +41,14 @@
     "score": 95,
     "confidence": "high",
     "evidence": [
-      "Queue wait at p95 consumes 98.0% of request time.",
-      "Observed queue depth sample up to 195."
+      "Queue wait at p95 consumes 97.9% of request time.",
+      "Observed queue depth sample up to 193."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -55,15 +56,17 @@
       "score": 35,
       "confidence": "low",
       "evidence": [
-        "Stage 'downstream_call' has p95 latency 32531 us across 220 samples.",
-        "Stage 'downstream_call' cumulative latency is 3775687 us (43 permille of request latency).",
-        "Stage 'downstream_call' contributes 23 permille of tail request latency."
+        "Stage 'downstream_call' has p95 latency 32569 us across 220 samples.",
+        "Stage 'downstream_call' cumulative latency is 3870457 us (44 permille of request latency).",
+        "Stage 'downstream_call' contributes 27 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'downstream_call'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": []
     }
-  ]
+  ],
+  "route_breakdowns": []
 }

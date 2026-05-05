@@ -1,8 +1,8 @@
 {
   "request_count": 220,
-  "p50_latency_us": 13254,
-  "p95_latency_us": 14196,
-  "p99_latency_us": 14321,
+  "p50_latency_us": 13491,
+  "p95_latency_us": 15080,
+  "p99_latency_us": 26851,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -11,7 +11,7 @@
     "peak_count": 10,
     "p95_count": 10,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2710
+    "growth_per_sec_milli": -2506
   },
   "warnings": [],
   "evidence_quality": {
@@ -41,15 +41,17 @@
     "score": 95,
     "confidence": "high",
     "evidence": [
-      "Stage 'db_query' has p95 latency 11927 us across 220 samples.",
-      "Stage 'db_query' cumulative latency is 2440495 us (833 permille of request latency).",
-      "Stage 'db_query' contributes 841 permille of tail request latency."
+      "Stage 'db_query' has p95 latency 12129 us across 220 samples.",
+      "Stage 'db_query' cumulative latency is 2515951 us (820 permille of request latency).",
+      "Stage 'db_query' contributes 763 permille of tail request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'db_query'.",
       "Collect downstream service timings and retry behavior during tail windows.",
       "Review downstream SLO/error budget and align retry budget/backoff with it."
-    ]
+    ],
+    "confidence_notes": []
   },
-  "secondary_suspects": []
+  "secondary_suspects": [],
+  "route_breakdowns": []
 }

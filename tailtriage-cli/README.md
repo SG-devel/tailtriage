@@ -94,6 +94,7 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "next_checks": ["Inspect queue admission limits and producer burst patterns."],
     "confidence_notes": []
   },
+  "route_breakdowns": [],
   "secondary_suspects": []
 }
 ```

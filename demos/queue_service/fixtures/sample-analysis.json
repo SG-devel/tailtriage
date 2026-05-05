@@ -1,10 +1,10 @@
 {
   "request_count": 250,
-  "p50_latency_us": 783889,
-  "p95_latency_us": 1463903,
-  "p99_latency_us": 1514094,
-  "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 269,
+  "p50_latency_us": 781757,
+  "p95_latency_us": 1466561,
+  "p99_latency_us": 1515386,
+  "p95_queue_share_permille": 981,
+  "p95_service_share_permille": 266,
   "inflight_trend": {
     "gauge": "queue_service_inflight",
     "sample_count": 500,
@@ -41,13 +41,14 @@
     "score": 95,
     "confidence": "high",
     "evidence": [
-      "Queue wait at p95 consumes 98.2% of request time.",
+      "Queue wait at p95 consumes 98.1% of request time.",
       "Observed queue depth sample up to 230."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -55,15 +56,17 @@
       "score": 33,
       "confidence": "low",
       "evidence": [
-        "Stage 'simulated_work' has p95 latency 26681 us across 250 samples.",
-        "Stage 'simulated_work' cumulative latency is 6548608 us (33 permille of request latency).",
+        "Stage 'simulated_work' has p95 latency 26919 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 6570881 us (33 permille of request latency).",
         "Stage 'simulated_work' contributes 17 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'simulated_work'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": []
     }
-  ]
+  ],
+  "route_breakdowns": []
 }

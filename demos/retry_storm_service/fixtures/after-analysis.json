@@ -1,17 +1,17 @@
 {
   "request_count": 180,
-  "p50_latency_us": 9513,
-  "p95_latency_us": 29401,
-  "p99_latency_us": 29784,
+  "p50_latency_us": 10045,
+  "p95_latency_us": 29491,
+  "p99_latency_us": 30727,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
     "gauge": "retry_storm_inflight",
     "sample_count": 360,
-    "peak_count": 17,
-    "p95_count": 15,
+    "peak_count": 16,
+    "p95_count": 14,
     "growth_delta": -1,
-    "growth_per_sec_milli": -4716
+    "growth_per_sec_milli": -4273
   },
   "warnings": [],
   "evidence_quality": {
@@ -41,15 +41,17 @@
     "score": 95,
     "confidence": "high",
     "evidence": [
-      "Stage 'downstream_total' has p95 latency 27186 us across 180 samples.",
-      "Stage 'downstream_total' cumulative latency is 2154453 us (842 permille of request latency).",
-      "Stage 'downstream_total' contributes 922 permille of tail request latency."
+      "Stage 'downstream_total' has p95 latency 27122 us across 180 samples.",
+      "Stage 'downstream_total' cumulative latency is 2163262 us (833 permille of request latency).",
+      "Stage 'downstream_total' contributes 911 permille of tail request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'downstream_total'.",
       "Collect downstream service timings and retry behavior during tail windows.",
       "Review downstream SLO/error budget and align retry budget/backoff with it."
-    ]
+    ],
+    "confidence_notes": []
   },
-  "secondary_suspects": []
+  "secondary_suspects": [],
+  "route_breakdowns": []
 }
