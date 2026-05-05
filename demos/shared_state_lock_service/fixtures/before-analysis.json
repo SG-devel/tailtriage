@@ -1,19 +1,21 @@
 {
   "request_count": 220,
-  "p50_latency_us": 2533261,
-  "p95_latency_us": 4794306,
-  "p99_latency_us": 4975959,
+  "p50_latency_us": 2545827,
+  "p95_latency_us": 4829130,
+  "p99_latency_us": 5010996,
   "p95_queue_share_permille": 994,
-  "p95_service_share_permille": 100,
+  "p95_service_share_permille": 101,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
     "peak_count": 217,
     "p95_count": 206,
     "growth_delta": -1,
-    "growth_per_sec_milli": -196
+    "growth_per_sec_milli": -194
   },
-  "warnings": [],
+  "warnings": [
+    "Temporal segments show a large p95 latency shift between early and late requests."
+  ],
   "evidence_quality": {
     "request_count": 220,
     "queue_event_count": 220,
@@ -56,8 +58,8 @@
       "score": 32,
       "confidence": "low",
       "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 23290 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 5087992 us (9 permille of request latency).",
+        "Stage 'shared_state_critical_section' has p95 latency 23565 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 5121772 us (9 permille of request latency).",
         "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
       ],
       "next_checks": [
@@ -68,5 +70,140 @@
       "confidence_notes": []
     }
   ],
-  "route_breakdowns": []
+  "route_breakdowns": [],
+  "temporal_segments": [
+    {
+      "name": "early",
+      "request_count": 110,
+      "started_at_unix_ms": 1777984668463,
+      "finished_at_unix_ms": 1777984671076,
+      "p50_latency_us": 1284316,
+      "p95_latency_us": 2408199,
+      "p99_latency_us": 2501363,
+      "p95_queue_share_permille": 989,
+      "p95_service_share_permille": 185,
+      "evidence_quality": {
+        "request_count": 110,
+        "queue_event_count": 110,
+        "stage_event_count": 220,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 332,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 100,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 98.9% of request time.",
+          "Observed queue depth sample up to 110.",
+          "In-flight gauge 'shared_state_lock_inflight' grew by 107 over the run window (p95=209, peak=217)."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 32,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'shared_state_critical_section' has p95 latency 23515 us across 110 samples.",
+            "Stage 'shared_state_critical_section' cumulative latency is 2553882 us (18 permille of request latency).",
+            "Stage 'shared_state_critical_section' contributes 9 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "late",
+      "request_count": 110,
+      "started_at_unix_ms": 1777984668506,
+      "finished_at_unix_ms": 1777984673606,
+      "p50_latency_us": 3817712,
+      "p95_latency_us": 4943465,
+      "p99_latency_us": 5034275,
+      "p95_queue_share_permille": 994,
+      "p95_service_share_permille": 9,
+      "evidence_quality": {
+        "request_count": 110,
+        "queue_event_count": 110,
+        "stage_event_count": 220,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 330,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 99.4% of request time.",
+          "Observed queue depth sample up to 216."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 32,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'shared_state_critical_section' has p95 latency 23912 us across 110 samples.",
+            "Stage 'shared_state_critical_section' cumulative latency is 2567890 us (6 permille of request latency).",
+            "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": []
+    }
+  ]
 }
