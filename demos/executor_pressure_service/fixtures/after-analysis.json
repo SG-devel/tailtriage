@@ -1,8 +1,8 @@
 {
   "request_count": 240,
-  "p50_latency_us": 16236717,
-  "p95_latency_us": 16412208,
-  "p99_latency_us": 16423914,
+  "p50_latency_us": 7284295,
+  "p95_latency_us": 7413192,
+  "p99_latency_us": 7423728,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -11,17 +11,39 @@
     "peak_count": 240,
     "p95_count": 228,
     "growth_delta": -1,
-    "growth_per_sec_milli": -60
+    "growth_per_sec_milli": -134
   },
   "warnings": [],
+  "evidence_quality": {
+    "request_count": 240,
+    "queue_event_count": 0,
+    "stage_event_count": 0,
+    "runtime_snapshot_count": 7433,
+    "inflight_snapshot_count": 480,
+    "requests": "present",
+    "queues": "missing",
+    "stages": "missing",
+    "runtime_snapshots": "present",
+    "inflight_snapshots": "present",
+    "truncated": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "quality": "partial",
+    "limitations": [
+      "Queue and stage instrumentation are both unavailable, limiting application vs downstream interpretation."
+    ]
+  },
   "primary_suspect": {
     "kind": "executor_pressure_suspected",
     "score": 99,
     "confidence": "high",
     "evidence": [
-      "Runtime global queue depth p95 is 717, suggesting scheduler contention.",
-      "Runtime local queue depth p95 is 1674.",
-      "Runtime alive_tasks p95 is 717."
+      "Runtime global queue depth p95 is 720, suggesting scheduler contention.",
+      "Runtime local queue depth p95 is 4656.",
+      "Runtime alive_tasks p95 is 720."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",

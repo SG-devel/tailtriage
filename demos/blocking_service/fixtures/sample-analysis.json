@@ -1,8 +1,8 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1872360,
-  "p95_latency_us": 3548117,
-  "p99_latency_us": 3696181,
+  "p50_latency_us": 1868185,
+  "p95_latency_us": 3531495,
+  "p99_latency_us": 3680957,
   "p95_queue_share_permille": 6,
   "p95_service_share_permille": 999,
   "inflight_trend": {
@@ -10,13 +10,35 @@
     "sample_count": 500,
     "peak_count": 246,
     "p95_count": 234,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -263
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
   },
   "warnings": [
     "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.",
     "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks."
   ],
+  "evidence_quality": {
+    "request_count": 250,
+    "queue_event_count": 250,
+    "stage_event_count": 250,
+    "runtime_snapshot_count": 200,
+    "inflight_snapshot_count": 500,
+    "requests": "present",
+    "queues": "present",
+    "stages": "present",
+    "runtime_snapshots": "partial",
+    "inflight_snapshots": "present",
+    "truncated": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "quality": "partial",
+    "limitations": [
+      "Runtime snapshots have missing queue-depth fields, limiting executor vs blocking differentiation."
+    ]
+  },
   "primary_suspect": {
     "kind": "blocking_pool_pressure",
     "score": 88,
@@ -35,8 +57,8 @@
       "score": 86,
       "confidence": "high",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3546732 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 468587693 us (999 permille of request latency).",
+        "Stage 'spawn_blocking_path' has p95 latency 3530254 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 467061987 us (999 permille of request latency).",
         "Stage 'spawn_blocking_path' contributes 999 permille of tail request latency.",
         "Stage 'spawn_blocking_path' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
       ],
