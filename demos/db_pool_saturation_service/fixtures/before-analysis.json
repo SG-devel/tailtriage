@@ -1,21 +1,19 @@
 {
   "request_count": 220,
-  "p50_latency_us": 495533,
-  "p95_latency_us": 928290,
-  "p99_latency_us": 962102,
+  "p50_latency_us": 492716,
+  "p95_latency_us": 930466,
+  "p99_latency_us": 964668,
   "p95_queue_share_permille": 976,
-  "p95_service_share_permille": 382,
+  "p95_service_share_permille": 381,
   "inflight_trend": {
     "gauge": "db_pool_saturation_inflight",
     "sample_count": 440,
-    "peak_count": 200,
+    "peak_count": 204,
     "p95_count": 193,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "growth_delta": 2,
+    "growth_per_sec_milli": 1883
   },
-  "warnings": [
-    "Temporal segments show a large p95 latency shift between early and late requests."
-  ],
+  "warnings": [],
   "evidence_quality": {
     "request_count": 220,
     "queue_event_count": 220,
@@ -44,7 +42,8 @@
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 97.6% of request time.",
-      "Observed queue depth sample up to 196."
+      "Observed queue depth sample up to 198.",
+      "In-flight gauge 'db_pool_saturation_inflight' grew by 2 over the run window (p95=193, peak=204)."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -58,8 +57,8 @@
       "score": 34,
       "confidence": "low",
       "evidence": [
-        "Stage 'db_query' has p95 latency 19835 us across 220 samples.",
-        "Stage 'db_query' cumulative latency is 4236620 us (39 permille of request latency).",
+        "Stage 'db_query' has p95 latency 19624 us across 220 samples.",
+        "Stage 'db_query' cumulative latency is 4226206 us (38 permille of request latency).",
         "Stage 'db_query' contributes 20 permille of tail request latency."
       ],
       "next_checks": [
@@ -75,19 +74,19 @@
     {
       "name": "early",
       "request_count": 110,
-      "started_at_unix_ms": 1777984663175,
-      "finished_at_unix_ms": 1777984663722,
-      "p50_latency_us": 248726,
-      "p95_latency_us": 475207,
-      "p99_latency_us": 491311,
-      "p95_queue_share_permille": 953,
-      "p95_service_share_permille": 550,
+      "started_at_unix_ms": 1777988250302,
+      "finished_at_unix_ms": 1777988250844,
+      "p50_latency_us": 249821,
+      "p95_latency_us": 474281,
+      "p99_latency_us": 492716,
+      "p95_queue_share_permille": 954,
+      "p95_service_share_permille": 549,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
         "stage_event_count": 220,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 331,
+        "inflight_snapshot_count": 332,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -109,9 +108,9 @@
         "score": 95,
         "confidence": "high",
         "evidence": [
-          "Queue wait at p95 consumes 95.3% of request time.",
+          "Queue wait at p95 consumes 95.4% of request time.",
           "Observed queue depth sample up to 99.",
-          "In-flight gauge 'db_pool_saturation_inflight' grew by 108 over the run window (p95=195, peak=200)."
+          "In-flight gauge 'db_pool_saturation_inflight' grew by 109 over the run window (p95=196, peak=204)."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -125,8 +124,8 @@
           "score": 37,
           "confidence": "low",
           "evidence": [
-            "Stage 'db_query' has p95 latency 19895 us across 110 samples.",
-            "Stage 'db_query' cumulative latency is 2121662 us (76 permille of request latency).",
+            "Stage 'db_query' has p95 latency 19702 us across 110 samples.",
+            "Stage 'db_query' cumulative latency is 2109929 us (75 permille of request latency).",
             "Stage 'db_query' contributes 39 permille of tail request latency."
           ],
           "next_checks": [
@@ -142,11 +141,11 @@
     {
       "name": "late",
       "request_count": 110,
-      "started_at_unix_ms": 1777984663226,
-      "finished_at_unix_ms": 1777984664243,
-      "p50_latency_us": 737656,
-      "p95_latency_us": 949692,
-      "p99_latency_us": 966303,
+      "started_at_unix_ms": 1777988250351,
+      "finished_at_unix_ms": 1777988251364,
+      "p50_latency_us": 736965,
+      "p95_latency_us": 947540,
+      "p99_latency_us": 964670,
       "p95_queue_share_permille": 977,
       "p95_service_share_permille": 41,
       "evidence_quality": {
@@ -177,7 +176,7 @@
         "confidence": "high",
         "evidence": [
           "Queue wait at p95 consumes 97.7% of request time.",
-          "Observed queue depth sample up to 196."
+          "Observed queue depth sample up to 198."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -191,8 +190,8 @@
           "score": 33,
           "confidence": "low",
           "evidence": [
-            "Stage 'db_query' has p95 latency 19786 us across 110 samples.",
-            "Stage 'db_query' cumulative latency is 2114958 us (26 permille of request latency).",
+            "Stage 'db_query' has p95 latency 19595 us across 110 samples.",
+            "Stage 'db_query' cumulative latency is 2116277 us (26 permille of request latency).",
             "Stage 'db_query' contributes 20 permille of tail request latency."
           ],
           "next_checks": [

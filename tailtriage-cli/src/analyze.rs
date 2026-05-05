@@ -25,8 +25,6 @@ const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
     "Runtime and in-flight signals are global and are not attributed to this route.";
 const TEMPORAL_RUNTIME_ATTRIBUTION_WARNING: &str = "Runtime and in-flight evidence is sparse in this segment after timestamp filtering; executor/blocking attribution is limited.";
 const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.";
-const TEMPORAL_P95_SHIFT_WARNING: &str =
-    "Temporal segments show a large p95 latency shift between early and late requests.";
 
 /// Evidence-ranked diagnosis categories produced by heuristic triage.
 ///
@@ -678,21 +676,32 @@ fn temporal_segments(run: &Run, global_warnings: &mut Vec<String>) -> Vec<Tempor
     let p95_shift = has_material_p95_shift(early_seg.p95_latency_us, late_seg.p95_latency_us);
     let queue_move = matches!((early_seg.p95_queue_share_permille, late_seg.p95_queue_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= TEMPORAL_SHARE_SHIFT_PERMILLE);
     let service_move = matches!((early_seg.p95_service_share_permille, late_seg.p95_service_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= TEMPORAL_SHARE_SHIFT_PERMILLE);
-    let runtime_sparse_only =
-        early_seg.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present
-            || early_seg.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present
-            || late_seg.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present
-            || late_seg.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present;
-    let suspect_shift = suspect_shift_raw && (!runtime_sparse_only || p95_shift || queue_move || service_move);
+    let runtime_sparse = early_seg.evidence_quality.runtime_snapshots
+        != SignalCoverageStatus::Present
+        || early_seg.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present
+        || late_seg.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present
+        || late_seg.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present;
+    let runtime_dependent_shift = matches!(
+        (
+            &early_seg.primary_suspect.kind,
+            &late_seg.primary_suspect.kind
+        ),
+        (
+            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure,
+            _
+        ) | (
+            _,
+            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
+        )
+    );
+    let suspect_shift = suspect_shift_raw
+        && (!runtime_sparse || !runtime_dependent_shift || p95_shift || queue_move || service_move);
     let material = suspect_shift || p95_shift || queue_move || service_move;
     if !material {
         return vec![];
     }
-    if suspect_shift {
+    if suspect_shift && runtime_dependent_shift {
         global_warnings.push(TEMPORAL_SUSPECT_SHIFT_WARNING.to_string());
-    }
-    if p95_shift {
-        global_warnings.push(TEMPORAL_P95_SHIFT_WARNING.to_string());
     }
     vec![early_seg, late_seg]
 }
@@ -1723,7 +1732,7 @@ mod tests {
         analyze_run, analyze_run_internal, apply_evidence_aware_confidence_caps, evidence_quality,
         render_text, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
         InflightTrend, Report, SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING,
-        ROUTE_RUNTIME_ATTRIBUTION_WARNING, TEMPORAL_P95_SHIFT_WARNING,
+        ROUTE_RUNTIME_ATTRIBUTION_WARNING,
     };
 
     fn test_run() -> Run {
@@ -2894,9 +2903,13 @@ mod tests {
             });
         }
         let report = analyze_run(&run);
-        if let Some(early) = report.temporal_segments.iter().find(|s| s.name == "early") {
-            assert_eq!(early.finished_at_unix_ms, Some(1000));
-        }
+        assert_eq!(report.temporal_segments.len(), 2);
+        let early = report
+            .temporal_segments
+            .iter()
+            .find(|s| s.name == "early")
+            .expect("early temporal segment should be emitted");
+        assert_eq!(early.finished_at_unix_ms, Some(1000));
     }
 
     #[test]
@@ -2940,7 +2953,7 @@ mod tests {
     }
 
     #[test]
-    fn temporal_p95_shift_warns_and_ignores_missing_or_zero_lower_p95() {
+    fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
         let mut run = test_run();
         run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
         for i in 10usize..20 {
@@ -2949,10 +2962,7 @@ mod tests {
             }
         }
         let shifted = analyze_run(&run);
-        assert!(shifted
-            .warnings
-            .iter()
-            .any(|warning| warning == TEMPORAL_P95_SHIFT_WARNING));
+        assert_eq!(shifted.temporal_segments.len(), 2);
 
         assert!(!super::has_material_p95_shift(Some(0), Some(5_000)));
         assert!(!super::has_material_p95_shift(None, Some(5_000)));
@@ -2998,5 +3008,44 @@ mod tests {
         }];
         let report = analyze_run(&run);
         assert!(report.temporal_segments.is_empty());
+    }
+
+    #[test]
+    fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sparse() {
+        let mut run = test_run();
+        run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+        for i in 1..=10 {
+            run.queues.push(QueueEvent {
+                request_id: format!("req-{i}"),
+                queue: "q".into(),
+                wait_us: 2_000,
+                waited_from_unix_ms: i,
+                waited_until_unix_ms: i + 1,
+                depth_at_start: Some(12),
+            });
+        }
+        for i in 11..=20 {
+            run.stages.push(StageEvent {
+                request_id: format!("req-{i}"),
+                stage: "db".into(),
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 9_000,
+                success: true,
+            });
+        }
+        run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(1))];
+        run.inflight = vec![tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 1,
+            gauge: "http.server.requests".into(),
+            count: 1,
+        }];
+
+        let global = analyze_run_internal(&run);
+        let report = analyze_run(&run);
+
+        assert_eq!(report.temporal_segments.len(), 2);
+        assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
+        assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
     }
 }
