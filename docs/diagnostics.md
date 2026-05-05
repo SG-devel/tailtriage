@@ -41,6 +41,7 @@ Each suspect includes:
 - `confidence`
 - `evidence[]`
 - `next_checks[]`
+- `confidence_notes[]` (present and empty unless confidence is capped by evidence limits or explicit ambiguity applies)
 
 `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`.
 
@@ -81,7 +82,7 @@ The analyzer is deterministic and rule-based. It does not use probabilistic or M
 
 - `score` is a **relative evidence-ranking score within one report**.
 - `score` is **not** a probability and **not** absolute severity across different captures.
-- `confidence` is derived from score bands and reflects ranking strength, not causal certainty.
+- `confidence` starts from score bands and is then capped by evidence quality limits (sparse/missing/truncated/ambiguous evidence); it reflects triage ranking confidence, not causal certainty.
 
 Signal families used for scoring:
 

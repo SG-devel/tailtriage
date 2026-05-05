@@ -19,7 +19,7 @@ Deterministic fixture validation is exercised directly in normal CI against `val
 `acceptable_primary` defines which primary kinds are acceptable for ambiguous/mixed interpretation and high-confidence-wrong classification. It does not replace `required_top2`.
 
 ## High-confidence-wrong count
-`high_confidence_wrong_count` increments when primary confidence is `high`/`very_high` and primary kind is outside `acceptable_primary`.
+`high_confidence_wrong_count` increments when primary confidence is `high` and primary kind is outside `acceptable_primary`.
 
 ## Confidence calibration
 The scorecard includes confidence-bucket accuracy summaries (low/medium/high buckets) as calibration hints, not probability guarantees.
