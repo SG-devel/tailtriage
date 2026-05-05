@@ -382,15 +382,10 @@ fn apply_evidence_aware_confidence_caps(
             .iter()
             .all(|snapshot| snapshot.global_queue_depth.is_none());
     let ambiguous = ambiguity_warning(suspects).is_some();
-    let primary_index = suspects
-        .iter()
-        .enumerate()
-        .max_by_key(|(_, s)| s.score)
-        .map(|(i, _)| i);
     for (i, suspect) in suspects.iter_mut().enumerate() {
         let mut cap = Confidence::High;
         let mut notes = Vec::new();
-        let is_primary = Some(i) == primary_index;
+        let is_primary = i == 0;
         let is_insufficient = suspect.kind == DiagnosisKind::InsufficientEvidence;
         if !is_insufficient && evidence_quality.quality == EvidenceQualityLevel::Weak {
             cap = cap.min(Confidence::Medium);
@@ -2343,6 +2338,35 @@ mod tests {
         apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
         assert_eq!(suspects[0].confidence, Confidence::Medium);
         assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
+    }
+
+    #[test]
+    fn ambiguity_tied_top_scores_only_caps_first_sorted_suspect() {
+        let mut suspects = vec![
+            Suspect::new(
+                DiagnosisKind::ApplicationQueueSaturation,
+                100,
+                vec![],
+                vec![],
+            ),
+            Suspect::new(DiagnosisKind::DownstreamStageDominates, 100, vec![], vec![]),
+        ];
+        let run = test_run();
+        let eq = evidence_quality(&run);
+        apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+
+        assert_eq!(suspects[0].score, 100);
+        assert_eq!(suspects[1].score, 100);
+        assert_eq!(suspects[0].kind, DiagnosisKind::ApplicationQueueSaturation);
+        assert_eq!(suspects[1].kind, DiagnosisKind::DownstreamStageDominates);
+        assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
+        assert!(!suspects[1]
             .confidence_notes
             .iter()
             .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));

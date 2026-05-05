@@ -121,7 +121,7 @@ Each suspect includes:
 - `confidence`
 - `evidence[]`
 - `next_checks[]`
-- `confidence_notes[]` (only when evidence-aware caps/ambiguity affect confidence)
+- `confidence_notes[]` (present and empty unless evidence-aware caps affect confidence, or explicit ambiguity applies)
 
 ## Artifact compatibility contract
 

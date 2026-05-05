@@ -41,7 +41,7 @@ Each suspect includes:
 - `confidence`
 - `evidence[]`
 - `next_checks[]`
-- `confidence_notes[]` (present only when confidence is capped by evidence limits or explicit ambiguity)
+- `confidence_notes[]` (present and empty unless confidence is capped by evidence limits or explicit ambiguity applies)
 
 `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`.
 
