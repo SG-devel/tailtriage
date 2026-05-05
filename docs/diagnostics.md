@@ -50,6 +50,7 @@ Each suspect includes:
 - `p95_queue_share_permille`: p95 queue-time share per request (0..1000 scale).
 - `p95_service_share_permille`: p95 service-time share per request (0..1000 scale).
 - `warnings[]`: analyzer/report warnings, especially truncation-related warnings from captured-data limits. Loader/lifecycle warnings (including unfinished-request warnings) are emitted separately by the CLI loader to stderr before the report output.
+- `evidence_quality`: machine-readable capture completeness and interpretability summary. Includes per-signal-family coverage (`present`/`missing`/`partial`/`truncated`), truncation counters, an overall quality level (`strong`/`partial`/`weak`), and compact limitations. This quality is not causal certainty.
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.
 - `secondary_suspects[]`: additional ranked suspects.
 - `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.

@@ -59,14 +59,93 @@ pub enum Confidence {
 
 impl Confidence {
     fn from_score(score: u8) -> Self {
-        if score >= 85 {
+        if score >= HIGH_CONFIDENCE_MIN_SCORE {
             Self::High
-        } else if score >= 65 {
+        } else if score >= MEDIUM_CONFIDENCE_MIN_SCORE {
             Self::Medium
         } else {
             Self::Low
         }
     }
+}
+
+const LOW_COMPLETED_REQUEST_WARNING_THRESHOLD: usize = 20;
+const QUEUE_SHARE_TRIGGER_PERMILLE: u64 = 300;
+const MEDIUM_CONFIDENCE_MIN_SCORE: u8 = 65;
+const HIGH_CONFIDENCE_MIN_SCORE: u8 = 85;
+const DOWNSTREAM_MIN_STAGE_SAMPLES: usize = 3;
+const AMBIGUITY_MIN_SCORE: u8 = 60;
+const AMBIGUITY_MAX_SCORE_GAP: u8 = 4;
+const SAMPLE_QUALITY_HIGH_SAMPLE_THRESHOLD: usize = 100;
+const SAMPLE_QUALITY_MEDIUM_SAMPLE_THRESHOLD: usize = 40;
+const SAMPLE_QUALITY_LOW_SAMPLE_THRESHOLD: usize = 20;
+const SAMPLE_QUALITY_MIN_SIGNAL_SAMPLE_THRESHOLD: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+/// Overall capture completeness and interpretability level.
+pub enum EvidenceQualityLevel {
+    /// Evidence is sufficiently complete for strong triage interpretation.
+    Strong,
+    /// Evidence has meaningful limitations that should guide cautious interpretation.
+    Partial,
+    /// Evidence is too sparse or truncated for strong interpretation.
+    Weak,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+/// Coverage status for one signal family.
+pub enum SignalCoverageStatus {
+    /// Signal family is present without detected partial/truncated limitations.
+    Present,
+    /// Signal family is absent.
+    Missing,
+    /// Signal family exists but is incomplete for interpretation.
+    Partial,
+    /// Signal family had dropped events due to capture truncation.
+    Truncated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// Structured evidence-completeness summary for one report.
+pub struct EvidenceQuality {
+    /// Number of completed requests seen.
+    pub request_count: usize,
+    /// Number of queue events seen.
+    pub queue_event_count: usize,
+    /// Number of stage events seen.
+    pub stage_event_count: usize,
+    /// Number of runtime snapshots seen.
+    pub runtime_snapshot_count: usize,
+    /// Number of in-flight snapshots seen.
+    pub inflight_snapshot_count: usize,
+    /// Coverage status for request completion signals.
+    pub requests: SignalCoverageStatus,
+    /// Coverage status for queue instrumentation signals.
+    pub queues: SignalCoverageStatus,
+    /// Coverage status for stage instrumentation signals.
+    pub stages: SignalCoverageStatus,
+    /// Coverage status for runtime snapshot signals.
+    pub runtime_snapshots: SignalCoverageStatus,
+    /// Coverage status for in-flight snapshot signals.
+    pub inflight_snapshots: SignalCoverageStatus,
+    /// Whether any capture truncation was reported.
+    pub truncated: bool,
+    /// Dropped request event count.
+    pub dropped_requests: u64,
+    /// Dropped stage event count.
+    pub dropped_stages: u64,
+    /// Dropped queue event count.
+    pub dropped_queues: u64,
+    /// Dropped in-flight snapshot count.
+    pub dropped_inflight_snapshots: u64,
+    /// Dropped runtime snapshot count.
+    pub dropped_runtime_snapshots: u64,
+    /// Overall evidence quality level.
+    pub quality: EvidenceQualityLevel,
+    /// Concise interpretation limits for this capture.
+    pub limitations: Vec<String>,
 }
 
 /// Evidence-ranked suspect produced by heuristic analysis.
@@ -142,6 +221,8 @@ pub struct Report {
     pub inflight_trend: Option<InflightTrend>,
     /// Non-fatal analysis warnings (for example, capture truncation notices).
     pub warnings: Vec<String>,
+    /// Structured capture completeness and interpretability signals for this run.
+    pub evidence_quality: EvidenceQuality,
     /// Highest-ranked suspect from this run.
     pub primary_suspect: Suspect,
     /// Lower-ranked suspects retained for follow-up triage.
@@ -250,6 +331,7 @@ pub fn analyze_run(run: &Run) -> Report {
     suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
     let warnings = analysis_warnings(run, &suspects);
+    let evidence_quality = evidence_quality(run, &suspects, &warnings);
 
     let mut ranked = suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
@@ -270,6 +352,7 @@ pub fn analyze_run(run: &Run) -> Report {
         p95_service_share_permille,
         inflight_trend,
         warnings,
+        evidence_quality,
         primary_suspect,
         secondary_suspects: ranked.collect(),
     }
@@ -329,14 +412,14 @@ fn max_or_zero(values: &[u64]) -> u64 {
 }
 
 fn score_sample_quality(sample_count: usize) -> u8 {
-    if sample_count >= 100 {
+    if sample_count >= SAMPLE_QUALITY_HIGH_SAMPLE_THRESHOLD {
         8
-    } else if sample_count >= 40 {
+    } else if sample_count >= SAMPLE_QUALITY_MEDIUM_SAMPLE_THRESHOLD {
         5
-    } else if sample_count >= 20 {
+    } else if sample_count >= SAMPLE_QUALITY_LOW_SAMPLE_THRESHOLD {
         3
     } else {
-        u8::from(sample_count >= 8)
+        u8::from(sample_count >= SAMPLE_QUALITY_MIN_SIGNAL_SAMPLE_THRESHOLD)
     }
 }
 
@@ -355,7 +438,7 @@ fn cap_unless_clean_evidence(score: u64, clean: bool, soft_cap: u8) -> u8 {
 fn queue_saturation_suspect(run: &Run, inflight_trend: Option<&InflightTrend>) -> Option<Suspect> {
     let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
-    if p95_queue_share_permille < 300 {
+    if p95_queue_share_permille < QUEUE_SHARE_TRIGGER_PERMILLE {
         return None;
     }
     let queue_depths = run
@@ -538,7 +621,7 @@ fn downstream_stage_candidates(run: &Run, p95_req: u64, total_req: u64) -> Vec<S
     }
     let mut cands = Vec::new();
     for (name, ss) in by {
-        if ss.len() < 3 {
+        if ss.len() < DOWNSTREAM_MIN_STAGE_SAMPLES {
             continue;
         }
         let lats = ss.iter().map(|s| s.latency_us).collect::<Vec<_>>();
@@ -668,9 +751,9 @@ fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
         .collect::<Vec<_>>();
     ranked.sort_by_key(|s| std::cmp::Reverse(s.score));
     if ranked.len() >= 2
-        && ranked[0].score >= 60
-        && ranked[1].score >= 60
-        && ranked[0].score.abs_diff(ranked[1].score) <= 4
+        && ranked[0].score >= AMBIGUITY_MIN_SCORE
+        && ranked[1].score >= AMBIGUITY_MIN_SCORE
+        && ranked[0].score.abs_diff(ranked[1].score) <= AMBIGUITY_MAX_SCORE_GAP
     {
         Some("Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string())
     } else {
@@ -680,7 +763,7 @@ fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
 
 fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
     let mut warnings = truncation_warnings(run);
-    if run.requests.len() < 20 {
+    if run.requests.len() < LOW_COMPLETED_REQUEST_WARNING_THRESHOLD {
         warnings.push(
             "Low completed-request count; diagnosis ranking may be unstable for this run window."
                 .to_string(),
@@ -731,6 +814,116 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
         warnings.push(w);
     }
     warnings
+}
+
+fn runtime_snapshots_partial(snapshots: &[RuntimeSnapshot]) -> bool {
+    !snapshots.is_empty()
+        && (snapshots.iter().all(|s| s.blocking_queue_depth.is_none())
+            || snapshots.iter().all(|s| s.local_queue_depth.is_none())
+            || snapshots.iter().all(|s| s.global_queue_depth.is_none()))
+}
+
+fn evidence_quality(run: &Run, suspects: &[Suspect], warnings: &[String]) -> EvidenceQuality {
+    let request_count = run.requests.len();
+    let queue_event_count = run.queues.len();
+    let stage_event_count = run.stages.len();
+    let runtime_snapshot_count = run.runtime_snapshots.len();
+    let inflight_snapshot_count = run.inflight.len();
+    let runtime_partial = runtime_snapshots_partial(&run.runtime_snapshots);
+
+    let requests = if request_count == 0 {
+        SignalCoverageStatus::Missing
+    } else if run.truncation.dropped_requests > 0 {
+        SignalCoverageStatus::Truncated
+    } else if request_count < LOW_COMPLETED_REQUEST_WARNING_THRESHOLD {
+        SignalCoverageStatus::Partial
+    } else {
+        SignalCoverageStatus::Present
+    };
+    let queues = if queue_event_count == 0 {
+        SignalCoverageStatus::Missing
+    } else if run.truncation.dropped_queues > 0 {
+        SignalCoverageStatus::Truncated
+    } else {
+        SignalCoverageStatus::Present
+    };
+    let stages = if stage_event_count == 0 {
+        SignalCoverageStatus::Missing
+    } else if run.truncation.dropped_stages > 0 {
+        SignalCoverageStatus::Truncated
+    } else {
+        SignalCoverageStatus::Present
+    };
+    let runtime_snapshots = if runtime_snapshot_count == 0 {
+        SignalCoverageStatus::Missing
+    } else if run.truncation.dropped_runtime_snapshots > 0 {
+        SignalCoverageStatus::Truncated
+    } else if runtime_partial {
+        SignalCoverageStatus::Partial
+    } else {
+        SignalCoverageStatus::Present
+    };
+    let inflight_snapshots = if inflight_snapshot_count == 0 {
+        SignalCoverageStatus::Missing
+    } else if run.truncation.dropped_inflight_snapshots > 0 {
+        SignalCoverageStatus::Truncated
+    } else {
+        SignalCoverageStatus::Present
+    };
+
+    let no_explanatory_signal_family =
+        queue_event_count == 0 && stage_event_count == 0 && runtime_snapshot_count == 0;
+    let non_request_truncation = run.truncation.dropped_queues > 0
+        || run.truncation.dropped_stages > 0
+        || run.truncation.dropped_runtime_snapshots > 0
+        || run.truncation.dropped_inflight_snapshots > 0;
+
+    let strong_non_runtime_primary = suspects.first().is_some_and(|s| {
+        (s.kind == DiagnosisKind::ApplicationQueueSaturation
+            || s.kind == DiagnosisKind::DownstreamStageDominates)
+            && s.score >= HIGH_CONFIDENCE_MIN_SCORE
+    });
+
+    let quality = if request_count == 0
+        || request_count < LOW_COMPLETED_REQUEST_WARNING_THRESHOLD
+        || run.truncation.dropped_requests > 0
+        || no_explanatory_signal_family
+    {
+        EvidenceQualityLevel::Weak
+    } else if non_request_truncation
+        || (queue_event_count == 0 && stage_event_count == 0)
+        || runtime_partial
+    {
+        EvidenceQualityLevel::Partial
+    } else if (queue_event_count > 0 || stage_event_count > 0)
+        && (runtime_snapshot_count > 0 || strong_non_runtime_primary)
+    {
+        EvidenceQualityLevel::Strong
+    } else {
+        EvidenceQualityLevel::Partial
+    };
+
+    let limitations = warnings.to_vec();
+    EvidenceQuality {
+        request_count,
+        queue_event_count,
+        stage_event_count,
+        runtime_snapshot_count,
+        inflight_snapshot_count,
+        requests,
+        queues,
+        stages,
+        runtime_snapshots,
+        inflight_snapshots,
+        truncated: run.truncation.limits_hit || run.truncation.is_truncated(),
+        dropped_requests: run.truncation.dropped_requests,
+        dropped_stages: run.truncation.dropped_stages,
+        dropped_queues: run.truncation.dropped_queues,
+        dropped_inflight_snapshots: run.truncation.dropped_inflight_snapshots,
+        dropped_runtime_snapshots: run.truncation.dropped_runtime_snapshots,
+        quality,
+        limitations,
+    }
 }
 
 fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {
@@ -891,6 +1084,14 @@ fn fmt_confidence(confidence: Confidence) -> &'static str {
     }
 }
 
+fn fmt_evidence_quality(quality: EvidenceQualityLevel) -> &'static str {
+    match quality {
+        EvidenceQualityLevel::Strong => "strong",
+        EvidenceQualityLevel::Partial => "partial",
+        EvidenceQualityLevel::Weak => "weak",
+    }
+}
+
 #[must_use]
 /// Renders a compact text triage summary from a [`Report`].
 ///
@@ -933,6 +1134,16 @@ pub fn render_text(report: &Report) -> String {
         report.primary_suspect.kind.as_str(),
         fmt_confidence(report.primary_suspect.confidence),
         report.primary_suspect.score,
+    ));
+    let evidence_summary = report
+        .evidence_quality
+        .limitations
+        .first()
+        .map_or_else(String::new, |l| format!(" ({l})"));
+    lines.push(format!(
+        "Evidence quality: {}{}",
+        fmt_evidence_quality(report.evidence_quality.quality),
+        evidence_summary
     ));
 
     if !report.warnings.is_empty() {
@@ -979,7 +1190,8 @@ mod tests {
     };
 
     use crate::analyze::{
-        analyze_run, render_text, Confidence, DiagnosisKind, InflightTrend, Report, Suspect,
+        analyze_run, render_text, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
+        InflightTrend, Report, SignalCoverageStatus, Suspect,
     };
 
     fn test_run() -> Run {
@@ -1194,6 +1406,26 @@ mod tests {
                 growth_per_sec_milli: Some(2_500),
             }),
             warnings: Vec::new(),
+            evidence_quality: EvidenceQuality {
+                request_count: 2,
+                queue_event_count: 0,
+                stage_event_count: 0,
+                runtime_snapshot_count: 0,
+                inflight_snapshot_count: 0,
+                requests: SignalCoverageStatus::Present,
+                queues: SignalCoverageStatus::Missing,
+                stages: SignalCoverageStatus::Missing,
+                runtime_snapshots: SignalCoverageStatus::Missing,
+                inflight_snapshots: SignalCoverageStatus::Missing,
+                truncated: false,
+                dropped_requests: 0,
+                dropped_stages: 0,
+                dropped_queues: 0,
+                dropped_inflight_snapshots: 0,
+                dropped_runtime_snapshots: 0,
+                quality: EvidenceQualityLevel::Strong,
+                limitations: Vec::new(),
+            },
             primary_suspect: Suspect {
                 kind: DiagnosisKind::ApplicationQueueSaturation,
                 score: 90,
@@ -1224,6 +1456,26 @@ mod tests {
             p95_service_share_permille: None,
             inflight_trend: None,
             warnings: vec!["Capture truncated requests.".to_owned()],
+            evidence_quality: EvidenceQuality {
+                request_count: 0,
+                queue_event_count: 0,
+                stage_event_count: 0,
+                runtime_snapshot_count: 0,
+                inflight_snapshot_count: 0,
+                requests: SignalCoverageStatus::Missing,
+                queues: SignalCoverageStatus::Missing,
+                stages: SignalCoverageStatus::Missing,
+                runtime_snapshots: SignalCoverageStatus::Missing,
+                inflight_snapshots: SignalCoverageStatus::Missing,
+                truncated: true,
+                dropped_requests: 1,
+                dropped_stages: 0,
+                dropped_queues: 0,
+                dropped_inflight_snapshots: 0,
+                dropped_runtime_snapshots: 0,
+                quality: EvidenceQualityLevel::Weak,
+                limitations: vec!["Capture truncated requests.".to_owned()],
+            },
             primary_suspect: Suspect {
                 kind: DiagnosisKind::InsufficientEvidence,
                 score: 50,
@@ -1476,5 +1728,102 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("dropped 1 entries after reaching max_runtime_snapshots")));
+    }
+
+    #[test]
+    fn evidence_quality_weak_with_low_requests_and_missing_signals() {
+        let report = analyze_run(&test_run());
+        assert_eq!(report.evidence_quality.quality, EvidenceQualityLevel::Weak);
+        assert_eq!(
+            report.evidence_quality.requests,
+            SignalCoverageStatus::Partial
+        );
+        assert_eq!(
+            report.evidence_quality.queues,
+            SignalCoverageStatus::Missing
+        );
+        assert_eq!(
+            report.evidence_quality.stages,
+            SignalCoverageStatus::Missing
+        );
+        assert_eq!(
+            report.evidence_quality.runtime_snapshots,
+            SignalCoverageStatus::Missing
+        );
+    }
+
+    #[test]
+    fn evidence_quality_partial_for_runtime_partial_or_truncation() {
+        let mut run = test_run();
+        run.requests = (0..30)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/test".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.queues = run
+            .requests
+            .iter()
+            .map(|r| QueueEvent {
+                request_id: r.request_id.clone(),
+                queue: "q".into(),
+                wait_us: 100,
+                waited_from_unix_ms: 0,
+                waited_until_unix_ms: 1,
+                depth_at_start: Some(1),
+            })
+            .collect();
+        run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), None); 20];
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.evidence_quality.quality,
+            EvidenceQualityLevel::Partial
+        );
+        assert_eq!(
+            report.evidence_quality.runtime_snapshots,
+            SignalCoverageStatus::Partial
+        );
+    }
+
+    #[test]
+    fn evidence_quality_strong_without_runtime_snapshots_when_non_runtime_evidence_is_clear() {
+        let mut run = test_run();
+        run.requests = (0..40)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/test".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.queues = run
+            .requests
+            .iter()
+            .map(|r| QueueEvent {
+                request_id: r.request_id.clone(),
+                queue: "q".into(),
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+                wait_us: 990,
+                depth_at_start: Some(20),
+            })
+            .collect();
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.primary_suspect.kind,
+            DiagnosisKind::ApplicationQueueSaturation
+        );
+        assert_eq!(
+            report.evidence_quality.quality,
+            EvidenceQualityLevel::Strong
+        );
     }
 }

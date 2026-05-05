@@ -66,6 +66,26 @@ Then run one targeted check, change one thing, and re-run under comparable load.
   "p95_service_share_permille": 267,
   "inflight_trend": null,
   "warnings": [],
+  "evidence_quality": {
+    "request_count": 250,
+    "queue_event_count": 250,
+    "stage_event_count": 250,
+    "runtime_snapshot_count": 0,
+    "inflight_snapshot_count": 0,
+    "requests": "present",
+    "queues": "present",
+    "stages": "present",
+    "runtime_snapshots": "missing",
+    "inflight_snapshots": "missing",
+    "truncated": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "quality": "strong",
+    "limitations": ["No runtime snapshots captured; executor and blocking-pressure interpretation is limited."]
+  },
   "primary_suspect": {
     "kind": "application_queue_saturation",
     "score": 90,
@@ -88,6 +108,7 @@ A report can include:
 - p95 queue/service share summaries
 - optional in-flight trend summary
 - report warnings from analysis/report generation (for example truncation-related)
+- evidence quality coverage summary for capture completeness and interpretability
 - primary and secondary suspects
 
 `tailtriage analyze` also prints loader/lifecycle warnings to stderr before the report. Those warnings are surfaced separately; they are not merged into the report `warnings` field.
