@@ -1,10 +1,10 @@
 {
   "request_count": 220,
-  "p50_latency_us": 993483,
-  "p95_latency_us": 1190031,
-  "p99_latency_us": 1206824,
+  "p50_latency_us": 992104,
+  "p95_latency_us": 1187152,
+  "p99_latency_us": 1204130,
   "p95_queue_share_permille": 993,
-  "p95_service_share_permille": 336,
+  "p95_service_share_permille": 330,
   "inflight_trend": {
     "gauge": "cold_start_burst_inflight",
     "sample_count": 440,
@@ -47,7 +47,8 @@
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -55,15 +56,16 @@
       "score": 32,
       "confidence": "low",
       "evidence": [
-        "Stage 'cold_start_stage' has p95 latency 63617 us across 220 samples.",
-        "Stage 'cold_start_stage' cumulative latency is 4876046 us (24 permille of request latency).",
+        "Stage 'cold_start_stage' has p95 latency 63724 us across 220 samples.",
+        "Stage 'cold_start_stage' cumulative latency is 4877474 us (24 permille of request latency).",
         "Stage 'cold_start_stage' contributes 6 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'cold_start_stage'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": []
     }
   ]
 }

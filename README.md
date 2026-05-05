@@ -186,6 +186,7 @@ tailtriage analyze tailtriage-run.json --format json
     "kind": "application_queue_saturation",
     "score": 90,
     "confidence": "high",
+    "confidence_notes": [],
     "evidence": ["Queue wait at p95 consumes 98.2% of request time.", "Observed queue depth sample up to 230."],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -197,6 +198,7 @@ tailtriage analyze tailtriage-run.json --format json
       "kind": "downstream_stage_dominates",
       "score": 55,
       "confidence": "low",
+      "confidence_notes": [],
       "evidence": [
         "Stage 'simulated_work' has p95 latency 26566 us across 250 samples.",
         "Stage 'simulated_work' cumulative latency is 6546159 us.",

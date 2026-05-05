@@ -1,8 +1,8 @@
 {
   "request_count": 240,
-  "p50_latency_us": 34531979,
-  "p95_latency_us": 34596797,
-  "p99_latency_us": 34604649,
+  "p50_latency_us": 35076349,
+  "p95_latency_us": 35151672,
+  "p99_latency_us": 35160262,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -18,7 +18,7 @@
     "request_count": 240,
     "queue_event_count": 0,
     "stage_event_count": 0,
-    "runtime_snapshot_count": 6377,
+    "runtime_snapshot_count": 35168,
     "inflight_snapshot_count": 480,
     "requests": "present",
     "queues": "missing",
@@ -42,13 +42,14 @@
     "confidence": "high",
     "evidence": [
       "Runtime global queue depth p95 is 1920, suggesting scheduler contention.",
-      "Runtime local queue depth p95 is 42232.",
+      "Runtime local queue depth p95 is 26256.",
       "Runtime alive_tasks p95 is 1920."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
       "Compare with per-stage timings to isolate overloaded async stages."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": []
 }
