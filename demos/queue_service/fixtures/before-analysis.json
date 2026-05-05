@@ -1,17 +1,17 @@
 {
   "request_count": 250,
-  "p50_latency_us": 783739,
-  "p95_latency_us": 1472369,
-  "p99_latency_us": 1521948,
+  "p50_latency_us": 790543,
+  "p95_latency_us": 1480670,
+  "p99_latency_us": 1531045,
   "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 265,
+  "p95_service_share_permille": 269,
   "inflight_trend": {
     "gauge": "queue_service_inflight",
     "sample_count": 500,
     "peak_count": 234,
-    "p95_count": 226,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -604
+    "p95_count": 223,
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
   },
   "warnings": [],
   "evidence_quality": {
@@ -56,8 +56,8 @@
       "score": 33,
       "confidence": "low",
       "evidence": [
-        "Stage 'simulated_work' has p95 latency 26571 us across 250 samples.",
-        "Stage 'simulated_work' cumulative latency is 6535903 us (33 permille of request latency).",
+        "Stage 'simulated_work' has p95 latency 26504 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 6593486 us (33 permille of request latency).",
         "Stage 'simulated_work' contributes 17 permille of tail request latency."
       ],
       "next_checks": [
@@ -68,5 +68,140 @@
       "confidence_notes": []
     }
   ],
-  "route_breakdowns": []
+  "route_breakdowns": [],
+  "temporal_segments": [
+    {
+      "name": "early",
+      "request_count": 125,
+      "started_at_unix_ms": 1777988198785,
+      "finished_at_unix_ms": 1777988199635,
+      "p50_latency_us": 389126,
+      "p95_latency_us": 742305,
+      "p99_latency_us": 792753,
+      "p95_queue_share_permille": 964,
+      "p95_service_share_permille": 521,
+      "evidence_quality": {
+        "request_count": 125,
+        "queue_event_count": 125,
+        "stage_event_count": 125,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 378,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 96.4% of request time.",
+          "Observed queue depth sample up to 114.",
+          "In-flight gauge 'queue_service_inflight' grew by 124 over the run window (p95=225, peak=234)."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 36,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'simulated_work' has p95 latency 26598 us across 125 samples.",
+            "Stage 'simulated_work' cumulative latency is 3310569 us (66 permille of request latency).",
+            "Stage 'simulated_work' contributes 34 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'simulated_work'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "name": "late",
+      "request_count": 125,
+      "started_at_unix_ms": 1777988198842,
+      "finished_at_unix_ms": 1777988200450,
+      "p50_latency_us": 1161949,
+      "p95_latency_us": 1506392,
+      "p99_latency_us": 1555076,
+      "p95_queue_share_permille": 982,
+      "p95_service_share_permille": 32,
+      "evidence_quality": {
+        "request_count": 125,
+        "queue_event_count": 125,
+        "stage_event_count": 125,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 371,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 98.2% of request time.",
+          "Observed queue depth sample up to 230."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 33,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'simulated_work' has p95 latency 26455 us across 125 samples.",
+            "Stage 'simulated_work' cumulative latency is 3282917 us (22 permille of request latency).",
+            "Stage 'simulated_work' contributes 17 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'simulated_work'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": []
+    }
+  ]
 }
