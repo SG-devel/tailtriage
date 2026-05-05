@@ -1,8 +1,8 @@
 {
   "request_count": 240,
-  "p50_latency_us": 7106134,
-  "p95_latency_us": 7161651,
-  "p99_latency_us": 7162753,
+  "p50_latency_us": 5031245,
+  "p95_latency_us": 5100556,
+  "p99_latency_us": 5104772,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -10,17 +10,15 @@
     "sample_count": 480,
     "peak_count": 240,
     "p95_count": 228,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "growth_delta": -1,
+    "growth_per_sec_milli": -195
   },
-  "warnings": [
-    "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
-  ],
+  "warnings": [],
   "evidence_quality": {
     "request_count": 240,
     "queue_event_count": 0,
     "stage_event_count": 0,
-    "runtime_snapshot_count": 7178,
+    "runtime_snapshot_count": 5116,
     "inflight_snapshot_count": 480,
     "requests": "present",
     "queues": "missing",
@@ -44,7 +42,7 @@
     "confidence": "high",
     "evidence": [
       "Runtime global queue depth p95 is 720, suggesting scheduler contention.",
-      "Runtime local queue depth p95 is 6966.",
+      "Runtime local queue depth p95 is 4833.",
       "Runtime alive_tasks p95 is 720."
     ],
     "next_checks": [
@@ -54,56 +52,5 @@
     "confidence_notes": []
   },
   "secondary_suspects": [],
-  "route_breakdowns": [
-    {
-      "route": "/executor-pressure",
-      "request_count": 240,
-      "p50_latency_us": 7106134,
-      "p95_latency_us": 7161651,
-      "p99_latency_us": 7162753,
-      "p95_queue_share_permille": 0,
-      "p95_service_share_permille": 1000,
-      "evidence_quality": {
-        "request_count": 240,
-        "queue_event_count": 0,
-        "stage_event_count": 0,
-        "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 0,
-        "requests": "present",
-        "queues": "missing",
-        "stages": "missing",
-        "runtime_snapshots": "missing",
-        "inflight_snapshots": "missing",
-        "truncated": false,
-        "dropped_requests": 0,
-        "dropped_stages": 0,
-        "dropped_queues": 0,
-        "dropped_inflight_snapshots": 0,
-        "dropped_runtime_snapshots": 0,
-        "quality": "weak",
-        "limitations": [
-          "Queue and stage instrumentation are both unavailable, limiting application vs downstream interpretation.",
-          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
-        ]
-      },
-      "primary_suspect": {
-        "kind": "insufficient_evidence",
-        "score": 50,
-        "confidence": "low",
-        "evidence": [
-          "Not enough queue, stage, or runtime signals to rank a stronger suspect."
-        ],
-        "next_checks": [
-          "Wrap critical awaits with queue(...).await_on(...), and use stage(...).await_on(...) for Result-returning work or stage(...).await_value(...) for infallible work.",
-          "Enable RuntimeSampler during the run to capture runtime pressure signals."
-        ],
-        "confidence_notes": []
-      },
-      "secondary_suspects": [],
-      "warnings": [
-        "No runtime snapshots captured; executor and blocking-pressure interpretation is limited.",
-        "Runtime and in-flight signals are global and are not attributed to this route."
-      ]
-    }
-  ]
+  "route_breakdowns": []
 }

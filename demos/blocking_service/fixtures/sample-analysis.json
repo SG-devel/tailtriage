@@ -1,22 +1,21 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1872673,
-  "p95_latency_us": 3541194,
-  "p99_latency_us": 3689612,
-  "p95_queue_share_permille": 5,
+  "p50_latency_us": 1866475,
+  "p95_latency_us": 3524603,
+  "p99_latency_us": 3673375,
+  "p95_queue_share_permille": 3,
   "p95_service_share_permille": 999,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
     "peak_count": 246,
     "p95_count": 235,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -264
+    "growth_delta": 0,
+    "growth_per_sec_milli": 0
   },
   "warnings": [
     "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.",
-    "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.",
-    "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
+    "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks."
   ],
   "evidence_quality": {
     "request_count": 250,
@@ -62,8 +61,8 @@
       "score": 86,
       "confidence": "high",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3540002 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 467722801 us (999 permille of request latency).",
+        "Stage 'spawn_blocking_path' has p95 latency 3523850 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 466288754 us (999 permille of request latency).",
         "Stage 'spawn_blocking_path' contributes 999 permille of tail request latency.",
         "Stage 'spawn_blocking_path' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
       ],
@@ -75,57 +74,5 @@
       "confidence_notes": []
     }
   ],
-  "route_breakdowns": [
-    {
-      "route": "/blocking-demo",
-      "request_count": 250,
-      "p50_latency_us": 1872673,
-      "p95_latency_us": 3541194,
-      "p99_latency_us": 3689612,
-      "p95_queue_share_permille": 5,
-      "p95_service_share_permille": 999,
-      "evidence_quality": {
-        "request_count": 250,
-        "queue_event_count": 250,
-        "stage_event_count": 250,
-        "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 0,
-        "requests": "present",
-        "queues": "present",
-        "stages": "present",
-        "runtime_snapshots": "missing",
-        "inflight_snapshots": "missing",
-        "truncated": false,
-        "dropped_requests": 0,
-        "dropped_stages": 0,
-        "dropped_queues": 0,
-        "dropped_inflight_snapshots": 0,
-        "dropped_runtime_snapshots": 0,
-        "quality": "strong",
-        "limitations": [
-          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
-        ]
-      },
-      "primary_suspect": {
-        "kind": "downstream_stage_dominates",
-        "score": 100,
-        "confidence": "high",
-        "evidence": [
-          "Stage 'spawn_blocking_path' has p95 latency 3540002 us across 250 samples.",
-          "Stage 'spawn_blocking_path' cumulative latency is 467722801 us (999 permille of request latency).",
-          "Stage 'spawn_blocking_path' contributes 999 permille of tail request latency."
-        ],
-        "next_checks": [
-          "Inspect downstream dependency behind stage 'spawn_blocking_path'.",
-          "Collect downstream service timings and retry behavior during tail windows.",
-          "Review downstream SLO/error budget and align retry budget/backoff with it."
-        ],
-        "confidence_notes": []
-      },
-      "secondary_suspects": [],
-      "warnings": [
-        "Runtime and in-flight signals are global and are not attributed to this route."
-      ]
-    }
-  ]
+  "route_breakdowns": []
 }

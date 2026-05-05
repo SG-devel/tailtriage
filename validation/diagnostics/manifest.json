@@ -69,8 +69,7 @@
       "notes": "Blocking pool backlog is intentional pre-fix condition.",
       "expected_warnings": [
         "Runtime snapshots are missing",
-        "Top suspects are close in score",
-        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
+        "Top suspects are close in score"
       ],
       "top1_required": true,
       "allowed_warnings": [],
@@ -126,9 +125,7 @@
         "Global queue depth"
       ],
       "notes": "Executor-pressure demo before mitigation should prioritize executor suspect.",
-      "expected_warnings": [
-        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
-      ],
+      "expected_warnings": [],
       "top1_required": true,
       "allowed_warnings": [],
       "required_top2": [
@@ -153,9 +150,7 @@
         "Runtime global queue depth"
       ],
       "notes": "Post-mitigation executor pressure reduces, but executor remains the expected true cause in this fixture; downstream may appear as an acceptable alternate primary.",
-      "expected_warnings": [
-        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
-      ],
+      "expected_warnings": [],
       "top1_required": false,
       "allowed_warnings": [],
       "required_top2": [
@@ -518,8 +513,7 @@
       "notes": "Blocking sample is canonical blocking saturation evidence.",
       "expected_warnings": [
         "Runtime snapshots are missing",
-        "Top suspects are close in score",
-        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
+        "Top suspects are close in score"
       ],
       "top1_required": true,
       "allowed_warnings": [],
@@ -545,9 +539,7 @@
         "Global queue depth"
       ],
       "notes": "Executor sample has clear runtime queue pressure cues.",
-      "expected_warnings": [
-        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
-      ],
+      "expected_warnings": [],
       "top1_required": true,
       "allowed_warnings": [],
       "required_top2": [
