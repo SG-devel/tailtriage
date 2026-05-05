@@ -2584,18 +2584,6 @@ mod tests {
                 queue: "q".into(),
                 waited_from_unix_ms: 1,
                 waited_until_unix_ms: 2,
-                wait_us: 990,
-                depth_at_start: Some(15),
-            })
-            .collect();
-        run.queues = run
-            .requests
-            .iter()
-            .map(|r| QueueEvent {
-                request_id: r.request_id.clone(),
-                queue: "q".into(),
-                waited_from_unix_ms: 1,
-                waited_until_unix_ms: 2,
                 wait_us: 985,
                 depth_at_start: Some(15),
             })
