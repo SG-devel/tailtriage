@@ -95,7 +95,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "confidence_notes": []
   },
   "secondary_suspects": [],
-  "route_breakdowns": []
+  "route_breakdowns": [],
+  "temporal_segments": []
 }
 ```
 
@@ -210,3 +211,6 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+
+`temporal_segments` is always present in JSON output and usually empty. It is emitted only when conservative early/late comparison finds a material within-run shift (for example primary suspect shift or large p95 shift). These are triage hints only; global `primary_suspect` and ranking remain the full-run source of truth.

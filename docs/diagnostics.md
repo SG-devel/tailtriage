@@ -142,3 +142,6 @@ If truncation counters are non-zero, treat the diagnosis as partial-data triage.
 4. Change one thing.
 5. Re-run under comparable load.
 6. Compare suspect movement and p95 shares.
+
+
+`temporal_segments` is always present in JSON output and usually empty. It is emitted only when conservative early/late comparison finds a material within-run shift (for example primary suspect shift or large p95 shift). These are triage hints only; global `primary_suspect` and ranking remain the full-run source of truth.

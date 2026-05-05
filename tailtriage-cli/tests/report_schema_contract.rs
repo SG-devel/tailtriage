@@ -27,6 +27,7 @@ fn documented_report_keys_exist_in_json_output() {
         ["p95_queue_share_permille"].as_slice(),
         ["p95_service_share_permille"].as_slice(),
         ["primary_suspect", "evidence"].as_slice(),
+        ["temporal_segments"].as_slice(),
     ] {
         assert!(
             json_path_exists(&json, path).is_some(),

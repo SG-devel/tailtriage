@@ -1,17 +1,17 @@
 {
   "request_count": 250,
-  "p50_latency_us": 16028,
-  "p95_latency_us": 16827,
-  "p99_latency_us": 16953,
+  "p50_latency_us": 16113,
+  "p95_latency_us": 16902,
+  "p99_latency_us": 17093,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
     "gauge": "queue_service_inflight",
     "sample_count": 500,
     "peak_count": 12,
-    "p95_count": 12,
+    "p95_count": 11,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2450
+    "growth_per_sec_milli": -2341
   },
   "warnings": [],
   "evidence_quality": {
@@ -41,8 +41,8 @@
     "score": 100,
     "confidence": "high",
     "evidence": [
-      "Stage 'simulated_work' has p95 latency 16817 us across 250 samples.",
-      "Stage 'simulated_work' cumulative latency is 4019716 us (999 permille of request latency).",
+      "Stage 'simulated_work' has p95 latency 16876 us across 250 samples.",
+      "Stage 'simulated_work' cumulative latency is 4031510 us (998 permille of request latency).",
       "Stage 'simulated_work' contributes 998 permille of tail request latency."
     ],
     "next_checks": [
@@ -53,5 +53,6 @@
     "confidence_notes": []
   },
   "secondary_suspects": [],
-  "route_breakdowns": []
+  "route_breakdowns": [],
+  "temporal_segments": []
 }

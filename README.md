@@ -210,7 +210,8 @@ tailtriage analyze tailtriage-run.json --format json
       ]
     }
   ],
-  "route_breakdowns": []
+  "route_breakdowns": [],
+  "temporal_segments": []
 }
 ```
 
@@ -288,3 +289,6 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 - Collector-stress, truncation, artifact-size, and memory guidance: [`docs/collector-limits.md`](docs/collector-limits.md)
 - Architecture and crate responsibilities: [`docs/architecture.md`](docs/architecture.md)
 - Full docs index: [`docs/README.md`](docs/README.md)
+
+
+`temporal_segments` is always present in JSON output and usually empty. It is emitted only when conservative early/late comparison finds a material within-run shift (for example primary suspect shift or large p95 shift). These are triage hints only; global `primary_suspect` and ranking remain the full-run source of truth.
