@@ -358,7 +358,7 @@ pub fn analyze_run(run: &Run) -> Report {
     }
 }
 
-fn evidence_quality(run: &Run, suspects: &[Suspect]) -> EvidenceQuality {
+fn evidence_quality(run: &Run, _suspects: &[Suspect]) -> EvidenceQuality {
     let requests = request_status(run);
     let queues = family_status(run.queues.is_empty(), run.truncation.dropped_queues);
     let stages = family_status(run.stages.is_empty(), run.truncation.dropped_stages);
@@ -386,10 +386,8 @@ fn evidence_quality(run: &Run, suspects: &[Suspect]) -> EvidenceQuality {
     {
         EvidenceQualityLevel::Partial
     } else {
-        let _primary_runtime_dependent = suspects.first().is_some_and(|s| {
-            s.kind == DiagnosisKind::BlockingPoolPressure
-                || s.kind == DiagnosisKind::ExecutorPressureSuspected
-        });
+        // Runtime snapshots are optional; when queue/stage evidence is otherwise strong,
+        // missing runtime is represented as a limitation, not an automatic downgrade.
         EvidenceQualityLevel::Strong
     };
 
@@ -416,10 +414,10 @@ fn evidence_quality(run: &Run, suspects: &[Suspect]) -> EvidenceQuality {
 }
 
 fn request_status(run: &Run) -> SignalCoverageStatus {
-    if run.truncation.dropped_requests > 0 {
-        SignalCoverageStatus::Truncated
-    } else if run.requests.is_empty() {
+    if run.requests.is_empty() {
         SignalCoverageStatus::Missing
+    } else if run.truncation.dropped_requests > 0 {
+        SignalCoverageStatus::Truncated
     } else if run.requests.len() < LOW_COMPLETED_REQUEST_THRESHOLD {
         SignalCoverageStatus::Partial
     } else {
@@ -1434,7 +1432,7 @@ mod tests {
                 stage_event_count: 0,
                 runtime_snapshot_count: 0,
                 inflight_snapshot_count: 0,
-                requests: SignalCoverageStatus::Present,
+                requests: SignalCoverageStatus::Partial,
                 queues: SignalCoverageStatus::Missing,
                 stages: SignalCoverageStatus::Missing,
                 runtime_snapshots: SignalCoverageStatus::Missing,
@@ -1445,7 +1443,7 @@ mod tests {
                 dropped_queues: 0,
                 dropped_inflight_snapshots: 0,
                 dropped_runtime_snapshots: 0,
-                quality: EvidenceQualityLevel::Strong,
+                quality: EvidenceQualityLevel::Weak,
                 limitations: vec![],
             },
             primary_suspect: Suspect {
@@ -1759,6 +1757,18 @@ mod tests {
         assert_eq!(
             report.evidence_quality.requests,
             SignalCoverageStatus::Partial
+        );
+    }
+
+    #[test]
+    fn evidence_quality_requests_missing_when_zero_requests_even_if_dropped() {
+        let mut run = test_run();
+        run.requests.clear();
+        run.truncation.dropped_requests = 3;
+        let report = analyze_run(&run);
+        assert_eq!(
+            report.evidence_quality.requests,
+            SignalCoverageStatus::Missing
         );
     }
 
