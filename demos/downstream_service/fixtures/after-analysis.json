@@ -1,19 +1,21 @@
 {
   "request_count": 80,
-  "p50_latency_us": 12499,
-  "p95_latency_us": 12626,
-  "p99_latency_us": 13358,
+  "p50_latency_us": 12413,
+  "p95_latency_us": 13156,
+  "p99_latency_us": 14005,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
     "gauge": "downstream_service_inflight",
     "sample_count": 160,
-    "peak_count": 33,
-    "p95_count": 32,
+    "peak_count": 38,
+    "p95_count": 34,
     "growth_delta": 5,
-    "growth_per_sec_milli": 113636
+    "growth_per_sec_milli": 108695
   },
-  "warnings": [],
+  "warnings": [
+    "Temporal segments show a large p95 latency shift between early and late requests."
+  ],
   "evidence_quality": {
     "request_count": 80,
     "queue_event_count": 0,
@@ -41,9 +43,9 @@
     "score": 95,
     "confidence": "high",
     "evidence": [
-      "Stage 'downstream_call' has p95 latency 10422 us across 80 samples.",
-      "Stage 'downstream_call' cumulative latency is 809061 us (825 permille of request latency).",
-      "Stage 'downstream_call' contributes 799 permille of tail request latency."
+      "Stage 'downstream_call' has p95 latency 11004 us across 80 samples.",
+      "Stage 'downstream_call' cumulative latency is 812275 us (819 permille of request latency).",
+      "Stage 'downstream_call' contributes 796 permille of tail request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'downstream_call'.",
@@ -53,5 +55,109 @@
     "confidence_notes": []
   },
   "secondary_suspects": [],
-  "route_breakdowns": []
+  "route_breakdowns": [],
+  "temporal_segments": [
+    {
+      "name": "early",
+      "request_count": 40,
+      "started_at_unix_ms": 1777978146982,
+      "finished_at_unix_ms": 1777978147014,
+      "p50_latency_us": 12651,
+      "p95_latency_us": 13158,
+      "p99_latency_us": 13165,
+      "p95_queue_share_permille": 0,
+      "p95_service_share_permille": 1000,
+      "evidence_quality": {
+        "request_count": 40,
+        "queue_event_count": 0,
+        "stage_event_count": 80,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 0,
+        "requests": "present",
+        "queues": "missing",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "missing",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "downstream_stage_dominates",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Stage 'downstream_call' has p95 latency 10549 us across 40 samples.",
+          "Stage 'downstream_call' cumulative latency is 396656 us (805 permille of request latency).",
+          "Stage 'downstream_call' contributes 801 permille of tail request latency."
+        ],
+        "next_checks": [
+          "Inspect downstream dependency behind stage 'downstream_call'.",
+          "Collect downstream service timings and retry behavior during tail windows.",
+          "Review downstream SLO/error budget and align retry budget/backoff with it."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [],
+      "warnings": []
+    },
+    {
+      "name": "late",
+      "request_count": 40,
+      "started_at_unix_ms": 1777978147001,
+      "finished_at_unix_ms": 1777978147029,
+      "p50_latency_us": 12395,
+      "p95_latency_us": 13090,
+      "p99_latency_us": 14005,
+      "p95_queue_share_permille": 0,
+      "p95_service_share_permille": 1000,
+      "evidence_quality": {
+        "request_count": 40,
+        "queue_event_count": 0,
+        "stage_event_count": 80,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 0,
+        "requests": "present",
+        "queues": "missing",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "missing",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "downstream_stage_dominates",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Stage 'downstream_call' has p95 latency 11021 us across 40 samples.",
+          "Stage 'downstream_call' cumulative latency is 415619 us (834 permille of request latency).",
+          "Stage 'downstream_call' contributes 783 permille of tail request latency."
+        ],
+        "next_checks": [
+          "Inspect downstream dependency behind stage 'downstream_call'.",
+          "Collect downstream service timings and retry behavior during tail windows.",
+          "Review downstream SLO/error budget and align retry budget/backoff with it."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [],
+      "warnings": []
+    }
+  ]
 }

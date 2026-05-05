@@ -95,13 +95,16 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "confidence_notes": []
   },
   "secondary_suspects": [],
-  "route_breakdowns": []
+  "route_breakdowns": [],
+  "temporal_segments": []
 }
 ```
 
 `inflight_trend` may be `null` when no in-flight gauges were captured.
 
 `route_breakdowns` is always present in JSON output and is usually an empty array. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal, such as different route-level primary suspects or a large route p95 latency spread. The global `primary_suspect` remains the primary full-run triage lead. Route breakdowns are supporting context only. They use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals, so they are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
+
+`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when deterministic early/late segmentation adds signal (for example, different early/late primary suspects or a large early/late p95 shift). Temporal segments are within-run hints only; global `primary_suspect` remains the full-run triage lead. Runtime snapshots and in-flight gauges in temporal segments are used only when timestamp-filtered samples are sufficiently present in the segment window; otherwise these signals are omitted with a limitation warning. Temporal segments do not prove phase-specific root cause.
 
 ## What the report contains
 
