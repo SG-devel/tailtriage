@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 498135,
-  "p95_latency_us": 927602,
-  "p99_latency_us": 961905,
+  "p50_latency_us": 495001,
+  "p95_latency_us": 931554,
+  "p99_latency_us": 966885,
   "p95_queue_share_permille": 976,
-  "p95_service_share_permille": 368,
+  "p95_service_share_permille": 379,
   "inflight_trend": {
     "gauge": "db_pool_saturation_inflight",
     "sample_count": 440,
     "peak_count": 200,
     "p95_count": 193,
-    "growth_delta": 2,
-    "growth_per_sec_milli": 1872
+    "growth_delta": -1,
+    "growth_per_sec_milli": -936
   },
   "warnings": [],
   "evidence_quality": {
@@ -42,13 +42,13 @@
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 97.6% of request time.",
-      "Observed queue depth sample up to 196.",
-      "In-flight gauge 'db_pool_saturation_inflight' grew by 2 over the run window (p95=193, peak=200)."
+      "Observed queue depth sample up to 196."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -56,15 +56,17 @@
       "score": 34,
       "confidence": "low",
       "evidence": [
-        "Stage 'db_query' has p95 latency 19752 us across 220 samples.",
-        "Stage 'db_query' cumulative latency is 4247545 us (38 permille of request latency).",
+        "Stage 'db_query' has p95 latency 19588 us across 220 samples.",
+        "Stage 'db_query' cumulative latency is 4243946 us (39 permille of request latency).",
         "Stage 'db_query' contributes 20 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'db_query'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": []
     }
-  ]
+  ],
+  "route_breakdowns": []
 }

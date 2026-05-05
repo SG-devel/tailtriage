@@ -141,3 +141,6 @@ If truncation counters are non-zero, treat the diagnosis as partial-data triage.
 4. Change one thing.
 5. Re-run under comparable load.
 6. Compare suspect movement and p95 shares.
+
+
+- `route_breakdowns`: supporting per-route triage summaries when route-level differences are meaningful; empty otherwise. Global `primary_suspect` remains the primary output. Route summaries are scoped to captured route labels and do not attribute global runtime/in-flight signals to a route.

@@ -94,7 +94,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "next_checks": ["Inspect queue admission limits and producer burst patterns."],
     "confidence_notes": []
   },
-  "secondary_suspects": []
+  "secondary_suspects": [],
+  "route_breakdowns": []
 }
 ```
 
@@ -207,3 +208,6 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+
+- `route_breakdowns`: supporting per-route triage summaries when route-level differences are meaningful; empty otherwise. Global `primary_suspect` remains the primary output. Route summaries are scoped to captured route labels and do not attribute global runtime/in-flight signals to a route.
