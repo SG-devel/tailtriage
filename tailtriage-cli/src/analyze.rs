@@ -700,7 +700,7 @@ fn temporal_segments(run: &Run, global_warnings: &mut Vec<String>) -> Vec<Tempor
     if !material {
         return vec![];
     }
-    if suspect_shift && runtime_dependent_shift {
+    if suspect_shift {
         global_warnings.push(TEMPORAL_SUSPECT_SHIFT_WARNING.to_string());
     }
     vec![early_seg, late_seg]
@@ -1732,7 +1732,7 @@ mod tests {
         analyze_run, analyze_run_internal, apply_evidence_aware_confidence_caps, evidence_quality,
         render_text, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
         InflightTrend, Report, SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING,
-        ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+        ROUTE_RUNTIME_ATTRIBUTION_WARNING, TEMPORAL_SUSPECT_SHIFT_WARNING,
     };
 
     fn test_run() -> Run {
@@ -2918,6 +2918,10 @@ mod tests {
         run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
         let report = analyze_run(&run);
         assert!(report.temporal_segments.is_empty());
+        assert!(!report
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_SUSPECT_SHIFT_WARNING));
     }
 
     #[test]
@@ -2950,6 +2954,10 @@ mod tests {
             report.temporal_segments[0].primary_suspect.kind,
             report.temporal_segments[1].primary_suspect.kind
         );
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_SUSPECT_SHIFT_WARNING));
     }
 
     #[test]
@@ -3045,6 +3053,14 @@ mod tests {
         let report = analyze_run(&run);
 
         assert_eq!(report.temporal_segments.len(), 2);
+        assert_ne!(
+            report.temporal_segments[0].primary_suspect.kind,
+            report.temporal_segments[1].primary_suspect.kind
+        );
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_SUSPECT_SHIFT_WARNING));
         assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
         assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
     }
