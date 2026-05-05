@@ -142,3 +142,6 @@ If truncation counters are non-zero, treat the diagnosis as partial-data triage.
 4. Change one thing.
 5. Re-run under comparable load.
 6. Compare suspect movement and p95 shares.
+
+
+`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when early/late within-run analysis adds signal, such as different segment primary suspects or a large p95 shift. Temporal segments are supporting context only: global `primary_suspect` remains the primary full-run triage lead. Temporal segments are hints, not proof of phase-specific root cause. Runtime and in-flight evidence is included only when timestamp-filtered samples in a segment window are reliable.

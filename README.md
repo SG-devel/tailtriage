@@ -210,6 +210,7 @@ tailtriage analyze tailtriage-run.json --format json
       ]
     }
   ],
+  "temporal_segments": [],
   "route_breakdowns": []
 }
 ```

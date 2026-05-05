@@ -2,19 +2,19 @@
   "before": {
     "primary_suspect_kind": "downstream_stage_dominates",
     "primary_suspect_score": 95,
-    "p95_latency_us": 23960,
+    "p95_latency_us": 23865,
     "p95_service_share_permille": 1000
   },
   "after": {
     "primary_suspect_kind": "downstream_stage_dominates",
     "primary_suspect_score": 95,
-    "p95_latency_us": 12626,
+    "p95_latency_us": 12755,
     "p95_service_share_permille": 1000
   },
   "delta": {
     "primary_suspect_kind": null,
     "primary_suspect_score": 0,
-    "p95_latency_us": -11334,
+    "p95_latency_us": -11110,
     "p95_service_share_permille": 0
   }
 }

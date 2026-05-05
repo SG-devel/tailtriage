@@ -95,6 +95,7 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "confidence_notes": []
   },
   "secondary_suspects": [],
+  "temporal_segments": [],
   "route_breakdowns": []
 }
 ```
@@ -210,3 +211,6 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+
+`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when early/late within-run analysis adds signal, such as different segment primary suspects or a large p95 shift. Temporal segments are supporting context only: global `primary_suspect` remains the primary full-run triage lead. Temporal segments are hints, not proof of phase-specific root cause. Runtime and in-flight evidence is included only when timestamp-filtered samples in a segment window are reliable.

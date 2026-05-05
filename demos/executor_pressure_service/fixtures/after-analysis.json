@@ -1,8 +1,8 @@
 {
   "request_count": 240,
-  "p50_latency_us": 5031245,
-  "p95_latency_us": 5100556,
-  "p99_latency_us": 5104772,
+  "p50_latency_us": 5122690,
+  "p95_latency_us": 5168982,
+  "p99_latency_us": 5170976,
   "p95_queue_share_permille": 0,
   "p95_service_share_permille": 1000,
   "inflight_trend": {
@@ -11,14 +11,14 @@
     "peak_count": 240,
     "p95_count": 228,
     "growth_delta": -1,
-    "growth_per_sec_milli": -195
+    "growth_per_sec_milli": -193
   },
   "warnings": [],
   "evidence_quality": {
     "request_count": 240,
     "queue_event_count": 0,
     "stage_event_count": 0,
-    "runtime_snapshot_count": 5116,
+    "runtime_snapshot_count": 5179,
     "inflight_snapshot_count": 480,
     "requests": "present",
     "queues": "missing",
@@ -42,7 +42,7 @@
     "confidence": "high",
     "evidence": [
       "Runtime global queue depth p95 is 720, suggesting scheduler contention.",
-      "Runtime local queue depth p95 is 4833.",
+      "Runtime local queue depth p95 is 5763.",
       "Runtime alive_tasks p95 is 720."
     ],
     "next_checks": [
@@ -52,5 +52,6 @@
     "confidence_notes": []
   },
   "secondary_suspects": [],
+  "temporal_segments": [],
   "route_breakdowns": []
 }

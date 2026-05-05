@@ -1,19 +1,21 @@
 {
   "request_count": 220,
-  "p50_latency_us": 390695,
-  "p95_latency_us": 736242,
-  "p99_latency_us": 762947,
+  "p50_latency_us": 397214,
+  "p95_latency_us": 741034,
+  "p99_latency_us": 770505,
   "p95_queue_share_permille": 980,
-  "p95_service_share_permille": 393,
+  "p95_service_share_permille": 380,
   "inflight_trend": {
     "gauge": "mixed_contention_inflight",
     "sample_count": 440,
     "peak_count": 201,
-    "p95_count": 190,
+    "p95_count": 191,
     "growth_delta": -1,
-    "growth_per_sec_milli": -1161
+    "growth_per_sec_milli": -1154
   },
-  "warnings": [],
+  "warnings": [
+    "Temporal segments show a large p95 latency shift between early and late requests."
+  ],
   "evidence_quality": {
     "request_count": 220,
     "queue_event_count": 220,
@@ -56,8 +58,8 @@
       "score": 35,
       "confidence": "low",
       "evidence": [
-        "Stage 'downstream_call' has p95 latency 32487 us across 220 samples.",
-        "Stage 'downstream_call' cumulative latency is 3767713 us (43 permille of request latency).",
+        "Stage 'downstream_call' has p95 latency 32440 us across 220 samples.",
+        "Stage 'downstream_call' cumulative latency is 3778373 us (43 permille of request latency).",
         "Stage 'downstream_call' contributes 25 permille of tail request latency."
       ],
       "next_checks": [
@@ -66,6 +68,145 @@
         "Review downstream SLO/error budget and align retry budget/backoff with it."
       ],
       "confidence_notes": []
+    }
+  ],
+  "temporal_segments": [
+    {
+      "name": "early",
+      "request_count": 110,
+      "started_at_unix_ms": 1777978041695,
+      "finished_at_unix_ms": 1777978042127,
+      "p50_latency_us": 202735,
+      "p95_latency_us": 377155,
+      "p99_latency_us": 392917,
+      "p95_queue_share_permille": 960,
+      "p95_service_share_permille": 567,
+      "evidence_quality": {
+        "request_count": 110,
+        "queue_event_count": 110,
+        "stage_event_count": 220,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 328,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 96.0% of request time.",
+          "Observed queue depth sample up to 97.",
+          "In-flight gauge 'mixed_contention_inflight' grew by 111 over the run window (p95=193, peak=201)."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 39,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'downstream_call' has p95 latency 32440 us across 110 samples.",
+            "Stage 'downstream_call' cumulative latency is 1902953 us (85 permille of request latency).",
+            "Stage 'downstream_call' contributes 56 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'downstream_call'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": [
+        "Runtime and in-flight temporal attribution is limited to timestamp-filtered samples in the segment window."
+      ]
+    },
+    {
+      "name": "late",
+      "request_count": 110,
+      "started_at_unix_ms": 1777978041738,
+      "finished_at_unix_ms": 1777978042550,
+      "p50_latency_us": 585269,
+      "p95_latency_us": 762121,
+      "p99_latency_us": 772296,
+      "p95_queue_share_permille": 981,
+      "p95_service_share_permille": 69,
+      "evidence_quality": {
+        "request_count": 110,
+        "queue_event_count": 110,
+        "stage_event_count": 220,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 322,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 98.1% of request time.",
+          "Observed queue depth sample up to 196."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 34,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'downstream_call' has p95 latency 32431 us across 110 samples.",
+            "Stage 'downstream_call' cumulative latency is 1875420 us (28 permille of request latency).",
+            "Stage 'downstream_call' contributes 28 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'downstream_call'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": [
+        "Runtime and in-flight temporal attribution is limited to timestamp-filtered samples in the segment window."
+      ]
     }
   ],
   "route_breakdowns": []

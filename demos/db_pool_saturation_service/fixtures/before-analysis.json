@@ -1,19 +1,21 @@
 {
   "request_count": 220,
-  "p50_latency_us": 495974,
-  "p95_latency_us": 930473,
-  "p99_latency_us": 964158,
-  "p95_queue_share_permille": 976,
-  "p95_service_share_permille": 367,
+  "p50_latency_us": 495837,
+  "p95_latency_us": 933537,
+  "p99_latency_us": 968454,
+  "p95_queue_share_permille": 977,
+  "p95_service_share_permille": 370,
   "inflight_trend": {
     "gauge": "db_pool_saturation_inflight",
     "sample_count": 440,
     "peak_count": 204,
     "p95_count": 193,
-    "growth_delta": -1,
-    "growth_per_sec_milli": -940
+    "growth_delta": 2,
+    "growth_per_sec_milli": 1879
   },
-  "warnings": [],
+  "warnings": [
+    "Temporal segments show a large p95 latency shift between early and late requests."
+  ],
   "evidence_quality": {
     "request_count": 220,
     "queue_event_count": 220,
@@ -41,8 +43,9 @@
     "score": 95,
     "confidence": "high",
     "evidence": [
-      "Queue wait at p95 consumes 97.6% of request time.",
-      "Observed queue depth sample up to 199."
+      "Queue wait at p95 consumes 97.7% of request time.",
+      "Observed queue depth sample up to 200.",
+      "In-flight gauge 'db_pool_saturation_inflight' grew by 2 over the run window (p95=193, peak=204)."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -56,8 +59,8 @@
       "score": 34,
       "confidence": "low",
       "evidence": [
-        "Stage 'db_query' has p95 latency 19560 us across 220 samples.",
-        "Stage 'db_query' cumulative latency is 4214847 us (38 permille of request latency).",
+        "Stage 'db_query' has p95 latency 19532 us across 220 samples.",
+        "Stage 'db_query' cumulative latency is 4234123 us (38 permille of request latency).",
         "Stage 'db_query' contributes 20 permille of tail request latency."
       ],
       "next_checks": [
@@ -66,6 +69,145 @@
         "Review downstream SLO/error budget and align retry budget/backoff with it."
       ],
       "confidence_notes": []
+    }
+  ],
+  "temporal_segments": [
+    {
+      "name": "early",
+      "request_count": 110,
+      "started_at_unix_ms": 1777978050773,
+      "finished_at_unix_ms": 1777978051298,
+      "p50_latency_us": 247807,
+      "p95_latency_us": 476560,
+      "p99_latency_us": 495837,
+      "p95_queue_share_permille": 954,
+      "p95_service_share_permille": 559,
+      "evidence_quality": {
+        "request_count": 110,
+        "queue_event_count": 110,
+        "stage_event_count": 220,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 328,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 95.4% of request time.",
+          "Observed queue depth sample up to 99.",
+          "In-flight gauge 'db_pool_saturation_inflight' grew by 114 over the run window (p95=196, peak=204)."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 37,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'db_query' has p95 latency 19931 us across 110 samples.",
+            "Stage 'db_query' cumulative latency is 2117823 us (75 permille of request latency).",
+            "Stage 'db_query' contributes 39 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'db_query'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": [
+        "Runtime and in-flight temporal attribution is limited to timestamp-filtered samples in the segment window."
+      ]
+    },
+    {
+      "name": "late",
+      "request_count": 110,
+      "started_at_unix_ms": 1777978050821,
+      "finished_at_unix_ms": 1777978051837,
+      "p50_latency_us": 737856,
+      "p95_latency_us": 951580,
+      "p99_latency_us": 968458,
+      "p95_queue_share_permille": 977,
+      "p95_service_share_permille": 41,
+      "evidence_quality": {
+        "request_count": 110,
+        "queue_event_count": 110,
+        "stage_event_count": 220,
+        "runtime_snapshot_count": 0,
+        "inflight_snapshot_count": 326,
+        "requests": "present",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing",
+        "inflight_snapshots": "present",
+        "truncated": false,
+        "dropped_requests": 0,
+        "dropped_stages": 0,
+        "dropped_queues": 0,
+        "dropped_inflight_snapshots": 0,
+        "dropped_runtime_snapshots": 0,
+        "quality": "strong",
+        "limitations": [
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ]
+      },
+      "primary_suspect": {
+        "kind": "application_queue_saturation",
+        "score": 95,
+        "confidence": "high",
+        "evidence": [
+          "Queue wait at p95 consumes 97.7% of request time.",
+          "Observed queue depth sample up to 200."
+        ],
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "confidence_notes": []
+      },
+      "secondary_suspects": [
+        {
+          "kind": "downstream_stage_dominates",
+          "score": 33,
+          "confidence": "low",
+          "evidence": [
+            "Stage 'db_query' has p95 latency 19438 us across 110 samples.",
+            "Stage 'db_query' cumulative latency is 2116300 us (26 permille of request latency).",
+            "Stage 'db_query' contributes 19 permille of tail request latency."
+          ],
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'db_query'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "confidence_notes": []
+        }
+      ],
+      "warnings": [
+        "Runtime and in-flight temporal attribution is limited to timestamp-filtered samples in the segment window."
+      ]
     }
   ],
   "route_breakdowns": []
