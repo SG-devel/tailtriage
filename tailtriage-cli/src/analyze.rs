@@ -20,6 +20,12 @@ const ROUTE_DIVERGENCE_WARNING: &str =
     "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
 const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
     "Runtime and in-flight signals are global and are not attributed to this route.";
+const TEMPORAL_MIN_REQUEST_COUNT: usize = 20;
+const TEMPORAL_SEGMENT_MIN_REQUEST_COUNT: usize = 8;
+const TEMPORAL_LATENCY_SHIFT_WARNING: &str =
+    "Temporal segments show a large p95 latency shift between early and late requests.";
+const TEMPORAL_SUSPECT_SHIFT_WARNING: &str =
+    "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.";
 
 /// Evidence-ranked diagnosis categories produced by heuristic triage.
 ///
@@ -238,6 +244,8 @@ pub struct Report {
     pub secondary_suspects: Vec<Suspect>,
     /// Supporting per-route triage summaries when route-level signal adds value.
     pub route_breakdowns: Vec<RouteBreakdown>,
+    /// Supporting early/late triage summaries when temporal shifts add meaningful signal.
+    pub temporal_segments: Vec<TemporalSegment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -264,6 +272,37 @@ pub struct RouteBreakdown {
     /// Lower-ranked route-level suspects for follow-up.
     pub secondary_suspects: Vec<Suspect>,
     /// Route-scoped warnings and interpretation limits.
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+/// Supporting early/late triage summary when within-run phase shifts are meaningful.
+pub struct TemporalSegment {
+    /// Stable segment name (`early` or `late`).
+    pub name: String,
+    /// Completed request count in this segment.
+    pub request_count: usize,
+    /// Earliest request start timestamp in segment.
+    pub started_at_unix_ms: Option<u64>,
+    /// Latest request finish timestamp in segment.
+    pub finished_at_unix_ms: Option<u64>,
+    /// Segment p50 latency in microseconds.
+    pub p50_latency_us: Option<u64>,
+    /// Segment p95 latency in microseconds.
+    pub p95_latency_us: Option<u64>,
+    /// Segment p99 latency in microseconds.
+    pub p99_latency_us: Option<u64>,
+    /// Segment p95 queue-time share in permille.
+    pub p95_queue_share_permille: Option<u64>,
+    /// Segment p95 non-queue service-time share in permille.
+    pub p95_service_share_permille: Option<u64>,
+    /// Segment evidence coverage summary.
+    pub evidence_quality: EvidenceQuality,
+    /// Segment-local primary suspect.
+    pub primary_suspect: Suspect,
+    /// Segment-local secondary suspects.
+    pub secondary_suspects: Vec<Suspect>,
+    /// Segment-scoped warnings and limitations.
     pub warnings: Vec<String>,
 }
 
@@ -324,6 +363,18 @@ pub fn analyze_run(run: &Run) -> Report {
         report.warnings.push(ROUTE_DIVERGENCE_WARNING.to_string());
     }
     report.route_breakdowns = route_context.breakdowns;
+    let temporal = temporal_segments(run);
+    if temporal.suspect_shift {
+        report
+            .warnings
+            .push(TEMPORAL_SUSPECT_SHIFT_WARNING.to_string());
+    }
+    if temporal.p95_shift {
+        report
+            .warnings
+            .push(TEMPORAL_LATENCY_SHIFT_WARNING.to_string());
+    }
+    report.temporal_segments = temporal.segments;
     report
 }
 
@@ -406,7 +457,129 @@ fn analyze_run_internal(run: &Run) -> Report {
         primary_suspect,
         secondary_suspects: ranked.collect(),
         route_breakdowns: Vec::new(),
+        temporal_segments: Vec::new(),
     }
+}
+
+struct TemporalContext {
+    segments: Vec<TemporalSegment>,
+    suspect_shift: bool,
+    p95_shift: bool,
+}
+
+fn temporal_segments(run: &Run) -> TemporalContext {
+    if run.requests.len() < TEMPORAL_MIN_REQUEST_COUNT {
+        return TemporalContext {
+            segments: vec![],
+            suspect_shift: false,
+            p95_shift: false,
+        };
+    }
+    let mut sorted = run.requests.clone();
+    sorted.sort_by(|a, b| {
+        a.started_at_unix_ms
+            .cmp(&b.started_at_unix_ms)
+            .then_with(|| a.request_id.cmp(&b.request_id))
+    });
+    let mid = sorted.len() / 2;
+    let (early, late) = (&sorted[..mid], &sorted[mid..]);
+    if early.len() < TEMPORAL_SEGMENT_MIN_REQUEST_COUNT
+        || late.len() < TEMPORAL_SEGMENT_MIN_REQUEST_COUNT
+    {
+        return TemporalContext {
+            segments: vec![],
+            suspect_shift: false,
+            p95_shift: false,
+        };
+    }
+    let early_seg = build_temporal_segment(run, "early", early);
+    let late_seg = build_temporal_segment(run, "late", late);
+    let suspect_shift = early_seg.primary_suspect.kind != late_seg.primary_suspect.kind;
+    let p95_shift = large_relative_shift(early_seg.p95_latency_us, late_seg.p95_latency_us);
+    let share_shift = large_relative_shift(
+        early_seg.p95_queue_share_permille,
+        late_seg.p95_queue_share_permille,
+    ) || large_relative_shift(
+        early_seg.p95_service_share_permille,
+        late_seg.p95_service_share_permille,
+    );
+    let quality_shift = early_seg.evidence_quality.quality != late_seg.evidence_quality.quality
+        || !early_seg.warnings.is_empty()
+        || !late_seg.warnings.is_empty();
+    let meaningful = suspect_shift || p95_shift || share_shift || quality_shift;
+    TemporalContext {
+        segments: if meaningful {
+            vec![early_seg, late_seg]
+        } else {
+            vec![]
+        },
+        suspect_shift,
+        p95_shift,
+    }
+}
+
+fn large_relative_shift(a: Option<u64>, b: Option<u64>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) if x > 0 && y > 0 => {
+            x.saturating_mul(2) >= y.saturating_mul(3) || y.saturating_mul(2) >= x.saturating_mul(3)
+        }
+        _ => false,
+    }
+}
+
+fn build_temporal_segment(
+    run: &Run,
+    name: &str,
+    requests: &[tailtriage_core::RequestEvent],
+) -> TemporalSegment {
+    let request_ids: Vec<String> = requests.iter().map(|r| r.request_id.clone()).collect();
+    let started_at_unix_ms = requests.first().map(|r| r.started_at_unix_ms);
+    let finished_at_unix_ms = requests.iter().map(|r| r.finished_at_unix_ms).max();
+    let mut filtered = filtered_run_for_ids(run, &request_ids);
+    filtered.runtime_snapshots = run
+        .runtime_snapshots
+        .iter()
+        .filter(|s| within_window(s.at_unix_ms, started_at_unix_ms, finished_at_unix_ms))
+        .cloned()
+        .collect();
+    filtered.inflight = run
+        .inflight
+        .iter()
+        .filter(|s| within_window(s.at_unix_ms, started_at_unix_ms, finished_at_unix_ms))
+        .cloned()
+        .collect();
+    let mut analyzed = analyze_run_internal(&filtered);
+    if filtered.runtime_snapshots.len() < 2 {
+        analyzed.warnings.push(
+            "Runtime snapshots are omitted or sparse after temporal timestamp filtering."
+                .to_string(),
+        );
+    }
+    if filtered.inflight.len() < 2 {
+        analyzed.warnings.push(
+            "In-flight snapshots are omitted or sparse after temporal timestamp filtering."
+                .to_string(),
+        );
+    }
+    TemporalSegment {
+        name: name.to_string(),
+        request_count: analyzed.request_count,
+        started_at_unix_ms,
+        finished_at_unix_ms,
+        p50_latency_us: analyzed.p50_latency_us,
+        p95_latency_us: analyzed.p95_latency_us,
+        p99_latency_us: analyzed.p99_latency_us,
+        p95_queue_share_permille: analyzed.p95_queue_share_permille,
+        p95_service_share_permille: analyzed.p95_service_share_permille,
+        evidence_quality: analyzed.evidence_quality,
+        primary_suspect: analyzed.primary_suspect,
+        secondary_suspects: analyzed.secondary_suspects,
+        warnings: analyzed.warnings,
+    }
+}
+
+fn within_window(ts: u64, start: Option<u64>, finish: Option<u64>) -> bool {
+    start.is_none_or(|s| ts >= s) && finish.is_none_or(|f| ts <= f)
 }
 
 struct RouteBreakdownContext {
@@ -526,6 +699,13 @@ fn should_emit_route_breakdowns(global: &Report, candidates: &[RouteBreakdown]) 
 }
 
 fn filtered_run_for_route(run: &Run, request_ids: &[String]) -> Run {
+    let mut filtered = filtered_run_for_ids(run, request_ids);
+    filtered.runtime_snapshots = Vec::new();
+    filtered.inflight = Vec::new();
+    filtered
+}
+
+fn filtered_run_for_ids(run: &Run, request_ids: &[String]) -> Run {
     let request_ids: std::collections::HashSet<&str> =
         request_ids.iter().map(String::as_str).collect();
     let mut filtered = run.clone();
@@ -547,8 +727,6 @@ fn filtered_run_for_route(run: &Run, request_ids: &[String]) -> Run {
         .filter(|q| request_ids.contains(q.request_id.as_str()))
         .cloned()
         .collect();
-    filtered.runtime_snapshots = Vec::new();
-    filtered.inflight = Vec::new();
     filtered
 }
 
@@ -1431,6 +1609,23 @@ fn fmt_confidence(confidence: Confidence) -> &'static str {
     }
 }
 
+fn render_temporal_segments(lines: &mut Vec<String>, segments: &[TemporalSegment]) {
+    if segments.is_empty() {
+        return;
+    }
+    lines.push("Temporal segments:".to_string());
+    for segment in segments {
+        lines.push(format!(
+            "- {}: requests {}, p95 {}us, suspect {} ({} confidence)",
+            segment.name,
+            segment.request_count,
+            fmt_opt_u64(segment.p95_latency_us),
+            segment.primary_suspect.kind.as_str(),
+            fmt_confidence(segment.primary_suspect.confidence),
+        ));
+    }
+}
+
 #[must_use]
 /// Renders a compact text triage summary from a [`Report`].
 ///
@@ -1533,6 +1728,7 @@ pub fn render_text(report: &Report) -> String {
             ));
         }
     }
+    render_temporal_segments(&mut lines, &report.temporal_segments);
 
     lines.join("\n")
 }
@@ -1805,6 +2001,7 @@ mod tests {
             },
             secondary_suspects: Vec::new(),
             route_breakdowns: Vec::new(),
+            temporal_segments: Vec::new(),
         };
 
         let text = render_text(&report);
@@ -1857,6 +2054,7 @@ mod tests {
             },
             secondary_suspects: Vec::new(),
             route_breakdowns: Vec::new(),
+            temporal_segments: Vec::new(),
         };
 
         let text = render_text(&report);
