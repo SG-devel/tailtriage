@@ -123,6 +123,7 @@ Warnings lower interpretation confidence; they do not automatically invalidate s
   - `strong`: enough request evidence, queue or stage evidence present, no truncation limits active.
 
 Runtime snapshots are optional input. Missing runtime snapshots add a limitation for executor/blocking interpretation, but they do not by themselves force `quality` to `partial` when queue/stage evidence is otherwise strong.
+When runtime snapshots are present but queue-depth fields are absent, confidence notes call this out as partial runtime evidence instead of reporting snapshots as missing.
 
 ## Runtime-pressure caveat
 
