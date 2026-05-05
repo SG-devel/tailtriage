@@ -1,10 +1,10 @@
 {
   "request_count": 220,
-  "p50_latency_us": 2546348,
-  "p95_latency_us": 4817353,
-  "p99_latency_us": 4999343,
+  "p50_latency_us": 2554054,
+  "p95_latency_us": 4825169,
+  "p99_latency_us": 5007481,
   "p95_queue_share_permille": 994,
-  "p95_service_share_permille": 98,
+  "p95_service_share_permille": 100,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
@@ -47,7 +47,8 @@
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -55,15 +56,17 @@
       "score": 32,
       "confidence": "low",
       "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 23447 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 5109039 us (9 permille of request latency).",
+        "Stage 'shared_state_critical_section' has p95 latency 23545 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 5118202 us (9 permille of request latency).",
         "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'shared_state_critical_section'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": []
     }
-  ]
+  ],
+  "route_breakdowns": []
 }

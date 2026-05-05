@@ -94,7 +94,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "next_checks": ["Inspect queue admission limits and producer burst patterns."],
     "confidence_notes": []
   },
-  "secondary_suspects": []
+  "secondary_suspects": [],
+  "route_breakdowns": []
 }
 ```
 
@@ -111,6 +112,7 @@ A report can include:
 - report warnings from analysis/report generation (for example truncation-related)
 - structured evidence quality coverage/status summary
 - primary and secondary suspects
+- optional `route_breakdowns[]` supporting context when route-level divergence/latency spread is meaningful
 
 `tailtriage analyze` also prints loader/lifecycle warnings to stderr before the report. Those warnings are surfaced separately; they are not merged into the report `warnings` field.
 
@@ -148,6 +150,10 @@ Library note:
 - truncation warnings mean the diagnosis is based on partial retained data
 - unfinished lifecycle warnings printed by the CLI indicate some requests were not completed cleanly
 - `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`
+- `route_breakdowns[]` is supporting context only; global `primary_suspect` remains the primary triage output
+- route-level summaries use captured route labels and route-attributed request/queue/stage evidence
+- runtime and in-flight signals are global today and are intentionally not attributed to individual routes in route breakdowns
+- route-level suspects are leads for next checks, not per-route causal proof
 
 
 ## Scoring and warning behavior
