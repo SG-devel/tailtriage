@@ -368,6 +368,19 @@ fn apply_evidence_aware_confidence_caps(
     run: &Run,
     evidence_quality: &EvidenceQuality,
 ) {
+    let runtime_missing_key_fields = run.runtime_snapshots.is_empty()
+        || run
+            .runtime_snapshots
+            .iter()
+            .all(|snapshot| snapshot.blocking_queue_depth.is_none())
+        || run
+            .runtime_snapshots
+            .iter()
+            .all(|snapshot| snapshot.local_queue_depth.is_none())
+        || run
+            .runtime_snapshots
+            .iter()
+            .all(|snapshot| snapshot.global_queue_depth.is_none());
     let ambiguous = ambiguity_warning(suspects).is_some();
     let primary_index = suspects
         .iter()
@@ -400,36 +413,13 @@ fn apply_evidence_aware_confidence_caps(
                     .to_string(),
             );
         }
-        match suspect.kind {
-            DiagnosisKind::ApplicationQueueSaturation => {
-                if run.truncation.dropped_queues > 0 || run.queues.is_empty() {
-                    cap = cap.min(Confidence::Medium);
-                    notes.push(
-                        "Missing queue instrumentation limits queue-saturation confidence."
-                            .to_string(),
-                    );
-                }
-            }
-            DiagnosisKind::DownstreamStageDominates => {
-                if run.truncation.dropped_stages > 0 || run.stages.is_empty() {
-                    cap = cap.min(Confidence::Medium);
-                    notes.push(
-                        "Missing stage instrumentation limits downstream-stage confidence."
-                            .to_string(),
-                    );
-                }
-            }
-            DiagnosisKind::BlockingPoolPressure | DiagnosisKind::ExecutorPressureSuspected => {
-                if run.truncation.dropped_runtime_snapshots > 0 || run.runtime_snapshots.is_empty()
-                {
-                    cap = cap.min(Confidence::Medium);
-                    notes.push(
-                        "Missing runtime snapshots limit executor/blocking confidence.".to_string(),
-                    );
-                }
-            }
-            DiagnosisKind::InsufficientEvidence => {}
-        }
+        apply_family_evidence_caps(
+            &suspect.kind,
+            run,
+            runtime_missing_key_fields,
+            &mut cap,
+            &mut notes,
+        );
         if is_primary && ambiguous {
             cap = cap.min(Confidence::Medium);
             notes.push(
@@ -438,13 +428,71 @@ fn apply_evidence_aware_confidence_caps(
         }
         let original = suspect.confidence;
         suspect.confidence = original.min(cap);
-        if suspect.confidence != original || (is_primary && ambiguous) {
+        let cap_changed_bucket = suspect.confidence != original;
+        if cap_changed_bucket || (is_primary && ambiguous) {
             notes.sort();
             notes.dedup();
             suspect.confidence_notes = notes;
         } else {
             suspect.confidence_notes.clear();
         }
+    }
+}
+
+fn apply_family_evidence_caps(
+    kind: &DiagnosisKind,
+    run: &Run,
+    runtime_missing_key_fields: bool,
+    cap: &mut Confidence,
+    notes: &mut Vec<String>,
+) {
+    match kind {
+        DiagnosisKind::ApplicationQueueSaturation => {
+            if run.truncation.dropped_queues > 0 {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(
+                    "Capture truncation caps confidence because dropped evidence may affect ranking."
+                        .to_string(),
+                );
+            }
+            if run.queues.is_empty() {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(
+                    "Missing queue instrumentation limits queue-saturation confidence.".to_string(),
+                );
+            }
+        }
+        DiagnosisKind::DownstreamStageDominates => {
+            if run.truncation.dropped_stages > 0 {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(
+                    "Capture truncation caps confidence because dropped evidence may affect ranking."
+                        .to_string(),
+                );
+            }
+            if run.stages.is_empty() {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(
+                    "Missing stage instrumentation limits downstream-stage confidence.".to_string(),
+                );
+            }
+        }
+        DiagnosisKind::BlockingPoolPressure | DiagnosisKind::ExecutorPressureSuspected => {
+            if run.truncation.dropped_runtime_snapshots > 0 {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(
+                    "Capture truncation caps confidence because dropped evidence may affect ranking."
+                        .to_string(),
+                );
+            }
+            if runtime_missing_key_fields {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(
+                    "Missing runtime snapshots limit executor/blocking confidence.".to_string(),
+                );
+            }
+        }
+        DiagnosisKind::InsufficientEvidence => {}
     }
 }
 
@@ -1300,8 +1348,9 @@ mod tests {
     };
 
     use crate::analyze::{
-        analyze_run, render_text, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
-        InflightTrend, Report, SignalCoverageStatus, Suspect,
+        analyze_run, apply_evidence_aware_confidence_caps, evidence_quality, render_text,
+        Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report,
+        SignalCoverageStatus, Suspect,
     };
 
     fn test_run() -> Run {
@@ -1361,6 +1410,18 @@ mod tests {
             inflight: Vec::new(),
             runtime_snapshots: Vec::new(),
             truncation: tailtriage_core::TruncationSummary::default(),
+        }
+    }
+
+    fn sample_request(id: u64) -> RequestEvent {
+        RequestEvent {
+            request_id: format!("req-{id}"),
+            route: "/t".into(),
+            kind: None,
+            started_at_unix_ms: id,
+            finished_at_unix_ms: id + 1,
+            latency_us: 1_000,
+            outcome: "ok".into(),
         }
     }
 
@@ -2123,5 +2184,167 @@ mod tests {
         );
         assert_eq!(report.primary_suspect.confidence, Confidence::High);
         assert!(report.primary_suspect.confidence_notes.is_empty());
+    }
+
+    #[test]
+    fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
+        let mut run = test_run();
+        run.requests = (0..45)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/q".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.queues = run
+            .requests
+            .iter()
+            .map(|r| QueueEvent {
+                request_id: r.request_id.clone(),
+                queue: "q".into(),
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+                wait_us: 990,
+                depth_at_start: Some(15),
+            })
+            .collect();
+        run.truncation.dropped_queues = 1;
+        let report = analyze_run(&run);
+        assert!(report.primary_suspect.confidence_notes.iter().any(|n| n
+            == "Capture truncation caps confidence because dropped evidence may affect ranking."));
+        assert!(!report
+            .primary_suspect
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Missing queue instrumentation limits queue-saturation confidence."));
+    }
+
+    #[test]
+    fn missing_queue_instrumentation_uses_missing_queue_note() {
+        let mut run = test_run();
+        run.requests = vec![sample_request(1)];
+        run.queues.clear();
+        let eq = evidence_quality(&run);
+        let mut suspects = vec![Suspect::new(
+            DiagnosisKind::ApplicationQueueSaturation,
+            100,
+            vec![],
+            vec![],
+        )];
+        apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+        assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Missing queue instrumentation limits queue-saturation confidence."));
+    }
+
+    #[test]
+    fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
+        let mut run = test_run();
+        run.requests = (0..45)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/s".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 5_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.stages = run
+            .requests
+            .iter()
+            .map(|r| StageEvent {
+                request_id: r.request_id.clone(),
+                stage: "db".into(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 10,
+                latency_us: 4_800,
+                success: true,
+            })
+            .collect();
+        run.truncation.dropped_stages = 1;
+        let report = analyze_run(&run);
+        assert!(report.primary_suspect.confidence_notes.iter().any(|n| n
+            == "Capture truncation caps confidence because dropped evidence may affect ranking."));
+        assert!(!report
+            .primary_suspect
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Missing stage instrumentation limits downstream-stage confidence."));
+    }
+
+    #[test]
+    fn missing_stage_instrumentation_uses_missing_stage_note() {
+        let mut run = test_run();
+        run.requests = vec![sample_request(1)];
+        run.stages.clear();
+        let eq = evidence_quality(&run);
+        let mut suspects = vec![Suspect::new(
+            DiagnosisKind::DownstreamStageDominates,
+            100,
+            vec![],
+            vec![],
+        )];
+        apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+        assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Missing stage instrumentation limits downstream-stage confidence."));
+    }
+
+    #[test]
+    fn runtime_partial_fields_cap_executor_or_blocking_confidence() {
+        let mut run = test_run();
+        run.requests = vec![sample_request(1)];
+        run.runtime_snapshots = (0..10)
+            .map(|i| RuntimeSnapshot {
+                at_unix_ms: i,
+                alive_tasks: Some(1),
+                global_queue_depth: Some(5),
+                local_queue_depth: Some(2),
+                blocking_queue_depth: None,
+                remote_schedule_count: Some(0),
+            })
+            .collect();
+        let eq = evidence_quality(&run);
+        let mut suspects = vec![Suspect::new(
+            DiagnosisKind::BlockingPoolPressure,
+            100,
+            vec![],
+            vec![],
+        )];
+        apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+        assert_eq!(suspects[0].confidence, Confidence::Medium);
+        assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Missing runtime snapshots limit executor/blocking confidence."));
+    }
+
+    #[test]
+    fn ambiguity_cap_adds_note_to_primary() {
+        let mut suspects = vec![
+            Suspect::new(
+                DiagnosisKind::ApplicationQueueSaturation,
+                100,
+                vec![],
+                vec![],
+            ),
+            Suspect::new(DiagnosisKind::DownstreamStageDominates, 97, vec![], vec![]),
+        ];
+        let run = test_run();
+        let eq = evidence_quality(&run);
+        apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+        assert_eq!(suspects[0].confidence, Confidence::Medium);
+        assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
     }
 }
