@@ -162,6 +162,26 @@ tailtriage analyze tailtriage-run.json --format json
     "growth_per_sec_milli": 0
   },
   "warnings": [],
+  "evidence_quality": {
+    "request_count": 250,
+    "queue_event_count": 250,
+    "stage_event_count": 250,
+    "runtime_snapshot_count": 500,
+    "inflight_snapshot_count": 500,
+    "requests": "present",
+    "queues": "present",
+    "stages": "present",
+    "runtime_snapshots": "present",
+    "inflight_snapshots": "present",
+    "truncated": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "quality": "strong",
+    "limitations": []
+  },
   "primary_suspect": {
     "kind": "application_queue_saturation",
     "score": 90,
