@@ -1,17 +1,17 @@
 {
   "request_count": 250,
-  "p50_latency_us": 54509,
-  "p95_latency_us": 87050,
-  "p99_latency_us": 91039,
-  "p95_queue_share_permille": 56,
-  "p95_service_share_permille": 993,
+  "p50_latency_us": 51776,
+  "p95_latency_us": 80369,
+  "p99_latency_us": 82409,
+  "p95_queue_share_permille": 68,
+  "p95_service_share_permille": 992,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
-    "peak_count": 49,
-    "p95_count": 46,
+    "peak_count": 44,
+    "p95_count": 42,
     "growth_delta": -1,
-    "growth_per_sec_milli": -2044
+    "growth_per_sec_milli": -2036
   },
   "warnings": [
     "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited."
@@ -43,15 +43,16 @@
     "score": 100,
     "confidence": "high",
     "evidence": [
-      "Stage 'spawn_blocking_path' has p95 latency 85870 us across 250 samples.",
-      "Stage 'spawn_blocking_path' cumulative latency is 13010681 us (978 permille of request latency).",
+      "Stage 'spawn_blocking_path' has p95 latency 79267 us across 250 samples.",
+      "Stage 'spawn_blocking_path' cumulative latency is 12421282 us (975 permille of request latency).",
       "Stage 'spawn_blocking_path' contributes 986 permille of tail request latency."
     ],
     "next_checks": [
       "Inspect downstream dependency behind stage 'spawn_blocking_path'.",
       "Collect downstream service timings and retry behavior during tail windows.",
       "Review downstream SLO/error budget and align retry budget/backoff with it."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -59,12 +60,14 @@
       "score": 82,
       "confidence": "medium",
       "evidence": [
-        "Blocking queue depth p95 is 42, peak is 48, with 98/200 nonzero samples."
+        "Blocking queue depth p95 is 40, peak is 43, with 99/200 nonzero samples."
       ],
       "next_checks": [
         "Audit blocking sections and move avoidable synchronous work out of hot paths.",
         "Inspect spawn_blocking callsites for long-running CPU or I/O work."
-      ]
+      ],
+      "confidence_notes": []
     }
-  ]
+  ],
+  "route_breakdowns": []
 }

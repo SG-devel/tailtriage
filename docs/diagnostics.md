@@ -33,6 +33,7 @@ Current supported schema version: `1`.
 - warnings (analyzer/report warnings, especially truncation-related)
 - evidence_quality (structured coverage/completeness/interpretability summary)
 - ranked suspects (primary + secondary)
+- optional `route_breakdowns[]` supporting context when route divergence adds signal
 
 Each suspect includes:
 
@@ -55,7 +56,11 @@ Each suspect includes:
 - `evidence_quality`: structured signal coverage status, truncation counters, and overall evidence quality (`strong`/`partial`/`weak`).
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.
 - `secondary_suspects[]`: additional ranked suspects.
+- `route_breakdowns[]`: route-scoped supporting summaries (bounded, optional, and empty when route-level output would duplicate global triage).
 - `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.
+
+`primary_suspect` remains the global primary triage lead. Route breakdowns are supporting context and do not change global suspect ranking.
+Route breakdowns only use route-attributed request/queue/stage evidence. Runtime and in-flight snapshots are global signals and are not attributed per route in breakdown scoring.
 
 ## Suspect kinds
 

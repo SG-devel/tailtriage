@@ -230,6 +230,35 @@ pub struct Report {
     pub primary_suspect: Suspect,
     /// Lower-ranked suspects retained for follow-up triage.
     pub secondary_suspects: Vec<Suspect>,
+    /// Supporting route-scoped triage summaries when route-level divergence adds signal.
+    pub route_breakdowns: Vec<RouteBreakdown>,
+}
+
+/// Supporting route-scoped triage context.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RouteBreakdown {
+    /// Captured request route label.
+    pub route: String,
+    /// Number of completed requests for this route included in analysis.
+    pub request_count: usize,
+    /// p50 request latency in microseconds for this route.
+    pub p50_latency_us: Option<u64>,
+    /// p95 request latency in microseconds for this route.
+    pub p95_latency_us: Option<u64>,
+    /// p99 request latency in microseconds for this route.
+    pub p99_latency_us: Option<u64>,
+    /// p95 queue-time share per request in permille for this route.
+    pub p95_queue_share_permille: Option<u64>,
+    /// p95 non-queue service-time share per request in permille for this route.
+    pub p95_service_share_permille: Option<u64>,
+    /// Route-scoped evidence quality summary.
+    pub evidence_quality: EvidenceQuality,
+    /// Highest-ranked route-scoped suspect.
+    pub primary_suspect: Suspect,
+    /// Lower-ranked route-scoped suspects.
+    pub secondary_suspects: Vec<Suspect>,
+    /// Route-scoped warnings and limitations.
+    pub warnings: Vec<String>,
 }
 
 /// Analyzes one run artifact with rule-based heuristics and returns a triage report.
@@ -283,6 +312,28 @@ pub struct Report {
 /// ```
 #[must_use]
 pub fn analyze_run(run: &Run) -> Report {
+    let mut report = analyze_run_core(run);
+    let route_breakdowns = meaningful_route_breakdowns(run, &report);
+    if !route_breakdowns.is_empty() {
+        let mut unique_kinds = Vec::new();
+        for breakdown in &route_breakdowns {
+            if !unique_kinds.contains(&breakdown.primary_suspect.kind) {
+                unique_kinds.push(breakdown.primary_suspect.kind.clone());
+            }
+        }
+        let has_kind_divergence = unique_kinds.len() > 1;
+        let differs_from_global = route_breakdowns
+            .iter()
+            .any(|r| r.primary_suspect.kind != report.primary_suspect.kind);
+        if has_kind_divergence || differs_from_global {
+            report.warnings.push("Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.".to_string());
+        }
+    }
+    report.route_breakdowns = route_breakdowns;
+    report
+}
+
+fn analyze_run_core(run: &Run) -> Report {
     let request_latencies = run
         .requests
         .iter()
@@ -360,6 +411,136 @@ pub fn analyze_run(run: &Run) -> Report {
         evidence_quality,
         primary_suspect,
         secondary_suspects: ranked.collect(),
+        route_breakdowns: Vec::new(),
+    }
+}
+
+fn meaningful_route_breakdowns(run: &Run, global: &Report) -> Vec<RouteBreakdown> {
+    const MIN_ROUTE_REQUESTS: usize = 3;
+    let mut by_route: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for request in &run.requests {
+        by_route
+            .entry(request.route.clone())
+            .or_default()
+            .push(request.request_id.clone());
+    }
+    let mut omitted_under_threshold = 0usize;
+    let mut candidates = Vec::new();
+    for (route, request_ids) in by_route {
+        if request_ids.len() < MIN_ROUTE_REQUESTS {
+            omitted_under_threshold += 1;
+            continue;
+        }
+        let filtered = filter_run_to_request_ids(run, &request_ids);
+        let mut route_report = analyze_run_core(&filtered);
+        route_report.warnings.push(
+            "Runtime and in-flight signals are global and are not attributed to this route."
+                .to_string(),
+        );
+        candidates.push(RouteBreakdown {
+            route,
+            request_count: route_report.request_count,
+            p50_latency_us: route_report.p50_latency_us,
+            p95_latency_us: route_report.p95_latency_us,
+            p99_latency_us: route_report.p99_latency_us,
+            p95_queue_share_permille: route_report.p95_queue_share_permille,
+            p95_service_share_permille: route_report.p95_service_share_permille,
+            evidence_quality: route_report.evidence_quality,
+            primary_suspect: route_report.primary_suspect,
+            secondary_suspects: route_report.secondary_suspects,
+            warnings: route_report.warnings,
+        });
+    }
+    if candidates.len() == 1 && candidates[0].primary_suspect.kind == global.primary_suspect.kind {
+        return Vec::new();
+    }
+    let emit = should_emit_route_breakdowns(&candidates, global);
+    if !emit {
+        return Vec::new();
+    }
+    if omitted_under_threshold > 0 {
+        for c in &mut candidates {
+            c.warnings.push(format!(
+                "{omitted_under_threshold} routes omitted with fewer than {MIN_ROUTE_REQUESTS} completed requests."
+            ));
+        }
+    }
+    candidates.sort_by(|a, b| {
+        b.p95_latency_us
+            .cmp(&a.p95_latency_us)
+            .then_with(|| b.request_count.cmp(&a.request_count))
+            .then_with(|| a.route.cmp(&b.route))
+    });
+    candidates.truncate(10);
+    candidates
+}
+
+fn should_emit_route_breakdowns(candidates: &[RouteBreakdown], global: &Report) -> bool {
+    if candidates.is_empty() {
+        return false;
+    }
+    let mut unique_kinds = Vec::new();
+    for route in candidates {
+        if !unique_kinds.contains(&route.primary_suspect.kind) {
+            unique_kinds.push(route.primary_suspect.kind.clone());
+        }
+    }
+    if unique_kinds.len() >= 2 {
+        return true;
+    }
+    if candidates
+        .iter()
+        .any(|r| r.primary_suspect.kind != global.primary_suspect.kind)
+    {
+        return true;
+    }
+    if candidates.len() >= 2 {
+        let fastest = candidates.iter().filter_map(|r| r.p95_latency_us).min();
+        let slowest = candidates.iter().filter_map(|r| r.p95_latency_us).max();
+        if let (Some(fast), Some(slow)) = (fastest, slowest) {
+            if fast > 0 && slow.saturating_mul(2) >= fast.saturating_mul(3) {
+                return true;
+            }
+        }
+        if let (Some(global_p95), Some(slow)) = (global.p95_latency_us, slowest) {
+            if global_p95 > 0 && slow.saturating_mul(4) >= global_p95.saturating_mul(5) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn filter_run_to_request_ids(run: &Run, request_ids: &[String]) -> Run {
+    let ids = request_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::HashSet<_>>();
+    Run {
+        schema_version: run.schema_version,
+        metadata: run.metadata.clone(),
+        requests: run
+            .requests
+            .iter()
+            .filter(|r| ids.contains(&r.request_id))
+            .cloned()
+            .collect(),
+        stages: run
+            .stages
+            .iter()
+            .filter(|s| ids.contains(&s.request_id))
+            .cloned()
+            .collect(),
+        queues: run
+            .queues
+            .iter()
+            .filter(|q| ids.contains(&q.request_id))
+            .cloned()
+            .collect(),
+        inflight: Vec::new(),
+        runtime_snapshots: Vec::new(),
+        truncation: run.truncation.clone(),
     }
 }
 
@@ -1331,6 +1512,19 @@ pub fn render_text(report: &Report) -> String {
             ));
         }
     }
+    if !report.route_breakdowns.is_empty() {
+        lines.push("Route breakdowns:".to_string());
+        for route in &report.route_breakdowns {
+            lines.push(format!(
+                "- {}: requests {}, p95 {}, {} ({} confidence)",
+                route.route,
+                route.request_count,
+                fmt_opt_u64(route.p95_latency_us),
+                route.primary_suspect.kind.as_str(),
+                fmt_confidence(route.primary_suspect.confidence)
+            ));
+        }
+    }
 
     lines.join("\n")
 }
@@ -1601,6 +1795,7 @@ mod tests {
                 confidence_notes: Vec::new(),
             },
             secondary_suspects: Vec::new(),
+            route_breakdowns: Vec::new(),
         };
 
         let text = render_text(&report);
@@ -1652,6 +1847,7 @@ mod tests {
                 confidence_notes: Vec::new(),
             },
             secondary_suspects: Vec::new(),
+            route_breakdowns: Vec::new(),
         };
 
         let text = render_text(&report);
@@ -2370,5 +2566,64 @@ mod tests {
             .confidence_notes
             .iter()
             .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
+    }
+
+    #[test]
+    fn route_breakdowns_empty_for_single_route_matching_global() {
+        let mut run = test_run();
+        run.requests = vec![
+            sample_request(100),
+            sample_request(110),
+            sample_request(120),
+        ];
+        let report = analyze_run(&run);
+        assert!(report.route_breakdowns.is_empty());
+    }
+
+    #[test]
+    fn route_breakdowns_show_divergent_route_suspects() {
+        let mut run = test_run();
+        for i in 0..3 {
+            run.requests.push(RequestEvent {
+                request_id: format!("qa-{i}"),
+                route: "/queue".into(),
+                kind: None,
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            });
+            run.queues.push(QueueEvent {
+                request_id: format!("qa-{i}"),
+                queue: "work".into(),
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+                wait_us: 800,
+                depth_at_start: None,
+            });
+            run.requests.push(RequestEvent {
+                request_id: format!("sa-{i}"),
+                route: "/stage".into(),
+                kind: None,
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 2_000,
+                outcome: "ok".into(),
+            });
+            run.stages.push(StageEvent {
+                request_id: format!("sa-{i}"),
+                stage: "downstream".into(),
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 1_600,
+                success: true,
+            });
+        }
+        let report = analyze_run(&run);
+        assert!(!report.route_breakdowns.is_empty());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w == "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."));
     }
 }

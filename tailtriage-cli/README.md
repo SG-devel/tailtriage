@@ -54,6 +54,8 @@ Read output in this order:
 
 Then run one targeted check, change one thing, and re-run under comparable load.
 
+`route_breakdowns` is supporting context only. The global `primary_suspect` remains the primary triage result.
+
 ## Representative output shape
 
 ```json
@@ -95,6 +97,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "confidence_notes": []
   },
   "secondary_suspects": []
+  ,
+  "route_breakdowns": []
 }
 ```
 
@@ -111,6 +115,9 @@ A report can include:
 - report warnings from analysis/report generation (for example truncation-related)
 - structured evidence quality coverage/status summary
 - primary and secondary suspects
+- optional route-level breakdowns when route divergence adds meaningful signal
+
+Route breakdowns are scoped to captured request route labels and do not prove per-route root cause. Runtime and in-flight signals are global; route breakdowns intentionally avoid attributing those signals per route unless reliable route attribution exists.
 
 `tailtriage analyze` also prints loader/lifecycle warnings to stderr before the report. Those warnings are surfaced separately; they are not merged into the report `warnings` field.
 
