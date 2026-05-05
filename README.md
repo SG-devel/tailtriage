@@ -190,7 +190,8 @@ tailtriage analyze tailtriage-run.json --format json
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
       "Compare queue wait distribution before and after increasing worker parallelism."
-    ]
+    ],
+    "confidence_notes": []
   },
   "secondary_suspects": [
     {
@@ -208,7 +209,8 @@ tailtriage analyze tailtriage-run.json --format json
         "Review downstream SLO/error budget and align retry budget/backoff with it."
       ]
     }
-  ]
+  ],
+  "route_breakdowns": []
 }
 ```
 

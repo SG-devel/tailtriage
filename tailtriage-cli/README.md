@@ -94,11 +94,14 @@ Then run one targeted check, change one thing, and re-run under comparable load.
     "next_checks": ["Inspect queue admission limits and producer burst patterns."],
     "confidence_notes": []
   },
-  "secondary_suspects": []
+  "secondary_suspects": [],
+  "route_breakdowns": []
 }
 ```
 
 `inflight_trend` may be `null` when no in-flight gauges were captured.
+
+`route_breakdowns` is always present in JSON output and is usually an empty array. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal, such as different route-level primary suspects or a large route p95 latency spread. The global `primary_suspect` remains the primary full-run triage lead. Route breakdowns are supporting context only. They use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals, so they are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
 
 ## What the report contains
 
