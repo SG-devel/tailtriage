@@ -1,15 +1,15 @@
 {
   "request_count": 250,
-  "p50_latency_us": 1868185,
-  "p95_latency_us": 3531495,
-  "p99_latency_us": 3680957,
-  "p95_queue_share_permille": 6,
+  "p50_latency_us": 1866475,
+  "p95_latency_us": 3524603,
+  "p99_latency_us": 3673375,
+  "p95_queue_share_permille": 3,
   "p95_service_share_permille": 999,
   "inflight_trend": {
     "gauge": "blocking_service_inflight",
     "sample_count": 500,
     "peak_count": 246,
-    "p95_count": 234,
+    "p95_count": 235,
     "growth_delta": 0,
     "growth_per_sec_milli": 0
   },
@@ -42,13 +42,17 @@
   "primary_suspect": {
     "kind": "blocking_pool_pressure",
     "score": 88,
-    "confidence": "high",
+    "confidence": "medium",
     "evidence": [
       "Blocking queue depth p95 is 244, peak is 246, with 200/200 nonzero samples."
     ],
     "next_checks": [
       "Audit blocking sections and move avoidable synchronous work out of hot paths.",
       "Inspect spawn_blocking callsites for long-running CPU or I/O work."
+    ],
+    "confidence_notes": [
+      "Missing runtime snapshots limit executor/blocking confidence.",
+      "Top suspects are close in score; confidence is capped by ambiguity."
     ]
   },
   "secondary_suspects": [
@@ -57,8 +61,8 @@
       "score": 86,
       "confidence": "high",
       "evidence": [
-        "Stage 'spawn_blocking_path' has p95 latency 3530254 us across 250 samples.",
-        "Stage 'spawn_blocking_path' cumulative latency is 467061987 us (999 permille of request latency).",
+        "Stage 'spawn_blocking_path' has p95 latency 3523850 us across 250 samples.",
+        "Stage 'spawn_blocking_path' cumulative latency is 466288754 us (999 permille of request latency).",
         "Stage 'spawn_blocking_path' contributes 999 permille of tail request latency.",
         "Stage 'spawn_blocking_path' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized."
       ],
@@ -66,7 +70,9 @@
         "Inspect downstream dependency behind stage 'spawn_blocking_path'.",
         "Collect downstream service timings and retry behavior during tail windows.",
         "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      ],
+      "confidence_notes": []
     }
-  ]
+  ],
+  "route_breakdowns": []
 }
