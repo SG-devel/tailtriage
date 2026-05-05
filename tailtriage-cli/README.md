@@ -101,6 +101,8 @@ Then run one targeted check, change one thing, and re-run under comparable load.
 
 `inflight_trend` may be `null` when no in-flight gauges were captured.
 
+`route_breakdowns` is always present in JSON output and is usually an empty array. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal, such as different route-level primary suspects or a large route p95 latency spread. The global `primary_suspect` remains the primary full-run triage lead. Route breakdowns are supporting context only. They use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals, so they are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
+
 ## What the report contains
 
 A report can include:
@@ -208,6 +210,3 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
-
-
-- `route_breakdowns`: supporting per-route triage summaries when route-level differences are meaningful; empty otherwise. Global `primary_suspect` remains the primary output. Route summaries are scoped to captured route labels and do not attribute global runtime/in-flight signals to a route.

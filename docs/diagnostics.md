@@ -56,6 +56,7 @@ Each suspect includes:
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.
 - `secondary_suspects[]`: additional ranked suspects.
 - `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.
+- `route_breakdowns`: always present and usually empty. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal (for example, different route-level primary suspects or a large route p95 latency spread). Route breakdowns are supporting context only; global `primary_suspect` remains the primary full-run triage lead. Route breakdowns use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals and are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
 
 ## Suspect kinds
 
@@ -141,6 +142,3 @@ If truncation counters are non-zero, treat the diagnosis as partial-data triage.
 4. Change one thing.
 5. Re-run under comparable load.
 6. Compare suspect movement and p95 shares.
-
-
-- `route_breakdowns`: supporting per-route triage summaries when route-level differences are meaningful; empty otherwise. Global `primary_suspect` remains the primary output. Route summaries are scoped to captured route labels and do not attribute global runtime/in-flight signals to a route.
