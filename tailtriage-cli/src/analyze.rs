@@ -723,20 +723,21 @@ fn apply_evidence_aware_confidence_caps(
     run: &Run,
     evidence_quality: &EvidenceQuality,
 ) {
-    let runtime_missing_key_fields = run.runtime_snapshots.is_empty()
-        || run
+    let runtime_snapshots_missing = run.runtime_snapshots.is_empty();
+    let runtime_partial_key_fields = !runtime_snapshots_missing
+        && (run
             .runtime_snapshots
             .iter()
             .all(|snapshot| snapshot.blocking_queue_depth.is_none())
-        || run
-            .runtime_snapshots
-            .iter()
-            .all(|snapshot| snapshot.local_queue_depth.is_none())
-        || run
-            .runtime_snapshots
-            .iter()
-            .all(|snapshot| snapshot.global_queue_depth.is_none());
-    let ambiguous = ambiguity_warning(suspects).is_some();
+            || run
+                .runtime_snapshots
+                .iter()
+                .all(|snapshot| snapshot.local_queue_depth.is_none())
+            || run
+                .runtime_snapshots
+                .iter()
+                .all(|snapshot| snapshot.global_queue_depth.is_none()));
+    let ambiguous_cluster = ambiguity_cluster_indices(suspects);
     for (i, suspect) in suspects.iter_mut().enumerate() {
         let mut cap = Confidence::High;
         let mut notes = Vec::new();
@@ -766,11 +767,13 @@ fn apply_evidence_aware_confidence_caps(
         apply_family_evidence_caps(
             &suspect.kind,
             run,
-            runtime_missing_key_fields,
+            runtime_snapshots_missing,
+            runtime_partial_key_fields,
             &mut cap,
             &mut notes,
         );
-        if is_primary && ambiguous {
+        let ambiguity_capped = ambiguous_cluster.contains(&i) && !is_insufficient;
+        if ambiguity_capped {
             cap = cap.min(Confidence::Medium);
             notes.push(
                 "Top suspects are close in score; confidence is capped by ambiguity.".to_string(),
@@ -779,7 +782,7 @@ fn apply_evidence_aware_confidence_caps(
         let original = suspect.confidence;
         suspect.confidence = original.min(cap);
         let cap_changed_bucket = suspect.confidence != original;
-        if cap_changed_bucket || (is_primary && ambiguous) {
+        if cap_changed_bucket || ambiguity_capped {
             notes.sort();
             notes.dedup();
             suspect.confidence_notes = notes;
@@ -792,7 +795,8 @@ fn apply_evidence_aware_confidence_caps(
 fn apply_family_evidence_caps(
     kind: &DiagnosisKind,
     run: &Run,
-    runtime_missing_key_fields: bool,
+    runtime_snapshots_missing: bool,
+    runtime_partial_key_fields: bool,
     cap: &mut Confidence,
     notes: &mut Vec<String>,
 ) {
@@ -835,14 +839,47 @@ fn apply_family_evidence_caps(
                         .to_string(),
                 );
             }
-            if runtime_missing_key_fields {
+            if runtime_snapshots_missing {
                 *cap = (*cap).min(Confidence::Medium);
                 notes.push(
                     "Missing runtime snapshots limit executor/blocking confidence.".to_string(),
                 );
+            } else if runtime_partial_key_fields {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(
+                    "Runtime snapshots are partial; missing runtime queue-depth fields limit executor/blocking confidence.".to_string(),
+                );
             }
         }
         DiagnosisKind::InsufficientEvidence => {}
+    }
+}
+
+fn ambiguity_cluster_indices(suspects: &[Suspect]) -> Vec<usize> {
+    let mut ranked = suspects
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.kind != DiagnosisKind::InsufficientEvidence)
+        .collect::<Vec<_>>();
+    ranked.sort_by_key(|(_, s)| std::cmp::Reverse(s.score));
+    let Some((_, top)) = ranked.first() else {
+        return Vec::new();
+    };
+    if top.score < AMBIGUITY_MIN_SCORE_THRESHOLD {
+        return Vec::new();
+    }
+    let cluster = ranked
+        .iter()
+        .take_while(|(_, s)| {
+            s.score >= AMBIGUITY_MIN_SCORE_THRESHOLD
+                && top.score.abs_diff(s.score) <= AMBIGUITY_SCORE_GAP_THRESHOLD
+        })
+        .map(|(idx, _)| *idx)
+        .collect::<Vec<_>>();
+    if cluster.len() >= 2 {
+        cluster
+    } else {
+        Vec::new()
     }
 }
 
@@ -2710,11 +2747,34 @@ mod tests {
         assert!(suspects[0]
             .confidence_notes
             .iter()
+            .any(|n| n == "Runtime snapshots are partial; missing runtime queue-depth fields limit executor/blocking confidence."));
+        assert!(!suspects[0]
+            .confidence_notes
+            .iter()
             .any(|n| n == "Missing runtime snapshots limit executor/blocking confidence."));
     }
 
     #[test]
-    fn ambiguity_cap_adds_note_to_primary() {
+    fn missing_runtime_snapshots_use_missing_runtime_note() {
+        let mut run = test_run();
+        run.requests = vec![sample_request(1)];
+        run.runtime_snapshots.clear();
+        let eq = evidence_quality(&run);
+        let mut suspects = vec![Suspect::new(
+            DiagnosisKind::ExecutorPressureSuspected,
+            100,
+            vec![],
+            vec![],
+        )];
+        apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+        assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Missing runtime snapshots limit executor/blocking confidence."));
+    }
+
+    #[test]
+    fn ambiguity_cap_adds_note_to_close_top_suspects() {
         let mut suspects = vec![
             Suspect::new(
                 DiagnosisKind::ApplicationQueueSaturation,
@@ -2728,14 +2788,19 @@ mod tests {
         let eq = evidence_quality(&run);
         apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
         assert_eq!(suspects[0].confidence, Confidence::Medium);
+        assert_eq!(suspects[1].confidence, Confidence::Medium);
         assert!(suspects[0]
+            .confidence_notes
+            .iter()
+            .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
+        assert!(suspects[1]
             .confidence_notes
             .iter()
             .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
     }
 
     #[test]
-    fn ambiguity_tied_top_scores_only_caps_first_sorted_suspect() {
+    fn ambiguity_capping_preserves_order_and_scores() {
         let mut suspects = vec![
             Suspect::new(
                 DiagnosisKind::ApplicationQueueSaturation,
@@ -2757,10 +2822,52 @@ mod tests {
             .confidence_notes
             .iter()
             .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
-        assert!(!suspects[1]
+        assert!(suspects[1]
             .confidence_notes
             .iter()
             .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
+    }
+
+    #[test]
+    fn non_ambiguous_clean_evidence_keeps_high_confidence() {
+        let mut run = test_run();
+        run.requests = (0..45)
+            .map(|i| RequestEvent {
+                request_id: format!("req-{i}"),
+                route: "/q".into(),
+                kind: None,
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            })
+            .collect();
+        run.queues = run
+            .requests
+            .iter()
+            .map(|r| QueueEvent {
+                request_id: r.request_id.clone(),
+                queue: "q".into(),
+                waited_from_unix_ms: 1,
+                waited_until_unix_ms: 2,
+                wait_us: 990,
+                depth_at_start: Some(15),
+            })
+            .collect();
+        let mut suspects = vec![
+            Suspect::new(
+                DiagnosisKind::ApplicationQueueSaturation,
+                100,
+                vec![],
+                vec![],
+            ),
+            Suspect::new(DiagnosisKind::DownstreamStageDominates, 10, vec![], vec![]),
+        ];
+        suspects[0].confidence = Confidence::High;
+        let eq = evidence_quality(&run);
+        apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+        assert_eq!(suspects[0].confidence, Confidence::High);
+        assert!(suspects[0].confidence_notes.is_empty());
     }
 
     #[test]
