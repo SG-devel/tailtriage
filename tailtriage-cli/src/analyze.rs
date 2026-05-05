@@ -331,7 +331,7 @@ pub fn analyze_run(run: &Run) -> Report {
     suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
     let warnings = analysis_warnings(run, &suspects);
-    let evidence_quality = evidence_quality(run, &suspects);
+    let evidence_quality = evidence_quality(run);
 
     let mut ranked = suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
@@ -358,7 +358,7 @@ pub fn analyze_run(run: &Run) -> Report {
     }
 }
 
-fn evidence_quality(run: &Run, _suspects: &[Suspect]) -> EvidenceQuality {
+fn evidence_quality(run: &Run) -> EvidenceQuality {
     let requests = request_status(run);
     let queues = family_status(run.queues.is_empty(), run.truncation.dropped_queues);
     let stages = family_status(run.stages.is_empty(), run.truncation.dropped_stages);
