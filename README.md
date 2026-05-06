@@ -215,7 +215,7 @@ tailtriage analyze tailtriage-run.json --format json
 }
 ```
 
-`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks find material signal movement (for example, different early/late primary suspects or a large early/late p95 shift). The global `primary_suspect` remains the primary full-run triage lead. Temporal segments are supporting hints only and do not prove a phase-specific root cause. Runtime and in-flight phase attribution is timestamp-filtered to each segment window and can be limited when those segment-filtered samples are sparse.
+`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks find material signal movement (for example, different early/late primary suspects or a large early/late p95 shift). The top-level warnings include a stable warning when the large p95 shift condition fires. The global `primary_suspect` remains the primary full-run triage lead. Temporal segments are supporting within-run hints only and do not prove a phase-specific root cause. Runtime and in-flight phase attribution is timestamp-filtered to each segment window and can be limited when those segment-filtered samples are sparse; when early/late windows overlap under concurrent requests, segment warnings flag runtime/in-flight attribution as approximate.
 
 ## Operations guidance and overhead
 

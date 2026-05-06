@@ -16,7 +16,9 @@
         "Queue wait"
       ],
       "notes": "Queue scenario before mitigation is queue-dominant.",
-      "expected_warnings": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
       "top1_required": true,
       "allowed_warnings": [],
       "required_top2": [
@@ -69,7 +71,8 @@
       "notes": "Blocking pool backlog is intentional pre-fix condition.",
       "expected_warnings": [
         "Runtime snapshots are missing",
-        "Top suspects are close in score"
+        "Top suspects are close in score",
+        "Temporal segments show a large p95 latency shift between early and late requests."
       ],
       "top1_required": true,
       "allowed_warnings": [],
@@ -96,7 +99,8 @@
       ],
       "notes": "After blocking mitigation, downstream work can dominate residual tail.",
       "expected_warnings": [
-        "Runtime snapshots are missing"
+        "Runtime snapshots are missing",
+        "Temporal segments show a large p95 latency shift between early and late requests."
       ],
       "top1_required": false,
       "allowed_warnings": [
@@ -227,7 +231,9 @@
         "Queue wait"
       ],
       "notes": "Mixed baseline intentionally keeps queue and executor signals close.",
-      "expected_warnings": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
       "top1_required": false,
       "allowed_warnings": [],
       "required_top2": [
@@ -331,7 +337,9 @@
         "Queue wait"
       ],
       "notes": "Before pool tuning queueing from limited DB pool appears strongly.",
-      "expected_warnings": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
       "top1_required": false,
       "allowed_warnings": [],
       "required_top2": [
@@ -383,7 +391,9 @@
         "Stage"
       ],
       "notes": "Shared lock contention manifests through stage latency dominance.",
-      "expected_warnings": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
       "top1_required": false,
       "allowed_warnings": [],
       "required_top2": [
@@ -409,7 +419,9 @@
         "Stage"
       ],
       "notes": "After mitigation remaining time is still mostly stage work.",
-      "expected_warnings": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
       "top1_required": false,
       "allowed_warnings": [],
       "required_top2": [
@@ -486,7 +498,9 @@
         "Queue wait"
       ],
       "notes": "Queue sample is canonical queue saturation evidence.",
-      "expected_warnings": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
       "top1_required": true,
       "allowed_warnings": [],
       "required_top2": [
@@ -513,7 +527,8 @@
       "notes": "Blocking sample is canonical blocking saturation evidence.",
       "expected_warnings": [
         "Runtime snapshots are missing",
-        "Top suspects are close in score"
+        "Top suspects are close in score",
+        "Temporal segments show a large p95 latency shift between early and late requests."
       ],
       "top1_required": true,
       "allowed_warnings": [],

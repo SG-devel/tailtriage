@@ -1,17 +1,17 @@
 {
   "request_count": 220,
-  "p50_latency_us": 995032,
-  "p95_latency_us": 1193428,
-  "p99_latency_us": 1210051,
+  "p50_latency_us": 995238,
+  "p95_latency_us": 1192532,
+  "p99_latency_us": 1209312,
   "p95_queue_share_permille": 993,
-  "p95_service_share_permille": 331,
+  "p95_service_share_permille": 334,
   "inflight_trend": {
     "gauge": "cold_start_burst_inflight",
     "sample_count": 440,
     "peak_count": 220,
     "p95_count": 209,
-    "growth_delta": 2,
-    "growth_per_sec_milli": 1631
+    "growth_delta": -1,
+    "growth_per_sec_milli": -815
   },
   "warnings": [],
   "evidence_quality": {
@@ -38,12 +38,11 @@
   },
   "primary_suspect": {
     "kind": "application_queue_saturation",
-    "score": 100,
+    "score": 95,
     "confidence": "high",
     "evidence": [
       "Queue wait at p95 consumes 99.3% of request time.",
-      "Observed queue depth sample up to 216.",
-      "In-flight gauge 'cold_start_burst_inflight' grew by 2 over the run window (p95=209, peak=220)."
+      "Observed queue depth sample up to 216."
     ],
     "next_checks": [
       "Inspect queue admission limits and producer burst patterns.",
@@ -57,8 +56,8 @@
       "score": 32,
       "confidence": "low",
       "evidence": [
-        "Stage 'cold_start_stage' has p95 latency 63705 us across 220 samples.",
-        "Stage 'cold_start_stage' cumulative latency is 4891882 us (24 permille of request latency).",
+        "Stage 'cold_start_stage' has p95 latency 63622 us across 220 samples.",
+        "Stage 'cold_start_stage' cumulative latency is 4886777 us (24 permille of request latency).",
         "Stage 'cold_start_stage' contributes 6 permille of tail request latency."
       ],
       "next_checks": [
@@ -74,19 +73,19 @@
     {
       "name": "early",
       "request_count": 110,
-      "started_at_unix_ms": 1777988247203,
-      "finished_at_unix_ms": 1777988248215,
-      "p50_latency_us": 829553,
-      "p95_latency_us": 986861,
-      "p99_latency_us": 995060,
-      "p95_queue_share_permille": 991,
-      "p95_service_share_permille": 505,
+      "started_at_unix_ms": 1778013146885,
+      "finished_at_unix_ms": 1778013147896,
+      "p50_latency_us": 885364,
+      "p95_latency_us": 989003,
+      "p99_latency_us": 997417,
+      "p95_queue_share_permille": 992,
+      "p95_service_share_permille": 503,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
         "stage_event_count": 110,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 336,
+        "inflight_snapshot_count": 335,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -108,7 +107,7 @@
         "score": 100,
         "confidence": "high",
         "evidence": [
-          "Queue wait at p95 consumes 99.1% of request time.",
+          "Queue wait at p95 consumes 99.2% of request time.",
           "Observed queue depth sample up to 109.",
           "In-flight gauge 'cold_start_burst_inflight' grew by 106 over the run window (p95=212, peak=220)."
         ],
@@ -124,8 +123,8 @@
           "score": 33,
           "confidence": "low",
           "evidence": [
-            "Stage 'cold_start_stage' has p95 latency 64025 us across 110 samples.",
-            "Stage 'cold_start_stage' cumulative latency is 3987625 us (51 permille of request latency).",
+            "Stage 'cold_start_stage' has p95 latency 63678 us across 110 samples.",
+            "Stage 'cold_start_stage' cumulative latency is 3991138 us (51 permille of request latency).",
             "Stage 'cold_start_stage' contributes 8 permille of tail request latency."
           ],
           "next_checks": [
@@ -136,16 +135,18 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     },
     {
       "name": "late",
       "request_count": 110,
-      "started_at_unix_ms": 1777988247211,
-      "finished_at_unix_ms": 1777988248429,
-      "p50_latency_us": 1105039,
-      "p95_latency_us": 1201816,
-      "p99_latency_us": 1210056,
+      "started_at_unix_ms": 1778013146894,
+      "finished_at_unix_ms": 1778013148111,
+      "p50_latency_us": 1104764,
+      "p95_latency_us": 1201005,
+      "p99_latency_us": 1209322,
       "p95_queue_share_permille": 993,
       "p95_service_share_permille": 8,
       "evidence_quality": {
@@ -190,8 +191,8 @@
           "score": 32,
           "confidence": "low",
           "evidence": [
-            "Stage 'cold_start_stage' has p95 latency 8460 us across 110 samples.",
-            "Stage 'cold_start_stage' cumulative latency is 904257 us (7 permille of request latency).",
+            "Stage 'cold_start_stage' has p95 latency 8559 us across 110 samples.",
+            "Stage 'cold_start_stage' cumulative latency is 895639 us (7 permille of request latency).",
             "Stage 'cold_start_stage' contributes 6 permille of tail request latency."
           ],
           "next_checks": [
@@ -202,7 +203,9 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     }
   ]
 }

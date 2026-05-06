@@ -25,6 +25,10 @@ const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
     "Runtime and in-flight signals are global and are not attributed to this route.";
 const TEMPORAL_RUNTIME_ATTRIBUTION_WARNING: &str = "Runtime and in-flight evidence is sparse in this segment after timestamp filtering; executor/blocking attribution is limited.";
 const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.";
+const TEMPORAL_P95_SHIFT_WARNING: &str =
+    "Temporal segments show a large p95 latency shift between early and late requests.";
+const TEMPORAL_OVERLAP_ATTRIBUTION_WARNING: &str =
+    "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate.";
 
 /// Evidence-ranked diagnosis categories produced by heuristic triage.
 ///
@@ -670,8 +674,8 @@ fn temporal_segments(run: &Run, global_warnings: &mut Vec<String>) -> Vec<Tempor
             warnings: analyzed.warnings,
         }
     };
-    let early_seg = build("early", early);
-    let late_seg = build("late", late);
+    let mut early_seg = build("early", early);
+    let mut late_seg = build("late", late);
     let suspect_shift_raw = early_seg.primary_suspect.kind != late_seg.primary_suspect.kind;
     let p95_shift = has_material_p95_shift(early_seg.p95_latency_us, late_seg.p95_latency_us);
     let queue_move = matches!((early_seg.p95_queue_share_permille, late_seg.p95_queue_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= TEMPORAL_SHARE_SHIFT_PERMILLE);
@@ -703,7 +707,36 @@ fn temporal_segments(run: &Run, global_warnings: &mut Vec<String>) -> Vec<Tempor
     if suspect_shift {
         global_warnings.push(TEMPORAL_SUSPECT_SHIFT_WARNING.to_string());
     }
+    if p95_shift {
+        global_warnings.push(TEMPORAL_P95_SHIFT_WARNING.to_string());
+    }
+    if should_warn_temporal_overlap(&early_seg, &late_seg) {
+        early_seg
+            .warnings
+            .push(TEMPORAL_OVERLAP_ATTRIBUTION_WARNING.to_string());
+        late_seg
+            .warnings
+            .push(TEMPORAL_OVERLAP_ATTRIBUTION_WARNING.to_string());
+    }
     vec![early_seg, late_seg]
+}
+
+fn should_warn_temporal_overlap(early: &TemporalSegment, late: &TemporalSegment) -> bool {
+    let windows_overlap = matches!(
+        (
+            early.started_at_unix_ms,
+            early.finished_at_unix_ms,
+            late.started_at_unix_ms,
+            late.finished_at_unix_ms
+        ),
+        (Some(_), Some(early_finish), Some(late_start), Some(_)) if early_finish >= late_start
+    );
+    let has_temporal_runtime_or_inflight = early.evidence_quality.runtime_snapshots
+        == SignalCoverageStatus::Present
+        || early.evidence_quality.inflight_snapshots == SignalCoverageStatus::Present
+        || late.evidence_quality.runtime_snapshots == SignalCoverageStatus::Present
+        || late.evidence_quality.inflight_snapshots == SignalCoverageStatus::Present;
+    windows_overlap && has_temporal_runtime_or_inflight
 }
 
 fn has_material_p95_shift(left: Option<u64>, right: Option<u64>) -> bool {
@@ -1769,7 +1802,8 @@ mod tests {
         analyze_run, analyze_run_internal, apply_evidence_aware_confidence_caps, evidence_quality,
         render_text, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
         InflightTrend, Report, SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING,
-        ROUTE_RUNTIME_ATTRIBUTION_WARNING, TEMPORAL_SUSPECT_SHIFT_WARNING,
+        ROUTE_RUNTIME_ATTRIBUTION_WARNING, TEMPORAL_OVERLAP_ATTRIBUTION_WARNING,
+        TEMPORAL_P95_SHIFT_WARNING, TEMPORAL_SUSPECT_SHIFT_WARNING,
     };
 
     fn test_run() -> Run {
@@ -3078,10 +3112,54 @@ mod tests {
         }
         let shifted = analyze_run(&run);
         assert_eq!(shifted.temporal_segments.len(), 2);
+        assert!(shifted
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_P95_SHIFT_WARNING));
 
         assert!(!super::has_material_p95_shift(Some(0), Some(5_000)));
         assert!(!super::has_material_p95_shift(None, Some(5_000)));
         assert!(!super::has_material_p95_shift(Some(10), None));
+    }
+
+    #[test]
+    fn temporal_segments_emit_both_warnings_when_suspect_and_p95_shift_apply() {
+        let mut run = test_run();
+        run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+        for i in 10usize..20 {
+            if let Some(req) = run.requests.get_mut(i) {
+                req.latency_us = 9_000;
+            }
+        }
+        for i in 1..=10 {
+            run.queues.push(QueueEvent {
+                request_id: format!("req-{i}"),
+                queue: "q".into(),
+                wait_us: 2_000,
+                waited_from_unix_ms: i,
+                waited_until_unix_ms: i + 1,
+                depth_at_start: Some(10),
+            });
+        }
+        for i in 11..=20 {
+            run.stages.push(StageEvent {
+                request_id: format!("req-{i}"),
+                stage: "db".into(),
+                started_at_unix_ms: i,
+                finished_at_unix_ms: i + 1,
+                latency_us: 9_000,
+                success: true,
+            });
+        }
+        let report = analyze_run(&run);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_SUSPECT_SHIFT_WARNING));
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_P95_SHIFT_WARNING));
     }
 
     #[test]
@@ -3102,6 +3180,62 @@ mod tests {
         let report = analyze_run(&run);
         assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
         assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
+        let global_ranked: Vec<(DiagnosisKind, u8)> = std::iter::once(&global.primary_suspect)
+            .chain(global.secondary_suspects.iter())
+            .map(|s| (s.kind.clone(), s.score))
+            .collect();
+        let report_ranked: Vec<(DiagnosisKind, u8)> = std::iter::once(&report.primary_suspect)
+            .chain(report.secondary_suspects.iter())
+            .map(|s| (s.kind.clone(), s.score))
+            .collect();
+        assert_eq!(report_ranked, global_ranked);
+    }
+
+    #[test]
+    fn overlapping_temporal_windows_warn_when_runtime_or_inflight_signals_present() {
+        let mut run = test_run();
+        run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+        run.requests[9].finished_at_unix_ms = 50;
+        run.requests[10].started_at_unix_ms = 20;
+        run.requests[10].finished_at_unix_ms = 60;
+        run.runtime_snapshots = vec![runtime_snapshot(Some(300), Some(250), Some(200))];
+        for i in 10usize..20 {
+            if let Some(req) = run.requests.get_mut(i) {
+                req.latency_us = 5_000;
+            }
+        }
+
+        let report = analyze_run(&run);
+        assert_eq!(report.temporal_segments.len(), 2);
+        for seg in report.temporal_segments {
+            assert!(seg
+                .warnings
+                .iter()
+                .any(|w| w == TEMPORAL_OVERLAP_ATTRIBUTION_WARNING));
+        }
+    }
+
+    #[test]
+    fn non_overlapping_temporal_windows_do_not_emit_overlap_warning() {
+        let mut run = test_run();
+        run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+        for i in 10usize..20 {
+            if let Some(req) = run.requests.get_mut(i) {
+                req.latency_us = 5_000;
+                req.started_at_unix_ms += 500;
+                req.finished_at_unix_ms += 500;
+            }
+        }
+        run.runtime_snapshots = vec![runtime_snapshot(Some(300), Some(250), Some(200))];
+
+        let report = analyze_run(&run);
+        assert_eq!(report.temporal_segments.len(), 2);
+        for seg in report.temporal_segments {
+            assert!(!seg
+                .warnings
+                .iter()
+                .any(|w| w == TEMPORAL_OVERLAP_ATTRIBUTION_WARNING));
+        }
     }
 
     #[test]

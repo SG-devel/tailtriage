@@ -1,10 +1,10 @@
 {
   "request_count": 220,
-  "p50_latency_us": 2544919,
-  "p95_latency_us": 4815299,
-  "p99_latency_us": 4997215,
+  "p50_latency_us": 2542934,
+  "p95_latency_us": 4813105,
+  "p99_latency_us": 4996340,
   "p95_queue_share_permille": 994,
-  "p95_service_share_permille": 100,
+  "p95_service_share_permille": 101,
   "inflight_trend": {
     "gauge": "shared_state_lock_inflight",
     "sample_count": 440,
@@ -13,7 +13,9 @@
     "growth_delta": -1,
     "growth_per_sec_milli": -195
   },
-  "warnings": [],
+  "warnings": [
+    "Temporal segments show a large p95 latency shift between early and late requests."
+  ],
   "evidence_quality": {
     "request_count": 220,
     "queue_event_count": 220,
@@ -56,8 +58,8 @@
       "score": 32,
       "confidence": "low",
       "evidence": [
-        "Stage 'shared_state_critical_section' has p95 latency 23460 us across 220 samples.",
-        "Stage 'shared_state_critical_section' cumulative latency is 5107305 us (9 permille of request latency).",
+        "Stage 'shared_state_critical_section' has p95 latency 23407 us across 220 samples.",
+        "Stage 'shared_state_critical_section' cumulative latency is 5104438 us (9 permille of request latency).",
         "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
       ],
       "next_checks": [
@@ -73,13 +75,13 @@
     {
       "name": "early",
       "request_count": 110,
-      "started_at_unix_ms": 1777988252692,
-      "finished_at_unix_ms": 1777988255280,
-      "p50_latency_us": 1288240,
-      "p95_latency_us": 2407479,
-      "p99_latency_us": 2500540,
+      "started_at_unix_ms": 1778013152358,
+      "finished_at_unix_ms": 1778013154943,
+      "p50_latency_us": 1282384,
+      "p95_latency_us": 2405225,
+      "p99_latency_us": 2498507,
       "p95_queue_share_permille": 989,
-      "p95_service_share_permille": 180,
+      "p95_service_share_permille": 178,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
@@ -123,8 +125,8 @@
           "score": 32,
           "confidence": "low",
           "evidence": [
-            "Stage 'shared_state_critical_section' has p95 latency 23433 us across 110 samples.",
-            "Stage 'shared_state_critical_section' cumulative latency is 2555538 us (18 permille of request latency).",
+            "Stage 'shared_state_critical_section' has p95 latency 23419 us across 110 samples.",
+            "Stage 'shared_state_critical_section' cumulative latency is 2551463 us (18 permille of request latency).",
             "Stage 'shared_state_critical_section' contributes 9 permille of tail request latency."
           ],
           "next_checks": [
@@ -135,16 +137,18 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     },
     {
       "name": "late",
       "request_count": 110,
-      "started_at_unix_ms": 1777988252735,
-      "finished_at_unix_ms": 1777988257817,
-      "p50_latency_us": 3806462,
-      "p95_latency_us": 4928802,
-      "p99_latency_us": 5020475,
+      "started_at_unix_ms": 1778013152400,
+      "finished_at_unix_ms": 1778013157481,
+      "p50_latency_us": 3804510,
+      "p95_latency_us": 4927629,
+      "p99_latency_us": 5019644,
       "p95_queue_share_permille": 994,
       "p95_service_share_permille": 9,
       "evidence_quality": {
@@ -189,8 +193,8 @@
           "score": 32,
           "confidence": "low",
           "evidence": [
-            "Stage 'shared_state_critical_section' has p95 latency 23460 us across 110 samples.",
-            "Stage 'shared_state_critical_section' cumulative latency is 2551767 us (6 permille of request latency).",
+            "Stage 'shared_state_critical_section' has p95 latency 23401 us across 110 samples.",
+            "Stage 'shared_state_critical_section' cumulative latency is 2552975 us (6 permille of request latency).",
             "Stage 'shared_state_critical_section' contributes 4 permille of tail request latency."
           ],
           "next_checks": [
@@ -201,7 +205,9 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     }
   ]
 }

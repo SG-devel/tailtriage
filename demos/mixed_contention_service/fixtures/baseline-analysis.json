@@ -1,19 +1,21 @@
 {
   "request_count": 220,
-  "p50_latency_us": 396787,
-  "p95_latency_us": 739668,
-  "p99_latency_us": 768176,
+  "p50_latency_us": 393258,
+  "p95_latency_us": 739989,
+  "p99_latency_us": 768344,
   "p95_queue_share_permille": 980,
-  "p95_service_share_permille": 400,
+  "p95_service_share_permille": 394,
   "inflight_trend": {
     "gauge": "mixed_contention_inflight",
     "sample_count": 440,
     "peak_count": 201,
-    "p95_count": 193,
+    "p95_count": 192,
     "growth_delta": -1,
-    "growth_per_sec_milli": -1157
+    "growth_per_sec_milli": -1158
   },
-  "warnings": [],
+  "warnings": [
+    "Temporal segments show a large p95 latency shift between early and late requests."
+  ],
   "evidence_quality": {
     "request_count": 220,
     "queue_event_count": 220,
@@ -56,9 +58,9 @@
       "score": 35,
       "confidence": "low",
       "evidence": [
-        "Stage 'downstream_call' has p95 latency 32412 us across 220 samples.",
-        "Stage 'downstream_call' cumulative latency is 3769602 us (43 permille of request latency).",
-        "Stage 'downstream_call' contributes 25 permille of tail request latency."
+        "Stage 'downstream_call' has p95 latency 32525 us across 220 samples.",
+        "Stage 'downstream_call' cumulative latency is 3774578 us (43 permille of request latency).",
+        "Stage 'downstream_call' contributes 23 permille of tail request latency."
       ],
       "next_checks": [
         "Inspect downstream dependency behind stage 'downstream_call'.",
@@ -73,19 +75,19 @@
     {
       "name": "early",
       "request_count": 110,
-      "started_at_unix_ms": 1777988244981,
-      "finished_at_unix_ms": 1777988245416,
-      "p50_latency_us": 204988,
-      "p95_latency_us": 376019,
-      "p99_latency_us": 389437,
+      "started_at_unix_ms": 1778013144692,
+      "finished_at_unix_ms": 1778013145142,
+      "p50_latency_us": 207592,
+      "p95_latency_us": 376318,
+      "p99_latency_us": 392133,
       "p95_queue_share_permille": 960,
-      "p95_service_share_permille": 563,
+      "p95_service_share_permille": 566,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
         "stage_event_count": 220,
         "runtime_snapshot_count": 0,
-        "inflight_snapshot_count": 331,
+        "inflight_snapshot_count": 335,
         "requests": "present",
         "queues": "present",
         "stages": "present",
@@ -109,7 +111,7 @@
         "evidence": [
           "Queue wait at p95 consumes 96.0% of request time.",
           "Observed queue depth sample up to 97.",
-          "In-flight gauge 'mixed_contention_inflight' grew by 108 over the run window (p95=194, peak=201)."
+          "In-flight gauge 'mixed_contention_inflight' grew by 104 over the run window (p95=193, peak=201)."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -123,8 +125,8 @@
           "score": 39,
           "confidence": "low",
           "evidence": [
-            "Stage 'downstream_call' has p95 latency 32319 us across 110 samples.",
-            "Stage 'downstream_call' cumulative latency is 1890066 us (84 permille of request latency).",
+            "Stage 'downstream_call' has p95 latency 32525 us across 110 samples.",
+            "Stage 'downstream_call' cumulative latency is 1902701 us (85 permille of request latency).",
             "Stage 'downstream_call' contributes 57 permille of tail request latency."
           ],
           "next_checks": [
@@ -135,18 +137,20 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     },
     {
       "name": "late",
       "request_count": 110,
-      "started_at_unix_ms": 1777988245022,
-      "finished_at_unix_ms": 1777988245845,
-      "p50_latency_us": 583846,
-      "p95_latency_us": 758439,
-      "p99_latency_us": 771571,
-      "p95_queue_share_permille": 980,
-      "p95_service_share_permille": 69,
+      "started_at_unix_ms": 1778013144733,
+      "finished_at_unix_ms": 1778013145555,
+      "p50_latency_us": 585714,
+      "p95_latency_us": 756874,
+      "p99_latency_us": 769108,
+      "p95_queue_share_permille": 981,
+      "p95_service_share_permille": 70,
       "evidence_quality": {
         "request_count": 110,
         "queue_event_count": 110,
@@ -174,7 +178,7 @@
         "score": 95,
         "confidence": "high",
         "evidence": [
-          "Queue wait at p95 consumes 98.0% of request time.",
+          "Queue wait at p95 consumes 98.1% of request time.",
           "Observed queue depth sample up to 196."
         ],
         "next_checks": [
@@ -189,9 +193,9 @@
           "score": 34,
           "confidence": "low",
           "evidence": [
-            "Stage 'downstream_call' has p95 latency 32537 us across 110 samples.",
-            "Stage 'downstream_call' cumulative latency is 1879536 us (29 permille of request latency).",
-            "Stage 'downstream_call' contributes 28 permille of tail request latency."
+            "Stage 'downstream_call' has p95 latency 32467 us across 110 samples.",
+            "Stage 'downstream_call' cumulative latency is 1871877 us (29 permille of request latency).",
+            "Stage 'downstream_call' contributes 24 permille of tail request latency."
           ],
           "next_checks": [
             "Inspect downstream dependency behind stage 'downstream_call'.",
@@ -201,7 +205,9 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     }
   ]
 }
