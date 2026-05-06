@@ -51,7 +51,7 @@ See root docs for interpretation guidance:
 
 ```rust
 // Old pre-0.1.x API, no longer the supported library analyzer path:
-use tailtriage_cli::analyze::{analyze_run, render_text};
+// use old_cli_crate::analyze::{analyze_run, render_text};
 
 // New:
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};

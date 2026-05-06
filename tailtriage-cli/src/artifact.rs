@@ -206,6 +206,8 @@ fn parse_error_message(error: &serde_json::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::load_run_artifact;
+    use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+    use tailtriage_core::Run;
 
     #[test]
     fn rejects_malformed_json() {
@@ -315,6 +317,21 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("unfinished request")));
+    }
+
+    #[test]
+    fn cli_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
+        let dir = tempfile::tempdir().expect("tempdir should build");
+        let path = dir.path().join("empty-requests.json");
+        std::fs::write(&path, valid_run_json_with_requests("[]")).expect("fixture should write");
+
+        let load_error = load_run_artifact(&path).expect_err("expected validation failure");
+        assert!(load_error.to_string().contains("requests section is empty"));
+
+        let run: Run =
+            serde_json::from_str(&valid_run_json_with_requests("[]")).expect("valid in-memory run");
+        let report = analyze_run(&run, AnalyzeOptions::default());
+        assert_eq!(report.request_count, 0);
     }
 
     fn valid_run_json_with_requests(requests_json: &str) -> String {
