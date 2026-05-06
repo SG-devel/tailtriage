@@ -1,8 +1,10 @@
 # tailtriage-analyzer
 
-`tailtriage-analyzer` is the in-process analyzer/report crate for `tailtriage`.
+`tailtriage-analyzer` is the in-process analysis/report crate for `tailtriage`.
 
-It analyzes a completed in-memory `tailtriage_core::Run` (or stable snapshot equivalent) and returns a typed triage report with evidence-ranked suspects and next checks.
+It analyzes a completed in-memory `tailtriage_core::Run` (or a stable snapshot equivalent) and returns a typed triage report with evidence-ranked suspects and next checks.
+
+Suspects are investigation leads, not proof of root cause.
 
 ## Installation
 
@@ -10,33 +12,49 @@ It analyzes a completed in-memory `tailtriage_core::Run` (or stable snapshot equ
 cargo add tailtriage-analyzer
 ```
 
+If you also want JSON serialization of reports, add `serde_json` in your own crate:
+
+```bash
+cargo add serde_json
+```
+
+## How to obtain a `Run`
+
+`tailtriage-analyzer` analyzes completed run data. Typical sources are:
+
+- a completed `Run` captured in process with `tailtriage-core` (or the default `tailtriage` crate)
+- a stable in-memory snapshot equivalent produced by your own flow
+
+Artifact loading from disk is CLI-owned. Use `tailtriage-cli` when you want command-line analysis of saved artifacts.
+
 ## In-process API
+
+- `analyze_run(&Run, AnalyzeOptions) -> Report`
+- `Report` is the primary typed output
+- `render_text(&Report)` renders human-readable triage output
+- `serde_json` serialization is optional and user-provided
+
+`AnalyzeOptions::default()` is the normal path today and leaves room for future analyzer options.
+`analyze_run` is currently infallible and returns `Report` directly.
 
 ```rust
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
-# use tailtriage_core::Run;
-# fn example(run: Run) -> Result<(), serde_json::Error> {
-let report = analyze_run(&run, AnalyzeOptions::default());
-let text = render_text(&report);
-let json = serde_json::to_string_pretty(&report)?;
-# let _ = (text, json);
-# Ok(())
-# }
+use tailtriage_core::Run;
+
+fn render_report(run: &Run) -> Result<String, serde_json::Error> {
+    let report = analyze_run(run, AnalyzeOptions::default());
+    let text = render_text(&report);
+    let json = serde_json::to_string_pretty(&report)?;
+    Ok(format!("{text}\n\n{json}"))
+}
 ```
-
-## Report contract
-
-- `Report` is the typed analyzer output model.
-- `render_text(&Report)` renders a human-readable triage report.
-- `serde_json::to_string_pretty(&report)` serializes the same typed report as JSON.
-
-Suspects are investigation leads, not proof of root cause.
 
 ## Semantics and boundaries
 
-- Batch/snapshot analysis of one completed run.
-- Not streaming analysis.
-- Artifact loading from disk is CLI-owned (`tailtriage-cli`).
+- Analysis is batch/snapshot oriented over completed run data, not streaming.
+- This crate does not capture instrumentation data.
+- This crate does not load artifacts from disk.
+- CLI artifact loading/validation is owned by `tailtriage-cli`.
 
 ## Report fields (overview)
 
@@ -46,13 +64,3 @@ See root docs for interpretation guidance:
 
 - [`docs/diagnostics.md`](../docs/diagnostics.md)
 - [`docs/user-guide.md`](../docs/user-guide.md)
-
-## Migration note
-
-```rust
-// Old pre-0.1.x API was hosted in the CLI crate.
-// Use the analyzer crate directly for in-process analysis/report APIs.
-
-// New:
-use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
-```

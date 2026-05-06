@@ -4,7 +4,8 @@
 
 Use it when you want to turn capture on, collect one generation, turn capture off, and later start a fresh generation without restarting the process.
 
-Analysis is still done by `tailtriage-cli`.
+For in-process analysis/report generation, use `tailtriage-analyzer`.
+For command-line analysis of saved artifacts, use `tailtriage-cli`.
 
 ## When to use this crate
 
@@ -198,11 +199,12 @@ Optional table. If present, `kind` is required.
 - at most one generation is active at a time
 - active generation settings do not change after activation
 - requests remain bound to the generation that admitted them
-- controller capture and artifact analysis are separate; analysis happens in `tailtriage-cli`
+- controller capture and analysis are separate; use `tailtriage-analyzer` for in-process analysis/report generation and `tailtriage-cli` for command-line analysis of saved artifacts
 
 ## Related crates
 
 - `tailtriage`: default entry point
 - `tailtriage-core`: direct instrumentation lifecycle
 - `tailtriage-tokio`: runtime-pressure sampling
-- `tailtriage-cli`: artifact analysis
+- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
+- `tailtriage-cli`: command-line analysis of saved run artifacts

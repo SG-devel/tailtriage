@@ -14,7 +14,8 @@ Use it when you want explicit request lifecycle instrumentation and bounded JSON
 - bounded in-memory retention
 - JSON run artifact writing
 
-The artifact produced here is analyzed by `tailtriage-cli`.
+For in-process analysis/report generation, use `tailtriage-analyzer`.
+For command-line analysis of saved artifacts, use `tailtriage-cli`.
 
 ## Crate selection
 
