@@ -208,5 +208,6 @@ Optional table. If present, `kind` is required.
 - `tailtriage`: default entry point
 - `tailtriage-core`: direct instrumentation lifecycle
 - `tailtriage-tokio`: runtime-pressure sampling
+- `tailtriage-axum`: Axum request-boundary integration
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
