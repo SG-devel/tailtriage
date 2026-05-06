@@ -1,8 +1,11 @@
 import copy
+import io
 import json
 import os
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from scripts import diagnostic_benchmark as db
@@ -433,6 +436,39 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
                 "temporal_segment_check_cases", "temporal_segment_check_passed_cases", "failed_cases",
             }
             self.assertEqual(set(metrics.keys()), expected_keys)
+
+    def test_main_prints_optional_check_summary_lines(self):
+        case = self.make_case(
+            expected_evidence_quality="strong",
+            expected_signal_statuses={"queues": "present"},
+            must_include_confidence_notes=["queue confidence"],
+            expected_route_breakdowns="non_empty",
+            expected_temporal_segments="non_empty",
+        )
+        report = valid_report(
+            confidence_notes=["queue confidence note"],
+            evidence_quality={"quality": "strong", "queues": "present"},
+            route_breakdowns=[{"warnings": []}],
+            temporal_segments=[{"warnings": []}],
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self.write_json(td, case["artifact"], report)
+            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(case))
+            argv = sys.argv
+            stdout = io.StringIO()
+            try:
+                sys.argv = ["diagnostic_benchmark.py", "--manifest", str(manifest_path), "--min-top1", "0.0", "--min-top2", "0.0", "--max-high-confidence-wrong", "99"]
+                with redirect_stdout(stdout):
+                    db.main()
+            finally:
+                sys.argv = argv
+            output = stdout.getvalue()
+
+        self.assertIn("evidence_quality_checks=1/1", output)
+        self.assertIn("signal_status_checks=1/1", output)
+        self.assertIn("confidence_note_checks=1/1", output)
+        self.assertIn("route_breakdown_checks=1/1", output)
+        self.assertIn("temporal_segment_checks=1/1", output)
 
 
 if __name__ == "__main__":

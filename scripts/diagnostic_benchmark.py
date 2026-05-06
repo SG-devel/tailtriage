@@ -431,6 +431,11 @@ def main():
     print(f"next_check_required_cases={metrics['next_check_required_cases']}")
     print(f"next_check_pass_rate={next_check_pass_rate_text}")
     print(f"next_check_presence_rate={metrics['next_check_presence_rate']:.3f}")
+    print(f"evidence_quality_checks={metrics['evidence_quality_check_passed_cases']}/{metrics['evidence_quality_check_cases']}")
+    print(f"signal_status_checks={metrics['signal_status_check_passed_cases']}/{metrics['signal_status_check_cases']}")
+    print(f"confidence_note_checks={metrics['confidence_note_check_passed_cases']}/{metrics['confidence_note_check_cases']}")
+    print(f"route_breakdown_checks={metrics['route_breakdown_check_passed_cases']}/{metrics['route_breakdown_check_cases']}")
+    print(f"temporal_segment_checks={metrics['temporal_segment_check_passed_cases']}/{metrics['temporal_segment_check_cases']}")
     print(f"failed_case_count={len(metrics['failed_cases'])}")
 
     if failures:
