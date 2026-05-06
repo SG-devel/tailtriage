@@ -83,6 +83,14 @@ DOCS_DISALLOWED_HISTORY_PATTERNS = (
     r"PR\s*#\d+",
 )
 
+CAPTURE_INTEGRATION_README_PATHS = (
+    REPO_ROOT / "tailtriage" / "README.md",
+    REPO_ROOT / "tailtriage-core" / "README.md",
+    REPO_ROOT / "tailtriage-controller" / "README.md",
+    REPO_ROOT / "tailtriage-tokio" / "README.md",
+    REPO_ROOT / "tailtriage-axum" / "README.md",
+)
+
 DIAGNOSTICS_FIELD_REFERENCE_LABELS = (
     "field reference",
     "field-reference",
@@ -570,6 +578,76 @@ def validate_cli_not_presented_as_library_analyzer_api() -> None:
     if hits:
         raise ValueError("CLI/library analyzer contract violation:\n" + "\n".join(hits))
 
+
+def validate_analyzer_cli_docs_split_contract() -> None:
+    analyzer_text = (REPO_ROOT / "tailtriage-analyzer" / "README.md").read_text(encoding="utf-8")
+    analyzer_lower = analyzer_text.lower()
+    analyzer_required = (
+        "in-process",
+        "completed",
+        "run",
+        "typed",
+        "report",
+        "render_text",
+        "serde_json",
+        "analyzeoptions::default()",
+        "tailtriage-cli",
+    )
+    for token in analyzer_required:
+        if token not in analyzer_lower:
+            raise ValueError(f"tailtriage-analyzer README missing required concept/token: {token}")
+
+    if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
+        raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")
+
+    cli_text = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8")
+    cli_lower = cli_text.lower()
+    cli_required_patterns = (
+        ("saved/run artifact loading", r"(saved|captured|on-disk|persisted|run).{0,120}artifact"),
+        ("schema validation", r"(schema.{0,80}validat|validat.{0,80}schema)"),
+        ("non-empty requests loader rule", r"non[-\s]?empty.{0,80}requests"),
+        ("tailtriage-analyzer use", r"tailtriage-analyzer"),
+        ("command-line text/json output", r"(command[-\s]?line|cli).{0,160}(text|json|human-readable)"),
+        ("in-process pointer for Rust users", r"(rust|in-process).{0,120}tailtriage-analyzer"),
+    )
+    for label, pattern in cli_required_patterns:
+        if re.search(pattern, cli_lower, flags=re.IGNORECASE | re.DOTALL) is None:
+            raise ValueError(f"tailtriage-cli README missing required concept: {label}")
+
+
+def validate_capture_readmes_analyzer_cli_wording_contract() -> None:
+    stale_patterns = (
+        r"analysis\s+is\s+still\s+done\s+by\s+`?tailtriage-cli`?",
+        r"analysis\s+happens\s+in\s+`?tailtriage-cli`?",
+        r"artifact\s+produced\s+here.{0,80}analy[sz]ed\s+by\s+`?tailtriage-cli`?",
+        r"this\s+crate\s+writes\s+artifacts?.{0,80}`?tailtriage-cli`?\s+analy[sz]es",
+        r"analysis\s+or\s+report\s+generation.{0,120}`?tailtriage-cli`?",
+    )
+
+    failures: list[str] = []
+    for path in CAPTURE_INTEGRATION_README_PATHS:
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        if "tailtriage-analyzer" not in lower:
+            failures.append(
+                f"{path.relative_to(REPO_ROOT)} must mention tailtriage-analyzer for in-process analysis"
+            )
+        if "tailtriage-cli" not in lower:
+            failures.append(
+                f"{path.relative_to(REPO_ROOT)} must mention tailtriage-cli for command-line artifact analysis"
+            )
+
+        for pattern in stale_patterns:
+            if re.search(pattern, lower, flags=re.IGNORECASE | re.DOTALL):
+                failures.append(
+                    f"{path.relative_to(REPO_ROOT)} contains stale CLI-only analyzer wording: {pattern}"
+                )
+
+    if failures:
+        raise ValueError(
+            "capture/integration README analyzer wording contract violation:\n" + "\n".join(failures)
+        )
+
 def _active_yaml_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
@@ -760,6 +838,8 @@ def main() -> int:
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_cli_not_presented_as_library_analyzer_api()
+    validate_analyzer_cli_docs_split_contract()
+    validate_capture_readmes_analyzer_cli_wording_contract()
     validate_diagnostic_benchmark_ci_contract()
     validate_validation_docs_ci_contract()
     validate_architecture_contract()
