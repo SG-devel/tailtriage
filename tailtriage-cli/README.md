@@ -145,7 +145,7 @@ Current contract:
 
 Library note:
 
-- this crate's library analyzer API, `analyze::analyze_run(&Run)`, can analyze an in-memory `Run` with zero requests
+- the `tailtriage-analyzer` library API, `tailtriage_analyzer::analyze_run(&Run, AnalyzeOptions)`, can analyze an in-memory `Run` with zero requests
 - the stricter non-empty `requests` rule applies to CLI artifact loading from disk
 
 ## Important interpretation notes

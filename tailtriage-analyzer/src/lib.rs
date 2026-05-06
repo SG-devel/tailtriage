@@ -1,3 +1,19 @@
+//! Heuristic triage analyzer for completed [`tailtriage_core::Run`] captures.
+//!
+//! This crate analyzes a finished in-memory [`Run`](tailtriage_core::Run) and returns a typed
+//! [`Report`] for in-process diagnosis. It does not load run artifacts from disk and it does not
+//! write capture artifacts.
+//!
+//! Use [`analyze_run`] (or [`Analyzer`]) to produce a [`Report`], then:
+//!
+//! - call [`render_text`] for human-readable triage output;
+//! - call `serde_json::to_string_pretty(&report)` for analysis report JSON.
+//!
+//! The analysis report JSON is distinct from raw run artifact JSON produced by capture/artifact
+//! workflows. Raw run artifacts remain available for later CLI analysis.
+//!
+//! Analyzer semantics are currently batch/snapshot based for one completed run, not streaming.
+
 use std::collections::{BTreeMap, HashMap};
 
 use serde::{Serialize, Serializer};
@@ -113,7 +129,7 @@ pub struct Suspect {
 }
 
 impl Suspect {
-    pub(super) fn new(
+    fn new(
         kind: DiagnosisKind,
         score: u8,
         evidence: Vec<String>,
@@ -147,7 +163,7 @@ pub struct InflightTrend {
     pub growth_per_sec_milli: Option<i64>,
 }
 
-/// Rule-based triage report for one run artifact.
+/// Rule-based triage report for one completed run artifact.
 ///
 /// The report ranks evidence-backed suspects and suggests next checks.
 /// It does not prove root cause and should be used as triage guidance.
@@ -249,7 +265,7 @@ pub struct RouteBreakdown {
 /// Library API example (this does not use the CLI file-loader contract):
 ///
 /// ```
-/// use tailtriage_cli::analyze::analyze_run;
+/// use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 /// use tailtriage_core::{
 ///     CaptureMode, EffectiveCoreConfig, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION,
 /// };
@@ -284,12 +300,41 @@ pub struct RouteBreakdown {
 ///     truncation: Default::default(),
 /// };
 ///
-/// // `analyze_run(&Run)` can operate on an in-memory run with zero requests.
-/// let report = analyze_run(&run);
+/// // `analyze_run(&Run, AnalyzeOptions)` can operate on an in-memory run with zero requests.
+/// let report = analyze_run(&run, AnalyzeOptions::default());
 /// assert_eq!(report.request_count, 0);
 /// ```
 #[must_use]
-pub fn analyze_run(run: &Run) -> Report {
+pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
+    analyze_run_with_options(run, &options)
+}
+
+/// Options for heuristic run analysis.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default)]
+pub struct AnalyzeOptions {}
+
+/// Reusable analyzer configured with [`AnalyzeOptions`].
+#[derive(Debug, Clone, Default)]
+pub struct Analyzer {
+    options: AnalyzeOptions,
+}
+
+impl Analyzer {
+    /// Creates an analyzer with the provided options.
+    #[must_use]
+    pub const fn new(options: AnalyzeOptions) -> Self {
+        Self { options }
+    }
+
+    /// Analyzes one completed run artifact and returns a triage report.
+    #[must_use]
+    pub fn analyze_run(&self, run: &Run) -> Report {
+        analyze_run_with_options(run, &self.options)
+    }
+}
+
+fn analyze_run_with_options(run: &Run, _options: &AnalyzeOptions) -> Report {
     let mut report = analyze_run_internal(run);
     let route_context = route::route_breakdowns(run, &report);
     if route_context.divergent {
