@@ -150,6 +150,84 @@ Normal CI does not publish durable diagnostic scorecards.
     def test_cli_not_presented_as_library_analyzer_api_contract(self) -> None:
         validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
+
+    def test_analyzer_and_cli_docs_split_contract(self) -> None:
+        validate_docs_contracts.validate_analyzer_and_cli_docs_split_contract()
+
+    def test_capture_readmes_contract_rejects_stale_cli_only_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            capture_paths = [
+                repo_root / "tailtriage" / "README.md",
+                repo_root / "tailtriage-core" / "README.md",
+                repo_root / "tailtriage-controller" / "README.md",
+                repo_root / "tailtriage-tokio" / "README.md",
+                repo_root / "tailtriage-axum" / "README.md",
+            ]
+            for path in capture_paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    "Use tailtriage-analyzer and tailtriage-cli. Analysis is still done by `tailtriage-cli`.",
+                    encoding="utf-8",
+                )
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(validate_docs_contracts, "CAPTURE_INTEGRATION_README_PATHS", tuple(capture_paths)),
+            ):
+                with self.assertRaisesRegex(ValueError, r"stale CLI-only"):
+                    validate_docs_contracts.validate_capture_readmes_analyzer_cli_wording_contract()
+
+    def test_capture_readmes_contract_rejects_cli_without_analyzer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            capture_paths = [
+                repo_root / "tailtriage" / "README.md",
+                repo_root / "tailtriage-core" / "README.md",
+                repo_root / "tailtriage-controller" / "README.md",
+                repo_root / "tailtriage-tokio" / "README.md",
+                repo_root / "tailtriage-axum" / "README.md",
+            ]
+            for path in capture_paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("Use tailtriage-cli for saved artifact analysis.", encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(validate_docs_contracts, "CAPTURE_INTEGRATION_README_PATHS", tuple(capture_paths)),
+            ):
+                with self.assertRaisesRegex(ValueError, r"must mention both"):
+                    validate_docs_contracts.validate_capture_readmes_analyzer_cli_wording_contract()
+
+    def test_cli_readme_positive_split_mentions_analyzer(self) -> None:
+        analyzer_text = """
+# tailtriage-analyzer
+in-process completed Run typed Report render_text serde_json AnalyzeOptions::default()
+not live streaming
+Use tailtriage-cli for artifact loading from command line.
+"""
+        cli_text = """
+# tailtriage-cli
+Loads saved run artifacts with schema validation and enforces non-empty requests.
+Invokes tailtriage-analyzer for analysis.
+Supports command-line text and json output.
+Rust in-process users should use tailtriage-analyzer.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            analyzer_path = repo_root / "tailtriage-analyzer" / "README.md"
+            cli_path = repo_root / "tailtriage-cli" / "README.md"
+            analyzer_path.parent.mkdir(parents=True, exist_ok=True)
+            cli_path.parent.mkdir(parents=True, exist_ok=True)
+            analyzer_path.write_text(analyzer_text, encoding="utf-8")
+            cli_path.write_text(cli_text, encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "ANALYZER_README_PATH", analyzer_path),
+                mock.patch.object(validate_docs_contracts, "CLI_README_PATH", cli_path),
+            ):
+                validate_docs_contracts.validate_analyzer_and_cli_docs_split_contract()
+
     def test_architecture_contract(self) -> None:
         validate_docs_contracts.validate_architecture_contract()
 
