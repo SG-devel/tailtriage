@@ -1,81 +1,66 @@
 # Changelog
 
-All notable changes to this project are documented here.
-
 ## [] - Unreleased
 
 ### Added
 
-- Added diagnostic validation infrastructure, including a benchmark corpus, validation manifests, scorecard output, and CI checks for deterministic diagnostic behavior.
-- Added adversarial diagnostic cases and confidence-ceiling checks for ambiguous, partial, or conflicting evidence.
-- Added repeated-run validation tooling for diagnostic stability, mitigation movement, and operational profiles.
-- Added a unified validation runner, `scripts/validate_all.py`, for profile orchestration.
-- Added versioned/manual diagnostic validation snapshot generation for release review.
-- Added richer analyzer report surfaces:
-  - structured `evidence_quality`
-  - route-level breakdowns
-  - conservative early/late temporal segments
-  - optional analyzer-report validations in the diagnostic benchmark
-- Added `tailtriage-analyzer` as a dedicated analyzer crate, making analysis callable directly from Rust code as well as through the CLI.
+- Diagnostic validation suite: benchmark corpus, manifests, scorecards, CI checks, adversarial cases, and release snapshot tooling.
+- Unified validation runner for diagnostic, mitigation, and operational profiles.
+- First-class analyzer library crate, `tailtriage-analyzer`, for in-process analysis from Rust code.
+- Richer analyzer reports: evidence quality, route breakdowns, conservative temporal segments, and optional report-surface validation.
 
 ### Changed
 
-- Reworked analyzer scoring, warning generation, confidence capping, ambiguity handling, and temporal/overlap attribution to make reports more evidence-aware and conservative.
-- Split analyzer rendering and scoring internals into smaller modules before extracting the analyzer as a first-class library crate.
-- Updated documentation to explain the analyzer/CLI split and the completed-run artifact contract.
+- Reworked analyzer scoring, warnings, confidence caps, ambiguity handling, and attribution logic to be more evidence-aware and conservative.
+- Split analyzer internals and text rendering out of the CLI path.
+- Updated docs around validation scope, analyzer/CLI responsibilities, and completed-run artifact contracts.
 
 ### Fixed
 
-- Tightened validation warning wording, optional benchmark output, confidence-note truthfulness, route-divergence coverage, and temporal segment warning semantics.
-- Added cross-platform CI coverage and simplified artifact finalization behavior.
+- Tightened confidence notes, temporal warnings, route-divergence validation, and validation output wording.
+- Improved cross-platform CI coverage and artifact finalization behavior.
 
 ## [0.1.2] - 2026-04-25
 
 ### Added
 
-- Added the `tailtriage` default crate as the primary adoption surface, while keeping focused subcrates available for lower-level integrations.
-- Added the `tailtriage-controller` crate for live arm/disarm capture windows in long-running services.
-- Added controller generation lifecycle management, request admission/completion binding, disabled-mode request instrumentation, and controller examples.
-- Added TOML-backed controller configuration with startup defaults, reload semantics for future activations, runtime sampler template settings, and documented field references.
-- Added controller run-end policies, including saturation handling and optional auto-seal behavior.
-- Added a Tokio `RuntimeSampler` builder with `CaptureMode` inheritance, explicit overrides, effective-config metadata, retention clamping, and lifecycle scoping to active controller generations.
-- Added collector-stress and collector-limits measurement paths, orchestration scripts, bounded smoke coverage, deterministic summary tests, and operating guidance.
-- Added richer Axum outcome handling by mapping HTTP status codes to more useful request outcomes and allowing configurable classification.
-- Added public controller examples and refreshed public example lists for crates.io/docs.rs users.
+- Default `tailtriage` crate as the main adoption surface.
+- `tailtriage-controller` for live arm/disarm capture windows in long-running services.
+- TOML-backed controller configuration with reload semantics and documented field references.
+- Controller lifecycle handling, generation scoping, disabled-mode instrumentation, run-end policies, and auto-seal behavior.
+- Tokio `RuntimeSampler` builder with capture-mode inheritance, explicit overrides, effective-config metadata, and controller lifecycle integration.
+- Collector-stress and collector-limits measurement paths, scripts, tests, CI coverage, and operating docs.
+- Improved Axum outcome classification and public controller examples.
 
 ### Changed
 
-- Made `CaptureMode` a concrete core preset and clarified mode defaults, sampler precedence, and runtime-cost attribution.
-- Separated core capture-mode overhead from Tokio sampler runtime-cost reporting.
+- Made `CaptureMode` a concrete core preset with clearer defaults and precedence rules.
+- Separated core capture overhead from Tokio sampler runtime-cost reporting.
 - Optimized saturated collector paths with lower-overhead drop tracking.
-- Rebalanced documentation around the default crate, controller adoption path, public examples, and published-crate onboarding.
-- Expanded docs-contract validation to keep README content, crate docs, examples, and TOML documentation aligned.
+- Reworked docs around the default crate, controller usage, public examples, and crates.io onboarding.
+- Expanded docs-contract checks across READMEs, examples, and TOML docs.
 
 ### Fixed
 
-- Fixed docs.rs and crates.io publishing gaps across public crates.
-- Fixed Windows-specific dependency, path, TOML fixture, and test issues.
-- Fixed CLI JSON/report formatting drift and added release-facing metadata such as `rust-version`.
-- Fixed run metadata and controller `service_name` precedence mismatches.
-- Added `finalized_at_unix_ms` metadata to distinguish finalized artifacts.
-- Hardened CI with cargo-deny coverage, docs-contract checks, release smoke checks, public example smoke checks, and collector-limit tests.
+- docs.rs/crates.io publishing issues.
+- Windows dependency, path, TOML fixture, and test issues.
+- CLI JSON/report formatting drift.
+- Run metadata and controller `service_name` precedence mismatches.
+- Added `finalized_at_unix_ms` metadata for finalized artifacts.
+- Hardened release CI, cargo-deny checks, docs-contract checks, and public example smoke tests.
 
 ## [0.1.1] - 2026-03-27
 
 ### Added
 
-- Initial MVP release for Tokio tail-latency triage.
-- Added core request lifecycle instrumentation for queue, stage, in-flight, and completion timing.
-- Added JSON run artifact output and CLI analysis for saved artifacts.
-- Added evidence-ranked suspect output for the initial bottleneck families:
-  - application queueing
-  - blocking-pool pressure
-  - executor pressure
-  - downstream stage latency
-- Added optional Tokio runtime-pressure sampling.
-- Added optional Axum middleware/extractor ergonomics.
-- Added initial public examples, demo workloads, diagnostics documentation, and crates.io adoption guidance.
+- Initial MVP release.
+- Core request lifecycle instrumentation for queue, stage, in-flight, and completion timing.
+- JSON run artifacts and CLI analysis.
+- Evidence-ranked suspects for application queueing, blocking-pool pressure, executor pressure, and downstream stage latency.
+- Optional Tokio runtime-pressure sampling.
+- Optional Axum middleware/extractor ergonomics.
+- Initial examples, demo workloads, diagnostics docs, and crates.io adoption guidance.
 
 ### Notes
 
-- Suspects were intentionally presented as triage leads with next checks, not as root-cause proof.
+- Suspects were framed as triage leads with next checks, not root-cause proof.
