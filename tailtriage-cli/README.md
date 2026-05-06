@@ -42,7 +42,7 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-The CLI artifact loader requires at least one request event in `requests`.
+The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
 
 ## How to read the result
 
