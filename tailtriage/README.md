@@ -83,7 +83,7 @@ Docs.rs note: `tailtriage` docs are built with `all-features = true`, so docs.rs
 
 ## Important constraints
 
-- Capture and analysis are separate: this crate writes artifacts, `tailtriage-cli` analyzes them.
+- Capture and analysis are separate: this crate produces completed runs/snapshots and saved artifacts. For in-process analysis/report generation, use `tailtriage-analyzer`. For command-line analysis of saved artifacts, use `tailtriage-cli`.
 - `CaptureMode` selection does not auto-start Tokio runtime sampling.
 - Analysis output is triage guidance, not root-cause proof.
 
@@ -93,4 +93,5 @@ Docs.rs note: `tailtriage` docs are built with `all-features = true`, so docs.rs
 - `tailtriage-controller`: repeated bounded capture windows
 - `tailtriage-tokio`: Tokio runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
-- `tailtriage-cli`: artifact analysis and report generation
+- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
+- `tailtriage-cli`: command-line analysis of saved run artifacts

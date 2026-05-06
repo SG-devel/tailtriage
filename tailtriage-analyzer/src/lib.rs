@@ -163,7 +163,7 @@ pub struct InflightTrend {
     pub growth_per_sec_milli: Option<i64>,
 }
 
-/// Rule-based triage report for one completed run artifact.
+/// Rule-based triage report for one completed [`Run`] or stable snapshot.
 ///
 /// The report ranks evidence-backed suspects and suggests next checks.
 /// It does not prove root cause and should be used as triage guidance.
@@ -255,7 +255,7 @@ pub struct RouteBreakdown {
     pub warnings: Vec<String>,
 }
 
-/// Analyzes one run artifact with rule-based heuristics and returns a triage report.
+/// Analyzes one completed [`Run`] (or stable snapshot equivalent) with rule-based heuristics and returns a triage report.
 ///
 /// The analysis ranks evidence-backed suspects and next checks; it does not
 /// claim causal certainty or proven root cause.
@@ -327,7 +327,7 @@ impl Analyzer {
         Self { options }
     }
 
-    /// Analyzes one completed run artifact and returns a triage report.
+    /// Analyzes one completed [`Run`] (or stable snapshot equivalent) and returns a triage report.
     #[must_use]
     pub fn analyze_run(&self, run: &Run) -> Report {
         analyze_run_with_options(run, &self.options)

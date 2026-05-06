@@ -195,13 +195,14 @@ This crate does not provide:
 - request lifecycle instrumentation by itself
 - repeated arm/disarm capture windows
 - framework-boundary integration for Axum
-- analysis or report generation
+- in-process or command-line analysis/report generation
 
 For those surfaces, use:
 
 - `tailtriage-core`
 - `tailtriage-controller`
 - `tailtriage-axum`
+- `tailtriage-analyzer`
 - `tailtriage-cli`
 
 ## Related crates
@@ -209,4 +210,5 @@ For those surfaces, use:
 - `tailtriage`: recommended default entry point
 - `tailtriage-core`: core request instrumentation and artifact writing
 - `tailtriage-controller`: repeated bounded windows
-- `tailtriage-cli`: artifact analysis
+- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
+- `tailtriage-cli`: command-line analysis of saved run artifacts
