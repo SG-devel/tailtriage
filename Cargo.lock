@@ -797,6 +797,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tailtriage-analyzer"
+version = "0.1.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tailtriage-core",
+]
+
+[[package]]
 name = "tailtriage-axum"
 version = "0.1.2"
 dependencies = [
@@ -815,6 +824,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "tailtriage-analyzer",
  "tailtriage-core",
  "tempfile",
  "tokio",

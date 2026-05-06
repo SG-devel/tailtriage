@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use tailtriage_cli::analyze::{analyze_run, render_text};
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 use tailtriage_cli::artifact::load_run_artifact;
 
 #[derive(Debug, Parser)]
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for warning in &loaded.warnings {
                 eprintln!("warning: {warning}");
             }
-            let report = analyze_run(&loaded.run);
+            let report = analyze_run(&loaded.run, AnalyzeOptions::default());
 
             match format {
                 OutputFormat::Text => {
