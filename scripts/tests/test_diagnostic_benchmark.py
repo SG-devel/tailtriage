@@ -132,8 +132,11 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(notes="")))
     def test_manifest_max_primary_confidence_rules(self):
         db.validate_manifest(self.make_manifest(self.make_case()))
-        for allowed in ["low", "medium", "high", "very_high"]:
+        for allowed in ["low", "medium", "high"]:
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=allowed)))
+
+        with self.assertRaisesRegex(ValueError, "max_primary_confidence must be one of"):
+            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="very_high")))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be one of"):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
@@ -155,6 +158,15 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "high", "evidence": "x"}, "secondary_suspects": [], "warnings": []})
         with self.assertRaisesRegex(ValueError, "next_checks"):
             db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "high", "evidence": [], "next_checks": "x"}, "secondary_suspects": [], "warnings": []})
+
+    def test_report_primary_confidence_very_high_rejected(self):
+        with self.assertRaisesRegex(ValueError, "low/medium/high"):
+            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "very_high", "evidence": []}, "secondary_suspects": [], "warnings": []})
+
+    def test_report_secondary_confidence_very_high_rejected(self):
+        primary = {"kind": ALLOWED[0], "confidence": "high", "evidence": []}
+        with self.assertRaisesRegex(ValueError, "low/medium/high"):
+            db.extract({"primary_suspect": primary, "secondary_suspects": [{"confidence": "very_high"}], "warnings": []})
 
     def test_report_secondary_and_warnings_validation(self):
         primary = {"kind": ALLOWED[0], "confidence": "high", "evidence": []}
