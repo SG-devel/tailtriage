@@ -150,6 +150,75 @@ Normal CI does not publish durable diagnostic scorecards.
     def test_cli_not_presented_as_library_analyzer_api_contract(self) -> None:
         validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
+    def test_analyzer_and_cli_readme_split_contract_positive(self) -> None:
+        analyzer_text = """
+# tailtriage-analyzer
+in-process analysis for completed Run snapshots with typed Report output.
+Use render_text(report) and serde_json for output serialization.
+Start with AnalyzeOptions::default().
+This is not live streaming analysis.
+For command-line artifact analysis/loading, use tailtriage-cli.
+"""
+        cli_text = """
+# tailtriage-cli
+Loads saved run artifacts with schema validation.
+Loader rule: requests must be non-empty.
+Uses tailtriage-analyzer.
+Provides command-line text and json output.
+Rust in-process users should use tailtriage-analyzer.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            analyzer_path = repo_root / "tailtriage-analyzer" / "README.md"
+            cli_path = repo_root / "tailtriage-cli" / "README.md"
+            analyzer_path.parent.mkdir(parents=True, exist_ok=True)
+            cli_path.parent.mkdir(parents=True, exist_ok=True)
+            analyzer_path.write_text(analyzer_text, encoding="utf-8")
+            cli_path.write_text(cli_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                validate_docs_contracts.validate_analyzer_readme_contract()
+                validate_docs_contracts.validate_cli_readme_contract()
+
+    def test_capture_readme_contract_rejects_stale_cli_only_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "tailtriage" / "README.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "Analysis is still done by `tailtriage-cli` and this crate captures data.",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"stale CLI-only analyzer wording"):
+                validate_docs_contracts.validate_capture_readmes_analyzer_cli_split_contract(
+                    paths=(path,)
+                )
+
+    def test_capture_readme_contract_requires_analyzer_and_cli_mentions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "tailtriage-core" / "README.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("Use tailtriage-cli to analyze saved artifacts.", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"must mention both tailtriage-analyzer and tailtriage-cli"):
+                validate_docs_contracts.validate_capture_readmes_analyzer_cli_split_contract(
+                    paths=(path,)
+                )
+
+    def test_cli_readme_contract_accepts_cli_invokes_analyzer_wording(self) -> None:
+        cli_text = """
+# tailtriage-cli
+The CLI loads saved run artifacts, validates schema, and enforces non-empty requests.
+It invokes tailtriage-analyzer for analysis and supports command-line text/json output.
+Rust in-process usage should use tailtriage-analyzer directly.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            cli_path = repo_root / "tailtriage-cli" / "README.md"
+            cli_path.parent.mkdir(parents=True, exist_ok=True)
+            cli_path.write_text(cli_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                validate_docs_contracts.validate_cli_readme_contract()
+
     def test_architecture_contract(self) -> None:
         validate_docs_contracts.validate_architecture_contract()
 

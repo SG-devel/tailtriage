@@ -77,6 +77,13 @@ README_DOC_MAP_REQUIRED_LINKS = (
     "(docs/architecture.md)",
     "(docs/README.md)",
 )
+CAPTURE_INTEGRATION_README_PATHS = (
+    REPO_ROOT / "tailtriage" / "README.md",
+    REPO_ROOT / "tailtriage-core" / "README.md",
+    REPO_ROOT / "tailtriage-controller" / "README.md",
+    REPO_ROOT / "tailtriage-tokio" / "README.md",
+    REPO_ROOT / "tailtriage-axum" / "README.md",
+)
 
 DOCS_DISALLOWED_HISTORY_PATTERNS = (
     r"issue\s*#\d+",
@@ -570,6 +577,113 @@ def validate_cli_not_presented_as_library_analyzer_api() -> None:
     if hits:
         raise ValueError("CLI/library analyzer contract violation:\n" + "\n".join(hits))
 
+
+def validate_analyzer_readme_contract() -> None:
+    path = REPO_ROOT / "tailtriage-analyzer" / "README.md"
+    text = path.read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    required_substrings = (
+        "in-process",
+        "completed",
+        "run",
+        "typed",
+        "report",
+        "render_text",
+        "serde_json",
+        "analyzeoptions::default()",
+        "tailtriage-cli",
+    )
+    missing = [token for token in required_substrings if token not in lowered]
+    if missing:
+        raise ValueError(
+            "tailtriage-analyzer README missing required analyzer contract tokens: "
+            f"{missing}"
+        )
+
+    if "not streaming" not in lowered and "not live streaming" not in lowered:
+        raise ValueError(
+            "tailtriage-analyzer README must state in-process analysis is not streaming/live streaming"
+        )
+
+    has_cli_artifact_guidance = (
+        "tailtriage-cli" in lowered
+        and "artifact" in lowered
+        and (
+            "command-line" in lowered
+            or "command line" in lowered
+            or "load" in lowered
+            or "loading" in lowered
+        )
+    )
+    if not has_cli_artifact_guidance:
+        raise ValueError(
+            "tailtriage-analyzer README must point to tailtriage-cli for command-line artifact analysis"
+        )
+
+
+def validate_cli_readme_contract() -> None:
+    path = REPO_ROOT / "tailtriage-cli" / "README.md"
+    text = path.read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    required_substrings = (
+        "artifact",
+        "schema",
+        "requests",
+        "tailtriage-analyzer",
+        "command-line",
+        "text",
+        "json",
+    )
+    missing = [token for token in required_substrings if token not in lowered]
+    if missing:
+        raise ValueError(f"tailtriage-cli README missing required CLI contract tokens: {missing}")
+
+    has_non_empty_requests_rule = (
+        "requests" in lowered
+        and (
+            "non-empty" in lowered
+            or "nonempty" in lowered
+            or ("empty" in lowered and any(token in lowered for token in ("reject", "error", "invalid", "fail")))
+        )
+    )
+    if not has_non_empty_requests_rule:
+        raise ValueError("tailtriage-cli README must document non-empty requests loader rule")
+
+    if "in-process" not in lowered or "tailtriage-analyzer" not in lowered:
+        raise ValueError(
+            "tailtriage-cli README must point Rust in-process users to tailtriage-analyzer"
+        )
+
+
+def validate_capture_readmes_analyzer_cli_split_contract(
+    *, paths: tuple[Path, ...] = CAPTURE_INTEGRATION_README_PATHS
+) -> None:
+    stale_patterns = (
+        r"analysis\s+is\s+still\s+done\s+by\s+`tailtriage-cli`",
+        r"analysis\s+happens\s+in\s+`tailtriage-cli`",
+        r"artifact\s+produced\s+here\s+is\s+analyzed\s+by\s+`tailtriage-cli`",
+        r"writes\s+artifacts,\s*`tailtriage-cli`\s+analyzes\s+them",
+        r"analysis\s+or\s+report\s+generation.{0,80}`tailtriage-cli`",
+    )
+
+    failures: list[str] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        lowered = text.lower()
+        rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
+
+        if "tailtriage-analyzer" not in lowered or "tailtriage-cli" not in lowered:
+            failures.append(f"{rel} must mention both tailtriage-analyzer and tailtriage-cli")
+
+        for pattern in stale_patterns:
+            if re.search(pattern, lowered, flags=re.IGNORECASE):
+                failures.append(f"{rel} contains stale CLI-only analyzer wording matching: {pattern}")
+
+    if failures:
+        raise ValueError("capture/integration README analyzer split contract violation:\n" + "\n".join(failures))
+
 def _active_yaml_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
@@ -760,6 +874,9 @@ def main() -> int:
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_cli_not_presented_as_library_analyzer_api()
+    validate_analyzer_readme_contract()
+    validate_cli_readme_contract()
+    validate_capture_readmes_analyzer_cli_split_contract()
     validate_diagnostic_benchmark_ci_contract()
     validate_validation_docs_ci_contract()
     validate_architecture_contract()
