@@ -49,10 +49,8 @@ See root docs for interpretation guidance:
 
 ## Migration note
 
-```rust
-// Old pre-0.1.x API, no longer the supported library analyzer path:
-use tailtriage_cli::analyze::{analyze_run, render_text};
+Use analyzer APIs from `tailtriage-analyzer`:
 
-// New:
+```rust
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 ```
