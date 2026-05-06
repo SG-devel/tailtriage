@@ -11,6 +11,9 @@
     "next_checks": [
       "Rerun with enough requests to stabilize tail estimates.",
       "Enable queue and stage instrumentation during the rerun."
+    ],
+    "confidence_notes": [
+      "Low request count limits confidence and evidence quality."
     ]
   },
   "secondary_suspects": [
@@ -22,7 +25,18 @@
       ],
       "next_checks": [
         "Collect queue wait and depth over a larger workload window."
+      ],
+      "confidence_notes": [
+        "Low request count limits confidence and evidence quality."
       ]
     }
-  ]
+  ],
+  "evidence_quality": {
+    "quality": "weak",
+    "requests": "partial",
+    "queues": "missing",
+    "stages": "missing",
+    "runtime_snapshots": "missing",
+    "inflight_snapshots": "missing"
+  }
 }

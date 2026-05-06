@@ -22,6 +22,13 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - `must_include_next_checks`: next-check substrings that must appear when required by a case. Selected adversarial cases use this to validate relevant follow-up guidance.
 - `expected_warnings`: warning substrings that must appear.
 - `allowed_warnings`: warning substrings that may appear in addition to expected warnings (tolerated extras only).
+- `expected_top_level_warnings` (optional): additional required top-level warning substrings; can be used as a stricter supplement to `expected_warnings` for selected cases.
+- `expected_evidence_quality` (optional): expected evidence quality bucket (`strong|partial|weak`) from `report.evidence_quality.quality`.
+- `expected_signal_statuses` (optional): expected signal-family status map (`requests|queues|stages|runtime_snapshots|inflight_snapshots` -> `present|missing|partial|truncated`).
+- `must_include_confidence_notes` (optional): confidence-note substrings that must appear across primary + secondary suspects.
+- `expected_route_breakdowns` (optional): route-breakdown presence check (`empty|non_empty`).
+- `expected_temporal_segments` (optional): temporal-segment presence check (`empty|non_empty`).
+- `must_include_route_warning` / `must_include_temporal_warning` (optional): substring checks across route-breakdown warnings and temporal-segment warnings.
 - `notes`: workload-intent note explaining why labels are set.
 - `tags`: non-empty string tags for grouping/filtering.
 
@@ -32,6 +39,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
   - `required_top2` = required visibility of true causes.
   - `acceptable_primary` = tolerated primary classification for ambiguity handling/high-confidence-wrong interpretation.
 - Do not use wildcard warning allowlists (`"*"` is invalid).
+- Optional report-surface checks are case-scoped. Do not require every corpus case to assert every optional field.
 - Keep synthetic fixtures small, hand-readable, and explicitly scoped to gaps.
 - Use `max_primary_confidence` for humility checks in sparse-sample, missing-instrumentation, truncation, noise-only, or close mixed-signal cases.
 - Confidence ceilings validate conservative triage behavior, not truth probabilities.

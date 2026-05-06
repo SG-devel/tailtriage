@@ -39,6 +39,7 @@ The deterministic benchmark validates:
 - required top-2 visibility (`required_top2` appears in primary or first secondary)
 - warning expectations (`expected_warnings` required; unexpected warnings rejected unless explicitly allowed)
 - required evidence substrings
+- optional expanded report-surface checks on selected cases (evidence-quality bucket, signal-family statuses, suspect confidence-note substrings, route-breakdown/temporal-segment presence, and route/temporal warning substrings)
 - required next-check substrings when required by a case
 - case-level confidence ceilings (`max_primary_confidence`) for sparse/missing/truncated/mixed evidence humility checks
 

@@ -39,6 +39,16 @@ def valid_report(*, primary_kind="application_queue_saturation", confidence="hig
         "primary_suspect": primary,
         "secondary_suspects": secondary or [],
         "warnings": warnings or [],
+        "evidence_quality": {
+            "quality": "strong",
+            "requests": "present",
+            "queues": "present",
+            "stages": "present",
+            "runtime_snapshots": "present",
+            "inflight_snapshots": "present",
+        },
+        "route_breakdowns": [],
+        "temporal_segments": [],
     }
 
 
@@ -140,6 +150,18 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=1)))
+    def test_manifest_optional_field_validation(self):
+        db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="strong")))
+        with self.assertRaisesRegex(ValueError, "expected_evidence_quality"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="excellent")))
+        with self.assertRaisesRegex(ValueError, "unknown signal family"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"bad_family": "present"})))
+        with self.assertRaisesRegex(ValueError, "unknown signal status"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"queues": "mostly"})))
+        with self.assertRaisesRegex(ValueError, "must_include_confidence_notes"):
+            db.validate_manifest(self.make_manifest(self.make_case(must_include_confidence_notes="note")))
+        with self.assertRaisesRegex(ValueError, "must be one of empty/non_empty"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_route_breakdowns="sometimes")))
 
     # Report validation tests
     def test_report_missing_primary_fails(self):
@@ -263,8 +285,48 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         metrics, _ = self.run_single_case(case, valid_report(primary_kind="blocking_pool_pressure", warnings=[]))
         self.assertEqual(len(metrics["failed_cases"]), 1)
         row = metrics["failed_cases"][0]
-        for field in ["id", "top1_ok", "top2_ok", "evidence_ok", "next_check_ok", "confidence_ceiling_ok", "max_primary_confidence", "primary_confidence", "unexpected_warnings", "missing_expected_warnings", "top1_required"]:
+        for field in ["id", "top1_ok", "top2_ok", "evidence_ok", "next_check_ok", "confidence_ceiling_ok", "max_primary_confidence", "primary_confidence", "unexpected_warnings", "missing_expected_warnings", "missing_expected_top_level_warnings", "evidence_quality_ok", "signal_status_ok", "confidence_note_ok", "route_breakdown_ok", "route_warning_ok", "temporal_segment_ok", "temporal_warning_ok", "top1_required"]:
             self.assertIn(field, row)
+    def test_optional_checks_pass(self):
+        case = self.make_case(
+            expected_warnings=["large p95 shift"],
+            expected_evidence_quality="strong",
+            expected_signal_statuses={"queues": "present", "runtime_snapshots": "present"},
+            must_include_confidence_notes=["partial runtime"],
+            expected_route_breakdowns="non_empty",
+            expected_temporal_segments="non_empty",
+            must_include_route_warning=["not route-attributed"],
+            must_include_temporal_warning=["overlap"],
+            expected_top_level_warnings=["large p95 shift"],
+        )
+        report = valid_report(warnings=["large p95 shift"])
+        report["primary_suspect"]["confidence_notes"] = ["partial runtime fields observed"]
+        report["route_breakdowns"] = [{"warnings": ["Runtime/in-flight metrics are not route-attributed."]}]
+        report["temporal_segments"] = [{"warnings": ["Segment windows overlap under concurrent requests."]}]
+        metrics, failures = self.run_single_case(case, report)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["evidence_quality_check_passed_cases"], 1)
+    def test_optional_checks_fail_with_useful_fields(self):
+        case = self.make_case(
+            expected_warnings=[],
+            expected_evidence_quality="weak",
+            expected_signal_statuses={"queues": "missing"},
+            must_include_confidence_notes=["low request count"],
+            expected_route_breakdowns="non_empty",
+            expected_temporal_segments="non_empty",
+            must_include_route_warning=["not route-attributed"],
+            must_include_temporal_warning=["overlap"],
+            expected_top_level_warnings=["large p95 shift"],
+        )
+        metrics, failures = self.run_single_case(case, valid_report())
+        self.assertTrue(failures)
+        row = metrics["failed_cases"][0]
+        self.assertFalse(row["evidence_quality_ok"])
+        self.assertFalse(row["signal_status_ok"])
+        self.assertFalse(row["confidence_note_ok"])
+        self.assertFalse(row["route_breakdown_ok"])
+        self.assertFalse(row["temporal_segment_ok"])
+        self.assertTrue(row["missing_expected_top_level_warnings"])
     def test_confidence_ceiling_semantics_and_metrics(self):
         base_case = self.make_case(max_primary_confidence="medium")
         metrics, failures = self.run_single_case(base_case, valid_report(confidence="medium"))
@@ -314,8 +376,11 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
                 "per_ground_truth_counts", "confusion_matrix", "confidence_bucket_accuracy",
                 "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases",
                 "next_check_presence_rate", "next_check_pass_rate", "confidence_ceiling_cases",
-                "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "unexpected_warning_count",
-                "missing_expected_warning_count", "failed_cases",
+                "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "evidence_quality_check_cases",
+                "evidence_quality_check_passed_cases", "signal_status_check_cases", "signal_status_check_passed_cases",
+                "confidence_note_check_cases", "confidence_note_check_passed_cases", "route_breakdown_check_cases",
+                "route_breakdown_check_passed_cases", "temporal_segment_check_cases", "temporal_segment_check_passed_cases",
+                "unexpected_warning_count", "missing_expected_warning_count", "failed_cases",
             }
             self.assertEqual(set(metrics.keys()), expected_keys)
 

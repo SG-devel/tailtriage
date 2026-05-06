@@ -26,6 +26,7 @@ The scorecard includes confidence-bucket accuracy summaries (low/medium/high buc
 
 ## Evidence validation
 `must_include_evidence` substrings must appear in primary or secondary evidence.
+Selected cases can also validate expanded report surface fields (`expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, and warning substrings inside route/temporal sections). These checks are optional and fixture-scoped; not every case uses every field.
 
 ## Warning validation
 - `expected_warnings` substrings are required.

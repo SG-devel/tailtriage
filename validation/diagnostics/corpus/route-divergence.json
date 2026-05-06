@@ -1,0 +1,36 @@
+{
+  "warnings": [],
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "confidence": "medium",
+    "evidence": [
+      "Queue wait is elevated on /checkout route."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "downstream_stage_dominates",
+      "confidence": "low",
+      "evidence": [
+        "Stage contributes on /status route."
+      ]
+    }
+  ],
+  "evidence_quality": {
+    "quality": "partial",
+    "requests": "present",
+    "queues": "present",
+    "stages": "present",
+    "runtime_snapshots": "missing",
+    "inflight_snapshots": "missing"
+  },
+  "route_breakdowns": [
+    {
+      "route": "/checkout",
+      "warnings": [
+        "Runtime/in-flight metrics are not route-attributed; treat route-level executor/blocking attribution as directional."
+      ]
+    }
+  ],
+  "temporal_segments": []
+}
