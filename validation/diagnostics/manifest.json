@@ -27,7 +27,21 @@
       "acceptable_primary": [
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "must_include_next_checks": [],
+      "expected_evidence_quality": "strong",
+      "expected_signal_statuses": {
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing"
+      },
+      "expected_route_breakdowns": "empty",
+      "expected_temporal_segments": "non_empty",
+      "expected_top_level_warnings": [
+        "large p95 latency shift"
+      ],
+      "must_include_temporal_warning": [
+        "overlap under concurrent requests"
+      ]
     },
     {
       "id": "queue_after",
@@ -538,7 +552,14 @@
       "acceptable_primary": [
         "blocking_pool_pressure"
       ],
-      "must_include_next_checks": []
+      "must_include_next_checks": [],
+      "expected_evidence_quality": "partial",
+      "expected_signal_statuses": {
+        "runtime_snapshots": "partial"
+      },
+      "must_include_confidence_notes": [
+        "Runtime snapshots are partial"
+      ]
     },
     {
       "id": "executor_sample",
@@ -754,7 +775,11 @@
         "insufficient_evidence"
       ],
       "max_primary_confidence": "low",
-      "notes": "Synthetic adversarial case for sparse sample humility: too few requests should force insufficient-evidence with low confidence."
+      "notes": "Synthetic adversarial case for sparse sample humility: too few requests should force insufficient-evidence with low confidence.",
+      "expected_evidence_quality": "weak",
+      "must_include_confidence_notes": [
+        "Low request count"
+      ]
     },
     {
       "id": "adversarial_no_queue_events",
@@ -1048,6 +1073,34 @@
       ],
       "max_primary_confidence": "low",
       "notes": "Synthetic adversarial high-latency-without-explanatory-signals case: latency alone should not force a specific high-confidence suspect."
+    },
+    {
+      "id": "synthetic_route_divergence",
+      "artifact": "corpus/route-divergence.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "downstream_stage_dominates",
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "synthetic",
+        "route"
+      ],
+      "must_include_evidence": [
+        "Route breakdown"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "notes": "Synthetic route divergence case for route breakdown contract.",
+      "expected_route_breakdowns": "non_empty",
+      "must_include_route_warning": [
+        "not route-attributed"
+      ]
     }
   ]
 }

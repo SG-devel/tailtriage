@@ -22,6 +22,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - `must_include_next_checks`: next-check substrings that must appear when required by a case. Selected adversarial cases use this to validate relevant follow-up guidance.
 - `expected_warnings`: warning substrings that must appear.
 - `allowed_warnings`: warning substrings that may appear in addition to expected warnings (tolerated extras only).
+- Optional analyzer-surface checks (only on selected cases): `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, `expected_top_level_warnings`.
 - `notes`: workload-intent note explaining why labels are set.
 - `tags`: non-empty string tags for grouping/filtering.
 
@@ -31,7 +32,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - `required_top2` and `acceptable_primary` are different:
   - `required_top2` = required visibility of true causes.
   - `acceptable_primary` = tolerated primary classification for ambiguity handling/high-confidence-wrong interpretation.
-- Do not use wildcard warning allowlists (`"*"` is invalid).
+- Do not use wildcard warning allowlists (`"*"` is invalid), including optional warning-substring fields.
 - Keep synthetic fixtures small, hand-readable, and explicitly scoped to gaps.
 - Use `max_primary_confidence` for humility checks in sparse-sample, missing-instrumentation, truncation, noise-only, or close mixed-signal cases.
 - Confidence ceilings validate conservative triage behavior, not truth probabilities.

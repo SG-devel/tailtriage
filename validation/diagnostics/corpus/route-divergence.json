@@ -1,0 +1,41 @@
+{
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Route breakdown shows /search p95 materially worse than /health.",
+      "Route breakdown indicates stage latency concentration on /search."
+    ],
+    "next_checks": [
+      "Compare slow route stage timing with downstream dependency latency."
+    ],
+    "confidence_notes": [
+      "Route-level runtime and in-flight snapshots are not route-attributed in this capture."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "confidence": "low",
+      "evidence": ["Queue signals are not dominant across routes."]
+    }
+  ],
+  "warnings": [],
+  "evidence_quality": {
+    "quality": "partial",
+    "requests": "present",
+    "queues": "present",
+    "stages": "present",
+    "runtime_snapshots": "partial",
+    "inflight_snapshots": "partial"
+  },
+  "route_breakdowns": [
+    {
+      "route": "/search",
+      "warnings": [
+        "Runtime and in-flight snapshots are not route-attributed; route conclusions rely on request/queue/stage signals."
+      ]
+    }
+  ],
+  "temporal_segments": []
+}

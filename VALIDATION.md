@@ -42,7 +42,7 @@ The deterministic benchmark validates:
 - required next-check substrings when required by a case
 - case-level confidence ceilings (`max_primary_confidence`) for sparse/missing/truncated/mixed evidence humility checks
 
-Normal CI enforces this deterministic benchmark directly against `validation/diagnostics/manifest.json` and referenced fixtures. This is a correctness gate for committed corpus/schema drift, not a durable scorecard publication path.
+Normal CI enforces this deterministic benchmark directly against `validation/diagnostics/manifest.json` and referenced fixtures. The manifest includes optional checks for expanded analyzer report surfaces on representative cases; unset optional fields do not affect other cases. This is a correctness gate for committed corpus/schema drift, not a durable scorecard publication path.
 
 The corpus includes deterministic adversarial validation that checks sparse, missing, truncated, or mixed evidence is warned about and does not produce overconfident unsupported classifications.
 

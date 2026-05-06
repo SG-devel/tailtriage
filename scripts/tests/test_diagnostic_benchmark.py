@@ -26,7 +26,7 @@ BASE_CASE = {
 }
 
 
-def valid_report(*, primary_kind="application_queue_saturation", confidence="high", score=1.0, evidence=None, next_checks=None, secondary=None, warnings=None):
+def valid_report(*, primary_kind="application_queue_saturation", confidence="high", score=1.0, evidence=None, next_checks=None, secondary=None, warnings=None, confidence_notes=None, evidence_quality=None, route_breakdowns=None, temporal_segments=None):
     primary = {
         "kind": primary_kind,
         "confidence": confidence,
@@ -35,10 +35,15 @@ def valid_report(*, primary_kind="application_queue_saturation", confidence="hig
     }
     if next_checks is not None:
         primary["next_checks"] = next_checks
+    if confidence_notes is not None:
+        primary["confidence_notes"] = confidence_notes
     return {
         "primary_suspect": primary,
         "secondary_suspects": secondary or [],
         "warnings": warnings or [],
+        "evidence_quality": evidence_quality,
+        "route_breakdowns": route_breakdowns or [],
+        "temporal_segments": temporal_segments or [],
     }
 
 
@@ -285,6 +290,57 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertEqual(row["max_primary_confidence"], "medium")
         self.assertEqual(row["primary_confidence"], "high")
 
+
+    def test_optional_manifest_schema_validation(self):
+        db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="strong")))
+        with self.assertRaisesRegex(ValueError, "expected_evidence_quality"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="bad")))
+        with self.assertRaisesRegex(ValueError, "expected_signal_statuses has unknown signal family"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"bad":"present"})))
+        with self.assertRaisesRegex(ValueError, "expected_signal_statuses has unknown status"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"queues":"bad"})))
+        with self.assertRaisesRegex(ValueError, "must_include_confidence_notes must be a list"):
+            db.validate_manifest(self.make_manifest(self.make_case(must_include_confidence_notes="bad")))
+
+    def test_optional_checks_pass_and_fail(self):
+        case = self.make_case(
+            expected_evidence_quality="partial",
+            expected_signal_statuses={"runtime_snapshots": "partial"},
+            must_include_confidence_notes=["partial"],
+            expected_route_breakdowns="non_empty",
+            must_include_route_warning=["not route-attributed"],
+            expected_temporal_segments="non_empty",
+            must_include_temporal_warning=["overlap"],
+            expected_top_level_warnings=["p95 shift"],
+            expected_warnings=["p95 shift"],
+        )
+        report = valid_report(
+            confidence_notes=["Runtime snapshots are partial"],
+            warnings=["large p95 shift detected"],
+            evidence_quality={"quality":"partial","runtime_snapshots":"partial"},
+            route_breakdowns=[{"warnings":["runtime signal is not route-attributed"]}],
+            temporal_segments=[{"warnings":["windows overlap"]}],
+        )
+        metrics, failures = self.run_single_case(case, report)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["evidence_quality_check_cases"], 1)
+
+        bad = valid_report(evidence_quality={"quality":"weak","runtime_snapshots":"missing"})
+        metrics, failures = self.run_single_case(case, bad)
+        self.assertTrue(failures)
+        row = metrics["failed_cases"][0]
+        self.assertFalse(row["evidence_quality_ok"])
+        self.assertFalse(row["signal_statuses_ok"])
+        self.assertFalse(row["confidence_notes_ok"])
+        self.assertFalse(row["route_breakdowns_ok"])
+        self.assertFalse(row["temporal_segments_ok"])
+
+    def test_existing_cases_without_optional_fields_still_pass(self):
+        metrics, failures = self.run_single_case(self.make_case(), valid_report())
+        self.assertFalse(failures)
+        self.assertEqual(metrics["evidence_quality_check_cases"], 0)
+        self.assertEqual(metrics["signal_status_check_cases"], 0)
+
     # Threshold and output/path tests
     def test_threshold_failures(self):
         case = self.make_case()
@@ -315,7 +371,7 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
                 "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases",
                 "next_check_presence_rate", "next_check_pass_rate", "confidence_ceiling_cases",
                 "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "unexpected_warning_count",
-                "missing_expected_warning_count", "failed_cases",
+                "missing_expected_warning_count", "evidence_quality_check_cases", "evidence_quality_check_passed_cases", "signal_status_check_cases", "signal_status_check_passed_cases", "confidence_note_check_cases", "confidence_note_check_passed_cases", "route_breakdown_check_cases", "route_breakdown_check_passed_cases", "temporal_segment_check_cases", "temporal_segment_check_passed_cases", "failed_cases",
             }
             self.assertEqual(set(metrics.keys()), expected_keys)
 
