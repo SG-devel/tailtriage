@@ -11,8 +11,8 @@ ALLOWED_GROUND_TRUTH = {
     "downstream_stage_dominates",
     "insufficient_evidence",
 }
-CONF_HIGH = {"high", "very_high"}
-CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2, "very_high": 3}
+CONF_HIGH = {"high"}
+CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
 def load_json(path):
@@ -76,17 +76,17 @@ def validate_manifest(manifest):
             if not isinstance(ceiling, str):
                 raise ValueError(f"max_primary_confidence must be a string for {cid}")
             if ceiling not in CONFIDENCE_ORDER:
-                raise ValueError(f"max_primary_confidence must be one of low/medium/high/very_high for {cid}")
+                raise ValueError(f"max_primary_confidence must be one of low/medium/high for {cid}")
 
 
 def confidence_bucket(conf):
-    if conf in ("high", "very_high"):
+    if conf == "high":
         return "high"
     if conf == "medium":
         return "medium"
     if conf == "low":
         return "low"
-    raise ValueError("report.primary_suspect.confidence must be one of low/medium/high/very_high")
+    raise ValueError("report.primary_suspect.confidence must be one of low/medium/high")
 
 
 def extract(report):
@@ -121,8 +121,8 @@ def extract(report):
         if "kind" in s and s["kind"] not in ALLOWED_GROUND_TRUTH:
             raise ValueError("report.secondary_suspects.kind must be an allowed diagnosis kind when present")
         if "confidence" in s:
-            if not isinstance(s["confidence"], str) or s["confidence"] not in {"low", "medium", "high", "very_high"}:
-                raise ValueError("report.secondary_suspects.confidence must be one of low/medium/high/very_high when present")
+            if not isinstance(s["confidence"], str) or s["confidence"] not in {"low", "medium", "high"}:
+                raise ValueError("report.secondary_suspects.confidence must be one of low/medium/high when present")
         if "score" in s and not isinstance(s["score"], (int, float)):
             raise ValueError("report.secondary_suspects.score must be numeric when present")
         if "evidence" in s and (not isinstance(s["evidence"], list) or not all(isinstance(e, str) for e in s["evidence"])):

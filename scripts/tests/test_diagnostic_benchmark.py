@@ -132,7 +132,7 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(notes="")))
     def test_manifest_max_primary_confidence_rules(self):
         db.validate_manifest(self.make_manifest(self.make_case()))
-        for allowed in ["low", "medium", "high", "very_high"]:
+        for allowed in ["low", "medium", "high"]:
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=allowed)))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be one of"):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
@@ -140,6 +140,12 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=1)))
 
     # Report validation tests
+
+
+    def test_manifest_rejects_very_high_max_primary_confidence(self):
+        with self.assertRaisesRegex(ValueError, "low/medium/high"):
+            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="very_high")))
+
     def test_report_missing_primary_fails(self):
         with self.assertRaisesRegex(ValueError, "primary_suspect"):
             db.extract({"secondary_suspects": [], "warnings": []})
@@ -170,6 +176,17 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.extract({"primary_suspect": primary, "secondary_suspects": [{"next_checks": "bad"}], "warnings": []})
         with self.assertRaisesRegex(ValueError, "warnings"):
             db.extract({"primary_suspect": primary, "secondary_suspects": [], "warnings": [1]})
+
+
+
+    def test_primary_confidence_rejects_very_high(self):
+        with self.assertRaisesRegex(ValueError, "low/medium/high"):
+            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "very_high", "evidence": []}, "secondary_suspects": [], "warnings": []})
+
+    def test_secondary_confidence_rejects_very_high(self):
+        primary = {"kind": ALLOWED[0], "confidence": "high", "evidence": []}
+        with self.assertRaisesRegex(ValueError, "low/medium/high"):
+            db.extract({"primary_suspect": primary, "secondary_suspects": [{"confidence": "very_high"}], "warnings": []})
 
     def test_analysis_report_requires_primary_score_but_synthetic_may_omit(self):
         case = self.make_case(artifact_type="analysis_report")
