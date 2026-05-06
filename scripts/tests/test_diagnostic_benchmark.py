@@ -1,8 +1,11 @@
 import copy
+import io
 import json
 import os
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from scripts import diagnostic_benchmark as db
@@ -433,6 +436,38 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
                 "temporal_segment_check_cases", "temporal_segment_check_passed_cases", "failed_cases",
             }
             self.assertEqual(set(metrics.keys()), expected_keys)
+
+    def test_main_prints_optional_check_summary_lines(self):
+        case = self.make_case(
+            expected_evidence_quality="strong",
+            expected_signal_statuses={"queues": "present"},
+            must_include_confidence_notes=["queue confidence note"],
+            expected_route_breakdowns="non_empty",
+            expected_temporal_segments="non_empty",
+        )
+        report = valid_report(
+            confidence_notes=["queue confidence note"],
+            evidence_quality={"quality": "strong", "queues": "present"},
+            route_breakdowns=[{"warnings": ["route warning"]}],
+            temporal_segments=[{"warnings": ["temporal warning"]}],
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self.write_json(td, case["artifact"], report)
+            manifest = self.write_json(td, "manifest.json", self.make_manifest(case))
+            old_argv = sys.argv
+            buf = io.StringIO()
+            try:
+                sys.argv = ["diagnostic_benchmark.py", "--manifest", str(manifest), "--min-top1", "0.0", "--min-top2", "0.0", "--max-high-confidence-wrong", "99"]
+                with redirect_stdout(buf):
+                    db.main()
+            finally:
+                sys.argv = old_argv
+            out = buf.getvalue()
+            self.assertIn("evidence_quality_checks=1/1", out)
+            self.assertIn("signal_status_checks=1/1", out)
+            self.assertIn("confidence_note_checks=1/1", out)
+            self.assertIn("route_breakdown_checks=1/1", out)
+            self.assertIn("temporal_segment_checks=1/1", out)
 
 
 if __name__ == "__main__":
