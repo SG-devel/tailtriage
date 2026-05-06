@@ -1,0 +1,30 @@
+[package]
+name = "tailtriage-analyzer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Analyzer library for tailtriage triage report generation"
+documentation = "https://docs.rs/tailtriage-analyzer"
+readme = "README.md"
+keywords = ["tokio", "latency", "diagnostics", "triage", "analysis"]
+categories = ["development-tools::profiling", "development-tools::debugging"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "src/**",
+]
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+tailtriage-core.workspace = true
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json = "1.0.145"

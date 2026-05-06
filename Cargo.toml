@@ -6,6 +6,7 @@ members = [
   "tailtriage-tokio",
   "tailtriage-axum",
   "tailtriage-cli",
+  "tailtriage-analyzer",
   "demos/demo_support",
   "demos/queue_service",
   "demos/blocking_service",
@@ -41,4 +42,5 @@ tailtriage-core = { version = "0.1.2", path = "tailtriage-core" }
 tailtriage-controller = { version = "0.1.2", path = "tailtriage-controller" }
 tailtriage-tokio = { version = "0.1.2", path = "tailtriage-tokio" }
 tailtriage-axum = { version = "0.1.2", path = "tailtriage-axum" }
+tailtriage-analyzer = { version = "0.1.2", path = "tailtriage-analyzer" }
 demo-support = { version = "0.1.2", path = "demos/demo_support" }

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use serde_json::Value;
-use tailtriage_cli::analyze::analyze_run;
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_core::Run;
 
 fn load_fixture(name: &str) -> Run {
@@ -18,7 +18,7 @@ fn json_path_exists<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
 #[test]
 fn documented_report_keys_exist_in_json_output() {
     let run = load_fixture("queue_saturation.json");
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     let json = serde_json::to_value(&report).expect("report should serialize");
 
     // Keep this contract aligned with the keys called out in README's JSON-output section.
