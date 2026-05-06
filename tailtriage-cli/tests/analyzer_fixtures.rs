@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use tailtriage_cli::analyze::{analyze_run, render_text, DiagnosisKind};
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions, DiagnosisKind};
 use tailtriage_core::Run;
 
 fn load_fixture(name: &str) -> Run {
@@ -36,7 +36,7 @@ fn fixture_categories_produce_expected_primary_suspect() {
 
     for (fixture, expected) in cases {
         let run = load_fixture(fixture);
-        let report = analyze_run(&run);
+        let report = analyze_run(&run, AnalyzeOptions::default());
         assert_eq!(report.primary_suspect.kind, expected, "fixture={fixture}");
         assert!(
             !report.primary_suspect.evidence.is_empty(),
@@ -52,7 +52,7 @@ fn fixture_categories_produce_expected_primary_suspect() {
 #[test]
 fn fixture_reports_render_to_text_and_json() {
     let run = load_fixture("queue_saturation.json");
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
 
     let text = render_text(&report);
     assert!(text.contains("Primary suspect:"));
@@ -71,12 +71,12 @@ fn fixture_reports_render_to_text_and_json() {
 #[test]
 fn fixture_reports_include_expected_request_time_shares() {
     let queue_run = load_fixture("queue_saturation.json");
-    let queue_report = analyze_run(&queue_run);
+    let queue_report = analyze_run(&queue_run, AnalyzeOptions::default());
     assert_eq!(queue_report.p95_queue_share_permille, Some(666));
     assert_eq!(queue_report.p95_service_share_permille, Some(500));
 
     let downstream_run = load_fixture("downstream_stage.json");
-    let downstream_report = analyze_run(&downstream_run);
+    let downstream_report = analyze_run(&downstream_run, AnalyzeOptions::default());
     assert_eq!(downstream_report.p95_queue_share_permille, Some(0));
     assert_eq!(downstream_report.p95_service_share_permille, Some(1000));
 }
@@ -84,7 +84,7 @@ fn fixture_reports_include_expected_request_time_shares() {
 #[test]
 fn queue_fixture_includes_inflight_trend_evidence() {
     let run = load_fixture("queue_saturation.json");
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
 
     assert!(report.inflight_trend.is_some());
     assert!(

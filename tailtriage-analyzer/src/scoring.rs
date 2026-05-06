@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use tailtriage_core::Run;
 
-use crate::analyze::{
+use crate::{
     percentile, request_time_shares, runtime_metric_series, DiagnosisKind, InflightTrend, Suspect,
     QUEUE_SHARE_TRIGGER_PERMILLE,
 };

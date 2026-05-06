@@ -113,7 +113,7 @@ pub struct Suspect {
 }
 
 impl Suspect {
-    pub(super) fn new(
+    fn new(
         kind: DiagnosisKind,
         score: u8,
         evidence: Vec<String>,
@@ -239,6 +239,31 @@ pub struct RouteBreakdown {
     pub warnings: Vec<String>,
 }
 
+/// Analyzer options reserved for future expansion.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default)]
+pub struct AnalyzeOptions {}
+
+/// Reusable analyzer configured with [`AnalyzeOptions`].
+#[derive(Debug, Clone, Default)]
+pub struct Analyzer {
+    options: AnalyzeOptions,
+}
+
+impl Analyzer {
+    /// Creates a new analyzer with the provided options.
+    #[must_use]
+    pub const fn new(options: AnalyzeOptions) -> Self {
+        Self { options }
+    }
+
+    /// Analyzes one captured run and returns a triage report.
+    #[must_use]
+    pub fn analyze_run(&self, run: &Run) -> Report {
+        analyze_run_with_options(run, &self.options)
+    }
+}
+
 /// Analyzes one run artifact with rule-based heuristics and returns a triage report.
 ///
 /// The analysis ranks evidence-backed suspects and next checks; it does not
@@ -249,7 +274,7 @@ pub struct RouteBreakdown {
 /// Library API example (this does not use the CLI file-loader contract):
 ///
 /// ```
-/// use tailtriage_cli::analyze::analyze_run;
+/// use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 /// use tailtriage_core::{
 ///     CaptureMode, EffectiveCoreConfig, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION,
 /// };
@@ -285,11 +310,15 @@ pub struct RouteBreakdown {
 /// };
 ///
 /// // `analyze_run(&Run)` can operate on an in-memory run with zero requests.
-/// let report = analyze_run(&run);
+/// let report = analyze_run(&run, AnalyzeOptions::default());
 /// assert_eq!(report.request_count, 0);
 /// ```
 #[must_use]
-pub fn analyze_run(run: &Run) -> Report {
+pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
+    analyze_run_with_options(run, &options)
+}
+
+fn analyze_run_with_options(run: &Run, _options: &AnalyzeOptions) -> Report {
     let mut report = analyze_run_internal(run);
     let route_context = route::route_breakdowns(run, &report);
     if route_context.divergent {
