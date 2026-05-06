@@ -97,3 +97,6 @@ Demos teach scenarios; validation measures bounded diagnostic behavior.
 Durable diagnostic validation scorecards are generated only by `.github/workflows/validation-snapshot.yml` on `workflow_dispatch` and `v*` tags. Normal CI does not publish durable diagnostic scorecards and does not auto-overwrite `validation/diagnostics/latest/scorecard.md`.
 
 Snapshot artifacts include deterministic benchmark metrics, thresholds, git/ref metadata, `tailtriage` workspace/package version metadata, GitHub Actions metadata when available, software/hardware metadata, and manifest/referenced-artifact hashes.
+
+
+Optional manifest fields can validate expanded analyzer report surface on selected cases only: `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`. These checks are fixture-scoped and optional; cases that omit them continue to validate under the existing suspect/evidence/warning contract.

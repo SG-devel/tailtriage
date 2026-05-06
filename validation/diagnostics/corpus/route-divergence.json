@@ -1,0 +1,37 @@
+{
+  "warnings": [],
+  "evidence_quality": {
+    "quality": "partial",
+    "requests": "present",
+    "queues": "present",
+    "stages": "present",
+    "runtime_snapshots": "partial",
+    "inflight_snapshots": "partial"
+  },
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "confidence": "medium",
+    "evidence": [
+      "Route /slow has dominant stage latency"
+    ],
+    "confidence_notes": [
+      "Route runtime and inflight context is partial."
+    ]
+  },
+  "secondary_suspects": [
+    {
+      "kind": "application_queue_saturation",
+      "confidence": "low",
+      "confidence_notes": []
+    }
+  ],
+  "route_breakdowns": [
+    {
+      "route": "/slow",
+      "warnings": [
+        "Runtime and in-flight snapshots are not route-attributed; route ranking uses request and stage evidence."
+      ]
+    }
+  ],
+  "temporal_segments": []
+}
