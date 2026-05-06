@@ -38,6 +38,7 @@ USER_FACING_TERMINOLOGY_PATHS = (
     REPO_ROOT / "tailtriage-controller" / "README.md",
     REPO_ROOT / "tailtriage-tokio" / "README.md",
     REPO_ROOT / "tailtriage-axum" / "README.md",
+    REPO_ROOT / "tailtriage-analyzer" / "README.md",
     REPO_ROOT / "tailtriage-cli" / "README.md",
     REPO_ROOT / "tailtriage" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage" / "Cargo.toml",
@@ -55,6 +56,7 @@ DOCS_REQUIRED_LINKS = (
     "[Diagnostics guide](diagnostics.md)",
     "[Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md)",
     "[Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md)",
+    "[Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md)",
     "[CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md)",
     "[Runtime cost measurement](runtime-cost.md)",
     "[Collector limits and stress guidance](collector-limits.md)",
@@ -66,6 +68,7 @@ README_DOC_MAP_REQUIRED_LINKS = (
     "(docs/user-guide.md)",
     "(tailtriage-controller/README.md)",
     "(tailtriage-tokio/README.md)",
+    "(tailtriage-analyzer/README.md)",
     "(tailtriage-cli/README.md)",
     "(docs/diagnostics.md)",
     "(docs/runtime-cost.md)",
@@ -696,6 +699,19 @@ def validate_sampler_integration_boundary() -> None:
         )
 
 
+
+def validate_cli_not_presented_as_library_api() -> None:
+    paths = (README_PATH, DOCS_INDEX_PATH, USER_GUIDE_PATH, DIAGNOSTICS_PATH, ARCHITECTURE_PATH, REPO_ROOT / "tailtriage-cli" / "README.md")
+    bad_patterns = (r"tailtriage-cli[^\n]{0,80}library", r"tailtriage_cli::analyze")
+    failures: list[str] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for pattern in bad_patterns:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                failures.append(f"{path.relative_to(REPO_ROOT)} contains disallowed CLI-library wording: {pattern}")
+    if failures:
+        raise ValueError("docs present tailtriage-cli as library API:\n" + "\n".join(failures))
+
 def main() -> int:
     _ = parse_args()
     validate_readme_analyzer_example()
@@ -712,6 +728,7 @@ def main() -> int:
     validate_no_user_facing_facade_wording()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
+    validate_cli_not_presented_as_library_api()
     print("docs contracts validated successfully")
     return 0
 

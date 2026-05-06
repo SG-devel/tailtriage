@@ -4,6 +4,12 @@
 
 It is designed for in-process report generation from in-memory runs. It does not load run artifacts from disk, and it does not write run artifacts.
 
+## Installation
+
+```bash
+cargo add tailtriage-analyzer
+```
+
 ```rust
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 # use tailtriage_core::Run;
@@ -32,3 +38,16 @@ Direct analyzer usage does not replace artifact generation and does not require 
 ## Execution model
 
 Current analyzer semantics are batch/snapshot based for one completed run, not streaming.
+
+
+## Migration note
+
+```rust
+// Old pre-0.1.x API, no longer the supported library analyzer path:
+use tailtriage_cli::analyze::{analyze_run, render_text};
+
+// New:
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+```
+
+Artifact loading remains CLI-owned (`tailtriage analyze ...`).

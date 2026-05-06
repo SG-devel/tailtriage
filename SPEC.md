@@ -42,6 +42,7 @@ Current workspace members include:
 - `tailtriage-controller`
 - `tailtriage-tokio`
 - `tailtriage-axum`
+- `tailtriage-analyzer`
 - `tailtriage-cli`
 - demos crates under `demos/`
 
@@ -139,7 +140,7 @@ Primary command:
 tailtriage analyze <run.json>
 ```
 
-## 6. Run artifact and analyzer contract
+## 6. Run artifact, analyzer, and CLI contracts
 
 Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context.
 

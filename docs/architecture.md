@@ -9,7 +9,7 @@ The default user path is:
 1. instrument capture in service code (`tailtriage` default crate)
 2. optionally enrich with runtime sampling (`tailtriage-tokio`)
 3. write local run artifact JSON
-4. analyze artifact with `tailtriage-cli`
+4. analyze in process with `tailtriage-analyzer` or analyze artifact with `tailtriage-cli`
 
 The result is a triage report with evidence-ranked suspects and next checks.
 
@@ -49,9 +49,13 @@ Adds optional runtime-pressure snapshots to the same run artifact via `RuntimeSa
 
 Adds optional Axum request-boundary ergonomics (middleware + extractor).
 
+### `tailtriage-analyzer`
+
+Owns in-process analyzer/report logic for completed runs and stable snapshots represented as `Run`. It provides typed reports and text rendering; serde enables optional JSON report serialization.
+
 ### `tailtriage-cli`
 
-Consumes run artifacts and emits diagnosis reports (text/JSON).
+Consumes run artifacts from disk, validates artifact schema and loader rules, then emits analyzer reports (text/JSON) by consuming `tailtriage-analyzer`.
 
 ## Relationship model
 
@@ -70,3 +74,10 @@ It does not claim:
 - observability backend behavior
 - distributed-system root-cause proof
 - automatic causality certainty
+
+
+Conceptual dependency flow for analysis:
+
+```text
+tailtriage-core -> tailtriage-analyzer -> tailtriage-cli
+```

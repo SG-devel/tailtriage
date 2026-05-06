@@ -547,6 +547,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
 - [Diag](diagnostics.md)
 - [Controller crate](../tailtriage-controller/README.md)
 - [Sampler crate](../tailtriage-tokio/README.md)
+- [Analyzer crate](../tailtriage-analyzer/README.md)
 - [CLI crate](../tailtriage-cli/README.md)
 - [Runtime cost notes](runtime-cost.md)
 - [Collector limits notes](collector-limits.md)

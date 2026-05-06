@@ -12,7 +12,7 @@ tailtriage
 
 ## What this tool does
 
-`tailtriage-cli` owns the analysis-side contract:
+`tailtriage-cli` owns the command-line artifact-analysis contract:
 
 - load a captured artifact
 - validate schema compatibility
@@ -143,10 +143,9 @@ Current contract:
 - `requests` must contain at least one request event
 - artifacts with an empty `requests` array are rejected by the CLI loader
 
-Library note:
+Rust code users should use `tailtriage-analyzer` directly for in-process analysis APIs.
 
-- the `tailtriage-analyzer` library API, `tailtriage_analyzer::analyze_run(&Run, AnalyzeOptions)`, can analyze an in-memory `Run` with zero requests
-- the stricter non-empty `requests` rule applies to CLI artifact loading from disk
+The stricter non-empty `requests` rule applies to CLI artifact loading from disk.
 
 ## Important interpretation notes
 

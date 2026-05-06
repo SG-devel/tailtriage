@@ -1,6 +1,6 @@
 # Diagnostics guide
 
-This guide explains how `tailtriage analyze` turns one run artifact into a triage report.
+This guide explains how both `tailtriage_analyzer::analyze_run` and `tailtriage analyze` turn run data into a triage report.
 
 ## Read one report quickly
 
@@ -11,6 +11,13 @@ This guide explains how `tailtriage analyze` turns one run artifact into a triag
 5. Run one targeted check, then re-run and compare.
 
 Ranking is rule-based triage guidance. Suspects are leads, not proof of root cause.
+
+## Analyzer and CLI entry points
+
+- In-process: `tailtriage_analyzer::analyze_run(&Run, AnalyzeOptions)` for completed runs or stable snapshots represented as `Run`.
+- Command line: `tailtriage analyze <run.json>` for artifact loading + report emission.
+
+Analyzer semantics are batch/snapshot based, not live streaming.
 
 ## Artifact schema contract
 
