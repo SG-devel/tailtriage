@@ -93,7 +93,9 @@ That split is important: this crate helps you integrate capture at the framework
 - install `middleware` before using `TailtriageRequest`
 - missing middleware yields `TailtriageExtractorError` with HTTP 500 behavior
 - route labels prefer Axum `MatchedPath`; the fallback is the raw URI path
-- analysis still happens in `tailtriage-cli`
+- analysis is separate from capture integration
+- for in-process analysis/report generation, use `tailtriage-analyzer`
+- for command-line analysis of saved artifacts, use `tailtriage-cli`
 
 ## Minimal handler example
 
@@ -119,4 +121,5 @@ If you do not use Axum, this crate is not the right abstraction boundary.
 - `tailtriage`: recommended default entry point
 - `tailtriage-core`: framework-agnostic instrumentation primitives
 - `tailtriage-tokio`: runtime-pressure sampling
-- `tailtriage-cli`: artifact analysis and report generation
+- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
+- `tailtriage-cli`: command-line analysis of saved run artifacts
