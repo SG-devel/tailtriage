@@ -721,9 +721,10 @@ fn apply_temporal_overlap_attribution_warning(
         (
             early_seg.started_at_unix_ms,
             early_seg.finished_at_unix_ms,
-            late_seg.started_at_unix_ms
+            late_seg.started_at_unix_ms,
+            late_seg.finished_at_unix_ms,
         ),
-        (Some(_), Some(early_finish), Some(late_start)) if early_finish >= late_start
+        (Some(_), Some(early_finish), Some(late_start), Some(_)) if early_finish >= late_start
     );
     let has_segment_runtime_or_inflight_samples = early_seg.evidence_quality.runtime_snapshot_count
         > 0
@@ -1800,11 +1801,12 @@ mod tests {
     };
 
     use crate::analyze::{
-        analyze_run, analyze_run_internal, apply_evidence_aware_confidence_caps, evidence_quality,
-        render_text, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
-        InflightTrend, Report, SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING,
-        ROUTE_RUNTIME_ATTRIBUTION_WARNING, TEMPORAL_OVERLAP_ATTRIBUTION_WARNING,
-        TEMPORAL_P95_SHIFT_WARNING, TEMPORAL_SUSPECT_SHIFT_WARNING,
+        analyze_run, analyze_run_internal, apply_evidence_aware_confidence_caps,
+        apply_temporal_overlap_attribution_warning, evidence_quality, render_text, Confidence,
+        DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report,
+        SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+        TEMPORAL_OVERLAP_ATTRIBUTION_WARNING, TEMPORAL_P95_SHIFT_WARNING,
+        TEMPORAL_SUSPECT_SHIFT_WARNING,
     };
 
     fn test_run() -> Run {
@@ -3290,6 +3292,34 @@ mod tests {
         run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
         let report = analyze_run(&run);
         assert_eq!(report.temporal_segments.len(), 2);
+        for segment in &report.temporal_segments {
+            assert!(!segment
+                .warnings
+                .iter()
+                .any(|w| w == TEMPORAL_OVERLAP_ATTRIBUTION_WARNING));
+        }
+    }
+
+    #[test]
+    fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
+        let mut run = test_run();
+        run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+        run.requests[9].finished_at_unix_ms = 1_000;
+        run.requests[10].started_at_unix_ms = 100;
+        for i in 10usize..20 {
+            if let Some(req) = run.requests.get_mut(i) {
+                req.latency_us = 5_000;
+            }
+        }
+        run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
+        let mut report = analyze_run(&run);
+        assert_eq!(report.temporal_segments.len(), 2);
+        for segment in &mut report.temporal_segments {
+            segment.warnings.clear();
+        }
+        report.temporal_segments[1].finished_at_unix_ms = None;
+        let (early, late) = report.temporal_segments.split_at_mut(1);
+        apply_temporal_overlap_attribution_warning(&mut early[0], &mut late[0]);
         for segment in &report.temporal_segments {
             assert!(!segment
                 .warnings
