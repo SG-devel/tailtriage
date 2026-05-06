@@ -83,3 +83,6 @@ Snapshot output directory: `target/validation/diagnostics/`
 `environment.json` includes `tailtriage` workspace version and per-crate versions, git metadata, GitHub Actions metadata when available, software/hardware metadata, manifest hash, referenced-artifact hash, and benchmark thresholds.
 
 Deterministic fixture metrics validate committed fixtures only; they are not root-cause proof, universal production accuracy, universal production overhead, or real-service validation.
+
+
+Optional manifest fields can validate expanded analyzer report surface on selected cases only: `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`. These checks are fixture-scoped and optional; cases that omit them continue to validate under the existing suspect/evidence/warning contract.

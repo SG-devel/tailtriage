@@ -104,3 +104,6 @@ Use `.github/workflows/validation-snapshot.yml` for auditable snapshots. It gene
 The snapshot captures deterministic benchmark metrics, thresholds, `tailtriage` workspace and per-crate versions, git metadata, GitHub Actions runner metadata (when available), software metadata, hardware metadata, and manifest/referenced-artifact hashes.
 
 Deterministic fixture metrics validate committed fixture behavior only. They do not prove production root cause, universal production accuracy, universal production overhead, or real-service behavior. Repeated-run, runtime-cost, and collector-limit results are more hardware-sensitive than deterministic fixture validation.
+
+
+Optional manifest fields can validate expanded analyzer report surface on selected cases only: `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`. These checks are fixture-scoped and optional; cases that omit them continue to validate under the existing suspect/evidence/warning contract.
