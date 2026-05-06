@@ -50,8 +50,8 @@ See root docs for interpretation guidance:
 ## Migration note
 
 ```rust
-// Old pre-0.1.x API, no longer the supported library analyzer path:
-use tailtriage_cli::analyze::{analyze_run, render_text};
+// Old pre-0.1.x API was hosted in the CLI crate.
+// Use the analyzer crate directly for in-process analysis/report APIs.
 
 // New:
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
