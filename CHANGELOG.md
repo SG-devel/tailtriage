@@ -60,7 +60,3 @@
 - Optional Tokio runtime-pressure sampling.
 - Optional Axum middleware/extractor ergonomics.
 - Initial examples, demo workloads, diagnostics docs, and crates.io adoption guidance.
-
-### Notes
-
-- Suspects were framed as triage leads with next checks, not root-cause proof.
