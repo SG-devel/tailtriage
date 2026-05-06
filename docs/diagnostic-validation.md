@@ -76,7 +76,7 @@ This complements deterministic fixture validation:
 Key repeated-run metrics:
 - **Top-1 stability**: fraction of runs where the primary suspect matches the scenario ground truth
 - **Top-2 visibility**: fraction of runs where required causes appear in the top-2 suspects
-- **High-confidence-wrong count**: runs where primary confidence is high/very_high but primary kind is outside acceptable primary kinds
+- **High-confidence-wrong count**: runs where primary confidence is high but primary kind is outside acceptable primary kinds
 - **Confidence bucket accuracy**: top-1 accuracy grouped by confidence bucket
 - **Primary stability**: share of runs captured by the most frequent primary suspect kind
 - **p95 IQR**: interquartile range of p95 latency across repeated runs
