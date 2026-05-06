@@ -11,12 +11,12 @@ mod temporal;
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
-pub(super) const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
+const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
 const QUEUE_SHARE_TRIGGER_PERMILLE: u64 = 300;
 const MEDIUM_CONFIDENCE_SCORE_THRESHOLD: u8 = 65;
 const HIGH_CONFIDENCE_SCORE_THRESHOLD: u8 = 85;
-pub(super) const AMBIGUITY_MIN_SCORE_THRESHOLD: u8 = 60;
-pub(super) const AMBIGUITY_SCORE_GAP_THRESHOLD: u8 = 4;
+const AMBIGUITY_MIN_SCORE_THRESHOLD: u8 = 60;
+const AMBIGUITY_SCORE_GAP_THRESHOLD: u8 = 4;
 const ROUTE_MIN_REQUEST_COUNT: usize = 3;
 const ROUTE_BREAKDOWN_LIMIT: usize = 10;
 const TEMPORAL_MIN_REQUEST_COUNT: usize = 20;
