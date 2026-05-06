@@ -77,7 +77,7 @@
       ],
       "notes": "Blocking pool backlog is intentional pre-fix condition.",
       "expected_warnings": [
-        "Runtime snapshots are missing",
+        "missing blocking_queue_depth or local_queue_depth",
         "Top suspects are close in score",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
@@ -113,7 +113,7 @@
       ],
       "notes": "After blocking mitigation, downstream work can dominate residual tail.",
       "expected_warnings": [
-        "Runtime snapshots are missing",
+        "missing blocking_queue_depth or local_queue_depth",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
       "top1_required": false,
@@ -547,7 +547,7 @@
       ],
       "notes": "Blocking sample is canonical blocking saturation evidence.",
       "expected_warnings": [
-        "Runtime snapshots are missing",
+        "missing blocking_queue_depth or local_queue_depth",
         "Top suspects are close in score",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
