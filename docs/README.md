@@ -11,7 +11,6 @@ This is the canonical user-facing docs index for `tailtriage`.
 
 - [Diagnostics guide](diagnostics.md) — quick reading flow plus concise field reference for analyzer output.
 - [Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md) — in-process analyzer/report contract.
-
 - [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — artifact loader and report-emitter CLI contract.
 
 ## Capture surfaces

@@ -520,18 +520,51 @@ def validate_diagnostics_contract_truthfulness() -> None:
 
 
 
+def _strip_allowed_analyzer_migration_note(text: str) -> str:
+    """Allow old API token only in the dedicated migration-note example block."""
+    marker = "## Migration note"
+    marker_index = text.find(marker)
+    if marker_index < 0:
+        return text
+
+    migration_section = text[marker_index:]
+    migration_block_pattern = re.compile(r"```rust\n(.*?)\n```", re.DOTALL)
+    block_match = migration_block_pattern.search(migration_section)
+    if block_match is None:
+        return text
+
+    block = block_match.group(1)
+    if "tailtriage_cli::analyze" not in block:
+        return text
+
+    start = marker_index + block_match.start(1)
+    end = marker_index + block_match.end(1)
+    return text[:start] + text[end:]
+
+
 def validate_cli_not_presented_as_library_analyzer_api() -> None:
-    paths = (README_PATH, DOCS_INDEX_PATH, USER_GUIDE_PATH, DIAGNOSTICS_PATH, ARCHITECTURE_PATH, REPO_ROOT / "tailtriage-cli" / "README.md")
+    paths = (
+        README_PATH,
+        DOCS_INDEX_PATH,
+        USER_GUIDE_PATH,
+        DIAGNOSTICS_PATH,
+        ARCHITECTURE_PATH,
+        REPO_ROOT / "tailtriage-cli" / "README.md",
+        REPO_ROOT / "tailtriage-analyzer" / "README.md",
+    )
     banned_tokens = ("tailtriage_cli::analyze",)
     hits: list[str] = []
     for path in paths:
         text = path.read_text(encoding="utf-8")
+        scan_text = text
+        if path == REPO_ROOT / "tailtriage-analyzer" / "README.md":
+            scan_text = _strip_allowed_analyzer_migration_note(text)
         lowered = text.lower()
         if "tailtriage-cli" in lowered and "library analyzer api" in lowered:
             rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
             hits.append(f"{rel} presents tailtriage-cli as library analyzer API")
         for token in banned_tokens:
-            if token in text:
+            if token in scan_text:
                 rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
                 hits.append(f"{rel} contains banned token: {token}")
     if hits:

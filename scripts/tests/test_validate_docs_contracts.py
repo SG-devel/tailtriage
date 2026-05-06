@@ -182,6 +182,60 @@ Normal CI does not publish durable diagnostic scorecards.
                 with self.assertRaisesRegex(ValueError, r"tailtriage_cli::analyze"):
                     validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
+    def test_analyzer_readme_migration_note_allows_old_token_only_in_migration_block(self) -> None:
+        readme_text = """# tailtriage-analyzer
+
+## Migration note
+
+```rust
+use tailtriage_cli::analyze::{analyze_run, render_text};
+```
+"""
+        stripped = validate_docs_contracts._strip_allowed_analyzer_migration_note(readme_text)
+        self.assertNotIn("tailtriage_cli::analyze", stripped)
+
+    def test_analyzer_readme_contract_fails_on_old_token_outside_migration_note(self) -> None:
+        analyzer_text = """# tailtriage-analyzer
+
+Use `tailtriage_cli::analyze` in this section.
+
+## Migration note
+
+```rust
+use tailtriage_cli::analyze::{analyze_run, render_text};
+```
+"""
+        clean_text = "# tailtriage docs"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            root_readme = repo_root / "README.md"
+            docs_index = repo_root / "docs" / "README.md"
+            user_guide = repo_root / "docs" / "user-guide.md"
+            diagnostics = repo_root / "docs" / "diagnostics.md"
+            architecture = repo_root / "docs" / "architecture.md"
+            cli_readme = repo_root / "tailtriage-cli" / "README.md"
+            analyzer_readme = repo_root / "tailtriage-analyzer" / "README.md"
+            for path in (docs_index, user_guide, diagnostics, architecture, cli_readme, analyzer_readme):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            root_readme.write_text(clean_text, encoding="utf-8")
+            docs_index.write_text(clean_text, encoding="utf-8")
+            user_guide.write_text(clean_text, encoding="utf-8")
+            diagnostics.write_text(clean_text, encoding="utf-8")
+            architecture.write_text(clean_text, encoding="utf-8")
+            cli_readme.write_text(clean_text, encoding="utf-8")
+            analyzer_readme.write_text(analyzer_text, encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(validate_docs_contracts, "README_PATH", root_readme),
+                mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_index),
+                mock.patch.object(validate_docs_contracts, "USER_GUIDE_PATH", user_guide),
+                mock.patch.object(validate_docs_contracts, "DIAGNOSTICS_PATH", diagnostics),
+                mock.patch.object(validate_docs_contracts, "ARCHITECTURE_PATH", architecture),
+            ):
+                with self.assertRaisesRegex(ValueError, r"tailtriage_cli::analyze"):
+                    validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
+
     def test_controller_readme_does_not_use_misleading_dependency_example_flow(self) -> None:
         readme_text = validate_docs_contracts.CONTROLLER_README_PATH.read_text(encoding="utf-8")
         self.assertFalse(validate_docs_contracts.is_misleading_controller_example_flow(readme_text))
