@@ -38,6 +38,7 @@ USER_FACING_TERMINOLOGY_PATHS = (
     REPO_ROOT / "tailtriage-controller" / "README.md",
     REPO_ROOT / "tailtriage-tokio" / "README.md",
     REPO_ROOT / "tailtriage-axum" / "README.md",
+    REPO_ROOT / "tailtriage-analyzer" / "README.md",
     REPO_ROOT / "tailtriage-cli" / "README.md",
     REPO_ROOT / "tailtriage" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage" / "Cargo.toml",
@@ -55,6 +56,7 @@ DOCS_REQUIRED_LINKS = (
     "[Diagnostics guide](diagnostics.md)",
     "[Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md)",
     "[Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md)",
+    "[Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md)",
     "[CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md)",
     "[Runtime cost measurement](runtime-cost.md)",
     "[Collector limits and stress guidance](collector-limits.md)",
@@ -66,6 +68,7 @@ README_DOC_MAP_REQUIRED_LINKS = (
     "(docs/user-guide.md)",
     "(tailtriage-controller/README.md)",
     "(tailtriage-tokio/README.md)",
+    "(tailtriage-analyzer/README.md)",
     "(tailtriage-cli/README.md)",
     "(docs/diagnostics.md)",
     "(docs/runtime-cost.md)",
@@ -516,6 +519,24 @@ def validate_diagnostics_contract_truthfulness() -> None:
         )
 
 
+
+def validate_cli_not_presented_as_library_analyzer_api() -> None:
+    paths = (README_PATH, DOCS_INDEX_PATH, USER_GUIDE_PATH, DIAGNOSTICS_PATH, ARCHITECTURE_PATH, REPO_ROOT / "tailtriage-cli" / "README.md")
+    banned_tokens = ("tailtriage_cli::analyze",)
+    hits: list[str] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        lowered = text.lower()
+        if "tailtriage-cli" in lowered and "library analyzer api" in lowered:
+            rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
+            hits.append(f"{rel} presents tailtriage-cli as library analyzer API")
+        for token in banned_tokens:
+            if token in text:
+                rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
+                hits.append(f"{rel} contains banned token: {token}")
+    if hits:
+        raise ValueError("CLI/library analyzer contract violation:\n" + "\n".join(hits))
+
 def _active_yaml_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
@@ -705,6 +726,7 @@ def main() -> int:
     validate_root_readme_docs_map_parity()
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
+    validate_cli_not_presented_as_library_analyzer_api()
     validate_diagnostic_benchmark_ci_contract()
     validate_validation_docs_ci_contract()
     validate_architecture_contract()
