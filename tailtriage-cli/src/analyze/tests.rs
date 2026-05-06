@@ -1194,6 +1194,18 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
     assert_eq!(report.route_breakdowns.len(), 2);
     assert_eq!(report.route_breakdowns[0].route, "/a");
     assert_eq!(report.route_breakdowns[1].route, "/b");
+    assert_eq!(
+        report.route_breakdowns[0].primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(
+        report.route_breakdowns[1].primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_ne!(
+        report.route_breakdowns[0].primary_suspect.kind,
+        report.route_breakdowns[1].primary_suspect.kind
+    );
     assert!(report
         .warnings
         .iter()
