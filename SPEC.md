@@ -286,3 +286,13 @@ When behavior or public guidance changes, update relevant public docs together:
 - `docs/architecture.md`
 - relevant crate READMEs
 - relevant examples, demos, and tests
+
+
+## Analyzer and CLI split
+
+Workspace surface includes `tailtriage-analyzer` as the in-process analyzer/report crate and `tailtriage-cli` as the command-line artifact loader/report emitter.
+
+- `tailtriage-analyzer` owns typed `Report` generation, suspect ranking, interpretation warnings, and `render_text`.
+- `tailtriage-cli` owns artifact loading, schema validation, CLI UX, and output format selection.
+
+This split does not change product non-claims: suspects remain evidence-ranked leads, not proof of root cause.

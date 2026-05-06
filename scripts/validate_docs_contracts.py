@@ -39,6 +39,7 @@ USER_FACING_TERMINOLOGY_PATHS = (
     REPO_ROOT / "tailtriage-tokio" / "README.md",
     REPO_ROOT / "tailtriage-axum" / "README.md",
     REPO_ROOT / "tailtriage-cli" / "README.md",
+    REPO_ROOT / "tailtriage-analyzer" / "README.md",
     REPO_ROOT / "tailtriage" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage" / "Cargo.toml",
 )
@@ -55,6 +56,7 @@ DOCS_REQUIRED_LINKS = (
     "[Diagnostics guide](diagnostics.md)",
     "[Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md)",
     "[Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md)",
+    "[Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md)",
     "[CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md)",
     "[Runtime cost measurement](runtime-cost.md)",
     "[Collector limits and stress guidance](collector-limits.md)",
@@ -66,6 +68,7 @@ README_DOC_MAP_REQUIRED_LINKS = (
     "(docs/user-guide.md)",
     "(tailtriage-controller/README.md)",
     "(tailtriage-tokio/README.md)",
+    "(tailtriage-analyzer/README.md)",
     "(tailtriage-cli/README.md)",
     "(docs/diagnostics.md)",
     "(docs/runtime-cost.md)",
@@ -622,6 +625,20 @@ def validate_architecture_contract() -> None:
             raise ValueError(f"architecture doc missing required product-contract token: {token}")
 
 
+
+
+def validate_cli_not_presented_as_library_api() -> None:
+    cli_text = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8")
+    disallowed = (
+        "tailtriage_cli::analyze",
+        "Library note",
+        "library analyzer api",
+    )
+    for token in disallowed:
+        if token.lower() in cli_text.lower():
+            raise ValueError(f"tailtriage-cli README contains stale library-analyzer wording: {token}")
+
+
 def validate_docs_no_history_framing() -> None:
     failures: list[str] = []
     for path in sorted(PUBLIC_DOCS_GLOB):
@@ -708,6 +725,7 @@ def main() -> int:
     validate_diagnostic_benchmark_ci_contract()
     validate_validation_docs_ci_contract()
     validate_architecture_contract()
+    validate_cli_not_presented_as_library_api()
     validate_docs_no_history_framing()
     validate_no_user_facing_facade_wording()
     validate_controller_example_usage_contract()

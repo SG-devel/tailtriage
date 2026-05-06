@@ -7,12 +7,14 @@ This guide teaches the default `tailtriage` workflow for end users.
 For most services, use:
 
 - `tailtriage` for capture instrumentation
-- `tailtriage-cli` for analysis/report generation
+- `tailtriage-cli` for artifact analysis/report generation
+- `tailtriage-analyzer` for in-process analysis in Rust code
 
 Install:
 
 ```bash
 cargo add tailtriage
+cargo add tailtriage-analyzer
 cargo install tailtriage-cli
 ```
 
@@ -58,6 +60,25 @@ Read output in this order:
 3. `primary_suspect.next_checks[]`
 
 Then run one targeted check, change one thing, and re-run under comparable load.
+
+## 3) In-process analysis (embedded Rust users)
+
+For code-local analysis, use `tailtriage-analyzer` on a completed run (or stable snapshot):
+
+```rust
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+
+# use tailtriage_core::Run;
+# fn example(run: Run) -> Result<(), serde_json::Error> {
+let report = analyze_run(&run, AnalyzeOptions::default());
+let text = render_text(&report);
+let json = serde_json::to_string_pretty(&report)?;
+# let _ = (text, json);
+# Ok(())
+# }
+```
+
+Current semantics are batch/snapshot based: completed run or stable snapshot, not live streaming analysis.
 
 ## 3) Request lifecycle contract (required)
 

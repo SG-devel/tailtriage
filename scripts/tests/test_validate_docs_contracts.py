@@ -149,6 +149,9 @@ Normal CI does not publish durable diagnostic scorecards.
     def test_architecture_contract(self) -> None:
         validate_docs_contracts.validate_architecture_contract()
 
+    def test_cli_not_presented_as_library_api(self) -> None:
+        validate_docs_contracts.validate_cli_not_presented_as_library_api()
+
     def test_docs_no_history_framing(self) -> None:
         validate_docs_contracts.validate_docs_no_history_framing()
 
@@ -547,6 +550,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
 - [Diag](diagnostics.md)
 - [Controller crate](../tailtriage-controller/README.md)
 - [Sampler crate](../tailtriage-tokio/README.md)
+- [Analyzer crate](../tailtriage-analyzer/README.md)
 - [CLI crate](../tailtriage-cli/README.md)
 - [Runtime cost notes](runtime-cost.md)
 - [Collector limits notes](collector-limits.md)

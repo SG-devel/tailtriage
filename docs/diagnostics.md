@@ -1,6 +1,6 @@
 # Diagnostics guide
 
-This guide explains how `tailtriage analyze` turns one run artifact into a triage report.
+This guide explains how `tailtriage_analyzer::analyze_run` and `tailtriage analyze` both produce one triage report per run input (in-memory run for the library, artifact file for the CLI).
 
 ## Read one report quickly
 

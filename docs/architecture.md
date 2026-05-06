@@ -70,3 +70,14 @@ It does not claim:
 - observability backend behavior
 - distributed-system root-cause proof
 - automatic causality certainty
+
+
+## Analysis crate split
+
+Conceptually, the analysis side flows as:
+
+```text
+tailtriage-core -> tailtriage-analyzer -> tailtriage-cli
+```
+
+`tailtriage-analyzer` owns typed report generation and text rendering for in-process usage. `tailtriage-cli` consumes that analyzer crate and performs file-based analysis by loading artifacts from disk, validating schema, then emitting text or JSON output for command-line workflows.

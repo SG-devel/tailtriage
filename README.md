@@ -28,13 +28,16 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-Install the CLI separately for analysis/report generation:
+Install the analyzer crate and CLI separately:
 
 ```bash
+cargo add tailtriage-analyzer
 cargo install tailtriage-cli
 ```
 
-> Library crates capture data. `tailtriage-cli` analyzes artifacts.
+- `tailtriage` captures run data in-process.
+- `tailtriage-analyzer` analyzes completed in-memory runs or stable snapshots in process.
+- `tailtriage-cli` loads run artifacts and emits reports from the command line.
 
 ## Why not just tokio-console or tokio-metrics?
 
@@ -135,6 +138,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+```
+
+### In-process analysis (Rust library)
+
+```rust
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+
+# use tailtriage_core::Run;
+# fn example(run: Run) -> Result<(), serde_json::Error> {
+let report = analyze_run(&run, AnalyzeOptions::default());
+let text = render_text(&report);
+let json = serde_json::to_string_pretty(&report)?;
+# let _ = (text, json);
+# Ok(())
+# }
 ```
 
 ### Analyze artifact (CLI)
@@ -284,7 +302,8 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 - User workflow guide: [`docs/user-guide.md`](docs/user-guide.md)
 - Controller docs and config: [`tailtriage-controller/README.md`](tailtriage-controller/README.md)
 - Runtime sampler docs: [`tailtriage-tokio/README.md`](tailtriage-tokio/README.md)
-- Analyzer/report contract: [`tailtriage-cli/README.md`](tailtriage-cli/README.md)
+- In-process analyzer/report contract: [`tailtriage-analyzer/README.md`](tailtriage-analyzer/README.md)
+- CLI artifact loading/report emission: [`tailtriage-cli/README.md`](tailtriage-cli/README.md)
 - Diagnostics field reference and interpretation: [`docs/diagnostics.md`](docs/diagnostics.md)
 - Demo walkthrough and recommended first demos: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 - Runtime-overhead measurement path: [`docs/runtime-cost.md`](docs/runtime-cost.md)
