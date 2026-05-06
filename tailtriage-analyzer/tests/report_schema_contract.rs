@@ -26,13 +26,30 @@ fn documented_report_keys_exist_in_json_output() {
         ["primary_suspect", "kind"].as_slice(),
         ["p95_queue_share_permille"].as_slice(),
         ["p95_service_share_permille"].as_slice(),
+        ["evidence_quality"].as_slice(),
+        ["primary_suspect", "confidence_notes"].as_slice(),
         ["primary_suspect", "evidence"].as_slice(),
+        ["route_breakdowns"].as_slice(),
+        ["temporal_segments"].as_slice(),
     ] {
         assert!(
             json_path_exists(&json, path).is_some(),
             "expected documented JSON path {path:?}",
         );
     }
+
+    let evidence_quality =
+        json_path_exists(&json, &["evidence_quality"]).expect("evidence_quality should exist");
+    assert!(
+        evidence_quality.is_object(),
+        "evidence_quality should be an object"
+    );
+
+    assert!(
+        json_path_exists(&json, &["primary_suspect", "confidence_notes"])
+            .is_some_and(Value::is_array),
+        "primary_suspect.confidence_notes should be an array"
+    );
 
     let evidence = json_path_exists(&json, &["primary_suspect", "evidence"])
         .and_then(Value::as_array)
@@ -41,5 +58,14 @@ fn documented_report_keys_exist_in_json_output() {
     assert!(
         evidence.iter().all(Value::is_string),
         "primary_suspect.evidence should contain strings"
+    );
+
+    assert!(
+        json_path_exists(&json, &["route_breakdowns"]).is_some_and(Value::is_array),
+        "route_breakdowns should be an array"
+    );
+    assert!(
+        json_path_exists(&json, &["temporal_segments"]).is_some_and(Value::is_array),
+        "temporal_segments should be an array"
     );
 }
