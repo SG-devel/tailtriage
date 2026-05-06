@@ -1,3 +1,19 @@
+//! Heuristic triage analyzer for completed [`tailtriage_core::Run`] captures.
+//!
+//! This crate analyzes a finished in-memory [`Run`](tailtriage_core::Run) and returns a typed
+//! [`Report`] for in-process diagnosis. It does not load run artifacts from disk and it does not
+//! write capture artifacts.
+//!
+//! Use [`analyze_run`] (or [`Analyzer`]) to produce a [`Report`], then:
+//!
+//! - call [`render_text`] for human-readable triage output;
+//! - call `serde_json::to_string_pretty(&report)` for analysis report JSON.
+//!
+//! The analysis report JSON is distinct from raw run artifact JSON produced by capture/artifact
+//! workflows. Raw run artifacts remain available for later CLI analysis.
+//!
+//! Analyzer semantics are currently batch/snapshot based for one completed run, not streaming.
+
 use std::collections::{BTreeMap, HashMap};
 
 use serde::{Serialize, Serializer};
@@ -290,7 +306,7 @@ pub struct RouteBreakdown {
 /// ```
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
-    Analyzer::new(options).analyze_run(run)
+    analyze_run_with_options(run, &options)
 }
 
 /// Options for heuristic run analysis.
@@ -307,19 +323,18 @@ pub struct Analyzer {
 impl Analyzer {
     /// Creates an analyzer with the provided options.
     #[must_use]
-    pub fn new(options: AnalyzeOptions) -> Self {
+    pub const fn new(options: AnalyzeOptions) -> Self {
         Self { options }
     }
 
     /// Analyzes one run artifact and returns a triage report.
     #[must_use]
     pub fn analyze_run(&self, run: &Run) -> Report {
-        let _ = &self.options;
-        analyze_run_with_options(run)
+        analyze_run_with_options(run, &self.options)
     }
 }
 
-fn analyze_run_with_options(run: &Run) -> Report {
+fn analyze_run_with_options(run: &Run, _options: &AnalyzeOptions) -> Report {
     let mut report = analyze_run_internal(run);
     let route_context = route::route_breakdowns(run, &report);
     if route_context.divergent {

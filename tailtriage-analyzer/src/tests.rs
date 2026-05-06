@@ -1588,3 +1588,18 @@ fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
             .any(|w| w == TEMPORAL_OVERLAP_ATTRIBUTION_WARNING));
     }
 }
+
+#[test]
+fn public_api_supports_report_text_and_json_contract_fields() {
+    let run = test_run();
+    let report: Report = analyze_run(&run, AnalyzeOptions::default());
+    let text = render_text(&report);
+    assert!(!text.is_empty(), "rendered text should not be empty");
+
+    let report_json =
+        serde_json::to_string_pretty(&report).expect("report should serialize to json");
+    assert!(report_json.contains("\"evidence_quality\""));
+    assert!(report_json.contains("\"confidence_notes\""));
+    assert!(report_json.contains("\"route_breakdowns\""));
+    assert!(report_json.contains("\"temporal_segments\""));
+}
