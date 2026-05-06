@@ -4,7 +4,7 @@ use super::{
     analyze_run_internal, DiagnosisKind, SignalCoverageStatus, TemporalSegment,
     TEMPORAL_MIN_REQUEST_COUNT, TEMPORAL_MIN_SEGMENT_REQUEST_COUNT, TEMPORAL_SHARE_SHIFT_PERMILLE,
 };
-use crate::analyze::route;
+use crate::route;
 
 const TEMPORAL_RUNTIME_ATTRIBUTION_WARNING: &str = "Runtime and in-flight evidence is sparse in this segment after timestamp filtering; executor/blocking attribution is limited.";
 pub(super) const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.";

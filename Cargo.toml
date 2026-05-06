@@ -5,6 +5,7 @@ members = [
   "tailtriage-controller",
   "tailtriage-tokio",
   "tailtriage-axum",
+  "tailtriage-analyzer",
   "tailtriage-cli",
   "demos/demo_support",
   "demos/queue_service",
@@ -38,6 +39,7 @@ pedantic = "warn"
 [workspace.dependencies]
 tailtriage = { version = "0.1.2", path = "tailtriage" }
 tailtriage-core = { version = "0.1.2", path = "tailtriage-core" }
+tailtriage-analyzer = { version = "0.1.2", path = "tailtriage-analyzer" }
 tailtriage-controller = { version = "0.1.2", path = "tailtriage-controller" }
 tailtriage-tokio = { version = "0.1.2", path = "tailtriage-tokio" }
 tailtriage-axum = { version = "0.1.2", path = "tailtriage-axum" }

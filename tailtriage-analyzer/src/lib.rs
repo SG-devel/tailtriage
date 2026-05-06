@@ -113,7 +113,7 @@ pub struct Suspect {
 }
 
 impl Suspect {
-    pub(super) fn new(
+    fn new(
         kind: DiagnosisKind,
         score: u8,
         evidence: Vec<String>,
@@ -249,7 +249,7 @@ pub struct RouteBreakdown {
 /// Library API example (this does not use the CLI file-loader contract):
 ///
 /// ```
-/// use tailtriage_cli::analyze::analyze_run;
+/// use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 /// use tailtriage_core::{
 ///     CaptureMode, EffectiveCoreConfig, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION,
 /// };
@@ -284,12 +284,42 @@ pub struct RouteBreakdown {
 ///     truncation: Default::default(),
 /// };
 ///
-/// // `analyze_run(&Run)` can operate on an in-memory run with zero requests.
-/// let report = analyze_run(&run);
+/// // `analyze_run(&Run, AnalyzeOptions)` can operate on an in-memory run with zero requests.
+/// let report = analyze_run(&run, AnalyzeOptions::default());
 /// assert_eq!(report.request_count, 0);
 /// ```
 #[must_use]
-pub fn analyze_run(run: &Run) -> Report {
+pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
+    Analyzer::new(options).analyze_run(run)
+}
+
+/// Options for heuristic run analysis.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default)]
+pub struct AnalyzeOptions {}
+
+/// Reusable analyzer configured with [`AnalyzeOptions`].
+#[derive(Debug, Clone, Default)]
+pub struct Analyzer {
+    options: AnalyzeOptions,
+}
+
+impl Analyzer {
+    /// Creates an analyzer with the provided options.
+    #[must_use]
+    pub fn new(options: AnalyzeOptions) -> Self {
+        Self { options }
+    }
+
+    /// Analyzes one run artifact and returns a triage report.
+    #[must_use]
+    pub fn analyze_run(&self, run: &Run) -> Report {
+        let _ = &self.options;
+        analyze_run_with_options(run)
+    }
+}
+
+fn analyze_run_with_options(run: &Run) -> Report {
     let mut report = analyze_run_internal(run);
     let route_context = route::route_breakdowns(run, &report);
     if route_context.divergent {
