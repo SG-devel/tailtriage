@@ -14,7 +14,8 @@ Use it when you want explicit request lifecycle instrumentation and bounded JSON
 - bounded in-memory retention
 - JSON run artifact writing
 
-The artifact produced here is analyzed by `tailtriage-cli`.
+For in-process analysis/report generation, use `tailtriage-analyzer`.
+For command-line analysis of saved artifacts, use `tailtriage-cli`.
 
 ## Crate selection
 
@@ -142,4 +143,4 @@ This crate does not provide:
 - Axum middleware/extractors
 - analysis/report generation
 
-Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, and `tailtriage-cli`.
+Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, `tailtriage-analyzer`, and `tailtriage-cli`.

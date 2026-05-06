@@ -202,11 +202,13 @@ For those surfaces, use:
 - `tailtriage-core`
 - `tailtriage-controller`
 - `tailtriage-axum`
-- `tailtriage-cli`
+- `tailtriage-analyzer` (in-process analysis/report generation)
+- `tailtriage-cli` (command-line analysis of saved artifacts)
 
 ## Related crates
 
 - `tailtriage`: recommended default entry point
 - `tailtriage-core`: core request instrumentation and artifact writing
 - `tailtriage-controller`: repeated bounded windows
-- `tailtriage-cli`: artifact analysis
+- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
+- `tailtriage-cli`: command-line analysis of saved run artifacts
