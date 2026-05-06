@@ -803,6 +803,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tailtriage-core",
+ "tokio",
 ]
 
 [[package]]
@@ -827,7 +828,6 @@ dependencies = [
  "tailtriage-analyzer",
  "tailtriage-core",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
