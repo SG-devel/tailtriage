@@ -155,6 +155,9 @@ Normal CI does not publish durable diagnostic scorecards.
     def test_user_facing_wording_has_no_facade_term(self) -> None:
         validate_docs_contracts.validate_no_user_facing_facade_wording()
 
+    def test_docs_do_not_present_cli_as_library_analyzer_api(self) -> None:
+        validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
+
     def test_user_facing_wording_validation_fails_when_facade_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             temp_path = Path(tmp_dir) / "README.md"
@@ -167,6 +170,9 @@ Normal CI does not publish durable diagnostic scorecards.
             ):
                 with self.assertRaisesRegex(ValueError, r"stale facade wording"):
                     validate_docs_contracts.validate_no_user_facing_facade_wording()
+
+    def test_docs_do_not_present_cli_as_library_analyzer_api(self) -> None:
+        validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
     def test_controller_readme_does_not_use_misleading_dependency_example_flow(self) -> None:
         readme_text = validate_docs_contracts.CONTROLLER_README_PATH.read_text(encoding="utf-8")
@@ -547,6 +553,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
 - [Diag](diagnostics.md)
 - [Controller crate](../tailtriage-controller/README.md)
 - [Sampler crate](../tailtriage-tokio/README.md)
+- [Analyzer crate](../tailtriage-analyzer/README.md)
 - [CLI crate](../tailtriage-cli/README.md)
 - [Runtime cost notes](runtime-cost.md)
 - [Collector limits notes](collector-limits.md)
@@ -559,6 +566,21 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             with mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_path):
                 validate_docs_contracts.validate_docs_index_contract()
 
+
+    def test_docs_cli_library_api_contract_fails_when_stale_path_used(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            temp_path = Path(tmp_dir) / "README.md"
+            temp_path.write_text("use tailtriage_cli::analyze::analyze_run", encoding="utf-8")
+            cli_readme = Path(tmp_dir) / "tailtriage-cli" / "README.md"
+            cli_readme.parent.mkdir(parents=True, exist_ok=True)
+            cli_readme.write_text("tailtriage-cli docs", encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "README_PATH", temp_path), mock.patch.object(
+                validate_docs_contracts, "DOCS_INDEX_PATH", temp_path
+            ), mock.patch.object(validate_docs_contracts, "DIAGNOSTICS_PATH", temp_path), mock.patch.object(
+                validate_docs_contracts, "ARCHITECTURE_PATH", temp_path
+            ), mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaisesRegex(ValueError, r"library analyzer API"):
+                    validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
 if __name__ == "__main__":
     unittest.main()

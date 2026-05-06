@@ -1,6 +1,6 @@
 # Diagnostics guide
 
-This guide explains how `tailtriage analyze` turns one run artifact into a triage report.
+This guide explains the triage report produced by `tailtriage_analyzer::analyze_run` and `tailtriage analyze`.
 
 ## Read one report quickly
 
@@ -24,7 +24,7 @@ Current supported schema version: `1`.
 
 ## Report contents
 
-`tailtriage analyze <run.json>` outputs:
+`tailtriage_analyzer::analyze_run` and `tailtriage analyze <run.json>` output:
 
 - request count
 - request latency percentiles (`p50`, `p95`, `p99`)

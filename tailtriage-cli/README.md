@@ -12,12 +12,12 @@ tailtriage
 
 ## What this tool does
 
-`tailtriage-cli` owns the analysis-side contract:
+`tailtriage-cli` owns the command-line artifact analysis contract:
 
 - load a captured artifact
 - validate schema compatibility
 - produce JSON or human-readable triage output
-- rank likely bottleneck families
+- emit analyzer-ranked bottleneck suspects
 - emit evidence and next checks
 
 The output is intended to guide the next investigation step. It does **not** prove root cause on its own.
@@ -143,10 +143,6 @@ Current contract:
 - `requests` must contain at least one request event
 - artifacts with an empty `requests` array are rejected by the CLI loader
 
-Library note:
-
-- the `tailtriage-analyzer` library API, `tailtriage_analyzer::analyze_run(&Run, AnalyzeOptions)`, can analyze an in-memory `Run` with zero requests
-- the stricter non-empty `requests` rule applies to CLI artifact loading from disk
 
 ## Important interpretation notes
 
@@ -214,3 +210,6 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+
+Rust code users should use `tailtriage-analyzer` for in-process analysis APIs (`analyze_run`, `render_text`, `AnalyzeOptions`).

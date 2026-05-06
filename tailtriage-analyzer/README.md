@@ -1,8 +1,18 @@
 # tailtriage-analyzer
 
-`tailtriage-analyzer` analyzes an already completed `tailtriage_core::Run` and produces a typed triage report.
+`tailtriage-analyzer` is the in-process analyzer/report crate for `tailtriage`.
 
-It is designed for in-process report generation from in-memory runs. It does not load run artifacts from disk, and it does not write run artifacts.
+It analyzes a completed in-memory `tailtriage_core::Run` (or a stable snapshot you already loaded in process) and returns a typed triage report with evidence-ranked suspects and next checks.
+
+Suspects are leads, not proof of root cause.
+
+## Installation
+
+```bash
+cargo add tailtriage-analyzer
+```
+
+## In-process API example
 
 ```rust
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
@@ -10,25 +20,41 @@ use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 # fn example(run: Run) -> Result<(), serde_json::Error> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
-let report_json = serde_json::to_string_pretty(&report)?;
-# let _ = (text, report_json);
+let json = serde_json::to_string_pretty(&report)?;
+# let _ = (text, json);
 # Ok(())
 # }
 ```
 
-- `Report` is the primary typed output for analyzer/report logic.
-- `render_text(&Report)` produces human-readable output.
-- `serde_json::to_string_pretty(&report)` produces analysis report JSON.
+## Typed report model
 
-## Run artifact JSON vs analysis report JSON
+`Report` is the analyzer contract for Rust code users.
 
-These are distinct outputs and both remain supported:
+It includes:
 
-1. **Run artifact JSON**: raw captured run data produced by capture/shutdown or artifact-writing workflows. This remains part of capture/core/CLI artifact workflows and can still be analyzed later by the CLI.
-2. **Analysis report JSON**: output from analyzing a `Run`, represented by `tailtriage_analyzer::Report` and serialized with serde.
+- latency percentiles and queue/service share summaries
+- warnings and `evidence_quality`
+- `primary_suspect` and `secondary_suspects`
+- optional `inflight_trend`
+- supporting `route_breakdowns` and `temporal_segments`
 
-Direct analyzer usage does not replace artifact generation and does not require parsing CLI stdout.
+## Text rendering and JSON
 
-## Execution model
+- `render_text(&Report)` emits human-readable triage output.
+- `serde_json::to_string_pretty(&report)` emits structured report JSON.
 
-Current analyzer semantics are batch/snapshot based for one completed run, not streaming.
+JSON is optional for code users; the primary API is typed Rust data.
+
+## Batch/snapshot semantics
+
+Analyzer semantics are currently batch/snapshot based:
+
+- input is one completed run or stable snapshot
+- output is one report for that input
+- this crate does not do streaming analysis
+
+## Scope boundary with CLI
+
+Artifact loading/validation from files is owned by `tailtriage-cli`.
+
+Use `tailtriage-cli` when you want command-line artifact loading and report emission. Use `tailtriage-analyzer` when you want in-process Rust analysis.

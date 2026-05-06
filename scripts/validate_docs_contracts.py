@@ -38,6 +38,7 @@ USER_FACING_TERMINOLOGY_PATHS = (
     REPO_ROOT / "tailtriage-controller" / "README.md",
     REPO_ROOT / "tailtriage-tokio" / "README.md",
     REPO_ROOT / "tailtriage-axum" / "README.md",
+    REPO_ROOT / "tailtriage-analyzer" / "README.md",
     REPO_ROOT / "tailtriage-cli" / "README.md",
     REPO_ROOT / "tailtriage" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage" / "Cargo.toml",
@@ -55,6 +56,7 @@ DOCS_REQUIRED_LINKS = (
     "[Diagnostics guide](diagnostics.md)",
     "[Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md)",
     "[Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md)",
+    "[Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md)",
     "[CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md)",
     "[Runtime cost measurement](runtime-cost.md)",
     "[Collector limits and stress guidance](collector-limits.md)",
@@ -66,6 +68,7 @@ README_DOC_MAP_REQUIRED_LINKS = (
     "(docs/user-guide.md)",
     "(tailtriage-controller/README.md)",
     "(tailtriage-tokio/README.md)",
+    "(tailtriage-analyzer/README.md)",
     "(tailtriage-cli/README.md)",
     "(docs/diagnostics.md)",
     "(docs/runtime-cost.md)",
@@ -696,6 +699,31 @@ def validate_sampler_integration_boundary() -> None:
         )
 
 
+CLI_LIBRARY_API_STALE_PATTERNS = (
+    r"tailtriage_cli::analyze::",
+    r"tailtriage-cli[^\n]{0,80}library analyzer",
+)
+
+def validate_cli_not_presented_as_library_analyzer_api() -> None:
+    paths = (
+        README_PATH,
+        DOCS_INDEX_PATH,
+        DIAGNOSTICS_PATH,
+        ARCHITECTURE_PATH,
+        REPO_ROOT / "tailtriage-cli" / "README.md",
+    )
+    failures: list[str] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for pattern in CLI_LIBRARY_API_STALE_PATTERNS:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                failures.append(f"{path.relative_to(REPO_ROOT)} matches disallowed pattern: {pattern}")
+    if failures:
+        raise ValueError(
+            "docs present tailtriage-cli as library analyzer API:\n" + "\n".join(failures)
+        )
+
+
 def main() -> int:
     _ = parse_args()
     validate_readme_analyzer_example()
@@ -710,6 +738,7 @@ def main() -> int:
     validate_architecture_contract()
     validate_docs_no_history_framing()
     validate_no_user_facing_facade_wording()
+    validate_cli_not_presented_as_library_analyzer_api()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
     print("docs contracts validated successfully")

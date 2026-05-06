@@ -42,6 +42,7 @@ Current workspace members include:
 - `tailtriage-controller`
 - `tailtriage-tokio`
 - `tailtriage-axum`
+- `tailtriage-analyzer`
 - `tailtriage-cli`
 - demos crates under `demos/`
 
@@ -129,9 +130,13 @@ Semantics:
 - middleware starts/finishes request lifecycle at boundary
 - extractor exposes request handle for explicit queue/stage/inflight instrumentation
 
-### 5.8 Analyzer CLI (`tailtriage-cli`)
+### 5.8 In-process analyzer (`tailtriage-analyzer`)
 
-`tailtriage-cli` analyzes artifacts and renders text/JSON reports.
+`tailtriage-analyzer` owns typed report generation for completed in-memory runs or stable snapshots in process. It provides `analyze_run`, `render_text`, and serde-serializable report types.
+
+### 5.9 Analyzer CLI (`tailtriage-cli`)
+
+`tailtriage-cli` owns artifact loading/validation and command-line report emission. It consumes `tailtriage-analyzer` for report generation.
 
 Primary command:
 
