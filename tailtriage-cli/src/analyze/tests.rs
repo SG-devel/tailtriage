@@ -1194,6 +1194,14 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
     assert_eq!(report.route_breakdowns.len(), 2);
     assert_eq!(report.route_breakdowns[0].route, "/a");
     assert_eq!(report.route_breakdowns[1].route, "/b");
+    assert_eq!(
+        report.route_breakdowns[0].primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(
+        report.route_breakdowns[1].primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
     assert!(report
         .warnings
         .iter()
@@ -1219,6 +1227,42 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
     {
         assert!(breakdown.get("route_breakdowns").is_none());
     }
+}
+
+#[test]
+fn multi_route_same_primary_keeps_route_breakdowns_empty() {
+    let mut run = test_run();
+    run.requests.clear();
+    run.queues.clear();
+    run.stages.clear();
+    for idx in 1..=3 {
+        let mut req = sample_request(idx);
+        req.route = "/a".into();
+        req.latency_us = 8_000;
+        run.requests.push(req);
+    }
+    for idx in 4..=6 {
+        let mut req = sample_request(idx);
+        req.route = "/b".into();
+        req.latency_us = 8_500;
+        run.requests.push(req);
+    }
+    for req_id in ["req-1", "req-2", "req-3", "req-4", "req-5", "req-6"] {
+        run.queues.push(QueueEvent {
+            request_id: req_id.to_owned(),
+            queue: "ingress".into(),
+            wait_us: 7_400,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(7),
+        });
+    }
+    let report = analyze_run(&run);
+    assert!(report.route_breakdowns.is_empty());
+    assert!(report
+        .warnings
+        .iter()
+        .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
 }
 
 #[test]
