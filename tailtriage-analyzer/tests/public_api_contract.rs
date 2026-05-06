@@ -20,10 +20,15 @@ fn public_api_supports_typed_analysis_text_render_and_json_serialization() {
     let json_value: Value = serde_json::from_str(&json).expect("json should parse");
 
     assert!(text.contains("Primary suspect:"));
-    assert!(json_value.get("evidence_quality").is_some());
-    assert!(json_value["primary_suspect"]
-        .get("confidence_notes")
-        .is_some());
-    assert!(json_value.get("route_breakdowns").is_some());
-    assert!(json_value.get("temporal_segments").is_some());
+    for path in [
+        "/evidence_quality",
+        "/primary_suspect/confidence_notes",
+        "/route_breakdowns",
+        "/temporal_segments",
+    ] {
+        assert!(
+            json_value.pointer(path).is_some(),
+            "expected JSON path {path}"
+        );
+    }
 }
