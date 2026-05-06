@@ -1,8 +1,16 @@
 # tailtriage-analyzer
 
-`tailtriage-analyzer` analyzes an already completed `tailtriage_core::Run` and produces a typed triage report.
+`tailtriage-analyzer` is the in-process analyzer/report crate for `tailtriage`.
 
-It is designed for in-process report generation from in-memory runs. It does not load run artifacts from disk, and it does not write run artifacts.
+It analyzes a completed in-memory `tailtriage_core::Run` (or stable snapshot equivalent) and returns a typed triage report with evidence-ranked suspects and next checks.
+
+## Installation
+
+```bash
+cargo add tailtriage-analyzer
+```
+
+## In-process API
 
 ```rust
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
@@ -10,25 +18,41 @@ use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 # fn example(run: Run) -> Result<(), serde_json::Error> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
-let report_json = serde_json::to_string_pretty(&report)?;
-# let _ = (text, report_json);
+let json = serde_json::to_string_pretty(&report)?;
+# let _ = (text, json);
 # Ok(())
 # }
 ```
 
-- `Report` is the primary typed output for analyzer/report logic.
-- `render_text(&Report)` produces human-readable output.
-- `serde_json::to_string_pretty(&report)` produces analysis report JSON.
+## Report contract
 
-## Run artifact JSON vs analysis report JSON
+- `Report` is the typed analyzer output model.
+- `render_text(&Report)` renders a human-readable triage report.
+- `serde_json::to_string_pretty(&report)` serializes the same typed report as JSON.
 
-These are distinct outputs and both remain supported:
+Suspects are investigation leads, not proof of root cause.
 
-1. **Run artifact JSON**: raw captured run data produced by capture/shutdown or artifact-writing workflows. This remains part of capture/core/CLI artifact workflows and can still be analyzed later by the CLI.
-2. **Analysis report JSON**: output from analyzing a `Run`, represented by `tailtriage_analyzer::Report` and serialized with serde.
+## Semantics and boundaries
 
-Direct analyzer usage does not replace artifact generation and does not require parsing CLI stdout.
+- Batch/snapshot analysis of one completed run.
+- Not streaming analysis.
+- Artifact loading from disk is CLI-owned (`tailtriage-cli`).
 
-## Execution model
+## Report fields (overview)
 
-Current analyzer semantics are batch/snapshot based for one completed run, not streaming.
+`Report` includes request counts, latency percentiles, queue/service share summaries, warnings, evidence quality, ranked suspects, and optional supporting route/temporal sections.
+
+See root docs for interpretation guidance:
+
+- [`docs/diagnostics.md`](../docs/diagnostics.md)
+- [`docs/user-guide.md`](../docs/user-guide.md)
+
+## Migration note
+
+```rust
+// Old pre-0.1.x API, no longer the supported library analyzer path:
+use tailtriage_cli::analyze::{analyze_run, render_text};
+
+// New:
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+```

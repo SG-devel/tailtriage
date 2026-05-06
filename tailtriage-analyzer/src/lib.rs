@@ -1,8 +1,8 @@
 //! Heuristic triage analyzer for completed [`tailtriage_core::Run`] captures.
 //!
-//! This crate analyzes a finished in-memory [`Run`] and returns a typed
+//! This crate analyzes a finished in-memory [`Run`] (or stable snapshot equivalent) and returns a typed
 //! [`Report`] for in-process diagnosis. It does not load run artifacts from disk and it does not
-//! write capture artifacts.
+//! write capture artifacts; CLI artifact loading is owned by `tailtriage-cli`.
 //!
 //! Use [`analyze_run`] (or [`Analyzer`]) to produce a [`Report`], then:
 //!

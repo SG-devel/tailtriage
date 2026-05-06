@@ -4,13 +4,14 @@ This is the canonical user-facing docs index for `tailtriage`.
 
 ## Start here
 
-- [User guide](user-guide.md) — default adoption path (`tailtriage` + `tailtriage-cli`) and the core capture -> analyze -> next check -> re-run workflow.
+- [User guide](user-guide.md) — default CLI workflow plus concise in-process analysis guidance for Rust users.
 - [Default crate README (`tailtriage`)](../tailtriage/README.md) — fastest way to integrate with one dependency.
 
 ## Core workflow and interpretation
 
 - [Diagnostics guide](diagnostics.md) — quick reading flow plus concise field reference for analyzer output.
-- [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — analyzer/report contract and CLI usage.
+- [Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md) — in-process analyzer/report contract.
+- [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — artifact loader and report-emitter CLI contract.
 
 ## Capture surfaces
 
@@ -21,8 +22,6 @@ This is the canonical user-facing docs index for `tailtriage`.
 ## Practical measurement guidance
 
 - [Diagnostic validation](diagnostic-validation.md) — corpus-driven diagnostic quality validation methodology and metrics.
-
-
 - [Runtime cost measurement](runtime-cost.md) — reproducible overhead attribution path (baked-in, core, sampler, post-limit/drop-path).
 - [Collector limits and stress guidance](collector-limits.md) — sustained-load truncation onset, artifact-size growth, and memory trend interpretation.
 
