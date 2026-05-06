@@ -17,7 +17,7 @@ tailtriage
 - load a captured artifact
 - validate schema compatibility
 - produce JSON or human-readable triage output
-- run analyzer logic on loaded artifacts and rank likely bottleneck families
+- invoke `tailtriage-analyzer` on loaded artifacts and rank likely bottleneck families
 - emit evidence and next checks
 
 The output is intended to guide the next investigation step. It does **not** prove root cause on its own.
