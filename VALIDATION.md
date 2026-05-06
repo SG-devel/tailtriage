@@ -41,6 +41,7 @@ The deterministic benchmark validates:
 - required evidence substrings
 - required next-check substrings when required by a case
 - case-level confidence ceilings (`max_primary_confidence`) for sparse/missing/truncated/mixed evidence humility checks
+- optional expanded-report checks on selected cases (`evidence_quality`, signal-family statuses, confidence-note substrings, route/temporal section presence, and route/temporal warning substrings)
 
 Normal CI enforces this deterministic benchmark directly against `validation/diagnostics/manifest.json` and referenced fixtures. This is a correctness gate for committed corpus/schema drift, not a durable scorecard publication path.
 

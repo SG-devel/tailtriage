@@ -140,6 +140,18 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=1)))
+    def test_manifest_optional_field_validation(self):
+        db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="strong")))
+        with self.assertRaisesRegex(ValueError, "expected_evidence_quality"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="great")))
+        with self.assertRaisesRegex(ValueError, "expected_signal_statuses contains unknown signal family"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"bad": "present"})))
+        with self.assertRaisesRegex(ValueError, "expected_signal_statuses contains unknown status"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"queues": "ok"})))
+        with self.assertRaisesRegex(ValueError, "must_include_confidence_notes"):
+            db.validate_manifest(self.make_manifest(self.make_case(must_include_confidence_notes="not-a-list")))
+        with self.assertRaisesRegex(ValueError, "must_include_route_warning"):
+            db.validate_manifest(self.make_manifest(self.make_case(must_include_route_warning=[1])))
 
     # Report validation tests
     def test_report_missing_primary_fails(self):
@@ -284,6 +296,52 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertFalse(row["confidence_ceiling_ok"])
         self.assertEqual(row["max_primary_confidence"], "medium")
         self.assertEqual(row["primary_confidence"], "high")
+    def test_optional_checks_pass(self):
+        case = self.make_case(
+            expected_evidence_quality="partial",
+            expected_signal_statuses={"queues": "present", "runtime_snapshots": "partial"},
+            must_include_confidence_notes=["partial runtime"],
+            expected_route_breakdowns="non_empty",
+            must_include_route_warning=["not route-attributed"],
+            expected_temporal_segments="non_empty",
+            must_include_temporal_warning=["overlap"],
+            expected_top_level_warnings=["large p95 shift"],
+            allowed_warnings=["large p95 shift"],
+        )
+        report = valid_report(warnings=["large p95 shift"])
+        report["evidence_quality"] = {"quality": "partial", "queues": "present", "runtime_snapshots": "partial"}
+        report["primary_suspect"]["confidence_notes"] = ["partial runtime data observed"]
+        report["route_breakdowns"] = [{"warnings": ["runtime evidence is not route-attributed"]}]
+        report["temporal_segments"] = [{"warnings": ["windows overlap under concurrency"]}]
+        metrics, failures = self.run_single_case(case, report)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["evidence_quality_check_passed_cases"], 1)
+        self.assertEqual(metrics["signal_status_check_passed_cases"], 1)
+
+    def test_optional_checks_fail_with_useful_fields(self):
+        case = self.make_case(
+            expected_evidence_quality="strong",
+            expected_signal_statuses={"queues": "present"},
+            must_include_confidence_notes=["needle"],
+            expected_route_breakdowns="non_empty",
+            must_include_route_warning=["route warn"],
+            expected_temporal_segments="non_empty",
+            must_include_temporal_warning=["temporal warn"],
+            expected_top_level_warnings=["top warn"],
+        )
+        report = valid_report(warnings=[])
+        report["evidence_quality"] = {"quality": "weak", "queues": "missing"}
+        report["route_breakdowns"] = []
+        report["temporal_segments"] = []
+        metrics, failures = self.run_single_case(case, report)
+        self.assertTrue(failures)
+        row = metrics["failed_cases"][0]
+        self.assertFalse(row["evidence_quality_ok"])
+        self.assertFalse(row["signal_status_ok"])
+        self.assertFalse(row["confidence_note_ok"])
+        self.assertFalse(row["route_breakdown_ok"])
+        self.assertFalse(row["temporal_segment_ok"])
+        self.assertTrue(row["missing_top_level_warnings"])
 
     # Threshold and output/path tests
     def test_threshold_failures(self):
@@ -315,7 +373,10 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
                 "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases",
                 "next_check_presence_rate", "next_check_pass_rate", "confidence_ceiling_cases",
                 "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "unexpected_warning_count",
-                "missing_expected_warning_count", "failed_cases",
+                "missing_expected_warning_count", "failed_cases", "evidence_quality_check_cases",
+                "evidence_quality_check_passed_cases", "signal_status_check_cases", "signal_status_check_passed_cases",
+                "confidence_note_check_cases", "confidence_note_check_passed_cases", "route_breakdown_check_cases",
+                "route_breakdown_check_passed_cases", "temporal_segment_check_cases", "temporal_segment_check_passed_cases",
             }
             self.assertEqual(set(metrics.keys()), expected_keys)
 

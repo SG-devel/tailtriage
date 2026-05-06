@@ -27,7 +27,14 @@
       "acceptable_primary": [
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "must_include_next_checks": [],
+      "expected_evidence_quality": "strong",
+      "expected_signal_statuses": {
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing"
+      },
+      "expected_route_breakdowns": "empty"
     },
     {
       "id": "queue_after",
@@ -82,7 +89,14 @@
       "acceptable_primary": [
         "blocking_pool_pressure"
       ],
-      "must_include_next_checks": []
+      "must_include_next_checks": [],
+      "expected_evidence_quality": "partial",
+      "expected_signal_statuses": {
+        "runtime_snapshots": "partial"
+      },
+      "must_include_confidence_notes": [
+        "Runtime snapshots are partial"
+      ]
     },
     {
       "id": "blocking_after",
@@ -509,7 +523,14 @@
       "acceptable_primary": [
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "must_include_next_checks": [],
+      "expected_temporal_segments": "non_empty",
+      "expected_top_level_warnings": [
+        "large p95 latency shift"
+      ],
+      "must_include_temporal_warning": [
+        "Segment windows overlap under concurrent requests"
+      ]
     },
     {
       "id": "blocking_sample",
@@ -1048,6 +1069,67 @@
       ],
       "max_primary_confidence": "low",
       "notes": "Synthetic adversarial high-latency-without-explanatory-signals case: latency alone should not force a specific high-confidence suspect."
+    },
+    {
+      "id": "synthetic_route_divergence",
+      "artifact": "corpus/route-divergence.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "synthetic",
+        "route"
+      ],
+      "must_include_evidence": [
+        "Queue wait dominates"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "notes": "Synthetic route divergence case for optional route breakdown validation coverage.",
+      "expected_route_breakdowns": "non_empty",
+      "must_include_route_warning": [
+        "not route-attributed"
+      ]
+    },
+    {
+      "id": "synthetic_low_request_quality",
+      "artifact": "corpus/low-request-quality.json",
+      "artifact_type": "synthetic_analysis_report",
+      "ground_truth": "insufficient_evidence",
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "tags": [
+        "synthetic",
+        "low-request"
+      ],
+      "must_include_evidence": [
+        "Low request count"
+      ],
+      "must_include_next_checks": [
+        "Increase request volume"
+      ],
+      "expected_warnings": [
+        "Low request count"
+      ],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "notes": "Synthetic low-request case with weak evidence quality and explicit confidence notes.",
+      "max_primary_confidence": "low",
+      "expected_evidence_quality": "weak",
+      "must_include_confidence_notes": [
+        "Low request count"
+      ]
     }
   ]
 }

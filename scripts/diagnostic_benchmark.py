@@ -13,6 +13,9 @@ ALLOWED_GROUND_TRUTH = {
 }
 CONF_HIGH = {"high"}
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+ALLOWED_EVIDENCE_QUALITY = {"strong", "partial", "weak"}
+ALLOWED_SIGNAL_FAMILIES = {"requests", "queues", "stages", "runtime_snapshots", "inflight_snapshots"}
+ALLOWED_SIGNAL_STATUSES = {"present", "missing", "partial", "truncated"}
 
 
 def load_json(path):
@@ -21,6 +24,13 @@ def load_json(path):
 
 
 def validate_manifest(manifest):
+    def validate_substring_list(case, field):
+        value = case[field]
+        if not isinstance(value, list):
+            raise ValueError(f"{field} must be a list of strings for {cid}")
+        if any(not isinstance(item, str) for item in value):
+            raise ValueError(f"{field} must be a list of strings for {cid}")
+
     if not isinstance(manifest, dict) or "cases" not in manifest or not isinstance(manifest["cases"], list):
         raise ValueError("manifest must be an object containing a cases list")
     if manifest.get("schema_version") != 1:
@@ -77,6 +87,29 @@ def validate_manifest(manifest):
                 raise ValueError(f"max_primary_confidence must be a string for {cid}")
             if ceiling not in CONFIDENCE_ORDER:
                 raise ValueError(f"max_primary_confidence must be one of low/medium/high for {cid}")
+        if "expected_evidence_quality" in case:
+            value = case["expected_evidence_quality"]
+            if not isinstance(value, str) or value not in ALLOWED_EVIDENCE_QUALITY:
+                raise ValueError(f"expected_evidence_quality must be one of strong/partial/weak for {cid}")
+        if "expected_signal_statuses" in case:
+            value = case["expected_signal_statuses"]
+            if not isinstance(value, dict):
+                raise ValueError(f"expected_signal_statuses must be an object for {cid}")
+            for family, status in value.items():
+                if family not in ALLOWED_SIGNAL_FAMILIES:
+                    raise ValueError(f"expected_signal_statuses contains unknown signal family for {cid}: {family}")
+                if not isinstance(status, str) or status not in ALLOWED_SIGNAL_STATUSES:
+                    raise ValueError(f"expected_signal_statuses contains unknown status for {cid}: {status}")
+        for field in ["must_include_confidence_notes", "must_include_route_warning", "must_include_temporal_warning", "expected_top_level_warnings"]:
+            if field in case:
+                validate_substring_list(case, field)
+                if "*" in case[field]:
+                    raise ValueError(f"wildcard '*' is not allowed in warnings lists for {cid}")
+        for field in ["expected_route_breakdowns", "expected_temporal_segments"]:
+            if field in case:
+                value = case[field]
+                if not isinstance(value, str) or value not in {"empty", "non_empty"}:
+                    raise ValueError(f"{field} must be one of empty/non_empty for {cid}")
 
 
 def confidence_bucket(conf):
@@ -163,6 +196,16 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
     next_check_presence_cases = 0
     confidence_ceiling_cases = 0
     confidence_ceiling_passed_cases = 0
+    evidence_quality_check_cases = 0
+    evidence_quality_check_passed_cases = 0
+    signal_status_check_cases = 0
+    signal_status_check_passed_cases = 0
+    confidence_note_check_cases = 0
+    confidence_note_check_passed_cases = 0
+    route_breakdown_check_cases = 0
+    route_breakdown_check_passed_cases = 0
+    temporal_segment_check_cases = 0
+    temporal_segment_check_passed_cases = 0
 
     for case in manifest["cases"]:
         report = load_json(root / case["artifact"])
@@ -205,11 +248,79 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
 
         unexpected = [w for w in ext["warnings"] if not any(exp.lower() in w.lower() for exp in (case["expected_warnings"] + case["allowed_warnings"]))]
         missing_expected = [exp for exp in case["expected_warnings"] if not any(exp.lower() in w.lower() for w in ext["warnings"])]
+        expected_top_level = case.get("expected_top_level_warnings", [])
+        missing_top_level = [exp for exp in expected_top_level if not any(exp.lower() in w.lower() for w in ext["warnings"])]
         unexpected_warning_count += len(unexpected)
         missing_expected_warning_count += len(missing_expected)
+        evidence_quality_ok = True
+        expected_evidence_quality = case.get("expected_evidence_quality")
+        actual_evidence_quality = report.get("evidence_quality", {}).get("quality")
+        if expected_evidence_quality is not None:
+            evidence_quality_check_cases += 1
+            evidence_quality_ok = actual_evidence_quality == expected_evidence_quality
+            if evidence_quality_ok:
+                evidence_quality_check_passed_cases += 1
 
-        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (not next_check_ok) or (not confidence_ceiling_ok) or bool(unexpected) or bool(missing_expected)
-        row = {"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "confidence_ceiling_ok": confidence_ceiling_ok, "max_primary_confidence": max_primary_confidence, "primary_confidence": ext["primary_confidence"], "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected}
+        signal_status_ok = True
+        expected_signal_statuses = case.get("expected_signal_statuses")
+        signal_status_mismatches = []
+        if expected_signal_statuses is not None:
+            signal_status_check_cases += 1
+            evidence_quality = report.get("evidence_quality", {})
+            for family, expected in expected_signal_statuses.items():
+                actual = evidence_quality.get(family)
+                if actual != expected:
+                    signal_status_mismatches.append({"family": family, "expected": expected, "actual": actual})
+            signal_status_ok = not signal_status_mismatches
+            if signal_status_ok:
+                signal_status_check_passed_cases += 1
+        notes = []
+        for suspect in [report.get("primary_suspect", {})] + report.get("secondary_suspects", []):
+            notes.extend(suspect.get("confidence_notes") or [])
+        confidence_note_ok = True
+        missing_confidence_notes = []
+        required_confidence_notes = case.get("must_include_confidence_notes")
+        if required_confidence_notes is not None:
+            confidence_note_check_cases += 1
+            missing_confidence_notes = [needle for needle in required_confidence_notes if not any(needle.lower() in note.lower() for note in notes)]
+            confidence_note_ok = not missing_confidence_notes
+            if confidence_note_ok:
+                confidence_note_check_passed_cases += 1
+
+        route_breakdown_ok = True
+        missing_route_warnings = []
+        expected_route_breakdowns = case.get("expected_route_breakdowns")
+        route_breakdowns = report.get("route_breakdowns") or []
+        if expected_route_breakdowns is not None or "must_include_route_warning" in case:
+            route_breakdown_check_cases += 1
+            if expected_route_breakdowns == "empty":
+                route_breakdown_ok = len(route_breakdowns) == 0
+            elif expected_route_breakdowns == "non_empty":
+                route_breakdown_ok = len(route_breakdowns) > 0
+            route_warnings = [w for rb in route_breakdowns for w in rb.get("warnings", [])]
+            missing_route_warnings = [needle for needle in case.get("must_include_route_warning", []) if not any(needle.lower() in w.lower() for w in route_warnings)]
+            route_breakdown_ok = route_breakdown_ok and not missing_route_warnings
+            if route_breakdown_ok:
+                route_breakdown_check_passed_cases += 1
+
+        temporal_segment_ok = True
+        missing_temporal_warnings = []
+        expected_temporal_segments = case.get("expected_temporal_segments")
+        temporal_segments = report.get("temporal_segments") or []
+        if expected_temporal_segments is not None or "must_include_temporal_warning" in case:
+            temporal_segment_check_cases += 1
+            if expected_temporal_segments == "empty":
+                temporal_segment_ok = len(temporal_segments) == 0
+            elif expected_temporal_segments == "non_empty":
+                temporal_segment_ok = len(temporal_segments) > 0
+            temporal_warnings = [w for ts in temporal_segments for w in ts.get("warnings", [])]
+            missing_temporal_warnings = [needle for needle in case.get("must_include_temporal_warning", []) if not any(needle.lower() in w.lower() for w in temporal_warnings)]
+            temporal_segment_ok = temporal_segment_ok and not missing_temporal_warnings
+            if temporal_segment_ok:
+                temporal_segment_check_passed_cases += 1
+
+        case_failed = (not top2_ok) or (case["top1_required"] and not top1_ok) or (not ev_ok) or (not next_check_ok) or (not confidence_ceiling_ok) or (not evidence_quality_ok) or (not signal_status_ok) or (not confidence_note_ok) or (not route_breakdown_ok) or (not temporal_segment_ok) or bool(unexpected) or bool(missing_expected) or bool(missing_top_level)
+        row = {"id": case["id"], "top1_ok": top1_ok, "top2_ok": top2_ok, "evidence_ok": ev_ok, "next_check_ok": next_check_ok, "confidence_ceiling_ok": confidence_ceiling_ok, "max_primary_confidence": max_primary_confidence, "primary_confidence": ext["primary_confidence"], "unexpected_warnings": unexpected, "missing_expected_warnings": missing_expected, "missing_top_level_warnings": missing_top_level, "evidence_quality_ok": evidence_quality_ok, "expected_evidence_quality": expected_evidence_quality, "actual_evidence_quality": actual_evidence_quality, "signal_status_ok": signal_status_ok, "signal_status_mismatches": signal_status_mismatches, "confidence_note_ok": confidence_note_ok, "missing_confidence_notes": missing_confidence_notes, "route_breakdown_ok": route_breakdown_ok, "missing_route_warnings": missing_route_warnings, "temporal_segment_ok": temporal_segment_ok, "missing_temporal_warnings": missing_temporal_warnings}
         results.append(row)
         if case_failed:
             failed_cases.append({**row, "top1_required": case["top1_required"]})
@@ -237,6 +348,16 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
         "unexpected_warning_count": unexpected_warning_count,
         "missing_expected_warning_count": missing_expected_warning_count,
         "failed_cases": failed_cases,
+        "evidence_quality_check_cases": evidence_quality_check_cases,
+        "evidence_quality_check_passed_cases": evidence_quality_check_passed_cases,
+        "signal_status_check_cases": signal_status_check_cases,
+        "signal_status_check_passed_cases": signal_status_check_passed_cases,
+        "confidence_note_check_cases": confidence_note_check_cases,
+        "confidence_note_check_passed_cases": confidence_note_check_passed_cases,
+        "route_breakdown_check_cases": route_breakdown_check_cases,
+        "route_breakdown_check_passed_cases": route_breakdown_check_passed_cases,
+        "temporal_segment_check_cases": temporal_segment_check_cases,
+        "temporal_segment_check_passed_cases": temporal_segment_check_passed_cases,
     }
 
     failures = []

@@ -1,0 +1,23 @@
+{
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "confidence": "medium",
+    "evidence": [
+      "Queue wait dominates route /slow"
+    ],
+    "confidence_notes": [
+      "Route breakdown is available for one route."
+    ]
+  },
+  "secondary_suspects": [],
+  "warnings": [],
+  "route_breakdowns": [
+    {
+      "route": "/slow",
+      "warnings": [
+        "Runtime and in-flight snapshots are not route-attributed; route diagnosis is not route-attributed for executor/blocking evidence."
+      ]
+    }
+  ],
+  "temporal_segments": []
+}

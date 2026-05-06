@@ -22,6 +22,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - `must_include_next_checks`: next-check substrings that must appear when required by a case. Selected adversarial cases use this to validate relevant follow-up guidance.
 - `expected_warnings`: warning substrings that must appear.
 - `allowed_warnings`: warning substrings that may appear in addition to expected warnings (tolerated extras only).
+- Optional expanded-report checks (opt-in per case): `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`.
 - `notes`: workload-intent note explaining why labels are set.
 - `tags`: non-empty string tags for grouping/filtering.
 
@@ -63,7 +64,7 @@ python3 scripts/diagnostic_benchmark.py \
 - repeated-run controlled matrix runner: `scripts/run_diagnostic_matrix.py`
 - mitigation matrix runner: `scripts/run_mitigation_matrix.py`
 
-The deterministic corpus checks fixture-labeled contract behavior. The repeated-run runner checks repeated-run stability for selected controlled demo workloads.
+The deterministic corpus checks fixture-labeled contract behavior. Optional expanded-report checks are intentionally per-case so representative fixtures can validate newer analyzer report surface without making every corpus case brittle. The repeated-run runner checks repeated-run stability for selected controlled demo workloads.
 
 Validation tracks currently include deterministic corpus benchmark, adversarial synthetic coverage (inside the corpus), repeated-run diagnostic matrix, mitigation matrix workflows, and operational validation for runtime cost and collector limits. Operational validation now has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`; diagnostics references them but is not the only operational validation location. Generated operational outputs remain under `target/operational-validation/` and are not committed by default.
 

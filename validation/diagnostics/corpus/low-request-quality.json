@@ -1,0 +1,29 @@
+{
+  "primary_suspect": {
+    "kind": "insufficient_evidence",
+    "confidence": "low",
+    "evidence": [
+      "Low request count limits stable tail interpretation."
+    ],
+    "next_checks": [
+      "Increase request volume and re-run capture."
+    ],
+    "confidence_notes": [
+      "Low request count reduces confidence in ranking."
+    ]
+  },
+  "secondary_suspects": [],
+  "warnings": [
+    "Low request count: tail estimates may be unstable."
+  ],
+  "evidence_quality": {
+    "quality": "weak",
+    "requests": "partial",
+    "queues": "missing",
+    "stages": "missing",
+    "runtime_snapshots": "missing",
+    "inflight_snapshots": "missing"
+  },
+  "route_breakdowns": [],
+  "temporal_segments": []
+}

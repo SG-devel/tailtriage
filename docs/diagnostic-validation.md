@@ -3,7 +3,7 @@
 `tailtriage` validation checks diagnosis quality for triage. It does not provide root-cause proof.
 
 ## Methodology
-The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
+The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics. Selected corpus cases can also opt into checks for expanded report surface (`evidence_quality`, confidence notes, route breakdowns, temporal segments) without requiring every case to pin every field.
 
 ## Deterministic vs repeated-run validation
 Deterministic fixture validation is exercised directly in normal CI against `validation/diagnostics/manifest.json` and referenced fixtures, and is also exercised by the scorecard generator. Durable scorecards are generated only by the versioned/manual snapshot workflow (`validation-snapshot.yml`) on `workflow_dispatch` and `v*` tags. Normal CI does not publish durable diagnostic scorecards.
@@ -30,6 +30,7 @@ The scorecard includes confidence-bucket accuracy summaries (low/medium/high buc
 ## Warning validation
 - `expected_warnings` substrings are required.
 - observed warnings are allowed only if they match `expected_warnings` or `allowed_warnings`.
+- optional case-level checks can assert evidence-quality classification and signal-family statuses, confidence-note substrings, route/temporal section presence (`empty|non_empty`), route/temporal warning substrings, and optional top-level warning substrings.
 
 ## Negative and adversarial validation
 The corpus includes deterministic synthetic adversarial cases for sparse samples, missing instrumentation, truncated artifacts, and mixed-signal workloads. These cases validate triage humility and evidence-ranked suspect visibility under partial data.
