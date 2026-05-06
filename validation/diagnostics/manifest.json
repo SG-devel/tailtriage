@@ -1105,6 +1105,53 @@
         "runtime_snapshots": "partial",
         "inflight_snapshots": "partial"
       }
+    },
+    {
+      "id": "generated_route_divergence",
+      "artifact": "corpus/route-divergence-generated.json",
+      "artifact_type": "analysis_report",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "generated",
+        "route"
+      ],
+      "must_include_evidence": [
+        "Queue wait at p95 consumes 90.0% of request time."
+      ],
+      "notes": "Analyzer-generated route divergence case validating route filtering, route-level caveats, and top-level divergence warning.",
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": [
+        "Inspect queue admission limits"
+      ],
+      "expected_route_breakdowns": "non_empty",
+      "must_include_route_warning": [
+        "not attributed to this route"
+      ],
+      "expected_top_level_warnings": [
+        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
+      ],
+      "allowed_warnings": [
+        "Runtime snapshots are missing blocking_queue_depth or local_queue_depth",
+        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
+      ],
+      "expected_evidence_quality": "weak",
+      "expected_signal_statuses": {
+        "requests": "partial",
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "partial",
+        "inflight_snapshots": "missing"
+      }
     }
   ]
 }

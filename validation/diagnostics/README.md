@@ -36,6 +36,9 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - Use `max_primary_confidence` for humility checks in sparse-sample, missing-instrumentation, truncation, noise-only, or close mixed-signal cases.
 - Confidence ceilings validate conservative triage behavior, not truth probabilities.
 - Synthetic fixtures are report-shaped adversarial coverage artifacts, not substitutes for analyzer-generated captures.
+- Route-breakdown coverage includes analyzer-generated fixtures alongside synthetic fixtures so validation exercises actual analyzer route filtering and warning behavior.
+- Route breakdowns remain supporting triage context; route-level suspects are evidence-ranked leads, not per-route root-cause proof.
+- Runtime snapshots and in-flight gauges are global signals and are not route-attributed unless reliable attribution exists.
 
 ## Running the benchmark
 

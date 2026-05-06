@@ -45,6 +45,10 @@ The corpus includes insufficient-evidence scenarios to validate conservative fal
 ## Synthetic corpus fixture type
 `synthetic_analysis_report` entries are small, hand-readable, report-shaped fixtures used only to cover gaps that real demo fixtures do not cover.
 
+Route-breakdown validation is not synthetic-only: the corpus includes analyzer-generated route-divergence fixtures so checks exercise actual analyzer route filtering, route-breakdown generation, and warning behavior.
+
+Route-level output remains supporting context. Route suspects are evidence-ranked triage leads, not per-route root-cause proof, and runtime/in-flight signals are not route-attributed unless reliable attribution exists.
+
 ## Next-check validation status
 The corpus supports `must_include_next_checks`, and selected adversarial cases use it to validate that reports suggest relevant follow-up actions.
 
