@@ -17,7 +17,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - `required_top2`: diagnosis kinds that must appear in primary or first secondary suspect. Usually `[ground_truth]`. Must include `ground_truth`.
 - `acceptable_primary`: diagnosis kinds acceptable as primary for mixed/ambiguous interpretation. Must include `ground_truth`. This does **not** satisfy `required_top2` by itself.
 - `top1_required`: when `true`, primary kind must equal `ground_truth`.
-- `max_primary_confidence`: optional confidence ceiling for primary suspect (`low|medium|high|very_high`).
+- `max_primary_confidence`: optional confidence ceiling for primary suspect (`low|medium|high`).
 - `must_include_evidence`: evidence substrings that must appear in primary or secondary evidence.
 - `must_include_next_checks`: next-check substrings that must appear when required by a case. Selected adversarial cases use this to validate relevant follow-up guidance.
 - `expected_warnings`: warning substrings that must appear.
