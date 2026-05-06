@@ -205,6 +205,9 @@ fn parse_error_message(error: &serde_json::Error) -> String {
 
 #[cfg(test)]
 mod tests {
+    use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+    use tailtriage_core::Run;
+
     use super::load_run_artifact;
 
     #[test]
@@ -244,6 +247,16 @@ mod tests {
         let message = error.to_string();
 
         assert!(message.contains("requests section is empty"));
+    }
+
+    #[test]
+    fn analyzer_accepts_in_memory_zero_request_run() {
+        let run: Run = serde_json::from_str(&valid_run_json_with_requests("[]"))
+            .expect("in-memory run should deserialize");
+
+        let report = analyze_run(&run, AnalyzeOptions::default());
+
+        assert_eq!(report.request_count, 0);
     }
 
     #[test]
