@@ -306,7 +306,7 @@ pub struct RouteBreakdown {
 /// ```
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
-    analyze_run_with_options(run, &options)
+    Analyzer::new(options).analyze_run(run)
 }
 
 /// Options for heuristic run analysis.
