@@ -19,6 +19,8 @@ DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
+ANALYZER_README_PATH = REPO_ROOT / "tailtriage-analyzer" / "README.md"
+CLI_README_PATH = REPO_ROOT / "tailtriage-cli" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sample-analysis.json"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
@@ -104,6 +106,14 @@ DIAGNOSTIC_BENCHMARK_CI_ARGS = (
 
 STALE_VALIDATION_DOC_PHRASES = (
     "no in normal pr ci",
+)
+
+CAPTURE_INTEGRATION_README_PATHS = (
+    REPO_ROOT / "tailtriage" / "README.md",
+    REPO_ROOT / "tailtriage-core" / "README.md",
+    REPO_ROOT / "tailtriage-controller" / "README.md",
+    REPO_ROOT / "tailtriage-tokio" / "README.md",
+    REPO_ROOT / "tailtriage-axum" / "README.md",
 )
 
 
@@ -570,6 +580,78 @@ def validate_cli_not_presented_as_library_analyzer_api() -> None:
     if hits:
         raise ValueError("CLI/library analyzer contract violation:\n" + "\n".join(hits))
 
+
+def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def validate_analyzer_readme_contract() -> None:
+    text = ANALYZER_README_PATH.read_text(encoding="utf-8")
+    checks: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("in-process analyzer wording", (r"\bin[\s-]?process\b",)),
+        ("completed run/snapshot wording", (r"\bcompleted\b",)),
+        ("Run type mention", (r"\brun\b",)),
+        ("typed report wording", (r"\btyped\b",)),
+        ("Report type mention", (r"\breport\b",)),
+        ("render_text mention", (r"\brender_text\b",)),
+        ("serde_json mention", (r"\bserde_json\b",)),
+        ("AnalyzeOptions::default mention", (r"analyzeoptions::default\(\)",)),
+        ("not streaming wording", (r"\bnot\s+(?:live\s+)?streaming\b",)),
+        (
+            "tailtriage-cli artifact-analysis mention",
+            (r"\btailtriage-cli\b", r"\bartifact", r"\bcommand[\s-]?line\b"),
+        ),
+    )
+    lower = text.lower()
+    failures: list[str] = []
+    for label, patterns in checks:
+        if not _contains_any(lower, patterns):
+            failures.append(label)
+    if failures:
+        raise ValueError("tailtriage-analyzer README missing required contract concepts: " + ", ".join(failures))
+
+
+def validate_cli_readme_contract() -> None:
+    lower = CLI_README_PATH.read_text(encoding="utf-8").lower()
+    checks: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("saved/run artifact loading", (r"(saved|run).{0,40}artifact", r"\bartifact.{0,40}(load|read)")),
+        ("schema validation mention", (r"\bschema\b.{0,50}\bvalidat", r"\bvalidat.{0,50}\bschema\b")),
+        ("non-empty requests loader rule", (r"\bnon[\s-]?empty\b.{0,50}\brequests\b",)),
+        ("tailtriage-analyzer mention", (r"\btailtriage-analyzer\b",)),
+        ("command-line text/json output mention", (r"\bcommand[\s-]?line\b", r"\btext\b.{0,30}\bjson\b")),
+        ("in-process Rust users should use tailtriage-analyzer", (r"\bin[\s-]?process\b", r"\brust\b",)),
+    )
+    failures: list[str] = []
+    for label, patterns in checks:
+        if not _contains_any(lower, patterns):
+            failures.append(label)
+    if failures:
+        raise ValueError("tailtriage-cli README missing required contract concepts: " + ", ".join(failures))
+
+
+def validate_capture_readmes_analyzer_cli_split() -> None:
+    stale_patterns = (
+        r"analysis\s+is\s+still\s+done\s+by\s+`tailtriage-cli`",
+        r"analysis\s+happens\s+in\s+`tailtriage-cli`",
+        r"artifact\s+produced\s+here\s+is\s+analyzed\s+by\s+`tailtriage-cli`",
+        r"writes?\s+artifacts?,\s*`tailtriage-cli`\s+analyzes?\s+them",
+        r"analysis\s+or\s+report\s+generation[\s\S]{0,80}`tailtriage-cli`",
+    )
+    failures: list[str] = []
+    for path in CAPTURE_INTEGRATION_README_PATHS:
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        rel = path.relative_to(REPO_ROOT)
+        if "`tailtriage-analyzer`" not in text:
+            failures.append(f"{rel} must mention `tailtriage-analyzer`")
+        if "`tailtriage-cli`" not in text:
+            failures.append(f"{rel} must mention `tailtriage-cli`")
+        for pattern in stale_patterns:
+            if re.search(pattern, lower, flags=re.IGNORECASE):
+                failures.append(f"{rel} contains stale CLI-only analyzer wording: {pattern}")
+    if failures:
+        raise ValueError("capture/integration README analyzer split violations:\n" + "\n".join(failures))
+
 def _active_yaml_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
@@ -760,6 +842,9 @@ def main() -> int:
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_cli_not_presented_as_library_analyzer_api()
+    validate_analyzer_readme_contract()
+    validate_cli_readme_contract()
+    validate_capture_readmes_analyzer_cli_split()
     validate_diagnostic_benchmark_ci_contract()
     validate_validation_docs_ci_contract()
     validate_architecture_contract()
