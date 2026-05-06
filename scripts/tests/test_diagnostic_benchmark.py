@@ -292,12 +292,20 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
 
 
     def test_optional_manifest_field_validation(self):
+        with self.assertRaisesRegex(ValueError, "expected_evidence_quality must be a string"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality=1)))
         with self.assertRaisesRegex(ValueError, "expected_evidence_quality"):
             db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="bad")))
         with self.assertRaisesRegex(ValueError, "unknown signal family"):
             db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"bad":"present"})))
+        with self.assertRaisesRegex(ValueError, "expected_signal_statuses values must be strings"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"queues": 1})))
         with self.assertRaisesRegex(ValueError, "unknown signal status"):
             db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"queues":"bad"})))
+        with self.assertRaisesRegex(ValueError, "expected_route_breakdowns must be a string"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_route_breakdowns=1)))
+        with self.assertRaisesRegex(ValueError, "expected_temporal_segments must be a string"):
+            db.validate_manifest(self.make_manifest(self.make_case(expected_temporal_segments=1)))
         with self.assertRaisesRegex(ValueError, "must_include_confidence_notes"):
             db.validate_manifest(self.make_manifest(self.make_case(must_include_confidence_notes="x")))
 
@@ -326,6 +334,69 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         metrics, failures = self.run_single_case(case, valid_report())
         self.assertFalse(failures)
         self.assertEqual(metrics["evidence_quality_check_cases"], 0)
+
+    def test_route_temporal_warning_only_checks_count_cases(self):
+        route_case = self.make_case(must_include_route_warning=["route caveat"])
+        route_report = valid_report(route_breakdowns=[{"warnings": ["route caveat noted"]}])
+        metrics, failures = self.run_single_case(route_case, route_report)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["route_breakdown_check_cases"], 1)
+        self.assertEqual(metrics["route_breakdown_check_passed_cases"], 1)
+
+        temporal_case = self.make_case(must_include_temporal_warning=["segment overlap"])
+        temporal_report = valid_report(temporal_segments=[{"warnings": ["segment overlap warning"]}])
+        metrics, failures = self.run_single_case(temporal_case, temporal_report)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["temporal_segment_check_cases"], 1)
+        self.assertEqual(metrics["temporal_segment_check_passed_cases"], 1)
+
+    def test_route_temporal_shape_and_warning_do_not_double_count(self):
+        route_case = self.make_case(expected_route_breakdowns="non_empty", must_include_route_warning=["route caveat"])
+        route_report = valid_report(route_breakdowns=[{"warnings": ["route caveat"]}])
+        metrics, failures = self.run_single_case(route_case, route_report)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["route_breakdown_check_cases"], 1)
+
+        temporal_case = self.make_case(expected_temporal_segments="non_empty", must_include_temporal_warning=["overlap"])
+        temporal_report = valid_report(temporal_segments=[{"warnings": ["overlap"]}])
+        metrics, failures = self.run_single_case(temporal_case, temporal_report)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["temporal_segment_check_cases"], 1)
+
+    def test_failed_rows_include_optional_mismatch_details(self):
+        case = self.make_case(
+            expected_evidence_quality="strong",
+            expected_signal_statuses={"queues": "present"},
+            must_include_confidence_notes=["queue confidence"],
+            must_include_route_warning=["route caveat"],
+            must_include_temporal_warning=["segment overlap"],
+        )
+        report = valid_report(
+            confidence_notes=["other note"],
+            evidence_quality={"quality": "weak", "queues": "missing"},
+            route_breakdowns=[{"warnings": ["different route warning"]}],
+            temporal_segments=[{"warnings": ["different segment warning"]}],
+        )
+        metrics, failures = self.run_single_case(case, report)
+        self.assertTrue(failures)
+        row = metrics["failed_cases"][0]
+        self.assertEqual(row["expected_evidence_quality"], "strong")
+        self.assertEqual(row["actual_evidence_quality"], "weak")
+        self.assertEqual(row["signal_status_mismatches"], [{"family": "queues", "expected": "present", "actual": "missing"}])
+        self.assertEqual(row["missing_confidence_notes"], ["queue confidence"])
+        self.assertEqual(row["missing_route_warnings"], ["route caveat"])
+        self.assertEqual(row["missing_temporal_warnings"], ["segment overlap"])
+
+    def test_malformed_optional_fields_do_not_satisfy_non_empty_checks(self):
+        case = self.make_case(expected_route_breakdowns="non_empty", expected_temporal_segments="non_empty")
+        report = valid_report(route_breakdowns=[], temporal_segments=[])
+        report["route_breakdowns"] = "not-a-list"
+        report["temporal_segments"] = "not-a-list"
+        metrics, failures = self.run_single_case(case, report)
+        self.assertTrue(failures)
+        row = metrics["failed_cases"][0]
+        self.assertFalse(row["route_breakdown_ok"])
+        self.assertFalse(row["temporal_segment_ok"])
     # Threshold and output/path tests
     def test_threshold_failures(self):
         case = self.make_case()
