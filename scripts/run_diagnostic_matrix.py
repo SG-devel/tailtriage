@@ -15,7 +15,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     from scripts._demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze
 
-CONF_HIGH = {"high", "very_high"}
+CONF_HIGH = {"high"}
 DEFAULT_OUT = Path("target/diagnostic-runs.jsonl")
 
 SCENARIO_MATRIX = {

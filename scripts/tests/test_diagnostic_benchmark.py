@@ -132,8 +132,10 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(notes="")))
     def test_manifest_max_primary_confidence_rules(self):
         db.validate_manifest(self.make_manifest(self.make_case()))
-        for allowed in ["low", "medium", "high", "very_high"]:
+        for allowed in ["low", "medium", "high"]:
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=allowed)))
+        with self.assertRaisesRegex(ValueError, "max_primary_confidence must be one of"):
+            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="very_high")))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be one of"):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
@@ -149,6 +151,8 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.extract({"primary_suspect": {"kind": "bad", "confidence": "high", "evidence": []}, "secondary_suspects": [], "warnings": []})
         with self.assertRaisesRegex(ValueError, "confidence"):
             db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "bad", "evidence": []}, "secondary_suspects": [], "warnings": []})
+        with self.assertRaisesRegex(ValueError, "confidence"):
+            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "very_high", "evidence": []}, "secondary_suspects": [], "warnings": []})
         with self.assertRaisesRegex(ValueError, "score"):
             db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "high", "score": "x", "evidence": []}, "secondary_suspects": [], "warnings": []})
         with self.assertRaisesRegex(ValueError, "evidence"):
@@ -162,6 +166,8 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.extract({"primary_suspect": primary, "secondary_suspects": [{"kind": "bad"}], "warnings": []})
         with self.assertRaisesRegex(ValueError, "secondary_suspects.confidence"):
             db.extract({"primary_suspect": primary, "secondary_suspects": [{"confidence": "bad"}], "warnings": []})
+        with self.assertRaisesRegex(ValueError, "secondary_suspects.confidence"):
+            db.extract({"primary_suspect": primary, "secondary_suspects": [{"confidence": "very_high"}], "warnings": []})
         with self.assertRaisesRegex(ValueError, "secondary_suspects.score"):
             db.extract({"primary_suspect": primary, "secondary_suspects": [{"score": "bad"}], "warnings": []})
         with self.assertRaisesRegex(ValueError, "secondary_suspects.evidence"):
