@@ -8,10 +8,10 @@ use super::temporal::{
     TEMPORAL_OVERLAP_ATTRIBUTION_WARNING, TEMPORAL_P95_SHIFT_WARNING,
     TEMPORAL_SUSPECT_SHIFT_WARNING,
 };
-use crate::analyze::{
-    analyze_run, analyze_run_internal, evidence, render_text, Confidence, DiagnosisKind,
-    EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
-    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+use crate::{
+    analyze_run, analyze_run_internal, evidence, render_text, AnalyzeOptions, Confidence,
+    DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report,
+    SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -155,7 +155,7 @@ fn downstream_stage_tie_break_is_deterministic() {
         },
     ];
 
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
@@ -337,7 +337,7 @@ fn analyze_run_emits_truncation_warnings() {
     run.truncation.dropped_runtime_snapshots = 1;
     run.truncation.limits_hit = true;
 
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report.warnings.len() >= 3);
     assert!(report.warnings.iter().any(|warning| {
         warning.contains("dropped evidence can reduce diagnosis completeness and confidence")
@@ -354,7 +354,7 @@ fn analyze_run_emits_truncation_warnings() {
 
 #[test]
 fn low_request_count_warning_appears() {
-    let report = analyze_run(&test_run());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
     assert!(report
         .warnings
         .iter()
@@ -390,7 +390,7 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             depth_at_start: Some(9),
         },
     ];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -403,7 +403,7 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
 
 #[test]
 fn runtime_warning_emitted_when_insufficient_evidence() {
-    let report = analyze_run(&test_run());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
     assert!(report
         .warnings
         .iter()
@@ -440,7 +440,7 @@ fn downstream_beats_weak_blocking() {
         },
     ];
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
@@ -473,7 +473,7 @@ fn score_100_is_reserved_for_overwhelming_queue_evidence() {
             depth_at_start: Some(20),
         })
         .collect();
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -527,7 +527,7 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::BlockingPoolPressure
@@ -557,7 +557,7 @@ fn truncation_warnings_remain_additive() {
     run.truncation.dropped_requests = 1;
     run.truncation.dropped_stages = 1;
     run.truncation.dropped_runtime_snapshots = 1;
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report
         .warnings
         .iter()
@@ -574,7 +574,7 @@ fn truncation_warnings_remain_additive() {
 
 #[test]
 fn evidence_quality_weak_for_low_requests() {
-    let report = analyze_run(&test_run());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
     assert_eq!(report.evidence_quality.quality, EvidenceQualityLevel::Weak);
     assert_eq!(
         report.evidence_quality.requests,
@@ -587,7 +587,7 @@ fn evidence_quality_requests_missing_when_zero_requests_even_if_dropped() {
     let mut run = test_run();
     run.requests.clear();
     run.truncation.dropped_requests = 3;
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.evidence_quality.requests,
         SignalCoverageStatus::Missing
@@ -621,7 +621,7 @@ fn evidence_quality_partial_for_runtime_partial_fields() {
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), None, Some(1)); 10];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.evidence_quality.runtime_snapshots,
         SignalCoverageStatus::Partial
@@ -670,7 +670,7 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
             success: true,
         })
         .collect();
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.evidence_quality.quality,
         EvidenceQualityLevel::Strong
@@ -717,7 +717,7 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
         .collect();
     run.truncation.dropped_queues = 2;
 
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.evidence_quality.queues,
         SignalCoverageStatus::Truncated
@@ -767,7 +767,7 @@ fn confidence_caps_do_not_change_score_ordering() {
         })
         .collect();
     run.truncation.dropped_requests = 1;
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     let mut scores = vec![report.primary_suspect.score];
     scores.extend(report.secondary_suspects.iter().map(|s| s.score));
     assert!(scores.windows(2).all(|w| w[0] >= w[1]));
@@ -799,7 +799,7 @@ fn low_request_count_caps_primary_confidence_and_adds_note() {
             depth_at_start: Some(18),
         })
         .collect();
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
     assert!(report
         .primary_suspect
@@ -846,7 +846,7 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
             count: 10,
         },
     ];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -882,7 +882,7 @@ fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
         })
         .collect();
     run.truncation.dropped_queues = 1;
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report
         .primary_suspect
         .confidence_notes
@@ -942,7 +942,7 @@ fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
         })
         .collect();
     run.truncation.dropped_stages = 1;
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report
         .primary_suspect
         .confidence_notes
@@ -1126,7 +1126,7 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
 
 #[test]
 fn route_breakdowns_empty_for_single_route() {
-    let report = analyze_run(&test_run());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
     assert!(report.route_breakdowns.is_empty());
     assert!(report
         .warnings
@@ -1138,7 +1138,7 @@ fn route_breakdowns_empty_for_single_route() {
 fn single_route_executor_signals_do_not_emit_route_breakdowns_or_divergence_warning() {
     let mut run = test_run();
     run.runtime_snapshots = vec![runtime_snapshot(Some(150), Some(120), Some(2))];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report.route_breakdowns.is_empty());
     assert!(report
         .warnings
@@ -1190,7 +1190,7 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
         });
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.route_breakdowns.len(), 2);
     assert_eq!(report.route_breakdowns[0].route, "/a");
     assert_eq!(report.route_breakdowns[1].route, "/b");
@@ -1257,7 +1257,7 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
             depth_at_start: Some(7),
         });
     }
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report.route_breakdowns.is_empty());
     assert!(report
         .warnings
@@ -1270,14 +1270,14 @@ fn route_breakdowns_do_not_change_global_primary_suspect() {
     let mut run = test_run();
     run.runtime_snapshots = vec![runtime_snapshot(Some(300), Some(250), Some(200))];
     let global = analyze_run_internal(&run);
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
 }
 
 #[test]
 fn temporal_segments_present_and_empty_below_threshold() {
-    let report = analyze_run(&test_run());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
     let value = serde_json::to_value(&report).expect("serialize");
     assert!(value.get("temporal_segments").is_some());
     assert!(report.temporal_segments.is_empty());
@@ -1307,7 +1307,7 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
             depth_at_start: Some(9),
         });
     }
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.temporal_segments.len(), 2);
     let early = report
         .temporal_segments
@@ -1321,7 +1321,7 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
 fn temporal_segments_not_emitted_when_no_meaningful_difference() {
     let mut run = test_run();
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report.temporal_segments.is_empty());
     assert!(!report
         .warnings
@@ -1353,7 +1353,7 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
             success: true,
         });
     }
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.temporal_segments.len(), 2);
     assert_ne!(
         report.temporal_segments[0].primary_suspect.kind,
@@ -1378,7 +1378,7 @@ fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
             req.latency_us = 5_000;
         }
     }
-    let shifted = analyze_run(&run);
+    let shifted = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(shifted.temporal_segments.len(), 2);
     assert!(shifted
         .warnings
@@ -1405,7 +1405,7 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
         });
     }
     let global = analyze_run_internal(&run);
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
 }
@@ -1427,7 +1427,7 @@ fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segment
         gauge: "http.server.requests".into(),
         count: 1,
     }];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report.temporal_segments.is_empty());
 }
 
@@ -1463,7 +1463,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
     }];
 
     let global = analyze_run_internal(&run);
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
 
     assert_eq!(report.temporal_segments.len(), 2);
     assert_ne!(
@@ -1506,7 +1506,7 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
             success: true,
         });
     }
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(report
         .warnings
         .iter()
@@ -1529,7 +1529,7 @@ fn overlapping_temporal_windows_warn_runtime_inflight_attribution_is_approximate
         }
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &report.temporal_segments {
         assert!(segment
@@ -1551,7 +1551,7 @@ fn non_overlapping_temporal_windows_do_not_add_overlap_warning() {
         }
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
-    let report = analyze_run(&run);
+    let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &report.temporal_segments {
         assert!(!segment
@@ -1573,7 +1573,7 @@ fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
         }
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
-    let mut report = analyze_run(&run);
+    let mut report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &mut report.temporal_segments {
         segment.warnings.clear();

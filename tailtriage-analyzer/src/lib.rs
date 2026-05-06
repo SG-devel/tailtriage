@@ -113,7 +113,7 @@ pub struct Suspect {
 }
 
 impl Suspect {
-    pub(super) fn new(
+    fn new(
         kind: DiagnosisKind,
         score: u8,
         evidence: Vec<String>,
@@ -249,7 +249,7 @@ pub struct RouteBreakdown {
 /// Library API example (this does not use the CLI file-loader contract):
 ///
 /// ```
-/// use tailtriage_cli::analyze::analyze_run;
+/// use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 /// use tailtriage_core::{
 ///     CaptureMode, EffectiveCoreConfig, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION,
 /// };
@@ -285,19 +285,44 @@ pub struct RouteBreakdown {
 /// };
 ///
 /// // `analyze_run(&Run)` can operate on an in-memory run with zero requests.
-/// let report = analyze_run(&run);
+/// let report = analyze_run(&run, AnalyzeOptions::default());
 /// assert_eq!(report.request_count, 0);
 /// ```
 #[must_use]
-pub fn analyze_run(run: &Run) -> Report {
-    let mut report = analyze_run_internal(run);
-    let route_context = route::route_breakdowns(run, &report);
-    if route_context.divergent {
-        report.warnings.push(ROUTE_DIVERGENCE_WARNING.to_string());
+pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
+    Analyzer::new(options).analyze_run(run)
+}
+
+/// Options for analyzer behavior.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default)]
+pub struct AnalyzeOptions {}
+
+/// Stateful analyzer wrapper for reuse with fixed options.
+#[derive(Debug, Clone, Default)]
+pub struct Analyzer {
+    options: AnalyzeOptions,
+}
+
+impl Analyzer {
+    #[must_use]
+    pub fn new(options: AnalyzeOptions) -> Self {
+        Self { options }
     }
-    report.route_breakdowns = route_context.breakdowns;
-    report.temporal_segments = temporal::temporal_segments(run, &mut report.warnings);
-    report
+
+    #[must_use]
+    pub fn analyze_run(&self, run: &Run) -> Report {
+        let _ = &self.options;
+
+        let mut report = analyze_run_internal(run);
+        let route_context = route::route_breakdowns(run, &report);
+        if route_context.divergent {
+            report.warnings.push(ROUTE_DIVERGENCE_WARNING.to_string());
+        }
+        report.route_breakdowns = route_context.breakdowns;
+        report.temporal_segments = temporal::temporal_segments(run, &mut report.warnings);
+        report
+    }
 }
 
 fn analyze_run_internal(run: &Run) -> Report {
