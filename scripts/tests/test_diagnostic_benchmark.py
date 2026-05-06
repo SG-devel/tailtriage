@@ -1,6 +1,9 @@
+import contextlib
 import copy
+import io
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -398,6 +401,49 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertFalse(row["route_breakdown_ok"])
         self.assertFalse(row["temporal_segment_ok"])
     # Threshold and output/path tests
+    def test_main_prints_optional_check_counters(self):
+        case = self.make_case(
+            expected_evidence_quality="strong",
+            expected_signal_statuses={"queues": "present"},
+            must_include_confidence_notes=["queue"],
+            expected_route_breakdowns="non_empty",
+            expected_temporal_segments="non_empty",
+        )
+        report = valid_report(
+            confidence_notes=["queue confidence note"],
+            evidence_quality={"quality": "strong", "queues": "present"},
+            route_breakdowns=[{"warnings": []}],
+            temporal_segments=[{"warnings": []}],
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self.write_json(td, case["artifact"], report)
+            manifest = self.write_json(td, "manifest.json", self.make_manifest(case))
+            argv_backup = sys.argv
+            try:
+                sys.argv = [
+                    "diagnostic_benchmark.py",
+                    "--manifest",
+                    str(manifest),
+                    "--min-top1",
+                    "0.0",
+                    "--min-top2",
+                    "0.0",
+                    "--max-high-confidence-wrong",
+                    "99",
+                ]
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    db.main()
+            finally:
+                sys.argv = argv_backup
+
+        output = stdout.getvalue()
+        self.assertIn("evidence_quality_checks=1/1", output)
+        self.assertIn("signal_status_checks=1/1", output)
+        self.assertIn("confidence_note_checks=1/1", output)
+        self.assertIn("route_breakdown_checks=1/1", output)
+        self.assertIn("temporal_segment_checks=1/1", output)
+
     def test_threshold_failures(self):
         case = self.make_case()
         report = valid_report(primary_kind="blocking_pool_pressure")
