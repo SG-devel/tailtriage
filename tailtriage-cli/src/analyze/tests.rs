@@ -1194,6 +1194,18 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
     assert_eq!(report.route_breakdowns.len(), 2);
     assert_eq!(report.route_breakdowns[0].route, "/a");
     assert_eq!(report.route_breakdowns[1].route, "/b");
+    assert_eq!(
+        report.route_breakdowns[0].primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(
+        report.route_breakdowns[1].primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_ne!(
+        report.route_breakdowns[0].primary_suspect.kind,
+        report.route_breakdowns[1].primary_suspect.kind
+    );
     assert!(report
         .warnings
         .iter()
@@ -1229,6 +1241,56 @@ fn route_breakdowns_do_not_change_global_primary_suspect() {
     let report = analyze_run(&run);
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
+}
+
+#[test]
+fn route_breakdowns_empty_when_routes_repeat_global_primary() {
+    let mut run = test_run();
+    run.requests.clear();
+    run.queues.clear();
+    run.stages.clear();
+
+    for idx in 1..=6 {
+        let mut req = sample_request(idx);
+        req.route = "/a".into();
+        req.latency_us = 8_000;
+        run.requests.push(req);
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{idx}"),
+            queue: "ingress".into(),
+            wait_us: 7_000,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(10),
+        });
+    }
+    for idx in 7..=12 {
+        let mut req = sample_request(idx);
+        req.route = "/b".into();
+        req.latency_us = 9_000;
+        run.requests.push(req);
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{idx}"),
+            queue: "ingress".into(),
+            wait_us: 8_000,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(11),
+        });
+    }
+
+    let global = analyze_run_internal(&run);
+    assert_eq!(
+        global.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+
+    let report = analyze_run(&run);
+    assert!(report.route_breakdowns.is_empty());
+    assert!(report
+        .warnings
+        .iter()
+        .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
 }
 
 #[test]
