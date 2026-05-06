@@ -1,19 +1,21 @@
 {
   "request_count": 250,
-  "p50_latency_us": 790543,
-  "p95_latency_us": 1480670,
-  "p99_latency_us": 1531045,
+  "p50_latency_us": 785722,
+  "p95_latency_us": 1469761,
+  "p99_latency_us": 1520329,
   "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 269,
+  "p95_service_share_permille": 265,
   "inflight_trend": {
     "gauge": "queue_service_inflight",
     "sample_count": 500,
     "peak_count": 234,
     "p95_count": 223,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
+    "growth_delta": -1,
+    "growth_per_sec_milli": -603
   },
-  "warnings": [],
+  "warnings": [
+    "Temporal segments show a large p95 latency shift between early and late requests."
+  ],
   "evidence_quality": {
     "request_count": 250,
     "queue_event_count": 250,
@@ -56,8 +58,8 @@
       "score": 33,
       "confidence": "low",
       "evidence": [
-        "Stage 'simulated_work' has p95 latency 26504 us across 250 samples.",
-        "Stage 'simulated_work' cumulative latency is 6593486 us (33 permille of request latency).",
+        "Stage 'simulated_work' has p95 latency 26564 us across 250 samples.",
+        "Stage 'simulated_work' cumulative latency is 6555008 us (33 permille of request latency).",
         "Stage 'simulated_work' contributes 17 permille of tail request latency."
       ],
       "next_checks": [
@@ -73,13 +75,13 @@
     {
       "name": "early",
       "request_count": 125,
-      "started_at_unix_ms": 1777988198785,
-      "finished_at_unix_ms": 1777988199635,
-      "p50_latency_us": 389126,
-      "p95_latency_us": 742305,
-      "p99_latency_us": 792753,
+      "started_at_unix_ms": 1778013227481,
+      "finished_at_unix_ms": 1778013228324,
+      "p50_latency_us": 393555,
+      "p95_latency_us": 736768,
+      "p99_latency_us": 785798,
       "p95_queue_share_permille": 964,
-      "p95_service_share_permille": 521,
+      "p95_service_share_permille": 508,
       "evidence_quality": {
         "request_count": 125,
         "queue_event_count": 125,
@@ -109,7 +111,7 @@
         "evidence": [
           "Queue wait at p95 consumes 96.4% of request time.",
           "Observed queue depth sample up to 114.",
-          "In-flight gauge 'queue_service_inflight' grew by 124 over the run window (p95=225, peak=234)."
+          "In-flight gauge 'queue_service_inflight' grew by 123 over the run window (p95=225, peak=234)."
         ],
         "next_checks": [
           "Inspect queue admission limits and producer burst patterns.",
@@ -123,8 +125,8 @@
           "score": 36,
           "confidence": "low",
           "evidence": [
-            "Stage 'simulated_work' has p95 latency 26598 us across 125 samples.",
-            "Stage 'simulated_work' cumulative latency is 3310569 us (66 permille of request latency).",
+            "Stage 'simulated_work' has p95 latency 26564 us across 125 samples.",
+            "Stage 'simulated_work' cumulative latency is 3283339 us (66 permille of request latency).",
             "Stage 'simulated_work' contributes 34 permille of tail request latency."
           ],
           "next_checks": [
@@ -135,18 +137,20 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     },
     {
       "name": "late",
       "request_count": 125,
-      "started_at_unix_ms": 1777988198842,
-      "finished_at_unix_ms": 1777988200450,
-      "p50_latency_us": 1161949,
-      "p95_latency_us": 1506392,
-      "p99_latency_us": 1555076,
+      "started_at_unix_ms": 1778013227537,
+      "finished_at_unix_ms": 1778013229137,
+      "p50_latency_us": 1153706,
+      "p95_latency_us": 1494131,
+      "p99_latency_us": 1541207,
       "p95_queue_share_permille": 982,
-      "p95_service_share_permille": 32,
+      "p95_service_share_permille": 31,
       "evidence_quality": {
         "request_count": 125,
         "queue_event_count": 125,
@@ -189,8 +193,8 @@
           "score": 33,
           "confidence": "low",
           "evidence": [
-            "Stage 'simulated_work' has p95 latency 26455 us across 125 samples.",
-            "Stage 'simulated_work' cumulative latency is 3282917 us (22 permille of request latency).",
+            "Stage 'simulated_work' has p95 latency 26559 us across 125 samples.",
+            "Stage 'simulated_work' cumulative latency is 3271669 us (22 permille of request latency).",
             "Stage 'simulated_work' contributes 17 permille of tail request latency."
           ],
           "next_checks": [
@@ -201,7 +205,9 @@
           "confidence_notes": []
         }
       ],
-      "warnings": []
+      "warnings": [
+        "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate."
+      ]
     }
   ]
 }
