@@ -7,12 +7,13 @@ This guide teaches the default `tailtriage` workflow for end users.
 For most services, use:
 
 - `tailtriage` for capture instrumentation
-- `tailtriage-cli` for analysis/report generation
+- `tailtriage-cli` for artifact analysis/report generation
 
 Install:
 
 ```bash
 cargo add tailtriage
+cargo add tailtriage-analyzer
 cargo install tailtriage-cli
 ```
 
@@ -59,7 +60,27 @@ Read output in this order:
 
 Then run one targeted check, change one thing, and re-run under comparable load.
 
-## 3) Request lifecycle contract (required)
+
+## 3) In-process analysis (embedded Rust)
+
+If you want analysis/report generation inside service code or tests, use `tailtriage-analyzer`:
+
+```rust
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+
+# use tailtriage_core::Run;
+# fn example(run: Run) -> Result<(), serde_json::Error> {
+let report = analyze_run(&run, AnalyzeOptions::default());
+let text = render_text(&report);
+let json = serde_json::to_string_pretty(&report)?;
+# let _ = (text, json);
+# Ok(())
+# }
+```
+
+Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
+
+## 4) Request lifecycle contract (required)
 
 `begin_request(...)` / `begin_request_with(...)` returns `StartedRequest`:
 
@@ -88,7 +109,7 @@ Important semantics:
 - `shutdown()` does not fabricate completion/outcome
 - `strict_lifecycle(true)` can fail shutdown when unfinished requests remain
 
-## 4) Direct capture vs controller
+## 5) Direct capture vs controller
 
 Use **direct capture** (`Tailtriage`) when you want a straightforward run lifecycle in app code.
 
@@ -120,7 +141,7 @@ let _ = controller.disable()?;
 
 Controller details: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
 
-## 5) Controller TOML config and reload semantics
+## 6) Controller TOML config and reload semantics
 
 Controller config is for repeatable operational settings across environments.
 
@@ -149,7 +170,7 @@ At contract level:
 
 See crate README for the full TOML field reference and expanded starter example: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
 
-## 6) Runtime sampler: when and why
+## 7) Runtime sampler: when and why
 
 Add runtime sampling when request timing alone does not clearly separate:
 
@@ -168,7 +189,7 @@ Key constraints:
 
 Sampler details: [tailtriage-tokio/README.md](../tailtriage-tokio/README.md)
 
-## 7) Axum adapter: what it is and is not
+## 8) Axum adapter: what it is and is not
 
 `tailtriage-axum` is a framework-boundary ergonomics layer:
 
@@ -179,7 +200,7 @@ It is not automatic diagnosis. Queue/stage/inflight instrumentation is still exp
 
 Adapter details: [tailtriage-axum/README.md](../tailtriage-axum/README.md)
 
-## 8) What to do when result is `insufficient_evidence`
+## 9) What to do when result is `insufficient_evidence`
 
 When `primary_suspect.kind` is `insufficient_evidence`:
 
@@ -190,7 +211,7 @@ When `primary_suspect.kind` is `insufficient_evidence`:
 
 Use [diagnostics.md](diagnostics.md) for interpretation details.
 
-## 9) Next docs
+## 10) Next docs
 
 - [Documentation index](README.md)
 - [Diagnostics guide](diagnostics.md)

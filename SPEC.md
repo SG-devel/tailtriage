@@ -42,6 +42,7 @@ Current workspace members include:
 - `tailtriage-controller`
 - `tailtriage-tokio`
 - `tailtriage-axum`
+- `tailtriage-analyzer`
 - `tailtriage-cli`
 - demos crates under `demos/`
 
@@ -129,9 +130,19 @@ Semantics:
 - middleware starts/finishes request lifecycle at boundary
 - extractor exposes request handle for explicit queue/stage/inflight instrumentation
 
-### 5.8 Analyzer CLI (`tailtriage-cli`)
+### 5.8 In-process analyzer (`tailtriage-analyzer`)
 
-`tailtriage-cli` analyzes artifacts and renders text/JSON reports.
+`tailtriage-analyzer` owns typed report generation from completed runs:
+
+- `analyze_run(&Run, AnalyzeOptions) -> Report`
+- `render_text(&Report)` for human-readable output
+- serde-serializable `Report` JSON
+
+Semantics are batch/snapshot for completed runs, not streaming analysis.
+
+### 5.9 Analyzer CLI (`tailtriage-cli`)
+
+`tailtriage-cli` owns artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic.
 
 Primary command:
 
@@ -139,7 +150,7 @@ Primary command:
 tailtriage analyze <run.json>
 ```
 
-## 6. Run artifact and analyzer contract
+## 6. Run artifact, analyzer, and CLI contracts
 
 Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context.
 
