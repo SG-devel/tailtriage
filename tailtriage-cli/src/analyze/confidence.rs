@@ -1,9 +1,9 @@
-use crate::analyze::{Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, Suspect};
 use tailtriage_core::Run;
 
-const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
-const AMBIGUITY_MIN_SCORE_THRESHOLD: u8 = 60;
-const AMBIGUITY_SCORE_GAP_THRESHOLD: u8 = 4;
+use super::{
+    Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, Suspect,
+    AMBIGUITY_MIN_SCORE_THRESHOLD, AMBIGUITY_SCORE_GAP_THRESHOLD, LOW_COMPLETED_REQUEST_THRESHOLD,
+};
 
 pub(super) fn apply_evidence_aware_confidence_caps(
     suspects: &mut [Suspect],

@@ -8,13 +8,13 @@ mod evidence;
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
-const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
+pub(super) const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
 const QUEUE_SHARE_TRIGGER_PERMILLE: u64 = 300;
 const MEDIUM_CONFIDENCE_SCORE_THRESHOLD: u8 = 65;
 const HIGH_CONFIDENCE_SCORE_THRESHOLD: u8 = 85;
 const DOWNSTREAM_MIN_STAGE_SAMPLES: usize = 3;
-const AMBIGUITY_MIN_SCORE_THRESHOLD: u8 = 60;
-const AMBIGUITY_SCORE_GAP_THRESHOLD: u8 = 4;
+pub(super) const AMBIGUITY_MIN_SCORE_THRESHOLD: u8 = 60;
+pub(super) const AMBIGUITY_SCORE_GAP_THRESHOLD: u8 = 4;
 const SAMPLE_QUALITY_HIGH_SAMPLE_COUNT: usize = 100;
 const SAMPLE_QUALITY_MEDIUM_SAMPLE_COUNT: usize = 40;
 const SAMPLE_QUALITY_LOW_SAMPLE_COUNT: usize = 20;
