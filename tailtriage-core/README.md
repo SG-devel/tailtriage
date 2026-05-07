@@ -92,7 +92,7 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 Use `MemorySink` when you want in-process analysis. `DiscardSink` drops finalized runs; use `MemorySink` instead when the finalized `Run` should be analyzed in process.
 
 ```rust,no_run
-use tailtriage::{MemorySink, Tailtriage};
+use tailtriage_core::{MemorySink, Tailtriage};
 
 # fn example() -> Result<(), Box<dyn std::error::Error>> {
 let sink = MemorySink::new();

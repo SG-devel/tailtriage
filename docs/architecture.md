@@ -1,6 +1,6 @@
 # Architecture
 
-`tailtriage` is a file-based triage toolkit for Tokio services.
+`tailtriage` is a capture-to-triage toolkit for Tokio services.
 
 ## Product-level shape
 

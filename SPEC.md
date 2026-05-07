@@ -168,7 +168,7 @@ Analyzer output includes:
 - request count
 - p50/p95/p99 request latency
 - p95 queue/service share summaries
-- warnings (including truncation and lifecycle warnings)
+- warnings, including analyzer/report warnings such as truncation and evidence-quality limitations
 - primary and secondary suspects with evidence and next checks
 
 Schema contract:
