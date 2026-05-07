@@ -477,6 +477,40 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertIn("confidence_note_checks=1/1", output)
         self.assertIn("route_breakdown_checks=1/1", output)
         self.assertIn("temporal_segment_checks=1/1", output)
+        self.assertIn("confidence_bucket_accuracy.low=n/a total=0 correct=0", output)
+        self.assertIn("confidence_bucket_accuracy.medium=n/a total=0 correct=0", output)
+        self.assertIn("confidence_bucket_accuracy.high=1.000 total=1 correct=1", output)
+
+    def test_main_prints_confidence_bucket_accuracy_for_missing_and_present_buckets(self):
+        low_case = self.make_case(id="low-case", artifact="low-case.json")
+        medium_case = self.make_case(id="medium-case", artifact="medium-case.json")
+        low_report = valid_report(confidence="low")
+        medium_report = valid_report(confidence="medium")
+        with tempfile.TemporaryDirectory() as td:
+            self.write_json(td, low_case["artifact"], low_report)
+            self.write_json(td, medium_case["artifact"], medium_report)
+            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(low_case, medium_case))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                with mock.patch(
+                    "sys.argv",
+                    [
+                        "diagnostic_benchmark.py",
+                        "--manifest",
+                        str(manifest_path),
+                        "--min-top1",
+                        "0.0",
+                        "--min-top2",
+                        "0.0",
+                        "--max-high-confidence-wrong",
+                        "99",
+                    ],
+                ):
+                    db.main()
+            output = buf.getvalue()
+        self.assertIn("confidence_bucket_accuracy.low=1.000 total=1 correct=1", output)
+        self.assertIn("confidence_bucket_accuracy.medium=1.000 total=1 correct=1", output)
+        self.assertIn("confidence_bucket_accuracy.high=n/a total=0 correct=0", output)
 
 
 if __name__ == "__main__":
