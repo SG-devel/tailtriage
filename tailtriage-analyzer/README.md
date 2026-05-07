@@ -9,9 +9,11 @@ Use this crate when you already have a completed `tailtriage_core::Run` in memor
 - analyzes one completed run/snapshot in batch
 - returns a typed `Report` with evidence-ranked suspects and next checks
 - renders human-readable output with `render_text(&Report)`
-- supports optional serde-based JSON serialization of `Report`
+- `Report` implements serde::Serialize; add serde_json or another serde serializer in your application when you want encoded JSON output.
 
 Suspects are investigation leads, not proof of root cause.
+
+`tailtriage-analyzer` accepts any `tailtriage_core::Run` value. It is intended for completed/finalized captures or stable snapshots; callers that require finalized artifacts should validate that separately.
 
 ## Installation
 
