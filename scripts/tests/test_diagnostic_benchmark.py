@@ -477,6 +477,23 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertIn("confidence_note_checks=1/1", output)
         self.assertIn("route_breakdown_checks=1/1", output)
         self.assertIn("temporal_segment_checks=1/1", output)
+        self.assertIn("confidence_bucket_accuracy.low=n/a (correct=0 total=0)", output)
+        self.assertIn("confidence_bucket_accuracy.medium=n/a (correct=0 total=0)", output)
+        self.assertIn("confidence_bucket_accuracy.high=1.000 (correct=1 total=1)", output)
+
+    def test_format_confidence_bucket_accuracy_handles_missing_and_zero_totals(self):
+        self.assertEqual(
+            db.format_confidence_bucket_accuracy({}, "low"),
+            "n/a (correct=0 total=0)",
+        )
+        self.assertEqual(
+            db.format_confidence_bucket_accuracy({"low": {"accuracy": 0.0, "correct": 0, "total": 0}}, "low"),
+            "n/a (correct=0 total=0)",
+        )
+        self.assertEqual(
+            db.format_confidence_bucket_accuracy({"low": {"accuracy": 0.5, "correct": 1, "total": 2}}, "low"),
+            "0.500 (correct=1 total=2)",
+        )
 
 
 if __name__ == "__main__":

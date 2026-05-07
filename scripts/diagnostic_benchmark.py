@@ -396,6 +396,18 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
     return metrics, failures
 
 
+def format_confidence_bucket_accuracy(confidence_bucket_accuracy, bucket):
+    bucket_metrics = confidence_bucket_accuracy.get(bucket)
+    if not bucket_metrics:
+        return "n/a (correct=0 total=0)"
+    total = bucket_metrics.get("total", 0)
+    correct = bucket_metrics.get("correct", 0)
+    if not total:
+        return "n/a (correct=0 total=0)"
+    accuracy = bucket_metrics.get("accuracy", 0.0)
+    return f"{accuracy:.3f} (correct={correct} total={total})"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -451,6 +463,11 @@ def main():
         "temporal_segment_checks="
         f"{metrics['temporal_segment_check_passed_cases']}/{metrics['temporal_segment_check_cases']}"
     )
+    for bucket in ("low", "medium", "high"):
+        print(
+            f"confidence_bucket_accuracy.{bucket}="
+            f"{format_confidence_bucket_accuracy(metrics['confidence_bucket_accuracy'], bucket)}"
+        )
     print(f"failed_case_count={len(metrics['failed_cases'])}")
 
     if failures:
