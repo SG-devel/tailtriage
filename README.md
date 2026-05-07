@@ -27,14 +27,20 @@ tailtriage is useful for:
 
 ## When to use tailtriage
 
-Use tailtriage when a Rust/Tokio service has:
-- intermittent request timeouts
-- p95/p99 latency spikes
-- requests or background work that appear stuck during latency spikes
-- low CPU but high latency
-- suspected blocking work inside async code
-- queue buildup before work starts
-- unclear difference between Tokio scheduler pressure and slow downstream dependencies
+| Symptom | tailtriage helps check |
+| --- | --- |
+| p95/p99 latency spikes | whether tail latency is dominated by queueing, executor pressure, blocking-pool pressure, or downstream stage latency |
+| intermittent request timeouts | whether slow requests share a common bottleneck family in one captured run |
+| low CPU but high latency | whether requests are waiting in queues, blocked behind constrained resources, or delayed by downstream work |
+| requests appear stuck | whether time is spent before work starts, inside service execution, or in a named downstream stage |
+| suspected blocking in async code | whether blocking-pool pressure is visible and should be investigated with a targeted follow-up |
+| Tokio runtime seems overloaded | whether runtime-pressure signals point toward executor contention rather than app-level queueing |
+| queue buildup before work starts | whether application queue wait dominates p95 latency |
+| slow database or external API suspected | whether a downstream stage dominates request latency enough to be the next check |
+| flaky latency in staging or production | which bottleneck family is the strongest lead from a bounded capture window |
+| hard-to-reproduce tail spikes | whether a captured slow window contains enough evidence to choose the next experiment |
+| unclear profiler results | whether the latency problem is actually CPU-bound work, queueing, runtime pressure, or downstream waiting |
+| service has partial instrumentation only | whether available request, queue, stage, runtime, or inflight signals are enough for a useful triage lead |
 
 ## Quick start (crates.io)
 
