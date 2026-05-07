@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "run_id": "truncated-run-artifact",
+    "service_name": "svc",
+    "service_version": null,
+    "started_at_unix_ms": 1,
+    "finished_at_unix_ms": 2,
+    "mode": "light",
+    "host": null,
+    "pid": 7
+  },
+  "requests": [
+    {
+      "request_id": "r1",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 100,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r2",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 120,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r3",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 150,
+      "outcome": "ok"
+    }
+  ],
+  "stages": [],
+  "queues": [
+    {
+      "request_id": "r1",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 50,
+      "depth_at_start": 4
+    },
+    {
+      "request_id": "r2",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 75,
+      "depth_at_start": 5
+    },
+    {
+      "request_id": "r3",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 100,
+      "depth_at_start": 6
+    }
+  ],
+  "inflight": [
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 1,
+      "count": 1
+    },
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 2,
+      "count": 3
+    },
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 3,
+      "count": 6
+    }
+  ],
+  "runtime_snapshots": [],
+  "truncation": {
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 2,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "limits_hit": true
+  }
+}

@@ -36,6 +36,7 @@ Normal CI keeps deterministic diagnostics and docs contracts as gates but does n
 ## Deterministic corpus validation
 The deterministic benchmark validates:
 - evidence-ranked suspect correctness against corpus labels
+- analyzer-path behavior on selected committed raw run-artifact fixtures (Run -> analyze_run())
 - required top-2 visibility (`required_top2` appears in primary or first secondary)
 - warning expectations (`expected_warnings` required; unexpected warnings rejected unless explicitly allowed)
 - required evidence substrings
