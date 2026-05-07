@@ -35,7 +35,7 @@ The analysis result is triage guidance (evidence-ranked suspects plus next check
 
 ## Installation
 
-For capture in your service:
+For direct capture or repeated controller-managed capture windows:
 
 ```bash
 cargo add tailtriage
@@ -50,7 +50,7 @@ cargo add tailtriage --features "tokio,axum"
 
 `tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work. 
 
-For command-line analysis of saved artifact JSON:
+For command-line analysis of saved Run artifact JSON:
 
 ```bash
 cargo install tailtriage-cli
