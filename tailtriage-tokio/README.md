@@ -173,7 +173,7 @@ The resolved runtime snapshot retention is then **clamped** by the core run cap:
 
 ## Metrics availability notes
 
-On stable Tokio, the runtime sampler always attempts to populate 
+On stable Tokio, the runtime sampler always attempts to populate
 
 - `alive_tasks`
 - `global_queue_depth`
