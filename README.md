@@ -168,14 +168,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### In-process analysis (library)
 
 ```rust
-use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
 
 # use tailtriage_core::Run;
-# fn example(run: Run) -> Result<(), serde_json::Error> {
+# fn example(run: Run) -> Result<String, tailtriage_analyzer::RenderError> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
-let json = serde_json::to_string_pretty(&report)?;
-# let _ = (text, json);
+let json = render_json_pretty(&report)?;
+# Ok(format!("{text}\n\n{json}"))
+# }
+```
+
+Run artifact JSON is produced by capture sinks and consumed by `tailtriage analyze <run.json>`. Report JSON is produced by `tailtriage-analyzer` and is what CLI `--format json` emits. Typed `Report` is the in-process analyzer output model for Rust users. You can avoid JSON output entirely by using `MemorySink` and the typed `Report`, then call `render_json` or `render_json_pretty` only when you want Report JSON.
+
+
+### In-process analysis with `MemorySink`
+
+```rust,no_run
+use tailtriage::Tailtriage;
+use tailtriage_analyzer::{analyze_run, render_json_pretty, AnalyzeOptions};
+use tailtriage_core::MemorySink;
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let sink = MemorySink::default();
+let run = Tailtriage::builder("checkout-service")
+    .sink(sink.clone())
+    .build()?;
+
+let started = run.begin_request("/checkout");
+started.completion.finish_ok();
+run.shutdown()?;
+
+let finalized = sink.take_run().expect("finalized run");
+let report = analyze_run(&finalized, AnalyzeOptions::default());
+let report_json = render_json_pretty(&report)?;
+# let _ = report_json;
 # Ok(())
 # }
 ```

@@ -36,11 +36,13 @@ Default text output:
 tailtriage analyze tailtriage-run.json
 ```
 
-Machine-readable JSON output:
+Machine-readable JSON output (same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`):
 
 ```bash
 tailtriage analyze tailtriage-run.json --format json
 ```
+
+The CLI consumes run artifact JSON from disk and does not consume Report JSON as input.
 
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
 
