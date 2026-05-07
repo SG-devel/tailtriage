@@ -42,7 +42,10 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+`tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
+
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
+CLI input is Run artifact JSON from disk. CLI does not consume Report JSON as input.
 
 ## How to read the result
 

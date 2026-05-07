@@ -67,16 +67,19 @@ If you want analysis/report generation inside service code or tests, use `tailtr
 
 ```rust
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+use tailtriage_analyzer::render_json_pretty;
 
 # use tailtriage_core::Run;
-# fn example(run: Run) -> Result<(), serde_json::Error> {
+# fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
-let json = serde_json::to_string_pretty(&report)?;
+let json = render_json_pretty(&report)?;
 # let _ = (text, json);
 # Ok(())
 # }
 ```
+
+Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI output. Typed `Report` is the in-process analyzer result.
 
 Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
 
