@@ -13,6 +13,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - `artifact_type`:
   - `analysis_report`: real demo-emitted analyzer report fixture.
   - `synthetic_analysis_report`: hand-written report-shaped synthetic fixture used for coverage gaps.
+  - `run_artifact`: raw captured run fixture analyzed through `tailtriage-cli analyze` (which invokes `analyze_run()`).
 - `ground_truth`: expected diagnostic family for the controlled fixture intent. It does not mean production root-cause proof.
 - `required_top2`: diagnosis kinds that must appear in primary or first secondary suspect. Usually `[ground_truth]`. Must include `ground_truth`.
 - `acceptable_primary`: diagnosis kinds acceptable as primary for mixed/ambiguous interpretation. Must include `ground_truth`. This does **not** satisfy `required_top2` by itself.

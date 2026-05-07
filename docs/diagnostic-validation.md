@@ -70,7 +70,7 @@ Like repeated-run validation, mitigation validation is manual/local, machine/wor
 A manual repeated-run matrix runner is available at `scripts/run_diagnostic_matrix.py`. It repeatedly executes controlled demo scenarios, analyzes each run, and summarizes stability metrics.
 
 This complements deterministic fixture validation:
-- deterministic fixtures validate stable contract behavior on committed artifacts
+- deterministic fixtures validate stable contract behavior on committed artifacts, including raw run-artifact cases that exercise the `run -> analyze_run()` path
 - repeated-run matrix validation measures stability across repeated controlled runs on a specific machine/workload profile
 
 Key repeated-run metrics:

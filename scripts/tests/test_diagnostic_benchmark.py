@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import unittest
+import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -93,6 +94,24 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(id="")))
         with self.assertRaisesRegex(ValueError, "artifact"):
             db.validate_manifest(self.make_manifest(self.make_case(artifact="")))
+
+
+    def test_manifest_allows_run_artifact_type(self):
+        db.validate_manifest(self.make_manifest(self.make_case(artifact_type="run_artifact")))
+
+    def test_run_artifact_uses_cli_analyze_path(self):
+        case = self.make_case(artifact_type="run_artifact")
+        report = valid_report()
+        with tempfile.TemporaryDirectory() as td:
+            self.write_json(td, case["artifact"], {"schema_version": 1})
+            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(case))
+            completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(report), stderr="")
+            with mock.patch("scripts.diagnostic_benchmark.subprocess.run", return_value=completed) as mocked:
+                metrics, failures = db.run(str(manifest_path), 0.0, 0.0, 99)
+            self.assertFalse(failures)
+            self.assertEqual(metrics["total_cases"], 1)
+            called = mocked.call_args[0][0]
+            self.assertIn("tailtriage-cli", called)
 
     def test_manifest_artifact_type_must_be_allowed(self):
         bad = self.make_case(artifact_type="anything_else")

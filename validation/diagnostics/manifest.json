@@ -1105,6 +1105,178 @@
         "runtime_snapshots": "partial",
         "inflight_snapshots": "partial"
       }
+    },
+    {
+      "id": "run_artifact_low_request_count",
+      "artifact": "fixtures/raw/run_low_request_count.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "insufficient_evidence",
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "tags": [
+        "sparse",
+        "run-artifact",
+        "adversarial"
+      ],
+      "must_include_evidence": [
+        "Not enough"
+      ],
+      "must_include_next_checks": [
+        "Enable RuntimeSampler"
+      ],
+      "expected_warnings": [
+        "Low completed-request count",
+        "No runtime snapshots captured"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "max_primary_confidence": "low",
+      "notes": "Raw run artifact adversarial case exercising analyze_run path.",
+      "expected_signal_statuses": {
+        "requests": "partial"
+      }
+    },
+    {
+      "id": "run_artifact_missing_queue_events",
+      "artifact": "fixtures/raw/run_missing_queue_events.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "missing-queue",
+        "run-artifact",
+        "adversarial"
+      ],
+      "must_include_evidence": [
+        "Stage 'db' has p95 latency"
+      ],
+      "must_include_next_checks": [
+        "Inspect downstream dependency"
+      ],
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "max_primary_confidence": "medium",
+      "notes": "Raw run artifact adversarial case exercising analyze_run path.",
+      "expected_signal_statuses": {
+        "queues": "missing"
+      }
+    },
+    {
+      "id": "run_artifact_missing_stage_events",
+      "artifact": "fixtures/raw/run_missing_stage_events.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "missing-stage",
+        "run-artifact",
+        "adversarial"
+      ],
+      "must_include_evidence": [
+        "Queue wait at p95"
+      ],
+      "must_include_next_checks": [
+        "Inspect queue admission limits"
+      ],
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "max_primary_confidence": "medium",
+      "notes": "Raw run artifact adversarial case exercising analyze_run path.",
+      "expected_signal_statuses": {
+        "stages": "missing"
+      }
+    },
+    {
+      "id": "run_artifact_missing_runtime_snapshots",
+      "artifact": "fixtures/raw/run_missing_runtime_snapshots.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "tags": [
+        "missing-runtime",
+        "run-artifact",
+        "adversarial"
+      ],
+      "must_include_evidence": [
+        "Stage 'db' has p95 latency"
+      ],
+      "must_include_next_checks": [
+        "Inspect downstream dependency"
+      ],
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "max_primary_confidence": "medium",
+      "notes": "Raw run artifact adversarial case exercising analyze_run path.",
+      "expected_signal_statuses": {
+        "runtime_snapshots": "missing"
+      }
+    },
+    {
+      "id": "run_artifact_truncated_partial_evidence",
+      "artifact": "fixtures/raw/run_truncated_partial_evidence.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "truncated",
+        "run-artifact",
+        "adversarial"
+      ],
+      "must_include_evidence": [
+        "Queue wait at p95"
+      ],
+      "must_include_next_checks": [
+        "Inspect queue admission limits"
+      ],
+      "expected_warnings": [
+        "Capture limits were hit",
+        "Capture truncated requests",
+        "Capture truncated stages",
+        "Capture truncated queues",
+        "Capture truncated runtime snapshots",
+        "Low completed-request count",
+        "No runtime snapshots captured"
+      ],
+      "allowed_warnings": [],
+      "top1_required": false,
+      "max_primary_confidence": "medium",
+      "notes": "Raw run artifact adversarial case exercising analyze_run path.",
+      "expected_signal_statuses": {
+        "requests": "truncated"
+      }
     }
   ]
 }

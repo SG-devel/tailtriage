@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "run_id": "raw-low-requests",
+    "service_name": "svc",
+    "service_version": null,
+    "started_at_unix_ms": 1,
+    "finished_at_unix_ms": 2,
+    "mode": "light",
+    "host": null,
+    "pid": 7
+  },
+  "requests": [
+    {
+      "request_id": "r1",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r2",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r3",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r4",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r5",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r6",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r7",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r8",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r9",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r10",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r11",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "r12",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40000,
+      "outcome": "ok"
+    }
+  ],
+  "stages": [],
+  "queues": [
+    {
+      "request_id": "r1",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r2",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r3",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r4",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r5",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r6",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r7",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r8",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r9",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r10",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r11",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    },
+    {
+      "request_id": "r12",
+      "queue": "ingress",
+      "wait_us": 30000,
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "depth_at_start": 20
+    }
+  ],
+  "inflight": [],
+  "runtime_snapshots": []
+}
