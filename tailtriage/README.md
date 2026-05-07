@@ -16,6 +16,16 @@ When a Tokio service slows down, the first triage question is often:
 
 The analysis result is triage guidance (evidence-ranked suspects plus next checks), not proof of root cause.
 
+## Common use cases
+
+| Symptom | tailtriage helps check |
+| --- | --- |
+| p95/p99 latency spikes | whether tail time is dominated by queueing, executor pressure, blocking-pool pressure, or downstream stages |
+| low CPU but high latency | whether work is waiting before execution or blocked behind constrained resources |
+| suspected blocking in async code | whether blocking-pool pressure or runtime pressure is visible in captured evidence |
+| requests appear stuck | whether queue wait, service time, or downstream stage latency dominates |
+| flaky Tokio service latency | which bottleneck family is the best next diagnostic lead |
+
 ## Installation
 
 ```bash
