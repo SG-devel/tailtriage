@@ -1603,3 +1603,45 @@ fn public_api_supports_report_text_and_json_contract_fields() {
     assert!(report_json.contains("\"route_breakdowns\""));
     assert!(report_json.contains("\"temporal_segments\""));
 }
+
+#[test]
+fn render_json_pretty_matches_serde_json() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    assert_eq!(
+        crate::render_json_pretty(&report).expect("render_json_pretty should serialize"),
+        serde_json::to_string_pretty(&report).expect("serde pretty serialization should succeed")
+    );
+}
+
+#[test]
+fn render_json_matches_serde_json() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    assert_eq!(
+        crate::render_json(&report).expect("render_json should serialize"),
+        serde_json::to_string(&report).expect("serde compact serialization should succeed")
+    );
+}
+
+#[test]
+fn analyze_run_json_pretty_matches_analyze_then_render() {
+    let run = test_run();
+    let expected = crate::render_json_pretty(&analyze_run(&run, AnalyzeOptions::default()))
+        .expect("render_json_pretty should serialize");
+    let actual = crate::analyze_run_json_pretty(&run, AnalyzeOptions::default())
+        .expect("analyze_run_json_pretty should serialize");
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn compact_json_matches_pretty_json_value() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let compact = crate::render_json(&report).expect("render_json should serialize");
+    let pretty = crate::render_json_pretty(&report).expect("render_json_pretty should serialize");
+
+    let compact_value: serde_json::Value =
+        serde_json::from_str(&compact).expect("compact output should parse as valid JSON");
+    let pretty_value: serde_json::Value =
+        serde_json::from_str(&pretty).expect("pretty output should parse as valid JSON");
+
+    assert_eq!(compact_value, pretty_value);
+}
