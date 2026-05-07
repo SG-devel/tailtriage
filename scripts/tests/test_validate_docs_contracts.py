@@ -705,7 +705,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
                     validate_docs_contracts.validate_controller_readme_toml()
 
     def test_validate_docs_index_contract_checks_paths_not_link_labels(self) -> None:
-    docs_index = """# Documentation index
+      docs_index = """# Documentation index
 
 - [Guide](user-guide.md)
 - [Diag](diagnostics.md)
