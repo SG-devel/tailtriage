@@ -10,7 +10,7 @@
 //! Use [`analyze_run`] (or [`Analyzer`]) to produce a [`Report`], then:
 //!
 //! - call [`render_text`] for human-readable triage output;
-//! - call `serde_json::to_string_pretty(&report)` for analysis report JSON.
+//! - call [`render_json`] or [`render_json_pretty`] for analysis report JSON.
 //!
 //! The analysis report JSON is distinct from raw run artifact JSON produced by capture/artifact
 //! workflows. Raw run artifacts remain available for later CLI analysis.
@@ -310,6 +310,65 @@ pub struct RouteBreakdown {
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
     Analyzer::new(options).analyze_run(run)
+}
+
+/// Renders analyzer [`Report`] JSON in compact form.
+///
+/// This serializes analyzer report data, not raw run artifact JSON produced by
+/// capture/artifact workflows.
+///
+/// # Errors
+///
+/// Returns any serialization error produced by [`serde_json::to_string`].
+#[must_use = "Use the returned JSON string or handle the serialization error."]
+pub fn render_json(report: &Report) -> Result<String, serde_json::Error> {
+    serde_json::to_string(report)
+}
+
+/// Renders analyzer [`Report`] JSON in canonical pretty-printed form.
+///
+/// This is intended as the canonical renderer for CLI JSON output. It
+/// serializes analyzer report data, not raw run artifact JSON produced by
+/// capture/artifact workflows.
+///
+/// # Errors
+///
+/// Returns any serialization error produced by [`serde_json::to_string`].
+#[must_use = "Use the returned JSON string or handle the serialization error."]
+pub fn render_json_pretty(report: &Report) -> Result<String, serde_json::Error> {
+    serde_json::to_string_pretty(report)
+}
+
+/// Analyzes an in-memory [`Run`] and returns compact analyzer [`Report`] JSON.
+///
+/// This analyzes run data first and then serializes the resulting report. The
+/// returned JSON is analyzer report JSON, not raw run artifact JSON.
+///
+/// # Errors
+///
+/// Returns any serialization error produced while rendering the report JSON.
+#[must_use = "Use the returned JSON string or handle the serialization error."]
+pub fn analyze_run_json(run: &Run, options: AnalyzeOptions) -> Result<String, serde_json::Error> {
+    let report = analyze_run(run, options);
+    render_json(&report)
+}
+
+/// Analyzes an in-memory [`Run`] and returns canonical pretty analyzer [`Report`] JSON.
+///
+/// This analyzes run data first and then serializes the resulting report. The
+/// returned JSON is analyzer report JSON intended for CLI JSON output, not raw
+/// run artifact JSON.
+///
+/// # Errors
+///
+/// Returns any serialization error produced while rendering the report JSON.
+#[must_use = "Use the returned JSON string or handle the serialization error."]
+pub fn analyze_run_json_pretty(
+    run: &Run,
+    options: AnalyzeOptions,
+) -> Result<String, serde_json::Error> {
+    let report = analyze_run(run, options);
+    render_json_pretty(&report)
 }
 
 /// Options for heuristic run analysis.

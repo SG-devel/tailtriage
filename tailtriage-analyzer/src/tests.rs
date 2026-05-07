@@ -9,9 +9,10 @@ use super::temporal::{
     TEMPORAL_SUSPECT_SHIFT_WARNING,
 };
 use crate::{
-    analyze_run, analyze_run_internal, evidence, render_text, AnalyzeOptions, Confidence,
-    DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report,
-    SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+    analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
+    render_json_pretty, render_text, AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality,
+    EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
+    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -278,6 +279,46 @@ fn render_text_formats_inflight_trend_fields() {
     assert!(text.contains("p95 7"));
     assert!(text.contains("net growth +5"));
     assert!(text.contains("Request time at p95: queue 10.0%, non-queue service 90.0%"));
+}
+
+#[test]
+fn render_json_matches_serde_compact_for_report() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let rendered = render_json(&report).expect("compact render should succeed");
+    let expected = serde_json::to_string(&report).expect("serde compact render should succeed");
+    assert_eq!(rendered, expected);
+}
+
+#[test]
+fn render_json_pretty_matches_serde_pretty_for_report() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let rendered = render_json_pretty(&report).expect("pretty render should succeed");
+    let expected =
+        serde_json::to_string_pretty(&report).expect("serde pretty render should succeed");
+    assert_eq!(rendered, expected);
+}
+
+#[test]
+fn analyze_run_json_pretty_matches_analyze_then_render_json_pretty() {
+    let run = test_run();
+    let rendered = analyze_run_json_pretty(&run, AnalyzeOptions::default())
+        .expect("analyze+pretty render should succeed");
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let expected = render_json_pretty(&report).expect("pretty render should succeed");
+    assert_eq!(rendered, expected);
+}
+
+#[test]
+fn compact_and_pretty_report_json_have_same_value() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let compact = render_json(&report).expect("compact render should succeed");
+    let pretty = render_json_pretty(&report).expect("pretty render should succeed");
+
+    let compact_value: serde_json::Value =
+        serde_json::from_str(&compact).expect("compact should parse as json");
+    let pretty_value: serde_json::Value =
+        serde_json::from_str(&pretty).expect("pretty should parse as json");
+    assert_eq!(compact_value, pretty_value);
 }
 
 #[test]
