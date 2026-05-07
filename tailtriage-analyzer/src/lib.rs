@@ -10,7 +10,8 @@
 //! Use [`analyze_run`] (or [`Analyzer`]) to produce a [`Report`], then:
 //!
 //! - call [`render_text`] for human-readable triage output;
-//! - call `serde_json::to_string_pretty(&report)` for analysis report JSON.
+//! - call [`render_json`] for compact analysis report JSON;
+//! - call [`render_json_pretty`] for canonical pretty analysis report JSON.
 //!
 //! The analysis report JSON is distinct from raw run artifact JSON produced by capture/artifact
 //! workflows. Raw run artifacts remain available for later CLI analysis.
@@ -310,6 +311,65 @@ pub struct RouteBreakdown {
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
     Analyzer::new(options).analyze_run(run)
+}
+
+/// Renders analyzer [`Report`] JSON in compact form.
+///
+/// This renders analyzer report JSON (the diagnosis output), not raw run artifact JSON.
+///
+/// # Errors
+///
+/// Returns any serialization error from `serde_json::to_string`.
+#[must_use = "The rendered JSON string should be used for output or transport."]
+pub fn render_json(report: &Report) -> Result<String, serde_json::Error> {
+    serde_json::to_string(report)
+}
+
+/// Renders analyzer [`Report`] JSON in canonical pretty form.
+///
+/// This renders analyzer report JSON (the diagnosis output), not raw run artifact JSON.
+/// The pretty output is intended as the canonical renderer for CLI JSON output.
+///
+/// # Errors
+///
+/// Returns any serialization error from `serde_json::to_string_pretty`.
+#[must_use = "The rendered JSON string should be used for output or transport."]
+pub fn render_json_pretty(report: &Report) -> Result<String, serde_json::Error> {
+    serde_json::to_string_pretty(report)
+}
+
+/// Analyzes one in-memory [`Run`] and returns compact analyzer [`Report`] JSON.
+///
+/// This analyzes a run artifact already loaded in memory and returns analyzer report JSON,
+/// not raw run artifact JSON.
+///
+/// # Errors
+///
+/// Returns any serialization error from [`render_json`].
+#[must_use = "The rendered JSON string should be used for output or transport."]
+pub fn analyze_run_json(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, serde_json::Error> {
+    let report = analyze_run(run, options);
+    render_json(&report)
+}
+
+/// Analyzes one in-memory [`Run`] and returns canonical pretty analyzer [`Report`] JSON.
+///
+/// This analyzes a run artifact already loaded in memory and returns analyzer report JSON,
+/// not raw run artifact JSON. The pretty output is intended for CLI JSON output.
+///
+/// # Errors
+///
+/// Returns any serialization error from [`render_json_pretty`].
+#[must_use = "The rendered JSON string should be used for output or transport."]
+pub fn analyze_run_json_pretty(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, serde_json::Error> {
+    let report = analyze_run(run, options);
+    render_json_pretty(&report)
 }
 
 /// Options for heuristic run analysis.
