@@ -72,7 +72,7 @@ use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 # fn example(run: Run) -> Result<(), serde_json::Error> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
-let json = serde_json::to_string_pretty(&report)?;
+let json = tailtriage_analyzer::render_json_pretty(&report);
 # let _ = (text, json);
 # Ok(())
 # }

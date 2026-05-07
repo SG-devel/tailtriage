@@ -47,6 +47,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
+## Output sinks
+
+`tailtriage-core` capture surfaces can finalize runs to different sinks:
+
+- `LocalJsonSink` (or builder `.output(...)`) writes run artifact JSON files.
+- `MemorySink` keeps the last finalized typed `Run` value in memory.
+- `DiscardSink` finalizes lifecycle state and drops the finalized `Run` without persisting output.
+
+`MemorySink` stores only the last finalized `Run` and replaces any earlier stored run.
+`DiscardSink` drops finalized data; use `MemorySink` when you want to analyze the finalized `Run` in process.
+
+```rust,no_run
+use tailtriage_core::{MemorySink, Tailtriage};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let sink = MemorySink::new();
+    let run = Tailtriage::builder("checkout-service")
+        .sink(sink.clone())
+        .build()?;
+
+    let started = run.begin_request("/checkout");
+    started.completion.finish_ok();
+    run.shutdown()?;
+
+    let _finalized_run = sink.take_run();
+    Ok(())
+}
+```
+
 ## Request lifecycle
 
 `begin_request(...)` / `begin_request_with(...)` returns `StartedRequest` with:

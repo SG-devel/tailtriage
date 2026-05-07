@@ -52,7 +52,7 @@ cargo add tailtriage-analyzer
 cargo install tailtriage-cli
 ```
 
-`tailtriage` captures request/runtime evidence. `tailtriage-analyzer` analyzes completed in-memory runs or stable snapshots in process. `tailtriage-cli` analyzes saved run artifacts from the command line.
+`tailtriage` captures request/runtime evidence into run artifact JSON via capture sinks. `tailtriage-cli` consumes run artifact JSON from disk. `tailtriage-analyzer` produces typed `Report` values in process and renders Report JSON when needed.
 
 ## Why not just tokio-console or tokio-metrics?
 
@@ -168,17 +168,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### In-process analysis (library)
 
 ```rust
-use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
 
 # use tailtriage_core::Run;
-# fn example(run: Run) -> Result<(), serde_json::Error> {
+# fn example(run: Run) {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
-let json = serde_json::to_string_pretty(&report)?;
+let json = render_json_pretty(&report);
 # let _ = (text, json);
-# Ok(())
 # }
 ```
+
+
+
+### In-process capture + analysis with `MemorySink`
+
+```rust,no_run
+use tailtriage_core::{MemorySink, Tailtriage};
+use tailtriage_analyzer::{analyze_run, render_json_pretty, AnalyzeOptions};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let sink = MemorySink::new();
+    let run = Tailtriage::builder("checkout-service")
+        .sink(sink.clone())
+        .build()?;
+
+    let started = run.begin_request("/checkout");
+    started.completion.finish_ok();
+    run.shutdown()?;
+
+    if let Some(finalized_run) = sink.take_run() {
+        let report = analyze_run(&finalized_run, AnalyzeOptions::default());
+        let report_json = render_json_pretty(&report);
+        let _ = report_json;
+    }
+
+    Ok(())
+}
+```
+
+You can avoid JSON output entirely by using `MemorySink` plus typed `Report` values in process, and call `render_json` or `render_json_pretty` only when you want Report JSON.
 
 ### Analyze artifact (CLI)
 

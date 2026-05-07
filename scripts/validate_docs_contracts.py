@@ -611,7 +611,9 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         "typed",
         "report",
         "render_text",
-        "serde_json",
+        "render_json",
+        "render_json_pretty",
+        "analyze_run",
         "analyzeoptions::default()",
         "tailtriage-cli",
     )
@@ -625,6 +627,7 @@ def validate_analyzer_cli_docs_split_contract() -> None:
     cli_text = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8")
     cli_lower = cli_text.lower()
     cli_required_patterns = (
+        ("report json vs run artifact json distinction", r"report.{0,80}json.{0,120}(distinct|separate|not).{0,120}run artifact"),
         ("saved/run artifact loading", r"(saved|captured|on-disk|persisted|run).{0,120}artifact"),
         ("schema validation", r"(schema.{0,80}validat|validat.{0,80}schema)"),
         ("non-empty requests loader rule", r"non[-\s]?empty.{0,80}requests"),

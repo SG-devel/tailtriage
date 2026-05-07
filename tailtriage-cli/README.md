@@ -12,7 +12,8 @@ tailtriage
 
 ## What this tool does
 
-`tailtriage-cli` owns the command-line artifact-analysis contract:
+`tailtriage-cli` owns the command-line artifact-analysis contract. It consumes run artifact JSON from disk and does not consume Report JSON as input:
+
 
 - load a captured artifact
 - validate schema compatibility
@@ -36,13 +37,14 @@ Default text output:
 tailtriage analyze tailtriage-run.json
 ```
 
-Machine-readable JSON output:
+Machine-readable JSON output (same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`):
 
 ```bash
 tailtriage analyze tailtriage-run.json --format json
 ```
 
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
+Report JSON output is separate from run artifact JSON input: the CLI reads run artifact JSON and emits Report JSON.
 
 ## How to read the result
 

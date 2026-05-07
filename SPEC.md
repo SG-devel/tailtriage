@@ -69,7 +69,14 @@ Single-run shape:
 
 1. build
 2. capture request lifecycle data
-3. `shutdown()` to finalize artifact
+3. `shutdown()` to finalize artifact output
+
+
+Direct capture output sinks:
+
+- default direct capture writes a local run artifact JSON through `LocalJsonSink`
+- use `MemorySink` when you want the finalized typed `Run` in memory without file output
+- use `DiscardSink` when you want shutdown/finalization without persisting the finalized `Run`
 
 ### 5.3 Request lifecycle contract
 
@@ -136,13 +143,16 @@ Semantics:
 
 - `analyze_run(&Run, AnalyzeOptions) -> Report`
 - `render_text(&Report)` for human-readable output
-- serde-serializable `Report` JSON
+- `render_json(&Report)`
+- `render_json_pretty(&Report)`
+- `analyze_run_json(&Run, AnalyzeOptions)`
+- `analyze_run_json_pretty(&Run, AnalyzeOptions)`
 
 Semantics are batch/snapshot for completed runs, not streaming analysis.
 
 ### 5.9 Analyzer CLI (`tailtriage-cli`)
 
-`tailtriage-cli` owns artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic.
+`tailtriage-cli` owns run artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic. CLI JSON output delegates to `tailtriage-analyzer`'s canonical pretty Report JSON renderer.
 
 Primary command:
 
@@ -151,6 +161,18 @@ tailtriage analyze <run.json>
 ```
 
 ## 6. Run artifact, analyzer, and CLI contracts
+
+Run artifact JSON is capture output and CLI input.
+
+- Produced by capture surfaces and sinks (`LocalJsonSink`, `MemorySink`, `DiscardSink` contract context).
+- Consumed by `tailtriage-cli` loader from disk.
+
+Report JSON is analyzer/CLI output and is not CLI input.
+
+- Produced by `tailtriage-analyzer` rendering (`render_json`, `render_json_pretty`, `analyze_run_json`, `analyze_run_json_pretty`).
+- Emitted by `tailtriage-cli --format json` via analyzer-owned canonical pretty rendering.
+
+Typed `Report` is in-process analyzer output for Rust users.
 
 Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context.
 
