@@ -228,6 +228,7 @@ Expected workspace members:
 - `tailtriage-controller`
 - `tailtriage-tokio`
 - `tailtriage-axum`
+- `tailtriage-analyzer`
 - `tailtriage-cli`
 
 Possible directories:
