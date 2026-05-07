@@ -1,18 +1,38 @@
 use std::process::Command;
 
 use tailtriage_analyzer::{analyze_run, render_json_pretty, AnalyzeOptions};
-use tailtriage_core::Run;
+use tailtriage_core::{RequestOptions, Tailtriage};
 
 #[test]
 fn cli_json_output_matches_analyzer_pretty_renderer() {
-    let dir = tempfile::tempdir().expect("tempdir should build");
-    let artifact_path = dir.path().join("run.json");
+    let tempdir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = tempdir.path().join("run.json");
 
-    std::fs::write(&artifact_path, valid_cli_artifact_with_requests())
-        .expect("fixture should write");
+    let tailtriage = Tailtriage::builder("checkout-service")
+        .output(&artifact_path)
+        .build()
+        .expect("tailtriage should build");
 
-    let exe = env!("CARGO_BIN_EXE_tailtriage");
-    let output = Command::new(exe)
+    let started = tailtriage.begin_request_with(
+        "/checkout",
+        RequestOptions::new().request_id("req-1").kind("http"),
+    );
+    started.completion.finish_ok();
+
+    tailtriage.shutdown().expect("artifact should write");
+
+    let loaded =
+        tailtriage_cli::artifact::load_run_artifact(&artifact_path).expect("artifact should load");
+    assert!(
+        loaded.warnings.is_empty(),
+        "fixture should not produce loader warnings: {:?}",
+        loaded.warnings
+    );
+
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    let expected_json = render_json_pretty(&report).expect("expected report JSON should render");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
         .arg("--format")
@@ -21,21 +41,10 @@ fn cli_json_output_matches_analyzer_pretty_renderer() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
 
-    let cli_stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let stdout = std::str::from_utf8(&output.stdout).expect("stdout should be utf8");
+    let stderr = std::str::from_utf8(&output.stderr).expect("stderr should be utf8");
 
-    let run: Run = serde_json::from_str(valid_cli_artifact_with_requests())
-        .expect("fixture should decode to run");
-    let report = analyze_run(&run, AnalyzeOptions::default());
-    let expected = format!(
-        "{}\n",
-        render_json_pretty(&report).expect("json render should succeed")
-    );
-
-    assert_eq!(cli_stdout, expected);
-}
-
-fn valid_cli_artifact_with_requests() -> &'static str {
-    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
+    assert_eq!(stderr, "");
+    assert_eq!(stdout, format!("{expected_json}\n"));
 }
