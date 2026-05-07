@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveTokioSamplerConfig,
-    Outcome, RequestOptions, RuntimeSamplerRegistrationError, SinkError, Tailtriage,
+    MemorySink, Outcome, RequestOptions, RuntimeSamplerRegistrationError, SinkError, Tailtriage,
 };
 
 #[derive(Debug, Default)]
@@ -198,6 +198,87 @@ fn shutdown_writes_artifact() {
     assert!(
         run.metadata.finalized_at_unix_ms.is_some(),
         "shutdown artifact should include finalized timestamp"
+    );
+}
+
+#[test]
+fn shutdown_with_discard_sink_succeeds() {
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
+        .build()
+        .expect("build should succeed");
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+}
+
+#[test]
+fn memory_sink_stores_finalized_run_after_shutdown() {
+    let sink = MemorySink::new();
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(sink.clone())
+        .build()
+        .expect("build should succeed");
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    let run = sink.last_run().expect("run should be stored");
+    assert!(run.metadata.finalized_at_unix_ms.is_some());
+    assert_eq!(run.requests.len(), 1);
+}
+
+#[test]
+fn memory_sink_last_run_returns_clone_without_clearing() {
+    let sink = MemorySink::new();
+    let mut run = Tailtriage::builder("payments")
+        .build()
+        .expect("build should succeed")
+        .snapshot();
+    run.metadata.run_id = "run-1".to_string();
+    crate::RunSink::write(&sink, &run).expect("write should succeed");
+
+    let first = sink.last_run().expect("run should exist");
+    let second = sink.last_run().expect("run should still exist");
+    assert_eq!(first, second);
+}
+
+#[test]
+fn memory_sink_take_run_returns_and_clears() {
+    let sink = MemorySink::new();
+    let run = Tailtriage::builder("payments")
+        .build()
+        .expect("build should succeed")
+        .snapshot();
+    crate::RunSink::write(&sink, &run).expect("write should succeed");
+    assert!(sink.take_run().is_some(), "take should return run");
+    assert!(sink.last_run().is_none(), "take should clear stored run");
+}
+
+#[test]
+fn memory_sink_clear_removes_stored_run() {
+    let sink = MemorySink::new();
+    let run = Tailtriage::builder("payments")
+        .build()
+        .expect("build should succeed")
+        .snapshot();
+    crate::RunSink::write(&sink, &run).expect("write should succeed");
+    sink.clear();
+    assert!(sink.last_run().is_none());
+}
+
+#[test]
+fn memory_sink_clone_handle_observes_builder_write() {
+    let sink = MemorySink::new();
+    let sink_for_builder = sink.clone();
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(sink_for_builder)
+        .build()
+        .expect("build should succeed");
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    assert!(
+        sink.last_run().is_some(),
+        "original handle should observe run"
     );
 }
 
