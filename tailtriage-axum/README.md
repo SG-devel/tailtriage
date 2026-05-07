@@ -12,7 +12,7 @@ This crate gives you three Axum-facing pieces:
 - `middleware_with_status_classifier(...)` to customize HTTP-status -> outcome mapping
 - `TailtriageRequest` extractor to access the request-scoped handle in handlers
 
-This crate is about integration ergonomics. It does not replace explicit instrumentation inside the request body.
+This crate is about integration ergonomics. It does not replace explicit instrumentation inside the request body. For normally returned responses, the middleware starts and finishes the request lifecycle at the Axum boundary; a panic or abort before `next.run` returns would skip the explicit finish path.
 
 The primary integration path in this crate is `middleware`, `middleware_with_status_classifier(...)`, and `TailtriageRequest`.
 
