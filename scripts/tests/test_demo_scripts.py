@@ -191,6 +191,54 @@ class DemoWrapperTests(unittest.TestCase):
                 scenario="queue",
             )
 
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_downstream")
+    def test_validate_downstream_uses_downstream_specific_helper(
+        self,
+        _run_scenario_downstream_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 80, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 50_000,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 75, "evidence": []},
+            "secondary_suspects": [],
+            "p95_latency_us": 40_000,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        with patch("demo_tool._validate_nonworsening_downstream_score") as downstream_helper:
+            demo_tool.validate_downstream(Path("/tmp/tailscope"), profile="dev")
+
+        downstream_helper.assert_called_once_with(
+            before=before_report,
+            after=after_report,
+            expected_primary_kinds={"downstream_stage_dominates"},
+            scenario="downstream",
+        )
+
+    def test_downstream_score_increase_rejected_when_kind_shifts(self) -> None:
+        before = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 70},
+            "p95_latency_us": 100_000,
+        }
+        after = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 75},
+            "p95_latency_us": 80_000,
+            "p95_queue_share_permille": 0,
+        }
+        with self.assertRaisesRegex(SystemExit, "expected mitigated downstream primary suspect"):
+            demo_tool._validate_nonworsening_downstream_score(
+                before=before,
+                after=after,
+                expected_primary_kinds={"downstream_stage_dominates"},
+                scenario="downstream",
+            )
+
     def test_queue_score_increase_allows_primary_shift_when_queue_share_drops_materially(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
