@@ -4,8 +4,9 @@ use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveTokioSamplerConfig,
-    Outcome, RequestOptions, RuntimeSamplerRegistrationError, SinkError, Tailtriage,
+    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, DiscardSink,
+    EffectiveTokioSamplerConfig, MemorySink, Outcome, RequestOptions,
+    RuntimeSamplerRegistrationError, SinkError, Tailtriage,
 };
 
 #[derive(Debug, Default)]
@@ -199,6 +200,52 @@ fn shutdown_writes_artifact() {
         run.metadata.finalized_at_unix_ms.is_some(),
         "shutdown artifact should include finalized timestamp"
     );
+}
+
+#[test]
+fn shutdown_with_discard_sink_succeeds() {
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(DiscardSink)
+        .build()
+        .expect("build should succeed");
+
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+}
+
+#[test]
+fn memory_sink_stores_finalized_run_after_shutdown() {
+    let sink = MemorySink::new();
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(sink.clone())
+        .build()
+        .expect("build should succeed");
+
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    let run = sink.last_run().expect("run should be stored");
+    assert_eq!(run.requests.len(), 1);
+    assert!(
+        run.metadata.finalized_at_unix_ms.is_some(),
+        "stored run should be finalized"
+    );
+}
+
+#[test]
+fn memory_sink_clone_handle_can_read_run_after_shutdown() {
+    let sink = MemorySink::new();
+    let sink_for_builder = sink.clone();
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(sink_for_builder)
+        .build()
+        .expect("build should succeed");
+
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    let run = sink.last_run().expect("original handle should read run");
+    assert_eq!(run.requests.len(), 1);
 }
 
 #[test]

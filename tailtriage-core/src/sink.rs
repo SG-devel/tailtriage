@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Error as IoError, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Run;
@@ -92,6 +93,81 @@ impl RunSink for LocalJsonSink {
     }
 }
 
+/// Sink that finalizes the capture lifecycle and intentionally drops the finalized run.
+///
+/// Use this sink when you want shutdown/finalization behavior without persisting a
+/// JSON run artifact.
+///
+/// If you need to inspect the finalized [`Run`] in-process instead of writing a
+/// file artifact, use [`MemorySink`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DiscardSink;
+
+impl RunSink for DiscardSink {
+    fn write(&self, _run: &Run) -> Result<(), SinkError> {
+        Ok(())
+    }
+}
+
+/// Sink that stores the finalized run in memory and writes no file artifact.
+///
+/// This sink keeps only the last finalized [`Run`]. Each new write replaces any
+/// previously stored run.
+///
+/// Storing finalized runs clones captured data, which can increase memory use for
+/// larger captures.
+#[derive(Debug, Clone, Default)]
+pub struct MemorySink {
+    run: Arc<Mutex<Option<Run>>>,
+}
+
+impl MemorySink {
+    /// Creates a memory sink with no stored run.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a clone of the last finalized run without clearing it.
+    #[must_use]
+    pub fn last_run(&self) -> Option<Run> {
+        let guard = match self.run.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.clone()
+    }
+
+    /// Returns the stored run and clears it from memory.
+    pub fn take_run(&self) -> Option<Run> {
+        let mut guard = match self.run.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.take()
+    }
+
+    /// Clears any stored finalized run.
+    pub fn clear(&self) {
+        let mut guard = match self.run.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = None;
+    }
+}
+
+impl RunSink for MemorySink {
+    fn write(&self, run: &Run) -> Result<(), SinkError> {
+        let mut guard = match self.run.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = Some(run.clone());
+        Ok(())
+    }
+}
+
 fn create_temp_path(parent: &Path, final_path: &Path) -> PathBuf {
     let file_name = final_path
         .file_name()
@@ -151,9 +227,10 @@ impl std::error::Error for SinkError {
 
 #[cfg(test)]
 mod tests {
-    use super::{finalize_temp_file, LocalJsonSink, RunSink, SinkError};
+    use super::{finalize_temp_file, DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
     use crate::{CaptureMode, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION};
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_path(suffix: &str) -> PathBuf {
@@ -203,6 +280,92 @@ mod tests {
         assert_eq!(restored.schema_version, SCHEMA_VERSION);
 
         let _ = std::fs::remove_file(output);
+    }
+
+    #[test]
+    fn discard_sink_write_succeeds() {
+        let sink = DiscardSink;
+        sink.write(&sample_run())
+            .expect("discard write should succeed");
+    }
+
+    #[test]
+    fn memory_sink_last_run_returns_clone_without_clearing() {
+        let sink = MemorySink::new();
+        let run = sample_run();
+        sink.write(&run).expect("memory write should succeed");
+
+        let first = sink.last_run().expect("run should be present");
+        let second = sink.last_run().expect("run should still be present");
+        assert_eq!(first, run);
+        assert_eq!(second, run);
+    }
+
+    #[test]
+    fn memory_sink_take_run_returns_and_clears() {
+        let sink = MemorySink::new();
+        let run = sample_run();
+        sink.write(&run).expect("memory write should succeed");
+
+        assert_eq!(sink.take_run(), Some(run));
+        assert!(
+            sink.take_run().is_none(),
+            "run should be cleared after take"
+        );
+    }
+
+    #[test]
+    fn memory_sink_clear_clears_stored_run() {
+        let sink = MemorySink::new();
+        sink.write(&sample_run())
+            .expect("memory write should succeed");
+        sink.clear();
+        assert!(sink.last_run().is_none(), "clear should remove stored run");
+    }
+
+    #[test]
+    fn memory_sink_replaces_previous_run_on_write() {
+        let sink = MemorySink::new();
+        let mut first = sample_run();
+        first.metadata.run_id = "run-first".to_string();
+        sink.write(&first).expect("first write should succeed");
+
+        let mut second = sample_run();
+        second.metadata.run_id = "run-second".to_string();
+        sink.write(&second).expect("second write should succeed");
+
+        let stored = sink.last_run().expect("run should be present");
+        assert_eq!(stored.metadata.run_id, "run-second");
+    }
+
+    #[test]
+    fn memory_sink_recovers_from_poisoned_mutex() {
+        let sink = MemorySink {
+            run: Arc::new(Mutex::new(None)),
+        };
+
+        let poison_for = |sink: &MemorySink| {
+            let run = Arc::clone(&sink.run);
+            let _ = std::thread::spawn(move || {
+                let _guard = run.lock().expect("lock should succeed");
+                panic!("poison mutex");
+            })
+            .join();
+        };
+
+        poison_for(&sink);
+        assert!(sink.last_run().is_none(), "last_run should recover");
+
+        poison_for(&sink);
+        assert!(sink.take_run().is_none(), "take_run should recover");
+
+        poison_for(&sink);
+        sink.clear();
+        assert!(sink.last_run().is_none(), "clear should recover");
+
+        poison_for(&sink);
+        sink.write(&sample_run()).expect("write should recover");
+        assert!(sink.last_run().is_some(), "write should store run");
     }
 
     #[test]
