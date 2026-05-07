@@ -613,6 +613,8 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         "render_json",
         "render_json_pretty",
         "analyze_run",
+        "analyze_run_json",
+        "analyze_run_json_pretty",
         "render_text",
         "analyzeoptions::default()",
         "tailtriage-cli",
@@ -634,6 +636,7 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         ("command-line text/json output", r"(command[-\s]?line|cli).{0,160}(text|json|human-readable)"),
         ("in-process pointer for Rust users", r"(rust|in-process).{0,120}tailtriage-analyzer"),
         ("report vs run artifact json distinction", r"(report json).{0,140}(run artifact json|artifact json)|(run artifact json).{0,140}(report json)"),
+        ("cli does not consume report json as input", r"(does\s+not|never|is\s+not).{0,120}(consume|accept|load|read).{0,80}report json.{0,80}(input|artifact)"),
     )
     for label, pattern in cli_required_patterns:
         if re.search(pattern, cli_lower, flags=re.IGNORECASE | re.DOTALL) is None:
