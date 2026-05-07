@@ -61,3 +61,13 @@ Use these docs when contributing or trying to understand how the workspace fits 
 
 - [Architecture](architecture.md) — crate responsibilities and the file-based triage pipeline.
 - [Project spec](../SPEC.md) — product and implementation specification.
+
+## Repository, releases, and policies
+
+Use these docs for project-level information rather than product workflow guidance.
+
+- [Repository README](../README.md) — top-level project overview, quick start, examples, and docs map.
+- [Changelog](../CHANGELOG.md) — release history and notable changes.
+- [Contributing guide](../CONTRIBUTING.md) — contributor workflow, scope guardrails, local checks, and docs-update expectations.
+- [Code of Conduct](../CODE_OF_CONDUCT.md) — community participation policy.
+- [Security policy](../SECURITY.md) — private vulnerability reporting guidance.
