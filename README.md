@@ -45,14 +45,23 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-Install analyzer/report tooling based on how you work:
+`tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work. 
+
+For command-line analysis of saved artifact JSON:
 
 ```bash
-cargo add tailtriage-analyzer
 cargo install tailtriage-cli
 ```
 
-`tailtriage` captures request/runtime evidence. Capture sinks produce **Run artifact JSON** for file workflows. `tailtriage-cli` consumes Run artifact JSON from disk. `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers. Suspects are leads, not proof of root cause, and `tailtriage` is not an observability backend.
+For in-process Rust analysis/report generation:
+
+```bash
+cargo add tailtriage-analyzer
+```
+
+The difference between `tailtriage-cli` and `tailtriage-analyzer`:
+- `tailtriage-cli` consumes Run artifact JSON from disk.
+- `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
 
 ## Why not just tokio-console or tokio-metrics?
 
