@@ -59,7 +59,7 @@ For in-process Rust analysis/report generation:
 cargo add tailtriage-analyzer
 ```
 
-The difference between `tailtriage-cli` and `tailtriage-analyzer`:
+Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust code.
 - `tailtriage-cli` consumes Run artifact JSON from disk.
 - `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
 
