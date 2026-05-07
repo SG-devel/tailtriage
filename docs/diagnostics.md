@@ -2,6 +2,8 @@
 
 This guide explains analyzer report interpretation for both `tailtriage_analyzer::analyze_run` and `tailtriage analyze`.
 
+Terminology: Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI output. Typed `Report` is analyzer in-process output. Text rendering is `render_text`.
+
 ## Read one report quickly
 
 1. Check `primary_suspect.kind`.

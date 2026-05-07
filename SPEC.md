@@ -136,13 +136,16 @@ Semantics:
 
 - `analyze_run(&Run, AnalyzeOptions) -> Report`
 - `render_text(&Report)` for human-readable output
-- serde-serializable `Report` JSON
+- `render_json(&Report)` for canonical compact Report JSON
+- `render_json_pretty(&Report)` for canonical pretty Report JSON
+- `analyze_run_json(&Run, AnalyzeOptions)` for analyze+compact Report JSON
+- `analyze_run_json_pretty(&Run, AnalyzeOptions)` for analyze+pretty Report JSON
 
 Semantics are batch/snapshot for completed runs, not streaming analysis.
 
 ### 5.9 Analyzer CLI (`tailtriage-cli`)
 
-`tailtriage-cli` owns artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic.
+`tailtriage-cli` owns artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic. CLI JSON output delegates to `tailtriage-analyzer`’s canonical pretty Report JSON renderer.
 
 Primary command:
 
@@ -153,6 +156,12 @@ tailtriage analyze <run.json>
 ## 6. Run artifact, analyzer, and CLI contracts
 
 Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context.
+
+Direct capture lifecycle output options:
+
+- default direct capture writes a local run artifact JSON through `LocalJsonSink`
+- choose `MemorySink` when you want a finalized typed `Run` in memory without file output
+- choose `DiscardSink` when you want shutdown/finalization without persisting the finalized `Run`
 
 Analyzer output includes:
 
@@ -166,6 +175,12 @@ Schema contract:
 
 - artifacts require top-level `schema_version`
 - current supported schema version is `1`
+
+Artifact/report contract split:
+
+- **Run artifact JSON**: capture output and CLI input
+- **Report JSON**: analyzer/CLI output and not CLI input
+- **Typed `Report`**: in-process analyzer output for Rust users
 
 ## 7. Suspect taxonomy
 

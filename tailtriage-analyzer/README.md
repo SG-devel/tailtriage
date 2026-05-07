@@ -2,14 +2,15 @@
 
 `tailtriage-analyzer` is the in-process analyzer/report crate for `tailtriage`.
 
-Use this crate when you already have a completed `tailtriage_core::Run` in memory (or an equivalent stable snapshot) and want a typed triage report, text rendering, and optional JSON serialization in your Rust process.
+Use this crate when you already have a completed `tailtriage_core::Run` in memory (or an equivalent stable snapshot) and want a typed triage report, text rendering, and canonical Report JSON rendering in your Rust process.
 
 ## What this crate does
 
 - analyzes one completed run/snapshot in batch
 - returns a typed `Report` with evidence-ranked suspects and next checks
 - renders human-readable output with `render_text(&Report)`
-- `Report` implements serde::Serialize; add serde_json or another serde serializer in your application when you want encoded JSON output.
+- renders canonical Report JSON with `render_json(&Report)` and `render_json_pretty(&Report)`
+- provides analyze+render helpers: `analyze_run_json` and `analyze_run_json_pretty`
 
 Suspects are investigation leads, not proof of root cause.
 
@@ -19,12 +20,6 @@ Suspects are investigation leads, not proof of root cause.
 
 ```bash
 cargo add tailtriage-analyzer
-```
-
-If you want JSON serialization output from your Rust code, also add:
-
-```bash
-cargo add serde_json
 ```
 
 ## How to obtain a `Run`
@@ -40,13 +35,13 @@ Typical flow:
 ## In-process API
 
 ```rust
-use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
 use tailtriage_core::Run;
 
-fn render_report(run: &Run) -> Result<String, serde_json::Error> {
+fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
     let report = analyze_run(run, AnalyzeOptions::default());
     let text = render_text(&report);
-    let json = serde_json::to_string_pretty(&report)?;
+    let json = render_json_pretty(&report)?;
     Ok(format!("{text}\n\n{json}"))
 }
 ```
@@ -57,13 +52,16 @@ fn render_report(run: &Run) -> Result<String, serde_json::Error> {
 - `AnalyzeOptions::default()` is the normal path today and leaves room for future analyzer options
 - `Report` is the typed analyzer output model and should be your primary integration surface
 - `render_text` is for human-readable triage output
-- serde JSON for `Report` is optional and requires user-side `serde_json`
+- `render_json` and `render_json_pretty` are canonical Report JSON renderers
+- `analyze_run_json` and `analyze_run_json_pretty` combine analysis + canonical JSON rendering
+- Report JSON is analyzer output and is distinct from raw Run artifact JSON input
 
 ## Semantics and boundaries
 
 - batch/snapshot analysis of one completed run
 - not streaming analysis
 - artifact loading from disk is CLI-owned (`tailtriage-cli`)
+- CLI `--format json` uses the same canonical pretty Report JSON rendering path
 
 ## Report fields (overview)
 
