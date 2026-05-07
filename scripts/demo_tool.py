@@ -277,6 +277,32 @@ def _validate_nonworsening_score_or_explainable_saturation(
             f"got queue share {before.get('p95_queue_share_permille')}->{after.get('p95_queue_share_permille')}"
         )
 
+
+def _validate_nonworsening_score_for_downstream(
+    *,
+    before: dict,
+    after: dict,
+    expected_primary_kinds: set[str],
+    scenario: str,
+) -> None:
+    before_score = before["primary_suspect"]["score"]
+    after_score = after["primary_suspect"]["score"]
+    if after_score <= before_score:
+        return
+
+    before_p95 = before["p95_latency_us"]
+    after_p95 = after["p95_latency_us"]
+    after_kind = after["primary_suspect"]["kind"]
+    if not _material_p95_improvement(before_p95, after_p95):
+        raise SystemExit(
+            f"expected mitigated {scenario} suspect score to stay flat or drop when p95 does not materially improve, "
+            f"got p95 {before_p95}->{after_p95} and score {before_score}->{after_score}"
+        )
+    if after_kind not in expected_primary_kinds:
+        raise SystemExit(
+            f"expected mitigated {scenario} primary suspect in {sorted(expected_primary_kinds)} when score rises, got {after_kind}"
+        )
+
 def validate_queue(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_queue(root_dir, "both", profile=profile)
     artifact_dir = root_dir / "demos/queue_service/artifacts"
@@ -402,11 +428,11 @@ def validate_downstream(root_dir: Path, *, profile: str = "dev") -> None:
 
     before_score = before["primary_suspect"]["score"]
     after_score = after["primary_suspect"]["score"]
-    _validate_nonworsening_score_or_explainable_saturation(
+    _validate_nonworsening_score_for_downstream(
         before=before,
         after=after,
-        expected_primary_kinds=EXPECTED_COLD_START_PRIMARY_KINDS,
-        scenario="cold-start",
+        expected_primary_kinds=EXPECTED_DOWNSTREAM_KIND,
+        scenario="downstream",
     )
 
     print(
