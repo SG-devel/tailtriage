@@ -13,6 +13,29 @@ It produces a triage report with **evidence-ranked suspects** and **next checks*
 - Not an observability backend.
 - Not root-cause proof on its own.
 
+## Problems tailtriage helps diagnose
+
+tailtriage is useful for:
+- Tokio latency debugging
+- Rust async performance triage
+- debugging flaky Tokio services
+- investigating p95/p99 latency spikes
+- finding executor pressure
+- identifying blocking-pool pressure
+- distinguishing queueing from downstream latency
+- lightweight production/staging diagnostics for async Rust
+
+## When to use tailtriage
+
+Use tailtriage when a Rust/Tokio service has:
+- intermittent request timeouts
+- p95/p99 latency spikes
+- tasks that appear stuck
+- low CPU but high latency
+- suspected blocking work inside async code
+- queue buildup before work starts
+- unclear difference between Tokio scheduler pressure and slow downstream dependencies
+
 ## Quick start (crates.io)
 
 For most users, start with the default crate:
@@ -48,6 +71,16 @@ In short:
 - `tokio-console` helps you inspect live runtime/task behavior.
 - `tokio-metrics` gives you runtime/task metrics signals.
 - `tailtriage` helps you rank likely bottleneck families and choose the next targeted check from one captured run.
+
+## Tool comparison
+
+| Tool                 | Best for                                              | tailtriage relationship                         |
+| -------------------- | ----------------------------------------------------- | ----------------------------------------------- |
+| `tracing`            | structured logs/spans                                 | complementary input layer                       |
+| `tokio-console`      | live task/runtime inspection                          | use after tailtriage points to runtime pressure |
+| `tokio-metrics`      | runtime/task metrics                                  | complementary signal source                     |
+| `pprof` / flamegraph | CPU hot paths                                         | use when suspect is CPU-bound work              |
+| `tailtriage`         | ranking likely latency bottleneck family from one run | first-pass triage loop                          |
 
 ## What you get from the output
 
