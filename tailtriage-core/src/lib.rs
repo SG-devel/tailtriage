@@ -46,7 +46,7 @@ pub use events::{
     RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, TruncationSummary,
     UnfinishedRequestSample, UnfinishedRequests, SCHEMA_VERSION,
 };
-pub use sink::{LocalJsonSink, RunSink, SinkError};
+pub use sink::{DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};
 pub use timers::{InflightGuard, QueueTimer, StageTimer};
 
