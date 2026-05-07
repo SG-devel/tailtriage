@@ -209,6 +209,47 @@ class DemoWrapperTests(unittest.TestCase):
             scenario="queue",
         )
 
+    def test_downstream_score_increase_rejected_when_kind_shifts(self) -> None:
+        before = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 90},
+            "p95_latency_us": 1_000_000,
+            "p95_queue_share_permille": 980,
+        }
+        after = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
+            "p95_latency_us": 100_000,
+            "p95_queue_share_permille": 0,
+        }
+        with self.assertRaisesRegex(SystemExit, "expected mitigated downstream primary suspect"):
+            demo_tool._validate_nonworsening_score_for_downstream(
+                before=before,
+                after=after,
+                expected_primary_kinds={"downstream_stage_dominates"},
+                scenario="downstream",
+            )
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_scenario_downstream")
+    def test_validate_downstream_uses_downstream_context(
+        self,
+        _run_scenario_downstream_mock,
+        load_report_json_mock,
+    ) -> None:
+        before_report = {
+            "primary_suspect": {"kind": "downstream_stage_dominates", "score": 90},
+            "secondary_suspects": [],
+            "p95_latency_us": 100_000,
+        }
+        after_report = {
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
+            "secondary_suspects": [],
+            "p95_latency_us": 20_000,
+        }
+        load_report_json_mock.side_effect = [before_report, after_report]
+
+        with self.assertRaisesRegex(SystemExit, "expected mitigated downstream primary suspect"):
+            demo_tool.validate_downstream(Path("/tmp/tailscope"), profile="dev")
+
 
 class DemoMainRoutingTests(unittest.TestCase):
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
