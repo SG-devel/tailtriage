@@ -76,7 +76,7 @@ In short:
 
 | Tool                 | Best for                                              | tailtriage relationship                         |
 | -------------------- | ----------------------------------------------------- | ----------------------------------------------- |
-| `tracing`            | structured logs/spans                                 | complementary input layer                       |
+| `tracing` | structured logs/spans | complementary operational context |
 | `tokio-console`      | live task/runtime inspection                          | use after tailtriage points to runtime pressure |
 | `tokio-metrics`      | runtime/task metrics                                  | complementary signal source                     |
 | `pprof` / flamegraph | CPU hot paths                                         | use when suspect is CPU-bound work              |
