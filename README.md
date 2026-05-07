@@ -71,7 +71,7 @@ In short:
 | Tool | Best for | Use with tailtriage when |
 | --- | --- | --- |
 | `tracing` | structured logs and spans | you need operational context around the captured slow window |
-| `tokio-console` | live Tokio task/runtime inspection | tailtriage points toward runtime or task pressure and you need live inspection |
+| `tokio-console` | live Tokio task/runtime inspection | tailtriage points toward executor/runtime pressure and you need live inspection |
 | `tokio-metrics` | runtime and task metrics | you want runtime signals to strengthen or explain tailtriage evidence |
 | `pprof` / flamegraph | CPU hot paths | tailtriage does not show queueing, runtime, blocking-pool, or downstream waiting as the likely lead |
 | `tailtriage` | first-pass ranking of likely latency bottleneck families from one run | you need a focused next-check loop rather than continuous observability |
