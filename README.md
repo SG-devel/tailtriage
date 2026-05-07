@@ -32,7 +32,7 @@ It produces a triage report with **evidence-ranked suspects** and **next checks*
 
 ## Quick start (crates.io)
 
-For most users, start with the default crate:
+For direct capture or repeated controller-managed capture windows:
 
 ```bash
 cargo add tailtriage
@@ -45,14 +45,23 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-Install analyzer/report tooling based on how you work:
+`tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work.
+
+For command-line analysis of saved Run artifact JSON:
 
 ```bash
-cargo add tailtriage-analyzer
 cargo install tailtriage-cli
 ```
 
-`tailtriage` captures request/runtime evidence. Capture sinks produce **Run artifact JSON** for file workflows. `tailtriage-cli` consumes Run artifact JSON from disk. `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers. Suspects are leads, not proof of root cause, and `tailtriage` is not an observability backend.
+For in-process Rust analysis/report generation:
+
+```bash
+cargo add tailtriage-analyzer
+```
+
+Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust code.
+- `tailtriage-cli` consumes Run artifact JSON from disk.
+- `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
 
 ## Why not just tokio-console or tokio-metrics?
 
@@ -170,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
 
-# use tailtriage_core::Run;
+# use tailtriage::Run;
 # fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
