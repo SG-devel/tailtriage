@@ -42,6 +42,8 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+`tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
+
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
 
 ## How to read the result
@@ -145,6 +147,7 @@ Current contract:
 
 For Rust in-process usage, use `tailtriage-analyzer` directly (`analyze_run`, `render_text`, typed `Report`).
 The stricter non-empty `requests` rule applies to CLI artifact loading from disk.
+CLI input is run artifact JSON from disk; CLI does not consume Report JSON as input.
 
 ## Important interpretation notes
 

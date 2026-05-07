@@ -8,8 +8,13 @@ The default user path is:
 
 1. instrument capture in service code (`tailtriage` default crate)
 2. optionally enrich with runtime sampling (`tailtriage-tokio`)
-3. write local run artifact JSON
-4. analyze with `tailtriage-analyzer` in process or with `tailtriage-cli` for file artifacts
+3. finalize through sink choice:
+   - default local run artifact JSON path via `LocalJsonSink`
+   - optional in-memory finalized typed `Run` via `MemorySink`
+   - optional no-persist finalization via `DiscardSink`
+4. analyze finalized `Run` values with `tailtriage-analyzer` to produce typed `Report`
+5. render report text or Report JSON through analyzer-owned rendering
+6. use `tailtriage-cli` for disk artifact loading, then delegate report rendering to `tailtriage-analyzer`
 
 The result is a triage report with evidence-ranked suspects and next checks.
 
@@ -56,7 +61,7 @@ Owns in-process analysis/report generation from completed runs:
 - typed `Report` model
 - `analyze_run` entry point
 - `render_text` human-readable rendering
-- serde-serializable report JSON
+- analyzer-owned Report JSON rendering (`render_json`, `render_json_pretty`)
 
 ### `tailtriage-cli`
 

@@ -611,7 +611,9 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         "typed",
         "report",
         "render_text",
-        "serde_json",
+        "render_json",
+        "render_json_pretty",
+        "analyze_run",
         "analyzeoptions::default()",
         "tailtriage-cli",
     )
@@ -629,6 +631,7 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         ("schema validation", r"(schema.{0,80}validat|validat.{0,80}schema)"),
         ("non-empty requests loader rule", r"non[-\s]?empty.{0,80}requests"),
         ("tailtriage-analyzer use", r"tailtriage-analyzer"),
+        ("report json vs run artifact json distinction", r"(report\s+json).{0,160}(run\s+artifact\s+json)|(run\s+artifact\s+json).{0,160}(report\s+json)"),
         ("command-line text/json output", r"(command[-\s]?line|cli).{0,160}(text|json|human-readable)"),
         ("in-process pointer for Rust users", r"(rust|in-process).{0,120}tailtriage-analyzer"),
     )
