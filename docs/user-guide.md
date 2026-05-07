@@ -69,7 +69,7 @@ If you want analysis/report generation inside service code or tests, use `tailtr
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 use tailtriage_analyzer::render_json_pretty;
 
-# use tailtriage_core::Run;
+# use tailtriage::Run;
 # fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
