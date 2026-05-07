@@ -705,24 +705,42 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
                     validate_docs_contracts.validate_controller_readme_toml()
 
     def test_validate_docs_index_contract_checks_paths_not_link_labels(self) -> None:
-        docs_index = """# Documentation index
+    docs_index = """# Documentation index
 
 - [Guide](user-guide.md)
 - [Diag](diagnostics.md)
 - [Controller crate](../tailtriage-controller/README.md)
 - [Sampler crate](../tailtriage-tokio/README.md)
-- [Analyzer crate](../tailtriage-analyzer/README.md)
-- [CLI crate](../tailtriage-cli/README.md)
-- [Runtime cost notes](runtime-cost.md)
-- [Collector limits notes](collector-limits.md)
-- [Demos](getting-started-demo.md)
-- [Architecture overview](architecture.md)
 """
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            docs_path = Path(tmp_dir) / "README.md"
-            docs_path.write_text(docs_index, encoding="utf-8")
-            with mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_path):
-                validate_docs_contracts.validate_docs_index_contract()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        repo_root = Path(tmp_dir)
+
+        # Files that should be required by repo_markdown_files().
+        for rel in (
+            "docs/README.md",
+            "docs/user-guide.md",
+            "docs/diagnostics.md",
+            "tailtriage-controller/README.md",
+            "tailtriage-tokio/README.md",
+        ):
+            path = repo_root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {rel}\n", encoding="utf-8")
+
+        docs_index_path = repo_root / "docs" / "README.md"
+        docs_index_path.write_text(docs_index, encoding="utf-8")
+
+        with (
+            mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+            mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_index_path),
+            mock.patch.object(
+                validate_docs_contracts,
+                "DOCS_INDEX_EXCLUDED_MARKDOWN",
+                {"docs/README.md"},
+            ),
+        ):
+            validate_docs_contracts.validate_docs_index_contract()
 
 
 if __name__ == "__main__":

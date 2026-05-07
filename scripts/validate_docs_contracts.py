@@ -476,7 +476,7 @@ def validate_root_readme_docs_link() -> None:
     if "docs/README.md" not in links:
         raise ValueError("root README must link to docs/README.md")
     
-    
+
 def validate_user_guide_contract() -> None:
     text = USER_GUIDE_PATH.read_text(encoding="utf-8")
     lower_text = text.lower()
@@ -856,6 +856,7 @@ def main() -> int:
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
+    validate_root_readme_docs_link()
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_cli_not_presented_as_library_analyzer_api()
