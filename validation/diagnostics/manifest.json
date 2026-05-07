@@ -1105,6 +1105,162 @@
         "runtime_snapshots": "partial",
         "inflight_snapshots": "partial"
       }
+    },
+    {
+      "id": "raw_low_request_insufficient",
+      "artifact": "corpus/run-artifacts/low-request-insufficient.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "insufficient_evidence",
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "low-request"
+      ],
+      "must_include_evidence": [],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "allowed_warnings": [
+        "No queue events captured",
+        "No stage events captured",
+        "No runtime snapshots captured"
+      ],
+      "top1_required": true,
+      "notes": "Raw run fixture with low request count validates analyze_run insufficient-evidence fallback.",
+      "max_primary_confidence": "low"
+    },
+    {
+      "id": "raw_no_queue_events",
+      "artifact": "corpus/run-artifacts/no-queue-events.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "insufficient_evidence"
+      ],
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-queue"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "allowed_warnings": [
+        "No queue events captured",
+        "No runtime snapshots captured"
+      ],
+      "top1_required": false,
+      "notes": "Raw run fixture without queue events checks missing-queue warning and conservative interpretation.",
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_no_stage_events",
+      "artifact": "corpus/run-artifacts/no-stage-events.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "insufficient_evidence"
+      ],
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-stage"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "allowed_warnings": [
+        "No stage events captured",
+        "No runtime snapshots captured"
+      ],
+      "top1_required": false,
+      "notes": "Raw run fixture without stage events checks missing-stage warning and confidence cap.",
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_no_runtime_snapshots",
+      "artifact": "corpus/run-artifacts/no-runtime-snapshots.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-runtime"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "No runtime snapshots captured"
+      ],
+      "allowed_warnings": [
+        "Low completed-request count"
+      ],
+      "top1_required": true,
+      "notes": "Raw run fixture checks runtime-missing warning from analyzer run path.",
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_truncated_partial_evidence",
+      "artifact": "corpus/run-artifacts/truncated-queues.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "truncation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Capture truncated queues"
+      ],
+      "allowed_warnings": [
+        "Capture limits were hit",
+        "Low completed-request count",
+        "No runtime snapshots captured"
+      ],
+      "top1_required": true,
+      "notes": "Raw run fixture with truncation validates warning propagation and conservative confidence.",
+      "max_primary_confidence": "medium"
     }
   ]
 }

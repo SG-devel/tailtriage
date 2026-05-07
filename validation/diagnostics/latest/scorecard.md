@@ -17,7 +17,7 @@
 | mitigation validation | Manual/local mitigation matrix available | baseline/mitigated controlled demos compare latency and evidence movement; generated outputs are not committed by default. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
-Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation and do not provide root-cause proof.
+Deterministic synthetic adversarial cases and selected deterministic raw run-artifact adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation and do not provide root-cause proof.
 
 Normal CI runs the deterministic benchmark against the committed diagnostics manifest and fixtures as a required validation gate. Normal CI still does not publish durable scorecards.
 

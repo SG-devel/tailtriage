@@ -3,7 +3,7 @@
 `tailtriage` validation checks diagnosis quality for triage. It does not provide root-cause proof.
 
 ## Methodology
-The benchmark evaluates a deterministic corpus of analyzer reports against workload-grounded labels. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
+The benchmark evaluates a deterministic corpus of analyzer reports and selected raw run artifacts against workload-grounded labels. Raw run artifacts are analyzed via Run -> analyze_run() in the CLI path. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
 
 ## Deterministic vs repeated-run validation
 Deterministic fixture validation is exercised directly in normal CI against `validation/diagnostics/manifest.json` and referenced fixtures, and is also exercised by the scorecard generator. Durable scorecards are generated only by the versioned/manual snapshot workflow (`validation-snapshot.yml`) on `workflow_dispatch` and `v*` tags. Normal CI does not publish durable diagnostic scorecards.
@@ -32,7 +32,7 @@ The scorecard includes confidence-bucket accuracy summaries (low/medium/high buc
 - observed warnings are allowed only if they match `expected_warnings` or `allowed_warnings`.
 
 ## Negative and adversarial validation
-The corpus includes deterministic synthetic adversarial cases for sparse samples, missing instrumentation, truncated artifacts, and mixed-signal workloads. These cases validate triage humility and evidence-ranked suspect visibility under partial data.
+The corpus includes deterministic synthetic adversarial cases for sparse samples, missing instrumentation, truncated artifacts, and mixed-signal workloads, plus selected deterministic raw run-artifact adversarial cases that exercise analyzer-path behavior on committed fixtures. These cases validate triage humility and evidence-ranked suspect visibility under partial data.
 
 ## Confidence ceilings (`max_primary_confidence`)
 Case-level confidence ceilings enforce conservative confidence behavior for conditions where data is sparse, missing, truncated, noisy, or intentionally ambiguous. A case fails if primary confidence exceeds its configured ceiling.
