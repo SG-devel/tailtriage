@@ -11,6 +11,7 @@
 | insufficient evidence | Initial deterministic adversarial coverage | low-request-count, noise-only, and high-latency-missing-instrumentation cases enforce low-confidence fallback. |
 | truncation handling | Initial deterministic adversarial coverage | truncated-artifact adversarial case enforces warning + confidence ceiling. |
 | missing instrumentation warnings | Initial deterministic adversarial coverage | queue/stage/runtime missing and optional-runtime-field warnings are explicitly checked. |
+| raw analyzer-path adversarial fixtures | Initial deterministic adversarial coverage | committed `run_artifact` cases validate raw Run -> `analyze_run()` behavior for low-count, missing-signal, and truncation scenarios. |
 | runtime overhead | Manual/local operational validation available | canonical operational domain lives under `validation/runtime-cost/`; machine/workload scoped; generated outputs under `target/operational-validation/` are not committed by default. |
 | collector limits | Manual/local operational validation available | canonical operational domain lives under `validation/collector-limits/`; validates visible bounded drops and warning/downgrade behavior. |
 | repeated-run diagnostic matrix | Manual/local repeated-run validation available | publishable repeated-run outputs are generated locally (JSONL/summary/scorecard) and not committed by default; results are machine/workload scoped. |

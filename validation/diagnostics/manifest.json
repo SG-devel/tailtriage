@@ -1105,6 +1105,158 @@
         "runtime_snapshots": "partial",
         "inflight_snapshots": "partial"
       }
+    },
+    {
+      "id": "raw_low_request_count",
+      "artifact": "fixtures/raw-runs/low-request-count-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "low-requests"
+      ],
+      "must_include_evidence": [],
+      "notes": "Raw run artifact with one request validates analyze_run fallback for insufficient evidence.",
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [
+        "No runtime snapshots captured"
+      ],
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "low"
+    },
+    {
+      "id": "raw_no_queue_events",
+      "artifact": "fixtures/raw-runs/no-queue-events-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-queue"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "Raw run artifact without queue events validates missing-queue warning and confidence cap through analyze_run.",
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "insufficient_evidence"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_no_stage_events",
+      "artifact": "fixtures/raw-runs/no-stage-events-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-stage"
+      ],
+      "must_include_evidence": [
+        "Queue"
+      ],
+      "notes": "Raw run artifact without stage events validates missing-stage warning and conservative confidence.",
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [
+        "No runtime snapshots captured"
+      ],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "insufficient_evidence"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_no_runtime_snapshots",
+      "artifact": "fixtures/raw-runs/no-runtime-snapshots-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-runtime"
+      ],
+      "must_include_evidence": [
+        "Queue"
+      ],
+      "notes": "Raw run artifact without runtime snapshots validates runtime-missing warning and confidence cap.",
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_truncated_partial",
+      "artifact": "fixtures/raw-runs/truncated-partial-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "truncated"
+      ],
+      "must_include_evidence": [],
+      "notes": "Raw truncated run artifact validates partial-evidence warning behavior on analyze_run path.",
+      "expected_warnings": [
+        "Capture limits were hit",
+        "Low completed-request count"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [
+        "No runtime snapshots captured",
+        "Capture truncated requests",
+        "Capture truncated stages",
+        "Capture truncated queues",
+        "Capture truncated runtime snapshots"
+      ],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "application_queue_saturation",
+        "insufficient_evidence"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "medium"
     }
   ]
 }

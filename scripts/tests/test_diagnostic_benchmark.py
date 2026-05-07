@@ -98,6 +98,7 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         bad = self.make_case(artifact_type="anything_else")
         with self.assertRaisesRegex(ValueError, "artifact_type"):
             db.validate_manifest(self.make_manifest(bad))
+        db.validate_manifest(self.make_manifest(self.make_case(artifact_type="run_artifact")))
 
     def test_manifest_ground_truth_and_required_top2_rules(self):
         with self.assertRaisesRegex(ValueError, "unknown ground_truth"):
@@ -196,6 +197,22 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         metrics, failures = self.run_single_case(synthetic, no_score_report)
         self.assertEqual(metrics["total_cases"], 1)
         self.assertFalse(failures)
+
+    def test_run_artifact_invokes_cli_analyze(self):
+        case = self.make_case(artifact_type="run_artifact")
+        report = valid_report()
+        with tempfile.TemporaryDirectory() as td:
+            run_artifact = self.write_json(td, case["artifact"], {"schema_version": 1})
+            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(case))
+            completed = mock.Mock(returncode=0, stdout=json.dumps(report), stderr="")
+            with mock.patch("scripts.diagnostic_benchmark.subprocess.run", return_value=completed) as run_mock:
+                metrics, failures = db.run(str(manifest_path), 0.0, 0.0, 99)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["total_cases"], 1)
+        run_mock.assert_called_once()
+        args = run_mock.call_args[0][0]
+        self.assertIn("tailtriage-cli", args)
+        self.assertIn(str(run_artifact), args)
 
     # Metric semantics tests
     def test_top1_required_wrong_primary_fails(self):
