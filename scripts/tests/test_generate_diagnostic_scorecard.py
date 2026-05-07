@@ -41,6 +41,15 @@ class GenerateScorecardTests(unittest.TestCase):
         text = render_scorecard(metrics, env)
         self.assertIn("failed_case_count", text)
         self.assertIn("not root-cause proof", text)
+        self.assertIn("## Confidence bucket accuracy", text)
+
+    def test_render_includes_confidence_bucket_accuracy_rows(self):
+        env = {"generated_at_utc": "t", "snapshot_label": "s", "git": {"sha": "a", "tag": "v1", "describe": "d"}, "tailtriage": {"workspace_package_version": "1", "packages": {"tailtriage": "1"}}, "github_actions": {"run_id": None, "ref": None, "runner_os": None, "runner_arch": None, "image_version": None}, "software": {"python": "3", "rustc": "r", "cargo": "c"}, "hardware": {"cpu_model": "cpu", "logical_cores": 1, "memory_total_kib": 2}, "inputs": {"manifest_sha256": "m", "referenced_artifacts_sha256": "a", "thresholds": {"min_top1": 0.75}}}
+        metrics = {"failed_cases": [], "per_ground_truth_counts": {}, "confidence_bucket_accuracy": {"low": {"accuracy": 0.5, "total": 2, "correct": 1}}}
+        for k in ["total_cases", "top1_accuracy", "top2_recall", "high_confidence_wrong_count", "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases", "next_check_pass_rate", "next_check_presence_rate", "confidence_ceiling_cases", "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "unexpected_warning_count", "missing_expected_warning_count"]:
+            metrics[k] = 0
+        text = render_scorecard(metrics, env)
+        self.assertIn("- low: accuracy=0.5 total=2 correct=1", text)
 
     def test_failed_case_rendering(self):
         self.assertEqual(render_failed_cases([]).strip(), "None")

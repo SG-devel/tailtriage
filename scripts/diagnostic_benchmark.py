@@ -13,6 +13,7 @@ ALLOWED_GROUND_TRUTH = {
 }
 CONF_HIGH = {"high"}
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+CONFIDENCE_BUCKETS = ("low", "medium", "high")
 ALLOWED_EVIDENCE_QUALITY = {"strong", "partial", "weak"}
 ALLOWED_SIGNAL_FAMILIES = {"requests", "queues", "stages", "runtime_snapshots", "inflight_snapshots"}
 ALLOWED_SIGNAL_STATUSES = {"present", "missing", "partial", "truncated"}
@@ -148,6 +149,18 @@ def confidence_bucket(conf):
     if conf == "low":
         return "low"
     raise ValueError("report.primary_suspect.confidence must be one of low/medium/high")
+
+
+def format_confidence_bucket_summary(metrics, bucket):
+    bucket_stats = metrics.get("confidence_bucket_accuracy", {}).get(bucket)
+    if not bucket_stats:
+        return f"confidence_bucket_accuracy.{bucket}=n/a total=0 correct=0"
+    total = bucket_stats.get("total", 0)
+    correct = bucket_stats.get("correct", 0)
+    if total == 0:
+        return f"confidence_bucket_accuracy.{bucket}=n/a total=0 correct=0"
+    accuracy = bucket_stats.get("accuracy", 0.0)
+    return f"confidence_bucket_accuracy.{bucket}={accuracy:.3f} total={total} correct={correct}"
 
 
 def extract(report):
@@ -451,6 +464,8 @@ def main():
         "temporal_segment_checks="
         f"{metrics['temporal_segment_check_passed_cases']}/{metrics['temporal_segment_check_cases']}"
     )
+    for bucket in CONFIDENCE_BUCKETS:
+        print(format_confidence_bucket_summary(metrics, bucket))
     print(f"failed_case_count={len(metrics['failed_cases'])}")
 
     if failures:
