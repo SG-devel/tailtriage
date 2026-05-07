@@ -183,7 +183,7 @@ let json = render_json_pretty(&report)?;
 You can avoid JSON output entirely by using `MemorySink` and the typed `Report`, then call `render_json` / `render_json_pretty` only when you need Report JSON.
 
 ```rust,no_run
-use tailtriage_core::{MemorySink, Tailtriage};
+use tailtriage::{MemorySink, Tailtriage};
 use tailtriage_analyzer::{analyze_run, render_json_pretty, AnalyzeOptions};
 
 # fn example() -> Result<(), Box<dyn std::error::Error>> {
