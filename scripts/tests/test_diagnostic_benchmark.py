@@ -477,6 +477,9 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertIn("confidence_note_checks=1/1", output)
         self.assertIn("route_breakdown_checks=1/1", output)
         self.assertIn("temporal_segment_checks=1/1", output)
+        self.assertIn("confidence_bucket_accuracy.low=n/a total=0 correct=0", output)
+        self.assertIn("confidence_bucket_accuracy.medium=n/a total=0 correct=0", output)
+        self.assertIn("confidence_bucket_accuracy.high=1.000 total=1 correct=1", output)
 
 
 if __name__ == "__main__":

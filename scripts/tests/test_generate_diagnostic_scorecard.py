@@ -41,6 +41,7 @@ class GenerateScorecardTests(unittest.TestCase):
         text = render_scorecard(metrics, env)
         self.assertIn("failed_case_count", text)
         self.assertIn("not root-cause proof", text)
+        self.assertIn("## Confidence bucket accuracy", text)
 
     def test_failed_case_rendering(self):
         self.assertEqual(render_failed_cases([]).strip(), "None")

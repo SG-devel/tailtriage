@@ -16,6 +16,7 @@ CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
 ALLOWED_EVIDENCE_QUALITY = {"strong", "partial", "weak"}
 ALLOWED_SIGNAL_FAMILIES = {"requests", "queues", "stages", "runtime_snapshots", "inflight_snapshots"}
 ALLOWED_SIGNAL_STATUSES = {"present", "missing", "partial", "truncated"}
+STDOUT_CONFIDENCE_BUCKET_ORDER = ("low", "medium", "high")
 
 
 def load_json(path):
@@ -431,6 +432,21 @@ def main():
     print(f"next_check_required_cases={metrics['next_check_required_cases']}")
     print(f"next_check_pass_rate={next_check_pass_rate_text}")
     print(f"next_check_presence_rate={metrics['next_check_presence_rate']:.3f}")
+    confidence_bucket_accuracy = metrics.get("confidence_bucket_accuracy", {})
+    for bucket in STDOUT_CONFIDENCE_BUCKET_ORDER:
+        bucket_data = confidence_bucket_accuracy.get(bucket)
+        if not bucket_data:
+            print(f"confidence_bucket_accuracy.{bucket}=n/a total=0 correct=0")
+            continue
+        total = bucket_data.get("total", 0)
+        correct = bucket_data.get("correct", 0)
+        if total:
+            print(
+                f"confidence_bucket_accuracy.{bucket}="
+                f"{bucket_data.get('accuracy', 0.0):.3f} total={total} correct={correct}"
+            )
+        else:
+            print(f"confidence_bucket_accuracy.{bucket}=n/a total=0 correct={correct}")
     print(
         "evidence_quality_checks="
         f"{metrics['evidence_quality_check_passed_cases']}/{metrics['evidence_quality_check_cases']}"
