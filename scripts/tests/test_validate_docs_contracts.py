@@ -28,8 +28,8 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_docs_index_contract(self) -> None:
         validate_docs_contracts.validate_docs_index_contract()
 
-    def test_root_readme_docs_map_parity(self) -> None:
-        validate_docs_contracts.validate_root_readme_docs_map_parity()
+    def test_root_readme_docs_link(self) -> None:
+        validate_docs_contracts.validate_root_readme_docs_link()
 
     def test_user_guide_contract(self) -> None:
         validate_docs_contracts.validate_user_guide_contract()

@@ -23,9 +23,7 @@ ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sa
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
 CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
-
 PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
-
 USER_FACING_TERMINOLOGY_PATHS = (
     README_PATH,
     DOCS_INDEX_PATH,
@@ -52,6 +50,29 @@ STALE_CONTROLLER_POLICY_NAMES = (
     'kind = "max_duration_ms"',
     'kind = "first_limit_hit"',
 )
+
+DOCS_INDEX_EXCLUDED_MARKDOWN = {
+    # GitHub workflow templates, surfaced by GitHub UI rather than docs index.
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+    ".github/pull_request_template.md",
+
+    # Agent/maintainer/planning docs, not product docs.
+    "AGENTS.md",
+    "DESIGN_NOTES.md",
+    "IMPLEMENTATION_PLAN.md",
+
+    # The docs index should not be required to link to itself.
+    "docs/README.md",
+
+    # Validation-domain internals. User-facing guidance is under docs/.
+    "validation/collector-limits/README.md",
+    "validation/collector-limits/latest/scorecard.md",
+    "validation/diagnostics/README.md",
+    "validation/diagnostics/latest/scorecard.md",
+    "validation/runtime-cost/README.md",
+    "validation/runtime-cost/latest/scorecard.md",
+}
 
 DOCS_DISALLOWED_HISTORY_PATTERNS = (
     r"issue\s*#\d+",
@@ -131,57 +152,6 @@ def has_markdown_heading(markdown: str, heading_pattern: str) -> bool:
         is not None
     )
 
-
-def normalize_doc_link(link: str) -> str:
-    return link.split("#", 1)[0]
-
-
-def repo_markdown_files() -> set[str]:
-    return {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in REPO_ROOT.rglob("*.md")
-        if ".git" not in path.parts
-        and "target" not in path.parts
-    }
-
-
-def docs_index_link_targets() -> set[str]:
-    text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
-    docs_dir = DOCS_INDEX_PATH.parent
-    targets: set[str] = set()
-
-    for raw_link in markdown_links(text):
-        link = normalize_doc_link(raw_link)
-
-        if "://" in link or link.startswith("mailto:"):
-            continue
-        if not link.endswith(".md"):
-            continue
-
-        resolved = (docs_dir / link).resolve()
-        try:
-            targets.add(resolved.relative_to(REPO_ROOT.resolve()).as_posix())
-        except ValueError:
-            continue
-
-    return targets
-
-
-def validate_docs_index_contract() -> None:
-    required = repo_markdown_files()
-    linked = docs_index_link_targets()
-
-    missing = sorted(required - linked)
-    if missing:
-        raise ValueError(f"docs index missing required Markdown links: {missing}")
-
-
-def validate_root_readme_docs_link() -> None:
-    text = README_PATH.read_text(encoding="utf-8")
-    links = {normalize_doc_link(link) for link in markdown_links(text)}
-
-    if "docs/README.md" not in links:
-        raise ValueError("root README must link to docs/README.md")
 
 def _kind_of(value: Any) -> str:
     if value is None:
@@ -315,7 +285,6 @@ def validate_controller_readme_toml() -> None:
         if len(snippets) < 2:
             raise ValueError("controller README must include minimal and expanded TOML examples")
         minimal_snippet, expanded_snippet = snippets[0], snippets[1]
-
     minimal = tomllib.loads(minimal_snippet)
     expanded = tomllib.loads(expanded_snippet)
 
@@ -454,6 +423,60 @@ def validate_no_stale_controller_policy_names() -> None:
         raise ValueError(f"stale controller run_end_policy docs found:\n{joined}")
 
 
+def normalize_doc_link(link: str) -> str:
+    return link.split("#", 1)[0]
+
+
+def repo_markdown_files() -> set[str]:
+    return {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in REPO_ROOT.rglob("*.md")
+        if ".git" not in path.parts
+        and "target" not in path.parts
+        and path.relative_to(REPO_ROOT).as_posix() not in DOCS_INDEX_EXCLUDED_MARKDOWN
+    }
+
+
+def docs_index_link_targets() -> set[str]:
+    text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
+    docs_dir = DOCS_INDEX_PATH.parent
+    targets: set[str] = set()
+
+    for raw_link in markdown_links(text):
+        link = normalize_doc_link(raw_link)
+
+        if "://" in link or link.startswith("mailto:"):
+            continue
+        if not link.endswith(".md"):
+            continue
+
+        resolved = (docs_dir / link).resolve()
+
+        try:
+            targets.add(resolved.relative_to(REPO_ROOT.resolve()).as_posix())
+        except ValueError:
+            continue
+
+    return targets
+
+
+def validate_docs_index_contract() -> None:
+    required = repo_markdown_files()
+    linked = docs_index_link_targets()
+
+    missing = sorted(required - linked)
+    if missing:
+        raise ValueError(f"docs index missing required Markdown links: {missing}")
+
+
+def validate_root_readme_docs_link() -> None:
+    text = README_PATH.read_text(encoding="utf-8")
+    links = {normalize_doc_link(link) for link in markdown_links(text)}
+
+    if "docs/README.md" not in links:
+        raise ValueError("root README must link to docs/README.md")
+    
+    
 def validate_user_guide_contract() -> None:
     text = USER_GUIDE_PATH.read_text(encoding="utf-8")
     lower_text = text.lower()
@@ -504,7 +527,7 @@ def validate_user_guide_contract() -> None:
     output_path = sink.get("output_path")
     if sink_type != "local_json":
         raise ValueError(
-            'user guide TOML example must set controller.activation.sink.type = "local_json"'
+            "user guide TOML example must set controller.activation.sink.type = \"local_json\""
         )
     if not isinstance(output_path, str) or not output_path.strip():
         raise ValueError(
@@ -524,6 +547,7 @@ def validate_diagnostics_contract_truthfulness() -> None:
             "README/docs index describe diagnostics as field reference, "
             "but docs/diagnostics.md lacks a matching field reference section"
         )
+
 
 
 def _strip_allowed_analyzer_migration_note(text: str) -> str:
@@ -646,7 +670,6 @@ def validate_capture_readmes_analyzer_cli_wording_contract() -> None:
             "capture/integration README analyzer wording contract violation:\n" + "\n".join(failures)
         )
 
-
 def _active_yaml_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
@@ -685,8 +708,7 @@ def validate_diagnostic_benchmark_ci_contract(
 
     benchmark_step = matching_steps[0]
     if re.search(
-        r'(?im)^\s*continue-on-error\s*:\s*["\']?true["\']?\s*$',
-        benchmark_step,
+        r"(?im)^\s*continue-on-error\s*:\s*[\"']?true[\"']?\s*$", benchmark_step
     ):
         raise ValueError(
             "deterministic diagnostics benchmark CI step must not set "
@@ -751,103 +773,102 @@ def validate_architecture_contract() -> None:
     )
     for token in required_tokens:
         if token not in text:
-            raise ValueError(f"architecture doc missing required token: {token}")
+            raise ValueError(f"architecture doc missing required product-contract token: {token}")
 
 
 def validate_docs_no_history_framing() -> None:
-    paths = [README_PATH, DOCS_INDEX_PATH, *sorted((REPO_ROOT / "docs").glob("*.md"))]
-    hits: list[str] = []
-    for path in paths:
+    failures: list[str] = []
+    for path in sorted(PUBLIC_DOCS_GLOB):
         text = path.read_text(encoding="utf-8")
         for pattern in DOCS_DISALLOWED_HISTORY_PATTERNS:
             if re.search(pattern, text, flags=re.IGNORECASE):
-                hits.append(f"{path.relative_to(REPO_ROOT)} matches disallowed history pattern: {pattern}")
+                failures.append(f"{path.relative_to(REPO_ROOT)} matches disallowed pattern: {pattern}")
 
-    if hits:
-        raise ValueError("public docs contain issue/PR history framing:\n" + "\n".join(hits))
+    if failures:
+        raise ValueError("docs include stale history/process framing:\n" + "\n".join(failures))
 
 
 def validate_no_user_facing_facade_wording() -> None:
-    hits: list[str] = []
+    failures: list[str] = []
     for path in USER_FACING_TERMINOLOGY_PATHS:
-        if not path.exists():
-            continue
-        text = path.read_text(encoding="utf-8").lower()
-        if "facade" in text:
+        text = path.read_text(encoding="utf-8")
+        if re.search(r"\bfacade\b", text, flags=re.IGNORECASE):
             try:
-                display_path = path.relative_to(REPO_ROOT)
+                display_path = str(path.relative_to(REPO_ROOT))
             except ValueError:
-                display_path = path
-            hits.append(f"{display_path} contains stale facade wording")
+                display_path = str(path)
+            failures.append(f"{display_path} contains disallowed term: facade")
 
-    if hits:
-        raise ValueError("user-facing docs contain stale facade wording:\n" + "\n".join(hits))
+    if failures:
+        raise ValueError(
+            "user-facing files contain stale facade wording:\n" + "\n".join(failures)
+        )
 
 
 def is_misleading_controller_example_flow(readme_text: str) -> bool:
-    misleading_patterns = (
-        r"cargo\s+add\s+tailtriage-controller[\s\S]{0,400}use\s+tailtriage::controller",
-        r"tailtriage-controller[\s\S]{0,400}tailtriage::controller::TailtriageController",
-    )
-    return any(re.search(pattern, readme_text, flags=re.IGNORECASE) for pattern in misleading_patterns)
+    for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
+        if "cargo add tailtriage-controller" in block and "cargo run --example controller_minimal" in block:
+            return True
+    return False
+
+
+def validate_controller_example_usage_contract() -> None:
+    readme_text = CONTROLLER_README_PATH.read_text(encoding="utf-8")
+    if is_misleading_controller_example_flow(readme_text):
+        raise ValueError(
+            "controller README contains a misleading dependency-example flow: "
+            "`cargo add tailtriage-controller` + `cargo run --example controller_minimal`."
+        )
 
 
 def find_public_sampler_forge_methods(source: str) -> list[str]:
-    return re.findall(
-        r"(?m)^\s*pub\s+fn\s+(register_tokio_runtime_sampler|runtime_sampler_stats)\s*\(",
-        source,
-    )
+    return re.findall(r"^\s*pub\s+fn\s+([A-Za-z0-9_]*sampler[A-Za-z0-9_]*)\s*\(", source, re.MULTILINE)
 
 
 def validate_sampler_integration_boundary() -> None:
-    failures: list[str] = []
+    collector_source = CORE_COLLECTOR_SOURCE_PATH.read_text(encoding="utf-8")
+    lib_source = CORE_LIB_SOURCE_PATH.read_text(encoding="utf-8")
 
-    if CORE_LIB_SOURCE_PATH.exists():
-        core_lib = CORE_LIB_SOURCE_PATH.read_text(encoding="utf-8")
-        forged_methods = find_public_sampler_forge_methods(core_lib)
-        if forged_methods:
-            failures.append(
-                "tailtriage-core exposes public sampler forge methods: "
-                + ", ".join(forged_methods)
-            )
+    if "__tailtriage_internal_register_tokio_runtime_sampler" in collector_source:
+        raise ValueError(
+            "collector source still exposes __tailtriage_internal_register_tokio_runtime_sampler; "
+            "public sampler metadata forge methods are not allowed"
+        )
 
-    if CORE_COLLECTOR_SOURCE_PATH.exists():
-        collector = CORE_COLLECTOR_SOURCE_PATH.read_text(encoding="utf-8")
-        forged_methods = find_public_sampler_forge_methods(collector)
-        if forged_methods:
-            failures.append(
-                "tailtriage-core collector exposes public sampler forge methods: "
-                + ", ".join(forged_methods)
-            )
+    public_methods = find_public_sampler_forge_methods(collector_source)
+    if public_methods:
+        raise ValueError(
+            "collector source exposes public sampler-related methods: " f"{sorted(public_methods)}"
+        )
 
-    if failures:
-        raise ValueError("sampler integration boundary violation:\n" + "\n".join(failures))
+    if "#[doc(hidden)]\npub mod __internal {" not in lib_source:
+        raise ValueError("tailtriage-core hidden __internal integration module is missing")
+
+    if "pub fn register_tokio_runtime_sampler(" not in lib_source:
+        raise ValueError(
+            "tailtriage-core hidden __internal register_tokio_runtime_sampler hook is missing"
+        )
 
 
 def main() -> int:
-    parse_args()
-
+    _ = parse_args()
     validate_readme_analyzer_example()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
-
-    validate_root_readme_docs_link()
     validate_docs_index_contract()
-
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_cli_not_presented_as_library_analyzer_api()
     validate_analyzer_cli_docs_split_contract()
     validate_capture_readmes_analyzer_cli_wording_contract()
-
     validate_diagnostic_benchmark_ci_contract()
     validate_validation_docs_ci_contract()
-
     validate_architecture_contract()
     validate_docs_no_history_framing()
     validate_no_user_facing_facade_wording()
+    validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
-
+    print("docs contracts validated successfully")
     return 0
 
 
