@@ -67,7 +67,6 @@ Each suspect includes:
 - `downstream_stage_dominates`
 - `insufficient_evidence`
 
-
 ## Proportional ranking model
 
 Ranking is proportional and evidence-weighted, not fixed suspect precedence.
@@ -91,7 +90,7 @@ Signal families used for scoring:
 - **Queue saturation**: p95 queue-share, queue-depth signal, in-flight growth (when present), and sample quality.
 - **Blocking pool pressure**: p95/peak blocking queue depth, nonzero blocking-sample coverage, and sample quality.
 - **Executor pressure**: global queue depth, local queue depth, alive-task signal (when present), in-flight growth, and sample quality.
-- **Downstream dominance**: eligible stage samples, stage p95, cumulative stage share, and tail-request contribution.
+- **Downstream dominance**: eligible stage samples, cumulative stage share, tail-request contribution, with stage p95 reported as supporting evidence.
 
 Downstream candidate selection filters out very low-sample stages before ranking. That keeps sparse stage noise from outranking better-supported leads.
 
@@ -123,11 +122,11 @@ Warnings lower interpretation confidence; they do not automatically invalidate s
   - `strong`: enough request evidence, queue or stage evidence present, no truncation limits active.
 
 Runtime snapshots are optional input. Missing runtime snapshots add a limitation for executor/blocking interpretation, but they do not by themselves force `quality` to `partial` when queue/stage evidence is otherwise strong.
-When runtime snapshots are present but queue-depth fields are absent, confidence notes call this out as partial runtime evidence instead of reporting snapshots as missing.
+When runtime snapshots are present but queue-depth fields are absent, runtime partialness is reflected in evidence quality and may appear in confidence notes when it affects confidence.
 
 ## Runtime-pressure caveat
 
-On stable Tokio, runtime snapshots always include `alive_tasks` and `global_queue_depth`.
+On stable Tokio, the runtime sampler always attempts to populate `alive_tasks` and `global_queue_depth`.
 Fields such as `local_queue_depth`, `blocking_queue_depth`, and `remote_schedule_count` require `tokio_unstable` and may be `None`.
 
 That can reduce separation confidence between blocking-pool and executor suspects.
