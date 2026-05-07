@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Error as IoError, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Run;
@@ -92,6 +93,71 @@ impl RunSink for LocalJsonSink {
     }
 }
 
+/// Sink that finalizes the capture lifecycle and intentionally discards run output.
+///
+/// Use this when you want normal capture + shutdown behavior but do not want to
+/// persist a run artifact JSON file.
+///
+/// If you need to analyze the finalized [`Run`] in-process, use [`MemorySink`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DiscardSink;
+
+impl RunSink for DiscardSink {
+    fn write(&self, _run: &Run) -> Result<(), SinkError> {
+        Ok(())
+    }
+}
+
+/// Sink that stores the last finalized [`Run`] in memory and writes no file artifact.
+///
+/// This sink stores only the most recent finalized run; each new write replaces
+/// the previous stored run.
+///
+/// Storing the finalized run clones captured data, which can increase memory use
+/// for large captures.
+#[derive(Debug, Clone, Default)]
+pub struct MemorySink {
+    run: Arc<Mutex<Option<Run>>>,
+}
+
+impl MemorySink {
+    /// Creates an empty in-memory sink.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a clone of the last stored run without clearing it.
+    #[must_use]
+    pub fn last_run(&self) -> Option<Run> {
+        lock_recover(&self.run).clone()
+    }
+
+    /// Takes the last stored run and clears the sink.
+    pub fn take_run(&self) -> Option<Run> {
+        lock_recover(&self.run).take()
+    }
+
+    /// Clears any stored run.
+    pub fn clear(&self) {
+        *lock_recover(&self.run) = None;
+    }
+}
+
+impl RunSink for MemorySink {
+    fn write(&self, run: &Run) -> Result<(), SinkError> {
+        *lock_recover(&self.run) = Some(run.clone());
+        Ok(())
+    }
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 fn create_temp_path(parent: &Path, final_path: &Path) -> PathBuf {
     let file_name = final_path
         .file_name()
@@ -151,9 +217,10 @@ impl std::error::Error for SinkError {
 
 #[cfg(test)]
 mod tests {
-    use super::{finalize_temp_file, LocalJsonSink, RunSink, SinkError};
-    use crate::{CaptureMode, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION};
+    use super::{finalize_temp_file, DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
+    use crate::{CaptureMode, Run, RunMetadata, Tailtriage, UnfinishedRequests, SCHEMA_VERSION};
     use std::path::PathBuf;
+    use std::sync::{Arc, Barrier};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_path(suffix: &str) -> PathBuf {
@@ -203,6 +270,114 @@ mod tests {
         assert_eq!(restored.schema_version, SCHEMA_VERSION);
 
         let _ = std::fs::remove_file(output);
+    }
+
+    #[test]
+    fn discard_sink_write_succeeds() {
+        let sink = DiscardSink;
+        sink.write(&sample_run())
+            .expect("discard sink should succeed");
+    }
+
+    #[test]
+    fn builder_with_discard_sink_can_shutdown() {
+        let tailtriage = Tailtriage::builder("payments")
+            .sink(DiscardSink)
+            .build()
+            .expect("builder should succeed");
+        tailtriage.shutdown().expect("shutdown should succeed");
+    }
+
+    #[test]
+    fn memory_sink_stores_finalized_run_after_shutdown() {
+        let sink = MemorySink::new();
+        let tailtriage = Tailtriage::builder("payments")
+            .sink(sink.clone())
+            .build()
+            .expect("builder should succeed");
+        tailtriage.shutdown().expect("shutdown should succeed");
+        let run = sink.last_run().expect("run should be stored");
+        assert_eq!(run.metadata.service_name, "payments");
+    }
+
+    #[test]
+    fn memory_sink_last_run_does_not_clear() {
+        let sink = MemorySink::new();
+        sink.write(&sample_run()).expect("write should succeed");
+        assert!(sink.last_run().is_some());
+        assert!(sink.last_run().is_some());
+    }
+
+    #[test]
+    fn memory_sink_take_run_clears_value() {
+        let sink = MemorySink::new();
+        sink.write(&sample_run()).expect("write should succeed");
+        assert!(sink.take_run().is_some());
+        assert!(sink.last_run().is_none());
+    }
+
+    #[test]
+    fn memory_sink_clear_clears_value() {
+        let sink = MemorySink::new();
+        sink.write(&sample_run()).expect("write should succeed");
+        sink.clear();
+        assert!(sink.last_run().is_none());
+    }
+
+    #[test]
+    fn memory_sink_clone_handle_can_retrieve_after_builder_shutdown() {
+        let sink = MemorySink::new();
+        let tailtriage = Tailtriage::builder("payments")
+            .sink(sink.clone())
+            .build()
+            .expect("builder should succeed");
+        tailtriage.shutdown().expect("shutdown should succeed");
+        assert!(sink.last_run().is_some());
+    }
+
+    #[test]
+    fn memory_sink_replaces_stored_run_on_subsequent_write() {
+        let sink = MemorySink::new();
+        let mut first = sample_run();
+        first.metadata.run_id = "first".to_string();
+        sink.write(&first).expect("first write should succeed");
+        let mut second = sample_run();
+        second.metadata.run_id = "second".to_string();
+        sink.write(&second).expect("second write should succeed");
+        assert_eq!(
+            sink.last_run()
+                .expect("run should exist")
+                .metadata
+                .run_id
+                .as_str(),
+            "second"
+        );
+    }
+
+    fn poison_memory_sink(sink: MemorySink) {
+        let barrier = Arc::new(Barrier::new(2));
+        let barrier_clone = Arc::clone(&barrier);
+        let sink_clone = sink.clone();
+        let join = std::thread::spawn(move || {
+            let mut guard = sink_clone.run.lock().expect("lock should succeed");
+            *guard = Some(sample_run());
+            barrier_clone.wait();
+            panic!("poison mutex intentionally");
+        });
+        barrier.wait();
+        assert!(join.join().is_err(), "thread should panic to poison mutex");
+    }
+
+    #[test]
+    fn memory_sink_recovers_from_poison_for_last_run_take_clear_and_write() {
+        let sink = MemorySink::new();
+        poison_memory_sink(sink.clone());
+
+        assert!(sink.last_run().is_some(), "last_run should recover");
+        assert!(sink.take_run().is_some(), "take_run should recover");
+        sink.clear();
+        sink.write(&sample_run()).expect("write should recover");
+        assert!(sink.last_run().is_some(), "write should store after poison");
     }
 
     #[test]
