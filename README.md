@@ -170,7 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
 
-# use tailtriage_core::Run;
+# use tailtriage::Run;
 # fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
