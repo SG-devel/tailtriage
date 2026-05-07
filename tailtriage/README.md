@@ -35,6 +35,8 @@ The analysis result is triage guidance (evidence-ranked suspects plus next check
 
 ## Installation
 
+For capture in your service:
+
 ```bash
 cargo add tailtriage
 ```
@@ -46,11 +48,23 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-To install the `tailtriage` binary for analyzing artifacts, install the `tailtriage-cli` crate:
+`tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work. 
+
+For command-line analysis of saved artifact JSON:
 
 ```bash
 cargo install tailtriage-cli
 ```
+
+For in-process Rust analysis/report generation:
+
+```bash
+cargo add tailtriage-analyzer
+```
+
+Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust code.
+- `tailtriage-cli` consumes Run artifact JSON from disk.
+- `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
 
 ## Quick start
 
