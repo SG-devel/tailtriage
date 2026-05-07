@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -42,8 +43,8 @@ def validate_manifest(manifest):
         seen.add(cid)
         if not isinstance(case["artifact"], str) or not case["artifact"].strip():
             raise ValueError(f"artifact must be a non-empty string for {cid}")
-        if case["artifact_type"] not in {"analysis_report", "synthetic_analysis_report"}:
-            raise ValueError(f"artifact_type must be analysis_report or synthetic_analysis_report for {cid}")
+        if case["artifact_type"] not in {"analysis_report", "synthetic_analysis_report", "run_artifact"}:
+            raise ValueError(f"artifact_type must be analysis_report, synthetic_analysis_report, or run_artifact for {cid}")
         gt = case["ground_truth"]
         if gt not in ALLOWED_GROUND_TRUTH:
             raise ValueError(f"unknown ground_truth for {cid}: {gt}")
@@ -258,7 +259,11 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
     temporal_segment_check_passed_cases = 0
 
     for case in manifest["cases"]:
-        report = load_json(root / case["artifact"])
+        artifact_path = root / case["artifact"]
+        if case["artifact_type"] == "run_artifact":
+            report = analyze_run_artifact(artifact_path)
+        else:
+            report = load_json(artifact_path)
         if case["artifact_type"] == "analysis_report" and "score" not in report.get("primary_suspect", {}):
             raise ValueError("analysis_report requires report.primary_suspect.score")
         ext = extract(report)
@@ -407,6 +412,29 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
     if high_conf_wrong > max_high_confidence_wrong:
         failures.append(f"high_confidence_wrong_count {high_conf_wrong} exceeds max {max_high_confidence_wrong}")
     return metrics, failures
+
+
+def analyze_run_artifact(artifact_path):
+    cmd = [
+        "cargo",
+        "run",
+        "-q",
+        "-p",
+        "tailtriage-cli",
+        "--",
+        "analyze",
+        str(artifact_path),
+        "--format",
+        "json",
+    ]
+    completed = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip() or "(no stderr)"
+        raise ValueError(f"failed to analyze run artifact {artifact_path}: {stderr}")
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"tailtriage-cli returned invalid JSON for run artifact {artifact_path}: {exc}") from exc
 
 
 def main():

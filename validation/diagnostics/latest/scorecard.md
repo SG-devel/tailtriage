@@ -11,13 +11,14 @@
 | insufficient evidence | Initial deterministic adversarial coverage | low-request-count, noise-only, and high-latency-missing-instrumentation cases enforce low-confidence fallback. |
 | truncation handling | Initial deterministic adversarial coverage | truncated-artifact adversarial case enforces warning + confidence ceiling. |
 | missing instrumentation warnings | Initial deterministic adversarial coverage | queue/stage/runtime missing and optional-runtime-field warnings are explicitly checked. |
+| raw run-artifact analyzer path | Initial deterministic adversarial coverage | selected no-queue/no-stage/no-runtime/low-request/truncation cases execute Run -> `analyze_run()` via CLI on committed raw fixtures. |
 | runtime overhead | Manual/local operational validation available | canonical operational domain lives under `validation/runtime-cost/`; machine/workload scoped; generated outputs under `target/operational-validation/` are not committed by default. |
 | collector limits | Manual/local operational validation available | canonical operational domain lives under `validation/collector-limits/`; validates visible bounded drops and warning/downgrade behavior. |
 | repeated-run diagnostic matrix | Manual/local repeated-run validation available | publishable repeated-run outputs are generated locally (JSONL/summary/scorecard) and not committed by default; results are machine/workload scoped. |
 | mitigation validation | Manual/local mitigation matrix available | baseline/mitigated controlled demos compare latency and evidence movement; generated outputs are not committed by default. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
-Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks; they are not real-service validation and do not provide root-cause proof.
+Deterministic synthetic adversarial cases validate benchmark/report contract behavior and humility checks. Deterministic raw run-artifact adversarial cases validate analyzer-path behavior on committed fixtures. Neither track is real-service validation or root-cause proof.
 
 Normal CI runs the deterministic benchmark against the committed diagnostics manifest and fixtures as a required validation gate. Normal CI still does not publish durable scorecards.
 

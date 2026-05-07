@@ -197,6 +197,26 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertEqual(metrics["total_cases"], 1)
         self.assertFalse(failures)
 
+    @mock.patch("scripts.diagnostic_benchmark.subprocess.run")
+    def test_run_artifact_invokes_cli_analyzer_path(self, run_mock):
+        case = self.make_case(artifact_type="run_artifact")
+        run_mock.return_value = mock.Mock(
+            returncode=0,
+            stdout=json.dumps(valid_report()),
+            stderr="",
+        )
+        metrics, failures = self.run_single_case(case, {"schema_version": 1})
+        self.assertFalse(failures)
+        self.assertEqual(metrics["total_cases"], 1)
+        self.assertTrue(run_mock.called)
+
+    @mock.patch("scripts.diagnostic_benchmark.subprocess.run")
+    def test_run_artifact_cli_failure_has_case_context(self, run_mock):
+        case = self.make_case(id="run-artifact-cli-fail", artifact_type="run_artifact")
+        run_mock.return_value = mock.Mock(returncode=1, stdout="", stderr="bad artifact")
+        with self.assertRaisesRegex(ValueError, "failed to analyze run artifact"):
+            self.run_single_case(case, {"schema_version": 1})
+
     # Metric semantics tests
     def test_top1_required_wrong_primary_fails(self):
         case = self.make_case(top1_required=True)
