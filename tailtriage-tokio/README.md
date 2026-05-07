@@ -173,12 +173,12 @@ The resolved runtime snapshot retention is then **clamped** by the core run cap:
 
 ## Metrics availability notes
 
-On stable Tokio, runtime snapshots always include:
+On stable Tokio, the runtime sampler always attempts to populate
 
 - `alive_tasks`
 - `global_queue_depth`
 
-Additional fields such as:
+The artifact schema keeps these fields optional for compatibility and unavailable-data cases. Additional fields such as:
 
 - `local_queue_depth`
 - `blocking_queue_depth`
