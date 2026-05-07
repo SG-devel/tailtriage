@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import os
 import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -35,8 +34,18 @@ def load_case_report(case, root):
             raise ValueError(f"analysis_report requires report.primary_suspect.score for case {case['id']} ({artifact_path})")
         return report
     if artifact_type == "run_artifact":
-        analyze_cmd = os.environ.get("TAILTRIAGE_ANALYZE_CMD", "cargo run --quiet -p tailtriage-cli -- analyze")
-        command = analyze_cmd.split() + [str(artifact_path), "--format", "json"]
+        command = [
+            "cargo",
+            "run",
+            "--quiet",
+            "-p",
+            "tailtriage-cli",
+            "--",
+            "analyze",
+            str(artifact_path),
+            "--format",
+            "json",
+        ]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
             stderr = result.stderr.strip()
