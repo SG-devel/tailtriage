@@ -237,7 +237,6 @@ tailtriage analyze tailtriage-run.json --format json
 
 For validation scope, claims, and current diagnostic scorecard, see [VALIDATION.md](VALIDATION.md).
 
-
 `tailtriage` includes repo-local measurement paths for both runtime-overhead attribution and sustained collector-stress behavior. These are based on synthetic, controlled tests in this repository and should be treated as machine- and workload-scoped guidance, not universal production guarantees.
 
 For overhead attribution and measurement workflow, see [`docs/runtime-cost.md`](docs/runtime-cost.md). For sustained-load behavior, truncation onset, artifact-size growth, and memory trends under stress-shaped workloads, see [`docs/collector-limits.md`](docs/collector-limits.md).
@@ -294,17 +293,8 @@ Use before/after comparisons as a reproducible mitigation-confirmation loop, not
 
 Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
 
-## Documentation map
+## Documentation
 
-- Default crate docs: [`tailtriage/README.md`](tailtriage/README.md)
-- User workflow guide: [`docs/user-guide.md`](docs/user-guide.md)
-- Controller docs and config: [`tailtriage-controller/README.md`](tailtriage-controller/README.md)
-- Runtime sampler docs: [`tailtriage-tokio/README.md`](tailtriage-tokio/README.md)
-- In-process analyzer/report contract: [`tailtriage-analyzer/README.md`](tailtriage-analyzer/README.md)
-- CLI artifact loader/report emitter: [`tailtriage-cli/README.md`](tailtriage-cli/README.md)
-- Diagnostics field reference and interpretation: [`docs/diagnostics.md`](docs/diagnostics.md)
-- Demo walkthrough and recommended first demos: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
-- Runtime-overhead measurement path: [`docs/runtime-cost.md`](docs/runtime-cost.md)
-- Collector-stress, truncation, artifact-size, and memory guidance: [`docs/collector-limits.md`](docs/collector-limits.md)
-- Architecture and crate responsibilities: [`docs/architecture.md`](docs/architecture.md)
-- Full docs index: [`docs/README.md`](docs/README.md)
+The complete documentation index lives in [`docs/README.md`](docs/README.md).
+
+Start there for the user workflow, crate selection, controller configuration, analyzer and CLI contracts, diagnostics interpretation, demos, validation, runtime-cost measurement, collector limits, and architecture.

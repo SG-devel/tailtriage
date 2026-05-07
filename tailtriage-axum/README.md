@@ -75,7 +75,7 @@ fn app(tailtriage: Arc<Tailtriage>) -> Router {
 Automatic at the Axum boundary:
 
 - request start
-- request finish
+- request finish for normally returned responses
 - request-scoped handle injection into handlers
 - request `kind` is set to `"http"`
 

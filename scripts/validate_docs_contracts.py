@@ -51,32 +51,28 @@ STALE_CONTROLLER_POLICY_NAMES = (
     'kind = "first_limit_hit"',
 )
 
-DOCS_REQUIRED_LINKS = (
-    "[User guide](user-guide.md)",
-    "[Diagnostics guide](diagnostics.md)",
-    "[Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md)",
-    "[Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md)",
-    "[Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md)",
-    "[CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md)",
-    "[Runtime cost measurement](runtime-cost.md)",
-    "[Collector limits and stress guidance](collector-limits.md)",
-    "[Getting started with demos](getting-started-demo.md)",
-    "[Architecture](architecture.md)",
-)
+DOCS_INDEX_EXCLUDED_MARKDOWN = {
+    # GitHub workflow templates, surfaced by GitHub UI rather than docs index.
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+    ".github/pull_request_template.md",
 
-README_DOC_MAP_REQUIRED_LINKS = (
-    "(docs/user-guide.md)",
-    "(tailtriage-controller/README.md)",
-    "(tailtriage-tokio/README.md)",
-    "(tailtriage-analyzer/README.md)",
-    "(tailtriage-cli/README.md)",
-    "(docs/diagnostics.md)",
-    "(docs/runtime-cost.md)",
-    "(docs/collector-limits.md)",
-    "(docs/getting-started-demo.md)",
-    "(docs/architecture.md)",
-    "(docs/README.md)",
-)
+    # Agent/maintainer/planning docs, not product docs.
+    "AGENTS.md",
+    "DESIGN_NOTES.md",
+    "IMPLEMENTATION_PLAN.md",
+
+    # The docs index should not be required to link to itself.
+    "docs/README.md",
+
+    # Validation-domain internals. User-facing guidance is under docs/.
+    "validation/collector-limits/README.md",
+    "validation/collector-limits/latest/scorecard.md",
+    "validation/diagnostics/README.md",
+    "validation/diagnostics/latest/scorecard.md",
+    "validation/runtime-cost/README.md",
+    "validation/runtime-cost/latest/scorecard.md",
+}
 
 DOCS_DISALLOWED_HISTORY_PATTERNS = (
     r"issue\s*#\d+",
@@ -427,19 +423,59 @@ def validate_no_stale_controller_policy_names() -> None:
         raise ValueError(f"stale controller run_end_policy docs found:\n{joined}")
 
 
-def validate_docs_index_contract() -> None:
-    text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
-    links = markdown_links(text)
-    required_paths = {
-        match.group(1)
-        for link in DOCS_REQUIRED_LINKS
-        for match in [re.search(r"\(([^)]+)\)\s*$", link)]
-        if match is not None
-    }
-    missing = sorted(required_paths.difference(links))
-    if missing:
-        raise ValueError(f"docs index missing required links: {missing}")
+def normalize_doc_link(link: str) -> str:
+    return link.split("#", 1)[0]
 
+
+def repo_markdown_files() -> set[str]:
+    return {
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in REPO_ROOT.rglob("*.md")
+        if ".git" not in path.parts
+        and "target" not in path.parts
+        and path.relative_to(REPO_ROOT).as_posix() not in DOCS_INDEX_EXCLUDED_MARKDOWN
+    }
+
+
+def docs_index_link_targets() -> set[str]:
+    text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
+    docs_dir = DOCS_INDEX_PATH.parent
+    targets: set[str] = set()
+
+    for raw_link in markdown_links(text):
+        link = normalize_doc_link(raw_link)
+
+        if "://" in link or link.startswith("mailto:"):
+            continue
+        if not link.endswith(".md"):
+            continue
+
+        resolved = (docs_dir / link).resolve()
+
+        try:
+            targets.add(resolved.relative_to(REPO_ROOT.resolve()).as_posix())
+        except ValueError:
+            continue
+
+    return targets
+
+
+def validate_docs_index_contract() -> None:
+    required = repo_markdown_files()
+    linked = docs_index_link_targets()
+
+    missing = sorted(required - linked)
+    if missing:
+        raise ValueError(f"docs index missing required Markdown links: {missing}")
+
+
+def validate_root_readme_docs_link() -> None:
+    text = README_PATH.read_text(encoding="utf-8")
+    links = {normalize_doc_link(link) for link in markdown_links(text)}
+
+    if "docs/README.md" not in links:
+        raise ValueError("root README must link to docs/README.md")
+    
 
 def validate_user_guide_contract() -> None:
     text = USER_GUIDE_PATH.read_text(encoding="utf-8")
@@ -497,20 +533,6 @@ def validate_user_guide_contract() -> None:
         raise ValueError(
             "user guide TOML example must include non-empty controller.activation.sink.output_path"
         )
-
-
-def validate_root_readme_docs_map_parity() -> None:
-    text = README_PATH.read_text(encoding="utf-8")
-    links = markdown_links(text)
-    required_paths = {
-        match.group(1)
-        for link in README_DOC_MAP_REQUIRED_LINKS
-        for match in [re.search(r"\(([^)]+)\)\s*$", link)]
-        if match is not None
-    }
-    missing = sorted(required_paths.difference(links))
-    if missing:
-        raise ValueError(f"root README docs map missing required links: {missing}")
 
 
 def validate_diagnostics_contract_truthfulness() -> None:
@@ -834,7 +856,7 @@ def main() -> int:
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
-    validate_root_readme_docs_map_parity()
+    validate_root_readme_docs_link()
     validate_user_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_cli_not_presented_as_library_analyzer_api()
