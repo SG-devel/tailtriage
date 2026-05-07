@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
+import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -24,6 +26,33 @@ def load_json(path):
         return json.load(f)
 
 
+def load_case_report(case, root):
+    artifact_path = (root / case["artifact"]).resolve()
+    artifact_type = case["artifact_type"]
+    if artifact_type in {"analysis_report", "synthetic_analysis_report"}:
+        report = load_json(artifact_path)
+        if artifact_type == "analysis_report" and "score" not in report.get("primary_suspect", {}):
+            raise ValueError(f"analysis_report requires report.primary_suspect.score for case {case['id']} ({artifact_path})")
+        return report
+    if artifact_type == "run_artifact":
+        analyze_cmd = os.environ.get("TAILTRIAGE_ANALYZE_CMD", "cargo run --quiet -p tailtriage-cli -- analyze")
+        command = analyze_cmd.split() + [str(artifact_path), "--format", "json"]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            stdout = result.stdout.strip()
+            detail = stderr or stdout or "no output"
+            raise ValueError(f"run_artifact analyze failed for case {case['id']} ({artifact_path}): {detail}")
+        output = result.stdout.strip()
+        if not output:
+            raise ValueError(f"run_artifact analyze produced empty output for case {case['id']} ({artifact_path})")
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError as err:
+            raise ValueError(f"run_artifact analyze emitted invalid JSON for case {case['id']} ({artifact_path}): {err}") from err
+    raise ValueError(f"unsupported artifact_type {artifact_type} for case {case['id']}")
+
+
 def validate_manifest(manifest):
     if not isinstance(manifest, dict) or "cases" not in manifest or not isinstance(manifest["cases"], list):
         raise ValueError("manifest must be an object containing a cases list")
@@ -42,8 +71,8 @@ def validate_manifest(manifest):
         seen.add(cid)
         if not isinstance(case["artifact"], str) or not case["artifact"].strip():
             raise ValueError(f"artifact must be a non-empty string for {cid}")
-        if case["artifact_type"] not in {"analysis_report", "synthetic_analysis_report"}:
-            raise ValueError(f"artifact_type must be analysis_report or synthetic_analysis_report for {cid}")
+        if case["artifact_type"] not in {"analysis_report", "synthetic_analysis_report", "run_artifact"}:
+            raise ValueError(f"artifact_type must be analysis_report, synthetic_analysis_report, or run_artifact for {cid}")
         gt = case["ground_truth"]
         if gt not in ALLOWED_GROUND_TRUTH:
             raise ValueError(f"unknown ground_truth for {cid}: {gt}")
@@ -258,9 +287,7 @@ def run(manifest_path, min_top1, min_top2, max_high_confidence_wrong):
     temporal_segment_check_passed_cases = 0
 
     for case in manifest["cases"]:
-        report = load_json(root / case["artifact"])
-        if case["artifact_type"] == "analysis_report" and "score" not in report.get("primary_suspect", {}):
-            raise ValueError("analysis_report requires report.primary_suspect.score")
+        report = load_case_report(case, root)
         ext = extract(report)
 
         gt = case["ground_truth"]

@@ -98,6 +98,7 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         bad = self.make_case(artifact_type="anything_else")
         with self.assertRaisesRegex(ValueError, "artifact_type"):
             db.validate_manifest(self.make_manifest(bad))
+        db.validate_manifest(self.make_manifest(self.make_case(artifact_type="run_artifact")))
 
     def test_manifest_ground_truth_and_required_top2_rules(self):
         with self.assertRaisesRegex(ValueError, "unknown ground_truth"):
@@ -148,6 +149,31 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
         with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
             db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=1)))
+
+
+    def test_run_artifact_loads_report_via_cli_json(self):
+        case = self.make_case(artifact_type="run_artifact", artifact="run.json")
+        fake_report = valid_report()
+        with tempfile.TemporaryDirectory() as td:
+            artifact_path = self.write_json(td, case["artifact"], {"schema_version": 1})
+            with mock.patch("scripts.diagnostic_benchmark.subprocess.run") as mocked_run:
+                mocked_run.return_value = mock.Mock(returncode=0, stdout=json.dumps(fake_report), stderr="")
+                loaded = db.load_case_report(case, Path(td))
+        self.assertEqual(loaded["primary_suspect"]["kind"], fake_report["primary_suspect"]["kind"])
+        mocked_run.assert_called_once()
+        cmd = mocked_run.call_args.args[0]
+        self.assertIn(str(artifact_path.resolve()), cmd)
+
+    def test_run_artifact_cli_failure_includes_case_and_path(self):
+        case = self.make_case(artifact_type="run_artifact", artifact="run.json", id="raw-case")
+        with tempfile.TemporaryDirectory() as td:
+            artifact_path = self.write_json(td, case["artifact"], {"schema_version": 1})
+            with mock.patch("scripts.diagnostic_benchmark.subprocess.run") as mocked_run:
+                mocked_run.return_value = mock.Mock(returncode=1, stdout="", stderr="boom")
+                with self.assertRaisesRegex(ValueError, "raw-case"):
+                    db.load_case_report(case, Path(td))
+                with self.assertRaisesRegex(ValueError, str(artifact_path.resolve())):
+                    db.load_case_report(case, Path(td))
 
     # Report validation tests
     def test_report_missing_primary_fails(self):
