@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Error as IoError, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Run;
@@ -38,6 +39,82 @@ pub trait RunSink {
     /// Returns [`SinkError`] if the sink cannot write the run output, such as
     /// when file I/O fails or serialization cannot complete.
     fn write(&self, run: &Run) -> Result<(), SinkError>;
+}
+
+/// Sink that finalizes the capture lifecycle and intentionally drops the
+/// finalized run.
+///
+/// This sink writes no run artifact file. Use it when you want shutdown to
+/// complete without persisting output.
+///
+/// If you need in-process analysis of the finalized [`Run`], use
+/// [`MemorySink`] instead.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DiscardSink;
+
+impl RunSink for DiscardSink {
+    fn write(&self, _run: &Run) -> Result<(), SinkError> {
+        Ok(())
+    }
+}
+
+/// Sink that stores finalized runs in memory and writes no file artifact.
+///
+/// This sink stores only the last finalized [`Run`]. Later writes replace any
+/// previously stored run.
+///
+/// Storing finalized runs clones captured data, which can increase memory use
+/// for large captures.
+#[derive(Debug, Clone, Default)]
+pub struct MemorySink {
+    last_run: Arc<Mutex<Option<Run>>>,
+}
+
+impl MemorySink {
+    /// Creates a new in-memory sink.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a clone of the last stored run, if present.
+    #[must_use]
+    pub fn last_run(&self) -> Option<Run> {
+        let guard = self
+            .last_run
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.clone()
+    }
+
+    /// Takes and clears the last stored run.
+    pub fn take_run(&self) -> Option<Run> {
+        let mut guard = self
+            .last_run
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.take()
+    }
+
+    /// Clears any stored run.
+    pub fn clear(&self) {
+        let mut guard = self
+            .last_run
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = None;
+    }
+}
+
+impl RunSink for MemorySink {
+    fn write(&self, run: &Run) -> Result<(), SinkError> {
+        let mut guard = self
+            .last_run
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = Some(run.clone());
+        Ok(())
+    }
 }
 
 /// Local file sink that writes one JSON document per run at shutdown.
@@ -151,9 +228,10 @@ impl std::error::Error for SinkError {
 
 #[cfg(test)]
 mod tests {
-    use super::{finalize_temp_file, LocalJsonSink, RunSink, SinkError};
+    use super::{finalize_temp_file, DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
     use crate::{CaptureMode, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION};
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_path(suffix: &str) -> PathBuf {
@@ -203,6 +281,90 @@ mod tests {
         assert_eq!(restored.schema_version, SCHEMA_VERSION);
 
         let _ = std::fs::remove_file(output);
+    }
+
+    #[test]
+    fn discard_sink_write_succeeds() {
+        let sink = DiscardSink;
+        sink.write(&sample_run())
+            .expect("discard sink should succeed");
+    }
+
+    #[test]
+    fn memory_sink_last_run_returns_clone_without_clearing() {
+        let sink = MemorySink::new();
+        let run = sample_run();
+        sink.write(&run).expect("memory sink write should succeed");
+
+        let first = sink.last_run().expect("run should be stored");
+        let second = sink.last_run().expect("run should remain stored");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn memory_sink_take_run_returns_and_clears() {
+        let sink = MemorySink::new();
+        let run = sample_run();
+        sink.write(&run).expect("memory sink write should succeed");
+
+        let taken = sink.take_run().expect("run should be returned");
+        assert_eq!(taken, run);
+        assert!(sink.last_run().is_none(), "take should clear stored run");
+    }
+
+    #[test]
+    fn memory_sink_clear_removes_stored_run() {
+        let sink = MemorySink::new();
+        sink.write(&sample_run())
+            .expect("memory sink write should succeed");
+        sink.clear();
+        assert!(sink.last_run().is_none(), "clear should remove stored run");
+    }
+
+    #[test]
+    fn memory_sink_write_replaces_previous_run() {
+        let sink = MemorySink::new();
+        let mut first = sample_run();
+        first.metadata.run_id = "first".to_string();
+        sink.write(&first).expect("first write should succeed");
+        let mut second = sample_run();
+        second.metadata.run_id = "second".to_string();
+        sink.write(&second).expect("second write should succeed");
+        assert_eq!(
+            sink.last_run().expect("latest run should be present"),
+            second
+        );
+    }
+
+    #[test]
+    fn memory_sink_recovers_from_poisoned_mutex() {
+        let poisonable = Arc::new(Mutex::new(Some(sample_run())));
+        let poisoned = Arc::clone(&poisonable);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoned.lock().expect("poisoning lock should succeed");
+            panic!("intentional panic to poison mutex");
+        })
+        .join();
+
+        let poisoned_sink = MemorySink {
+            last_run: poisonable,
+        };
+        assert!(
+            poisoned_sink.last_run().is_some(),
+            "last_run should recover from poison"
+        );
+        assert!(
+            poisoned_sink.take_run().is_some(),
+            "take_run should recover from poison"
+        );
+        poisoned_sink.clear();
+        assert!(
+            poisoned_sink.last_run().is_none(),
+            "clear should recover from poison and clear state"
+        );
+        poisoned_sink
+            .write(&sample_run())
+            .expect("write should recover from poison");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveTokioSamplerConfig,
-    Outcome, RequestOptions, RuntimeSamplerRegistrationError, SinkError, Tailtriage,
+    MemorySink, Outcome, RequestOptions, RuntimeSamplerRegistrationError, SinkError, Tailtriage,
 };
 
 #[derive(Debug, Default)]
@@ -198,6 +198,50 @@ fn shutdown_writes_artifact() {
     assert!(
         run.metadata.finalized_at_unix_ms.is_some(),
         "shutdown artifact should include finalized timestamp"
+    );
+}
+
+#[test]
+fn builder_with_discard_sink_builds_and_shutdown_succeeds() {
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(crate::DiscardSink)
+        .build()
+        .expect("build should succeed");
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+}
+
+#[test]
+fn memory_sink_stores_finalized_run_after_shutdown() {
+    let sink = MemorySink::new();
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(sink.clone())
+        .build()
+        .expect("build should succeed");
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    let run = sink.last_run().expect("finalized run should be stored");
+    assert!(
+        run.metadata.finalized_at_unix_ms.is_some(),
+        "run should be finalized at shutdown"
+    );
+}
+
+#[test]
+fn memory_sink_can_be_cloned_before_builder_and_read_after_shutdown() {
+    let sink = MemorySink::new();
+    let sink_for_builder = sink.clone();
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(sink_for_builder)
+        .build()
+        .expect("build should succeed");
+    tailtriage.begin_request("/health").completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    assert!(
+        sink.last_run().is_some(),
+        "original handle should retrieve finalized run"
     );
 }
 
