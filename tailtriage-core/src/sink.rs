@@ -83,6 +83,7 @@ impl MemorySink {
     }
 
     /// Takes the last finalized run and clears the stored value.
+    #[must_use]
     pub fn take_run(&self) -> Option<Run> {
         lock_recover(&self.run).take()
     }
