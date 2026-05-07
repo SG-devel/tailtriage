@@ -22,6 +22,8 @@ Suspects are investigation leads, not proof of root cause.
 cargo add tailtriage-analyzer
 ```
 
+You also need a capture crate that provides `tailtriage_core::Run`, such as `tailtriage` or `tailtriage-core`.
+
 ## How to obtain a `Run`
 
 `tailtriage-analyzer` does not capture requests and does not load artifacts from disk.
