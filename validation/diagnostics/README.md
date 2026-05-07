@@ -13,6 +13,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - `artifact_type`:
   - `analysis_report`: real demo-emitted analyzer report fixture.
   - `synthetic_analysis_report`: hand-written report-shaped synthetic fixture used for coverage gaps.
+  - `run_artifact`: raw captured run fixture analyzed through `tailtriage analyze` (`analyze_run()` path) during benchmark execution.
 - `ground_truth`: expected diagnostic family for the controlled fixture intent. It does not mean production root-cause proof.
 - `required_top2`: diagnosis kinds that must appear in primary or first secondary suspect. Usually `[ground_truth]`. Must include `ground_truth`.
 - `acceptable_primary`: diagnosis kinds acceptable as primary for mixed/ambiguous interpretation. Must include `ground_truth`. This does **not** satisfy `required_top2` by itself.
@@ -36,6 +37,7 @@ Normal CI runs the deterministic corpus benchmark against `validation/diagnostic
 - Use `max_primary_confidence` for humility checks in sparse-sample, missing-instrumentation, truncation, noise-only, or close mixed-signal cases.
 - Confidence ceilings validate conservative triage behavior, not truth probabilities.
 - Synthetic fixtures are report-shaped adversarial coverage artifacts, not substitutes for analyzer-generated captures.
+- Raw `run_artifact` fixtures validate analyzer-path behavior on committed run JSON fixtures; they do not claim production accuracy or real-service validation.
 
 ## Running the benchmark
 

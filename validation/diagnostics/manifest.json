@@ -1105,6 +1105,155 @@
         "runtime_snapshots": "partial",
         "inflight_snapshots": "partial"
       }
+    },
+    {
+      "id": "raw_low_request_insufficient",
+      "artifact": "raw-fixtures/low-request-insufficient-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "insufficient"
+      ],
+      "must_include_evidence": [],
+      "notes": "Raw run artifact with low request count should remain insufficient evidence.",
+      "expected_warnings": [
+        "Low completed-request count"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [
+        "No runtime snapshots captured"
+      ],
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "low"
+    },
+    {
+      "id": "raw_no_queue_events",
+      "artifact": "raw-fixtures/no-queue-events-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-queue"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "notes": "Raw run artifact with no queue events should warn and cap confidence.",
+      "expected_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [
+        "Low completed-request count"
+      ],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_no_stage_events",
+      "artifact": "raw-fixtures/no-stage-events-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-stage"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Raw run artifact with no stage events should warn and stay conservative.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [
+        "Low completed-request count",
+        "No runtime snapshots captured"
+      ],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_no_runtime_snapshots",
+      "artifact": "raw-fixtures/no-runtime-snapshots-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "executor_pressure_suspected",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "missing-runtime"
+      ],
+      "must_include_evidence": [
+        "Runtime global queue depth"
+      ],
+      "notes": "Raw run artifact without runtime snapshots should warn and keep confidence bounded.",
+      "expected_warnings": [
+        "missing blocking_queue_depth or local_queue_depth"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [
+        "Low completed-request count"
+      ],
+      "required_top2": [
+        "executor_pressure_suspected"
+      ],
+      "acceptable_primary": [
+        "executor_pressure_suspected"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "medium"
+    },
+    {
+      "id": "raw_truncation_partial_evidence",
+      "artifact": "raw-fixtures/truncation-partial-run.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "insufficient_evidence",
+      "tags": [
+        "adversarial",
+        "raw-run",
+        "truncation"
+      ],
+      "must_include_evidence": [],
+      "notes": "Raw run artifact with dropped events validates truncation warning and conservative confidence.",
+      "expected_warnings": [
+        "Capture limits were hit"
+      ],
+      "top1_required": true,
+      "allowed_warnings": [
+        "Low completed-request count",
+        "No runtime snapshots captured",
+        "Capture truncated requests",
+        "Capture truncated stages",
+        "Capture truncated queues",
+        "Capture truncated in-flight snapshots",
+        "Capture truncated runtime snapshots"
+      ],
+      "required_top2": [
+        "insufficient_evidence"
+      ],
+      "acceptable_primary": [
+        "insufficient_evidence"
+      ],
+      "must_include_next_checks": [],
+      "max_primary_confidence": "low"
     }
   ]
 }

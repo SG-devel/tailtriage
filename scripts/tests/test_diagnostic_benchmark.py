@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -98,6 +99,7 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         bad = self.make_case(artifact_type="anything_else")
         with self.assertRaisesRegex(ValueError, "artifact_type"):
             db.validate_manifest(self.make_manifest(bad))
+        db.validate_manifest(self.make_manifest(self.make_case(artifact_type="run_artifact")))
 
     def test_manifest_ground_truth_and_required_top2_rules(self):
         with self.assertRaisesRegex(ValueError, "unknown ground_truth"):
@@ -196,6 +198,23 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         metrics, failures = self.run_single_case(synthetic, no_score_report)
         self.assertEqual(metrics["total_cases"], 1)
         self.assertFalse(failures)
+
+    @mock.patch("scripts.diagnostic_benchmark.subprocess.run")
+    def test_run_artifact_uses_cli_analyzer_path(self, mock_run):
+        case = self.make_case(artifact_type="run_artifact")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["cargo"],
+            returncode=0,
+            stdout=json.dumps(valid_report()),
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            self.write_json(td, case["artifact"], {"schema_version": 1})
+            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(case))
+            metrics, failures = db.run(str(manifest_path), 0.0, 0.0, 99)
+        self.assertFalse(failures)
+        self.assertEqual(metrics["total_cases"], 1)
+        self.assertIn("tailtriage-cli", mock_run.call_args.args[0])
 
     # Metric semantics tests
     def test_top1_required_wrong_primary_fails(self):

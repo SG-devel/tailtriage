@@ -45,6 +45,10 @@ The corpus includes insufficient-evidence scenarios to validate conservative fal
 ## Synthetic corpus fixture type
 `synthetic_analysis_report` entries are small, hand-readable, report-shaped fixtures used only to cover gaps that real demo fixtures do not cover.
 
+## Raw run-artifact fixture type
+`run_artifact` entries are small, committed raw run JSON fixtures analyzed through the CLI analyzer path (`Run -> analyze_run()`) during deterministic corpus validation.
+They validate analyzer-path behavior on controlled fixtures and remain triage validation only, not production-accuracy proof or real-service validation.
+
 ## Next-check validation status
 The corpus supports `must_include_next_checks`, and selected adversarial cases use it to validate that reports suggest relevant follow-up actions.
 
