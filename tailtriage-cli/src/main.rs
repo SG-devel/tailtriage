@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
 use tailtriage_cli::artifact::load_run_artifact;
 
 #[derive(Debug, Parser)]
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{}", render_text(&report));
                 }
                 OutputFormat::Json => {
-                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    println!("{}", render_json_pretty(&report)?);
                 }
             }
         }
