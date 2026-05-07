@@ -13,6 +13,23 @@ It produces a triage report with **evidence-ranked suspects** and **next checks*
 - Not an observability backend.
 - Not root-cause proof on its own.
 
+## When to use tailtriage
+
+| Symptom | tailtriage helps check |
+| --- | --- |
+| p95/p99 latency spikes | whether tail latency is dominated by queueing, executor pressure, blocking-pool pressure, or downstream stage latency |
+| intermittent request timeouts | whether slow requests share a common bottleneck family in one captured run |
+| low CPU but high latency | whether requests are waiting in queues, blocked behind constrained resources, or delayed by downstream work |
+| requests appear stuck | whether time is spent before work starts, inside service execution, or in a named downstream stage |
+| suspected blocking in async code | whether blocking-pool pressure is visible and should be investigated with a targeted follow-up |
+| Tokio runtime seems overloaded | whether captured runtime-pressure signals point toward executor contention rather than app-level queueing |
+| queue buildup before work starts | whether application queue wait dominates p95 latency |
+| slow database or external API suspected | whether a downstream stage dominates request latency enough to be the next check |
+| flaky latency in staging or production | which bottleneck family is the strongest lead from a bounded capture window |
+| hard-to-reproduce tail spikes | whether a captured slow window contains enough evidence to choose the next experiment |
+| unclear profiler results | whether queueing, runtime pressure, blocking-pool pressure, or downstream waiting explains the tail before pursuing CPU hot paths |
+| service has partial instrumentation only | whether available request, queue, stage, runtime, or inflight signals are enough for a useful triage lead |
+
 ## Quick start (crates.io)
 
 For most users, start with the default crate:
@@ -48,6 +65,16 @@ In short:
 - `tokio-console` helps you inspect live runtime/task behavior.
 - `tokio-metrics` gives you runtime/task metrics signals.
 - `tailtriage` helps you rank likely bottleneck families and choose the next targeted check from one captured run.
+
+## Tool comparison
+
+| Tool | Best for | Use with tailtriage when |
+| --- | --- | --- |
+| `tracing` | structured logs and spans | you need operational context around the captured slow window |
+| `tokio-console` | live Tokio task/runtime inspection | tailtriage points toward executor/runtime pressure and you need live inspection |
+| `tokio-metrics` | runtime and task metrics | you want runtime signals to strengthen or explain tailtriage evidence |
+| `pprof` / flamegraph | CPU hot paths | tailtriage does not show queueing, runtime, blocking-pool, or downstream waiting as the likely lead |
+| `tailtriage` | first-pass ranking of likely latency bottleneck families from one run | you need a focused next-check loop rather than continuous observability |
 
 ## What you get from the output
 
