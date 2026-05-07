@@ -45,7 +45,7 @@ cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
-`tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work. 
+`tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work.
 
 For command-line analysis of saved Run artifact JSON:
 
