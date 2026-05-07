@@ -79,6 +79,37 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Output sinks
+
+`tailtriage-core` captures run data and finalizes through a sink. It does not perform analysis/report generation.
+
+- `LocalJsonSink` (or builder `.output(...)`) writes Run artifact JSON to disk.
+- `MemorySink` stores finalized typed `Run` values in memory.
+- `DiscardSink` finalizes lifecycle and drops the finalized `Run` without persisting output.
+
+`MemorySink` stores only the last finalized `Run`; each new finalized run replaces the previous stored value.
+
+Use `MemorySink` when you want in-process analysis. `DiscardSink` drops finalized runs; use `MemorySink` instead when the finalized `Run` should be analyzed in process.
+
+```rust,no_run
+use tailtriage_core::{MemorySink, Tailtriage};
+
+# fn example() -> Result<(), Box<dyn std::error::Error>> {
+let sink = MemorySink::new();
+let run = Tailtriage::builder("checkout-service")
+    .sink(sink.clone())
+    .build()?;
+
+let started = run.begin_request("/checkout");
+started.completion.finish_ok();
+run.shutdown()?;
+
+let finalized = sink.last_run();
+# let _ = finalized;
+# Ok(())
+# }
+```
+
 ### Two easy-to-miss helpers
 
 For infallible async work, `StageTimer::await_value(...)` avoids a dummy `Result`:
