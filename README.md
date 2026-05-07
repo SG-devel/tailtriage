@@ -30,7 +30,7 @@ tailtriage is useful for:
 Use tailtriage when a Rust/Tokio service has:
 - intermittent request timeouts
 - p95/p99 latency spikes
-- tasks that appear stuck
+- requests or background work that appear stuck during latency spikes
 - low CPU but high latency
 - suspected blocking work inside async code
 - queue buildup before work starts
