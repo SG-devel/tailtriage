@@ -478,6 +478,35 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertIn("route_breakdown_checks=1/1", output)
         self.assertIn("temporal_segment_checks=1/1", output)
 
+    def test_main_prints_confidence_bucket_accuracy_summary_with_missing_bucket(self):
+        case = self.make_case()
+        report = valid_report(confidence="medium")
+        with tempfile.TemporaryDirectory() as td:
+            self.write_json(td, case["artifact"], report)
+            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(case))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                with mock.patch(
+                    "sys.argv",
+                    [
+                        "diagnostic_benchmark.py",
+                        "--manifest",
+                        str(manifest_path),
+                        "--min-top1",
+                        "0.0",
+                        "--min-top2",
+                        "0.0",
+                        "--max-high-confidence-wrong",
+                        "99",
+                    ],
+                ):
+                    db.main()
+            output = buf.getvalue()
+
+        self.assertIn("confidence_bucket_accuracy.low=n/a total=0 correct=0", output)
+        self.assertIn("confidence_bucket_accuracy.medium=1.000 total=1 correct=1", output)
+        self.assertIn("confidence_bucket_accuracy.high=n/a total=0 correct=0", output)
+
 
 if __name__ == "__main__":
     unittest.main()
