@@ -162,7 +162,11 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         self.assertEqual(loaded["primary_suspect"]["kind"], fake_report["primary_suspect"]["kind"])
         mocked_run.assert_called_once()
         cmd = mocked_run.call_args.args[0]
+        self.assertEqual(cmd[0], "cargo")
+        self.assertIn("tailtriage-cli", cmd)
+        self.assertIn("analyze", cmd)
         self.assertIn(str(artifact_path.resolve()), cmd)
+        self.assertEqual(cmd[-2:], ["--format", "json"])
 
     def test_run_artifact_cli_failure_includes_case_and_path(self):
         case = self.make_case(artifact_type="run_artifact", artifact="run.json", id="raw-case")
