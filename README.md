@@ -32,7 +32,7 @@ It produces a triage report with **evidence-ranked suspects** and **next checks*
 
 ## Quick start (crates.io)
 
-For most users, start with the default crate:
+For direct capture or repeated controller-managed capture windows:
 
 ```bash
 cargo add tailtriage
@@ -47,7 +47,7 @@ cargo add tailtriage --features "tokio,axum"
 
 `tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work. 
 
-For command-line analysis of saved artifact JSON:
+For command-line analysis of saved Run artifact JSON:
 
 ```bash
 cargo install tailtriage-cli
