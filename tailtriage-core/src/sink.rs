@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Error as IoError, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Run;
@@ -38,6 +39,72 @@ pub trait RunSink {
     /// Returns [`SinkError`] if the sink cannot write the run output, such as
     /// when file I/O fails or serialization cannot complete.
     fn write(&self, run: &Run) -> Result<(), SinkError>;
+}
+
+/// Sink that finalizes capture lifecycle without writing a run artifact.
+///
+/// [`DiscardSink`] intentionally drops the finalized [`Run`] after shutdown and
+/// does not persist any JSON file artifact.
+///
+/// Use [`MemorySink`] instead when you want to keep the finalized [`Run`] for
+/// in-process analysis.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DiscardSink;
+
+impl RunSink for DiscardSink {
+    fn write(&self, _run: &Run) -> Result<(), SinkError> {
+        Ok(())
+    }
+}
+
+/// In-memory sink that stores only the last finalized run.
+///
+/// [`MemorySink`] writes no file artifact and keeps the most recent finalized
+/// [`Run`] in memory. Later writes replace earlier stored runs.
+///
+/// Storing finalized runs clones captured data and can increase memory use for
+/// large captures.
+#[derive(Debug, Clone, Default)]
+pub struct MemorySink {
+    run: Arc<Mutex<Option<Run>>>,
+}
+
+impl MemorySink {
+    /// Creates a new in-memory sink.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a cloned copy of the last finalized run, if present.
+    #[must_use]
+    pub fn last_run(&self) -> Option<Run> {
+        lock_recover(&self.run).clone()
+    }
+
+    /// Takes the last finalized run and clears the stored value.
+    pub fn take_run(&self) -> Option<Run> {
+        lock_recover(&self.run).take()
+    }
+
+    /// Clears any stored finalized run.
+    pub fn clear(&self) {
+        *lock_recover(&self.run) = None;
+    }
+}
+
+impl RunSink for MemorySink {
+    fn write(&self, run: &Run) -> Result<(), SinkError> {
+        *lock_recover(&self.run) = Some(run.clone());
+        Ok(())
+    }
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 /// Local file sink that writes one JSON document per run at shutdown.
@@ -151,7 +218,10 @@ impl std::error::Error for SinkError {
 
 #[cfg(test)]
 mod tests {
-    use super::{finalize_temp_file, LocalJsonSink, RunSink, SinkError};
+    use super::{
+        finalize_temp_file, lock_recover, DiscardSink, LocalJsonSink, MemorySink, RunSink,
+        SinkError,
+    };
     use crate::{CaptureMode, Run, RunMetadata, UnfinishedRequests, SCHEMA_VERSION};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -203,6 +273,58 @@ mod tests {
         assert_eq!(restored.schema_version, SCHEMA_VERSION);
 
         let _ = std::fs::remove_file(output);
+    }
+
+    #[test]
+    fn discard_sink_write_succeeds() {
+        let sink = DiscardSink;
+        sink.write(&sample_run()).expect("discard should succeed");
+    }
+
+    #[test]
+    fn memory_sink_replaces_previous_run() {
+        let sink = MemorySink::new();
+        let mut first = sample_run();
+        first.metadata.run_id = "run-first".to_string();
+        sink.write(&first).expect("first write should succeed");
+        assert_eq!(
+            sink.last_run()
+                .expect("run should be present")
+                .metadata
+                .run_id,
+            "run-first"
+        );
+
+        let mut second = sample_run();
+        second.metadata.run_id = "run-second".to_string();
+        sink.write(&second).expect("second write should succeed");
+        assert_eq!(
+            sink.last_run()
+                .expect("run should be present")
+                .metadata
+                .run_id,
+            "run-second"
+        );
+    }
+
+    #[test]
+    fn memory_sink_recovers_from_poisoned_mutex_operations() {
+        let sink = MemorySink::new();
+        {
+            let sink_clone = sink.clone();
+            let _ = std::thread::spawn(move || {
+                let _guard = lock_recover(&sink_clone.run);
+                panic!("poison mutex");
+            })
+            .join();
+        }
+
+        assert!(sink.last_run().is_none(), "last_run should recover");
+        assert!(sink.take_run().is_none(), "take_run should recover");
+        sink.clear();
+        assert!(sink.last_run().is_none(), "clear should recover");
+        sink.write(&sample_run()).expect("write should recover");
+        assert!(sink.last_run().is_some(), "write should store run");
     }
 
     #[test]
