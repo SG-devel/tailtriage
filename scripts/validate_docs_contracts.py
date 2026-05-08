@@ -626,6 +626,32 @@ def validate_analyzer_cli_docs_split_contract() -> None:
     if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
         raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")
 
+    if "../docs/" in analyzer_text:
+        raise ValueError("tailtriage-analyzer README must not link to ../docs/ for crates.io interpretation guidance")
+
+    if "## How to interpret a report" not in analyzer_text:
+        raise ValueError("tailtriage-analyzer README must include heading: ## How to interpret a report")
+
+    analyzer_interpretation_tokens = (
+        "primary_suspect",
+        "secondary_suspects",
+        "evidence[]",
+        "next_checks[]",
+        "score",
+        "confidence",
+        "evidence_quality",
+        "route_breakdowns",
+        "temporal_segments",
+        "Report JSON",
+        "Run artifact JSON",
+    )
+    for token in analyzer_interpretation_tokens:
+        if token not in analyzer_text:
+            raise ValueError(
+                "tailtriage-analyzer README interpretation guidance missing required token: "
+                f"{token}"
+            )
+
     cli_text = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8")
     cli_lower = cli_text.lower()
     cli_required_patterns = (

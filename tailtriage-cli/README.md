@@ -148,6 +148,7 @@ Current contract:
 
 For Rust in-process usage, use `tailtriage-analyzer` directly (`analyze_run`, `render_text`, typed `Report`).
 The stricter non-empty `requests` rule applies to CLI artifact loading from disk.
+Loader, parse, validation, and render errors return a non-zero process exit through the CLI.
 
 ## Important interpretation notes
 
