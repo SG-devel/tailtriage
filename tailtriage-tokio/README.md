@@ -27,6 +27,7 @@ Choose `tailtriage-tokio` when:
 - you already use `tailtriage-core` and want runtime snapshots in the same artifact
 - you want stronger evidence for runtime-related bottlenecks
 - you want direct control over sampler cadence and runtime snapshot retention
+- you want Tokio primitive helpers for queue/stage/in-flight instrumentation on request handles
 
 Choose `tailtriage` instead when you want the default entry point and feature-gated access to this crate.
 
@@ -68,6 +69,61 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
     run.shutdown()?;
     Ok(())
 }
+```
+
+## Tokio primitive helper trait
+
+Import from this crate:
+
+```rust
+use tailtriage_tokio::TokioRequestHandleExt;
+```
+
+Or from the default crate when the `tokio` feature is enabled:
+
+```rust,ignore
+use tailtriage::tokio::TokioRequestHandleExt;
+```
+
+Helpers are shorthand for existing request-handle APIs and keep completion explicit.
+
+| Use case                     | Helper                                   | Records   |
+| ---------------------------- | ---------------------------------------- | --------- |
+| DB pool / capacity wait      | `semaphore(...).acquire()`               | queue     |
+| owned permit wait            | `owned_semaphore(...).acquire_owned()`   | queue     |
+| worker queue receive         | `mpsc_recv(...)`                         | queue     |
+| bounded channel backpressure | `mpsc_send(...)`                         | queue     |
+| async mutex contention       | `mutex_lock(...)`                        | queue     |
+| async rwlock contention      | `rwlock_read(...)` / `rwlock_write(...)` | queue     |
+| spawned task result          | `join_task(...)`                         | stage     |
+| timeout-wrapped work         | `timeout_stage(...)`                     | stage     |
+| blocking pool work           | `spawn_blocking_stage(...)`              | stage     |
+| active bounded section       | `inflight_guard(...)`                    | in-flight |
+
+```rust,no_run
+use std::sync::Arc;
+use std::time::Duration;
+use tailtriage_core::Tailtriage;
+use tailtriage_tokio::TokioRequestHandleExt;
+
+# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+let run = Tailtriage::builder("checkout-service").output("tailtriage-run.json").build()?;
+let started = run.begin_request("/checkout");
+let req = started.handle.clone();
+let db_pool = tokio::sync::Semaphore::new(8);
+let (tx, mut _rx) = tokio::sync::mpsc::channel::<u64>(8);
+let value = 42_u64;
+{
+    let _permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
+    let _: Result<Result<(), ()>, tokio::time::error::Elapsed> = req
+        .timeout_stage("downstream_http", Duration::from_millis(200), async { Ok::<(), ()>(()) })
+        .await;
+}
+req.mpsc_send("worker_backpressure", &tx, value).await?;
+started.completion.finish_ok();
+run.shutdown()?;
+# Ok(())
+# }
 ```
 
 ## Important constraints

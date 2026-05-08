@@ -38,6 +38,7 @@ mod tests {
     #[test]
     fn tokio_namespace_reexport_compiles() {
         let _name = crate::tokio::crate_name();
+        use crate::tokio::TokioRequestHandleExt as _;
     }
 
     #[cfg(feature = "controller")]
