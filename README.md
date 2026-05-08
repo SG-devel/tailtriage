@@ -224,27 +224,27 @@ tailtriage analyze tailtriage-run.json --format json
 
 ```json
 {
-  "request_count": 250,
-  "p50_latency_us": 782227,
-  "p95_latency_us": 1468239,
-  "p99_latency_us": 1518551,
-  "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 267,
+  "request_count": 1,
+  "p50_latency_us": 1200,
+  "p95_latency_us": 1500,
+  "p99_latency_us": 1500,
+  "p95_queue_share_permille": 700,
+  "p95_service_share_permille": 300,
   "inflight_trend": {
     "gauge": "queue_service_inflight",
-    "sample_count": 500,
-    "peak_count": 234,
-    "p95_count": 225,
+    "sample_count": 1,
+    "peak_count": 3,
+    "p95_count": 3,
     "growth_delta": 0,
     "growth_per_sec_milli": 0
   },
   "warnings": [],
   "evidence_quality": {
-    "request_count": 250,
-    "queue_event_count": 250,
-    "stage_event_count": 250,
-    "runtime_snapshot_count": 500,
-    "inflight_snapshot_count": 500,
+    "request_count": 1,
+    "queue_event_count": 1,
+    "stage_event_count": 1,
+    "runtime_snapshot_count": 1,
+    "inflight_snapshot_count": 1,
     "requests": "present",
     "queues": "present",
     "stages": "present",
@@ -263,11 +263,8 @@ tailtriage analyze tailtriage-run.json --format json
     "kind": "application_queue_saturation",
     "score": 90,
     "confidence": "high",
-    "evidence": ["Queue wait at p95 consumes 98.2% of request time.", "Observed queue depth sample up to 230."],
-    "next_checks": [
-      "Inspect queue admission limits and producer burst patterns.",
-      "Compare queue wait distribution before and after increasing worker parallelism."
-    ],
+    "evidence": ["Queue wait at p95 consumes most request time."],
+    "next_checks": ["Inspect queue admission limits and producer burst patterns."],
     "confidence_notes": []
   },
   "secondary_suspects": [
@@ -275,22 +272,16 @@ tailtriage analyze tailtriage-run.json --format json
       "kind": "downstream_stage_dominates",
       "score": 55,
       "confidence": "low",
-      "evidence": [
-        "Stage 'simulated_work' has p95 latency 26566 us across 250 samples.",
-        "Stage 'simulated_work' cumulative latency is 6546159 us.",
-        "Stage 'simulated_work' contributes 33 permille of cumulative request latency."
-      ],
-      "next_checks": [
-        "Inspect downstream dependency behind stage 'simulated_work'.",
-        "Collect downstream service timings and retry behavior during tail windows.",
-        "Review downstream SLO/error budget and align retry budget/backoff with it."
-      ]
+      "evidence": ["Stage 'simulated_work' contributes meaningful cumulative latency."],
+      "next_checks": ["Inspect downstream dependency behind stage 'simulated_work'."]
     }
   ],
   "route_breakdowns": [],
   "temporal_segments": []
 }
 ```
+
+For full report-field interpretation, see [`docs/diagnostics.md`](docs/diagnostics.md) and [`tailtriage-cli/README.md`](tailtriage-cli/README.md).
 
 `temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks find material signal movement (for example, different early/late primary suspects or a large early/late p95 shift). The global `primary_suspect` remains the primary full-run triage lead. Temporal segments are supporting within-run hints only and do not prove a phase-specific root cause. A temporal p95 warning means early/late latency changed materially in that run. Runtime and in-flight phase attribution is timestamp-filtered to each segment window and can be limited when those segment-filtered samples are sparse; with overlapping early/late request windows under concurrency, timestamp-filtered runtime/in-flight attribution is approximate.
 
@@ -356,6 +347,6 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 ## Documentation
 
-The complete documentation index lives in [`docs/README.md`](docs/README.md).
+The canonical user documentation index lives in [`docs/README.md`](docs/README.md).
 
 Start there for the user workflow, crate selection, controller configuration, analyzer and CLI contracts, diagnostics interpretation, demos, validation, runtime-cost measurement, collector limits, and architecture.

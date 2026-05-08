@@ -13,9 +13,16 @@ Install:
 
 ```bash
 cargo add tailtriage
-cargo add tailtriage-analyzer
 cargo install tailtriage-cli
 ```
+
+For embedded/in-process Rust analysis and report generation only:
+
+```bash
+cargo add tailtriage-analyzer
+```
+
+You only need `tailtriage-analyzer` when you want in-process analysis/report generation from Rust code.
 
 Optional integrations:
 
