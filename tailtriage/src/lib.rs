@@ -45,8 +45,8 @@ mod tests {
     fn tokio_helper_trait_reexport_path_compiles() {
         use crate::tokio::TokioRequestHandleExt;
 
-        fn _assert_trait<T: TokioRequestHandleExt>() {}
-        _assert_trait::<crate::RequestHandle<'_>>();
+        fn assert_trait<T: TokioRequestHandleExt>() {}
+        assert_trait::<crate::RequestHandle<'_>>();
     }
 
     #[cfg(feature = "controller")]
