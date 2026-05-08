@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-05-08
 
 ### Added
 
@@ -8,6 +8,7 @@
 - Unified validation runner for diagnostic, mitigation, and operational profiles.
 - First-class analyzer library crate, `tailtriage-analyzer`, for in-process analysis from Rust code.
 - Richer analyzer reports: evidence quality, route breakdowns, conservative temporal segments, and optional report-surface validation.
+- Tokio request-handle primitive helpers
 
 ### Changed
 
