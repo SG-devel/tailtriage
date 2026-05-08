@@ -230,6 +230,8 @@ Use analyze_run(run, AnalyzeOptions::default()) for the standard entry point.
 Use render_text(&report), render_json(&report), and render_json_pretty(&report) for Report rendering.
 Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty(run, AnalyzeOptions::default()) for helpers.
 This crate is not streaming / not live streaming, and tailtriage-cli owns artifact loading.
+## How to interpret a report
+primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
 """
         cli_text = """
 tailtriage-cli loads saved run artifacts from disk, performs schema validation,
@@ -284,6 +286,8 @@ Use analyze_run(run, AnalyzeOptions::default()) and render_text(&report).
 Use render_json(&report), render_json_pretty(&report), analyze_run_json(run, AnalyzeOptions::default()),
 and analyze_run_json_pretty(run, AnalyzeOptions::default()).
 This crate is not streaming / not live streaming and references tailtriage-cli.
+## How to interpret a report
+primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
 """
         cli_text = """
 tailtriage-cli loads saved run artifacts from disk, performs schema validation,
