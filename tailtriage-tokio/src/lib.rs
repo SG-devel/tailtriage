@@ -35,11 +35,11 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Records only acquisition wait time, not the protected work after the permit is acquired.
     /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
-    fn semaphore<'a>(
-        &'a self,
+    fn semaphore<'req, 'sem>(
+        &'req self,
         queue: impl Into<String>,
-        semaphore: &'a tokio::sync::Semaphore,
-    ) -> InstrumentedSemaphore<'a>;
+        semaphore: &'sem tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'req, 'sem>;
     /// Records a queue event while waiting to acquire an owned semaphore permit.
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire_owned())` via [`InstrumentedOwnedSemaphore::acquire_owned`].
@@ -152,11 +152,11 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
 }
 
 impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
-    fn semaphore<'a>(
-        &'a self,
+    fn semaphore<'req, 'sem>(
+        &'req self,
         queue: impl Into<String>,
-        semaphore: &'a tokio::sync::Semaphore,
-    ) -> InstrumentedSemaphore<'a> {
+        semaphore: &'sem tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'req, 'sem> {
         InstrumentedSemaphore {
             timer: self.queue(queue),
             semaphore,
@@ -250,11 +250,11 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
 }
 
 impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
-    fn semaphore<'a>(
-        &'a self,
+    fn semaphore<'req, 'sem>(
+        &'req self,
         queue: impl Into<String>,
-        semaphore: &'a tokio::sync::Semaphore,
-    ) -> InstrumentedSemaphore<'a> {
+        semaphore: &'sem tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'req, 'sem> {
         InstrumentedSemaphore {
             timer: self.queue(queue),
             semaphore,
@@ -349,11 +349,11 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
 
 /// Queue-instrumented semaphore acquisition helper.
 #[must_use = "constructing the wrapper records nothing until acquire() is awaited"]
-pub struct InstrumentedSemaphore<'a> {
-    timer: tailtriage_core::QueueTimer<'a>,
-    semaphore: &'a tokio::sync::Semaphore,
+pub struct InstrumentedSemaphore<'req, 'sem> {
+    timer: tailtriage_core::QueueTimer<'req>,
+    semaphore: &'sem tokio::sync::Semaphore,
 }
-impl<'a> InstrumentedSemaphore<'a> {
+impl<'sem> InstrumentedSemaphore<'_, 'sem> {
     /// Awaits a borrowed semaphore permit while recording queue wait duration.
     ///
     /// # Errors
@@ -361,7 +361,7 @@ impl<'a> InstrumentedSemaphore<'a> {
     /// Returns [`tokio::sync::AcquireError`] when the semaphore is closed.
     pub async fn acquire(
         self,
-    ) -> Result<tokio::sync::SemaphorePermit<'a>, tokio::sync::AcquireError> {
+    ) -> Result<tokio::sync::SemaphorePermit<'sem>, tokio::sync::AcquireError> {
         self.timer.await_on(self.semaphore.acquire()).await
     }
 }
@@ -1141,6 +1141,16 @@ mod helper_tests {
             .expect("build")
     }
 
+    async fn acquire_semaphore_with_primitive_lifetime<'s>(
+        req: &tailtriage_core::RequestHandle<'_>,
+        semaphore: &'s tokio::sync::Semaphore,
+    ) -> tokio::sync::SemaphorePermit<'s> {
+        req.semaphore("sem_lifetime", semaphore)
+            .acquire()
+            .await
+            .expect("permit")
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn queue_and_lock_helpers_record_queue_only() {
         let run = run();
@@ -1404,5 +1414,21 @@ mod helper_tests {
         fn assert_impl<T: crate::TokioRequestHandleExt>() {}
         assert_impl::<tailtriage_core::RequestHandle<'_>>();
         assert_impl::<tailtriage_core::OwnedRequestHandle>();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn semaphore_helper_preserves_semaphore_lifetime() {
+        let run = run();
+        let sem = tokio::sync::Semaphore::new(1);
+
+        let permit = {
+            let started = run.begin_request("/lifetime-sem");
+            let permit = acquire_semaphore_with_primitive_lifetime(&started.handle, &sem).await;
+            started.completion.finish_ok();
+            permit
+        };
+
+        drop(permit);
+        assert_eq!(run.snapshot().requests.len(), 1);
     }
 }
