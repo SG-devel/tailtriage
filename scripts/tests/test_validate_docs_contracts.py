@@ -156,6 +156,40 @@ Normal CI does not publish durable diagnostic scorecards.
     def test_capture_readmes_analyzer_cli_wording_contract(self) -> None:
         validate_docs_contracts.validate_capture_readmes_analyzer_cli_wording_contract()
 
+    def test_crate_rustdocs_include_readmes_contract(self) -> None:
+        validate_docs_contracts.validate_crate_rustdocs_include_readmes()
+
+    def test_crate_rustdocs_include_readmes_contract_fails_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            paths = []
+            for rel in (
+                "tailtriage/src/lib.rs",
+                "tailtriage-core/src/lib.rs",
+                "tailtriage-controller/src/lib.rs",
+                "tailtriage-tokio/src/lib.rs",
+                "tailtriage-axum/src/lib.rs",
+                "tailtriage-analyzer/src/lib.rs",
+                "tailtriage-cli/src/lib.rs",
+            ):
+                path = repo_root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('#![doc = include_str!("../README.md")]\n', encoding="utf-8")
+                paths.append(path)
+
+            paths[-1].write_text("// missing include", encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(
+                    validate_docs_contracts,
+                    "CRATE_RUSTDOC_README_INCLUDE_PATHS",
+                    tuple(paths),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, r"tailtriage-cli/src/lib.rs"):
+                    validate_docs_contracts.validate_crate_rustdocs_include_readmes()
+
     def test_capture_readme_wording_rejects_cli_only_stale_phrase(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)

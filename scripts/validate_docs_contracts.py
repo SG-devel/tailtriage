@@ -110,6 +110,16 @@ STALE_VALIDATION_DOC_PHRASES = (
     "no in normal pr ci",
 )
 
+CRATE_RUSTDOC_README_INCLUDE_PATHS = (
+    REPO_ROOT / "tailtriage" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-core" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-tokio" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate public docs contracts.")
@@ -882,6 +892,17 @@ def validate_sampler_integration_boundary() -> None:
         )
 
 
+def validate_crate_rustdocs_include_readmes() -> None:
+    expected = '#![doc = include_str!("../README.md")]'
+    for path in CRATE_RUSTDOC_README_INCLUDE_PATHS:
+        text = path.read_text(encoding="utf-8")
+        if expected not in text:
+            relative = path.relative_to(REPO_ROOT)
+            raise ValueError(
+                f"{relative} must include crate README rustdocs via {expected}"
+            )
+
+
 def main() -> int:
     _ = parse_args()
     validate_readme_analyzer_example()
@@ -901,6 +922,7 @@ def main() -> int:
     validate_no_user_facing_facade_wording()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
+    validate_crate_rustdocs_include_readmes()
     print("docs contracts validated successfully")
     return 0
 

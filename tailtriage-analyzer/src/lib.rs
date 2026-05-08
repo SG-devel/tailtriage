@@ -1,22 +1,4 @@
-//! Heuristic triage analyzer for completed [`tailtriage_core::Run`] captures.
-//!
-//! This crate analyzes one completed in-memory [`Run`] and returns a typed
-//! [`Report`] for in-process diagnosis.
-//! It is intended for completed/finalized captures or stable snapshots;
-//! callers that require finalized artifacts should validate that separately.
-//! It does not load run artifacts from disk and it does not
-//! write capture artifacts; CLI artifact loading is owned by `tailtriage-cli`.
-//!
-//! Use [`analyze_run`] (or [`Analyzer`]) to produce a [`Report`], then:
-//!
-//! - call [`render_text`] for human-readable triage output;
-//! - call [`render_json`] for compact analysis report JSON;
-//! - call [`render_json_pretty`] for canonical pretty analysis report JSON.
-//!
-//! The analysis report JSON is distinct from raw run artifact JSON produced by capture/artifact
-//! workflows. Raw run artifacts remain available for later CLI analysis.
-//!
-//! Analyzer semantics are currently batch/snapshot based for one completed run, not streaming.
+#![doc = include_str!("../README.md")]
 
 use std::collections::{BTreeMap, HashMap};
 
