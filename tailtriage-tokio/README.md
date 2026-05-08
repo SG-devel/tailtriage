@@ -226,18 +226,18 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 |---|---|---|
 | DB pool / capacity wait | `semaphore(...).acquire()` | queue |
 | owned permit wait | `owned_semaphore(...).acquire_owned()` | queue |
-| worker queue receive (when channel is meaningful work intake) | `mpsc_recv(...)` | queue |
 | bounded channel backpressure | `mpsc_send(...)` | queue |
 | async mutex contention | `mutex_lock(...)` | queue |
 | async rwlock contention | `rwlock_read(...)` / `rwlock_write(...)` | queue |
 | spawned task result | `join_task(...)` | stage |
 | timeout-wrapped work | `timeout_stage(...)` | stage |
-| blocking pool work | `spawn_blocking_stage(...)` | stage |
+| blocking pool work | `blocking_stage(...)` | stage |
 | active bounded section | `inflight_guard(...)` | in-flight |
 
 Semantics notes:
 
-- `spawn_blocking_stage(...)` is lazy: constructing the helper future does not spawn work. Spawning happens when the returned future is polled/awaited, and the recorded stage covers spawn through join wait.
+- The helper API intentionally does not include a generic mpsc receive wait helper. Receiver-side recv wait cannot distinguish idle workers from queued work residence time. For worker intake, start request/work-item capture after receiving the item unless you have explicit enqueue timestamps.
+- `blocking_stage(...)` is lazy: it submits `spawn_blocking` only when awaited. Use `tokio::task::spawn_blocking` plus `join_task(...)` when you need eager overlap.
 - If you need blocking work to start immediately or overlap with other work, call `tokio::task::spawn_blocking(...)` directly and instrument the returned `JoinHandle` with `join_task(...)`.
 - `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not at helper construction.
 

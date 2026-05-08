@@ -51,18 +51,6 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
         queue: impl Into<String>,
         semaphore: Arc<tokio::sync::Semaphore>,
     ) -> InstrumentedOwnedSemaphore<'_>;
-    /// Records a queue event while waiting for `Receiver::recv`.
-    ///
-    /// Equivalent low-level form: `req.queue(label).await_on(receiver.recv())`.
-    ///
-    /// Measures waiting for an item only, not processing after receipt. This is useful queue evidence when this
-    /// channel represents meaningful work intake; otherwise it may reflect idle-worker time or producer starvation.
-    /// Returns `Option<T>` unchanged. Request completion remains explicit.
-    fn mpsc_recv<'a, T>(
-        &'a self,
-        queue: impl Into<String>,
-        receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
-    ) -> impl Future<Output = Option<T>> + 'a;
     /// Records a queue event while waiting for bounded-channel send/backpressure.
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(sender.send(value))`.
@@ -134,15 +122,19 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
         timeout: Duration,
         future: Fut,
     ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a;
-    /// Records a stage event around `tokio::task::spawn_blocking` join wait.
+    /// Records a stage for blocking-pool work using `tokio::task::spawn_blocking`.
     ///
-    /// Equivalent low-level form: `req.stage(label).await_on(tokio::task::spawn_blocking(f))`.
+    /// Equivalent low-level form:
+    /// `req.stage(label).await_on(async move { tokio::task::spawn_blocking(f).await })`.
     ///
-    /// This helper is lazy. It does not call `tokio::task::spawn_blocking` until the returned future is first polled, normally by `.await`.
-    /// The recorded stage starts when the returned future is polled and covers `spawn_blocking` submission plus awaiting the `JoinHandle`.
-    /// If you need the blocking task to start immediately or overlap with other work, call `tokio::task::spawn_blocking` yourself and instrument the returned `JoinHandle` with `join_task(...)`.
-    /// Preserves `Result<R, JoinError>` unchanged. Typical use: blocking pool work. Request completion remains explicit.
-    fn spawn_blocking_stage<F, R>(
+    /// This helper is lazy: it calls `spawn_blocking` only when the returned future is first polled,
+    /// normally by `.await`.
+    /// Recorded stage timing starts at first poll and covers `spawn_blocking` submission through `JoinHandle`
+    /// completion.
+    /// Preserves `Result<R, tokio::task::JoinError>` unchanged. Request completion remains explicit.
+    /// If you need eager/overlapped spawning, call `tokio::task::spawn_blocking` directly and instrument
+    /// the returned handle with `join_task(...)` (which records await time for an already-started task).
+    fn blocking_stage<F, R>(
         &self,
         stage: impl Into<String>,
         f: F,
@@ -178,13 +170,6 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
             timer: self.queue(queue),
             semaphore,
         }
-    }
-    fn mpsc_recv<'a, T>(
-        &'a self,
-        queue: impl Into<String>,
-        receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
-    ) -> impl Future<Output = Option<T>> + 'a {
-        self.queue(queue).await_on(receiver.recv())
     }
     fn mpsc_send<'a, T>(
         &'a self,
@@ -244,7 +229,7 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
                 .await
         }
     }
-    fn spawn_blocking_stage<F, R>(
+    fn blocking_stage<F, R>(
         &self,
         stage: impl Into<String>,
         f: F,
@@ -286,13 +271,6 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
             semaphore,
         }
     }
-    fn mpsc_recv<'a, T>(
-        &'a self,
-        queue: impl Into<String>,
-        receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
-    ) -> impl Future<Output = Option<T>> + 'a {
-        self.queue(queue).await_on(receiver.recv())
-    }
     fn mpsc_send<'a, T>(
         &'a self,
         queue: impl Into<String>,
@@ -351,7 +329,7 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
                 .await
         }
     }
-    fn spawn_blocking_stage<F, R>(
+    fn blocking_stage<F, R>(
         &self,
         stage: impl Into<String>,
         f: F,
@@ -1218,9 +1196,9 @@ mod helper_tests {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         tx.send(7u8).await.expect("seed send");
-        assert_eq!(req.mpsc_recv("recv", &mut rx).await, Some(7));
+        assert_eq!(rx.recv().await, Some(7));
         drop(tx);
-        assert_eq!(req.mpsc_recv("recv_closed", &mut rx).await, None);
+        assert_eq!(rx.recv().await, None);
 
         let (tx2, mut rx2) = tokio::sync::mpsc::channel(1);
         tx2.send(1u8).await.expect("fill");
@@ -1254,11 +1232,9 @@ mod helper_tests {
         started.completion.finish_ok();
         let snap = run.snapshot();
         assert_eq!(snap.requests.len(), 1);
-        assert_eq!(snap.queues.len(), 10);
+        assert_eq!(snap.queues.len(), 8);
         assert!(snap.queues.iter().any(|q| q.queue == "sem"));
         assert!(snap.queues.iter().any(|q| q.queue == "owned_sem"));
-        assert!(snap.queues.iter().any(|q| q.queue == "recv"));
-        assert!(snap.queues.iter().any(|q| q.queue == "recv_closed"));
         assert!(snap.queues.iter().any(|q| q.queue == "closed"));
         assert!(snap.queues.iter().any(|q| q.queue == "send_wait"));
         assert!(snap.queues.iter().any(|q| q.queue == "send_closed"));
@@ -1303,13 +1279,13 @@ mod helper_tests {
             .await
             .is_err());
         assert_eq!(
-            req.spawn_blocking_stage("blocking_ok", || 99usize)
+            req.blocking_stage("blocking_ok", || 99usize)
                 .await
                 .expect("ok"),
             99
         );
         assert!(req
-            .spawn_blocking_stage("blocking_panic", || -> usize { panic!("x") })
+            .blocking_stage("blocking_panic", || -> usize { panic!("x") })
             .await
             .is_err());
 
@@ -1342,13 +1318,13 @@ mod helper_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn spawn_blocking_stage_is_lazy_until_polled_and_records_on_await() {
+    async fn blocking_stage_is_lazy_until_polled_and_records_on_await() {
         let run = run();
         let started = run.begin_request("/blocking-lazy");
         let req = started.handle.clone();
         let counter = Arc::new(AtomicUsize::new(0));
 
-        let future = req.spawn_blocking_stage("blocking_late", {
+        let future = req.blocking_stage("blocking_late", {
             let counter = Arc::clone(&counter);
             move || {
                 counter.fetch_add(1, Ordering::SeqCst);
@@ -1366,7 +1342,7 @@ mod helper_tests {
             .all(|stage| stage.stage != "blocking_late"));
 
         assert_eq!(
-            req.spawn_blocking_stage("blocking_late", {
+            req.blocking_stage("blocking_late", {
                 let counter = Arc::clone(&counter);
                 move || {
                     counter.fetch_add(1, Ordering::SeqCst);

@@ -40,6 +40,7 @@ mod tests {
         let _name = crate::tokio::crate_name();
     }
 
+    #[cfg(feature = "tokio")]
     #[test]
     fn tokio_helper_trait_reexport_path_compiles() {
         use crate::tokio::TokioRequestHandleExt;
