@@ -69,10 +69,17 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 
 `Report` includes request counts, latency percentiles, queue/service share summaries, warnings, evidence quality, ranked suspects, and optional supporting route/temporal sections.
 
-See root docs for interpretation guidance:
+## How to interpret a report
 
-- [`docs/diagnostics.md`](../docs/diagnostics.md)
-- [`docs/user-guide.md`](../docs/user-guide.md)
+- `primary_suspect` is the strongest triage lead for the analyzed run, not proof of root cause.
+- `secondary_suspects` are lower-ranked leads worth checking when evidence is close or the primary lead does not explain the incident.
+- `evidence[]` explains why a suspect was ranked.
+- `next_checks[]` gives targeted follow-up actions.
+- `score` ranks suspects inside one report; it is not a probability.
+- `confidence` is ranking strength and may be capped by missing, sparse, partial, or truncated evidence.
+- `warnings[]` and `evidence_quality` describe interpretation limits.
+- `route_breakdowns` and `temporal_segments`, when present, are supporting context only and do not override the global `primary_suspect`.
+- Report JSON is analyzer output and is distinct from raw Run artifact JSON.
 
 ## Migration note
 

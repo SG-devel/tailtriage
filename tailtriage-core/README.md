@@ -54,6 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `started.handle` for queue/stage/inflight instrumentation
 - `started.completion` for explicit finish
 
+For `Arc<Tailtriage>` flows that move request handles across spawned tasks or helper layers, use `begin_request_owned(...)` / `begin_request_with_owned(...)`. Owned handles keep the same lifecycle rule: instrumentation does not finish the request, and the completion token must be finished exactly once.
+
 ```rust,no_run
 use tailtriage_core::{RequestOptions, Tailtriage};
 
