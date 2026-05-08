@@ -21,6 +21,42 @@ class ValidateDocsContractsTests(unittest.TestCase):
         kinds = validate_docs_contracts.extract_run_end_policy_kinds_from_source()
         self.assertEqual(kinds, {"continue_after_limits_hit", "auto_seal_on_limits_hit"})
 
+
+    def test_crate_rustdocs_include_readmes_contract(self) -> None:
+        validate_docs_contracts.validate_crate_rustdocs_include_readmes()
+
+    def test_crate_rustdocs_include_readmes_contract_fails_when_missing_include(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            rels = (
+                "tailtriage/src/lib.rs",
+                "tailtriage-core/src/lib.rs",
+                "tailtriage-controller/src/lib.rs",
+                "tailtriage-tokio/src/lib.rs",
+                "tailtriage-axum/src/lib.rs",
+                "tailtriage-analyzer/src/lib.rs",
+                "tailtriage-cli/src/lib.rs",
+            )
+            paths = []
+            for rel in rels:
+                path = repo_root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('#![doc = include_str!("../README.md")]\n', encoding="utf-8")
+                paths.append(path)
+
+            (repo_root / rels[0]).write_text('// missing include\n', encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(
+                    validate_docs_contracts,
+                    "RUSTDOC_INCLUDE_CRATE_LIBS",
+                    tuple(paths),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, r"README directive"):
+                    validate_docs_contracts.validate_crate_rustdocs_include_readmes()
+
     def test_markdown_examples_validate_against_contract(self) -> None:
         validate_docs_contracts.validate_readme_analyzer_example()
         validate_docs_contracts.validate_controller_readme_toml()
