@@ -34,6 +34,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire())` via [`InstrumentedSemaphore::acquire`].
     ///
     /// Records only acquisition wait time, not the protected work after the permit is acquired.
+    /// Queue events are recorded only when `acquire()` completes; dropping before completion records no queue event.
     /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
     fn semaphore<'req, 'sem>(
         &'req self,
@@ -45,6 +46,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire_owned())` via [`InstrumentedOwnedSemaphore::acquire_owned`].
     ///
     /// Records only acquisition wait time, not work after permit acquisition.
+    /// Queue events are recorded only when `acquire_owned()` completes; dropping before completion records no queue event.
     /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
     fn owned_semaphore(
         &self,
@@ -55,6 +57,8 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(sender.send(value))`.
     ///
+    /// Measures bounded-channel send/backpressure wait, not receiver-side processing.
+    /// Queue events are recorded only when send completes; dropping before completion records no queue event.
     /// Preserves `Result<(), SendError<T>>` unchanged. Request completion remains explicit.
     fn mpsc_send<'a, T>(
         &'a self,
@@ -66,7 +70,9 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(mutex.lock())`.
     ///
-    /// Measures lock acquisition only, not work while holding the guard. Request completion remains explicit.
+    /// Measures lock acquisition only, not work while holding the guard.
+    /// Queue events are recorded only when lock acquisition completes; dropping before completion records no queue event.
+    /// Request completion remains explicit.
     fn mutex_lock<'req, 'lock, T>(
         &'req self,
         queue: impl Into<String>,
@@ -78,7 +84,9 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(lock.read())`.
     ///
-    /// Measures acquisition only, not work while holding the guard. Request completion remains explicit.
+    /// Measures acquisition only, not work while holding the guard.
+    /// Queue events are recorded only when lock acquisition completes; dropping before completion records no queue event.
+    /// Request completion remains explicit.
     fn rwlock_read<'req, 'lock, T>(
         &'req self,
         queue: impl Into<String>,
@@ -90,7 +98,9 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(lock.write())`.
     ///
-    /// Measures acquisition only, not work while holding the guard. Request completion remains explicit.
+    /// Measures acquisition only, not work while holding the guard.
+    /// Queue events are recorded only when lock acquisition completes; dropping before completion records no queue event.
+    /// Request completion remains explicit.
     fn rwlock_write<'req, 'lock, T>(
         &'req self,
         queue: impl Into<String>,
@@ -103,7 +113,10 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.stage(label).await_on(handle)`.
     ///
     /// Records time spent awaiting the supplied join handle. If the task started earlier, this may not represent the full task lifetime.
-    /// Preserves `Result<T, JoinError>` unchanged, including panic/cancel join errors. Request completion remains explicit.
+    /// Stage success/failure is derived from the outer `Result<T, JoinError>`.
+    /// If `T` is itself a `Result`, inner `Err` values are preserved and do not mark the recorded stage as failed.
+    /// Preserves `Result<T, JoinError>` unchanged, including panic/cancel join errors.
+    /// Dropping before completion records no stage event. Request completion remains explicit.
     fn join_task<T>(
         &self,
         stage: impl Into<String>,
@@ -114,8 +127,10 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.stage(label).await_on(tokio::time::timeout(timeout, future))`.
     ///
     /// Constructing the helper future does not start timeout budget. Timeout starts when the returned future is polled/awaited.
+    /// Timeout elapsed is represented by outer `Err(Elapsed)` and records a failed stage.
     /// Preserves the outer timeout `Result` and any nested inner `Result` exactly (no flattening/remapping).
-    /// Timeout elapsed is represented by outer `Err(Elapsed)`. Request completion remains explicit.
+    /// Because stage success/failure is derived from the outer timeout `Result`, `Ok(Err(_))` is preserved and records a successful stage.
+    /// Dropping before completion records no stage event. Request completion remains explicit.
     fn timeout_stage<'a, Fut: Future + 'a>(
         &'a self,
         stage: impl Into<String>,
@@ -131,7 +146,10 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// normally by `.await`.
     /// Recorded stage timing starts at first poll and covers `spawn_blocking` submission through `JoinHandle`
     /// completion.
-    /// Preserves `Result<R, tokio::task::JoinError>` unchanged. Request completion remains explicit.
+    /// Stage success/failure is derived from the outer `Result<R, tokio::task::JoinError>`.
+    /// If `R` is itself a `Result`, inner `Err` values are preserved and do not mark the recorded stage as failed.
+    /// Preserves `Result<R, tokio::task::JoinError>` unchanged.
+    /// Dropping before completion records no stage event. Request completion remains explicit.
     /// If you need eager/overlapped spawning, call `tokio::task::spawn_blocking` directly and instrument
     /// the returned handle with `join_task(...)` (which records await time for an already-started task).
     fn blocking_stage<F, R>(
@@ -1407,6 +1425,44 @@ mod helper_tests {
             .await;
         assert_eq!(out, Ok(8));
         assert_eq!(*value, 8);
+        started.completion.finish_ok();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn dropping_pending_queue_and_stage_helpers_records_no_events() {
+        let run = run();
+        let started = run.begin_request("/drop-pending");
+        let req = started.handle.clone();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        tx.send(1u8).await.expect("fill channel");
+        {
+            let send_future = req.mpsc_send("drop_send_wait", &tx, 2u8);
+            tokio::pin!(send_future);
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_millis(1)) => {}
+                _ = &mut send_future => panic!("send should still be pending"),
+            }
+        }
+        assert_eq!(rx.recv().await, Some(1));
+
+        {
+            let stage_future = req.timeout_stage(
+                "drop_stage_wait",
+                Duration::from_secs(30),
+                std::future::pending::<usize>(),
+            );
+            tokio::pin!(stage_future);
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_millis(1)) => {}
+                _ = &mut stage_future => panic!("stage should still be pending"),
+            }
+        }
+
+        let snap = run.snapshot();
+        assert!(snap.queues.iter().all(|q| q.queue != "drop_send_wait"));
+        assert!(snap.stages.iter().all(|s| s.stage != "drop_stage_wait"));
+
         started.completion.finish_ok();
     }
 
