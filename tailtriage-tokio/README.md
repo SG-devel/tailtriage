@@ -233,6 +233,13 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 | blocking pool work | `spawn_blocking_stage(...)` | stage |
 | active bounded section | `inflight_guard(...)` | in-flight |
 
+Semantics notes:
+
+- `mpsc_recv(...)` queue wait is useful work-intake evidence only when the channel represents meaningful incoming work. Otherwise it may mostly reflect idle-worker time or producer starvation.
+- `timeout_stage(...)` is lazy: constructing the helper does not start timeout budget. Budget starts when the returned helper future is polled/awaited.
+- `spawn_blocking_stage(...)` is lazy: constructing the helper does not spawn work. Blocking work is spawned when the returned helper future is polled/awaited.
+- `spawn_blocking_stage(...)` stage timing covers spawn through `JoinHandle` await.
+
 ```rust,no_run
 use std::sync::Arc;
 use std::time::Duration;
