@@ -242,6 +242,12 @@ These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...)
 | blocking pool work | `spawn_blocking_stage(...)` | stage |
 | active bounded section | `inflight_guard(...)` | in-flight |
 
+Semantic notes:
+
+- `spawn_blocking_stage(...)` is lazy: constructing the helper future does not spawn blocking work. Spawning starts when the helper future is polled/awaited, and recorded stage time covers spawn through join wait.
+- `timeout_stage(...)` is lazy: timeout budget starts when the helper future is polled/awaited, not when constructed.
+- `mpsc_recv(...)` is useful queue evidence when the channel is meaningful work intake; otherwise it may reflect idle-worker time or producer starvation.
+
 ## 11) Next docs
 
 - [Documentation index](README.md)

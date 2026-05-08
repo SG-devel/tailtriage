@@ -20,8 +20,15 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+mod sealed {
+    pub trait Sealed {}
+
+    impl Sealed for tailtriage_core::RequestHandle<'_> {}
+    impl Sealed for tailtriage_core::OwnedRequestHandle {}
+}
+
 /// Extension helpers that map common Tokio primitives to tailtriage queue/stage/in-flight signals.
-pub trait TokioRequestHandleExt {
+pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Records a queue event while waiting to acquire a semaphore permit.
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire())` via [`InstrumentedSemaphore::acquire`].
@@ -48,7 +55,9 @@ pub trait TokioRequestHandleExt {
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(receiver.recv())`.
     ///
-    /// Measures waiting for an item only, not processing after receipt. Returns `Option<T>` unchanged. Request completion remains explicit.
+    /// Measures waiting for an item only, not processing after receipt.
+    /// This queue signal is most useful when the channel represents real work intake; otherwise it can reflect idle-worker time or producer starvation.
+    /// Returns `Option<T>` unchanged. Request completion remains explicit.
     fn mpsc_recv<'a, T>(
         &'a self,
         queue: impl Into<String>,
@@ -111,7 +120,9 @@ pub trait TokioRequestHandleExt {
     /// Equivalent low-level form: `req.stage(label).await_on(tokio::time::timeout(timeout, future))`.
     ///
     /// Preserves the outer timeout `Result` and any nested inner `Result` exactly (no flattening/remapping).
-    /// Timeout elapsed is represented by outer `Err(Elapsed)`. Request completion remains explicit.
+    /// Timeout elapsed is represented by outer `Err(Elapsed)`.
+    /// Timeout budget begins when the returned helper future is polled/awaited, not when constructed.
+    /// Request completion remains explicit.
     fn timeout_stage<'a, Fut: Future + 'a>(
         &'a self,
         stage: impl Into<String>,
@@ -122,7 +133,8 @@ pub trait TokioRequestHandleExt {
     ///
     /// Equivalent low-level form: `req.stage(label).await_on(tokio::task::spawn_blocking(f))`.
     ///
-    /// Records stage time from spawning the blocking task through awaiting its join handle.
+    /// Constructing the helper future does not spawn work.
+    /// Work is spawned when the returned helper future is polled/awaited, and stage timing covers spawning through awaiting the join handle.
     /// Preserves `Result<R, JoinError>` unchanged. Typical use: blocking pool work. Request completion remains explicit.
     fn spawn_blocking_stage<F, R>(
         &self,
@@ -210,8 +222,8 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
         timeout: Duration,
         future: Fut,
     ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a {
-        self.stage(stage)
-            .await_on(tokio::time::timeout(timeout, future))
+        let timer = self.stage(stage);
+        async move { timer.await_on(tokio::time::timeout(timeout, future)).await }
     }
     fn spawn_blocking_stage<F, R>(
         &self,
@@ -222,7 +234,8 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.stage(stage).await_on(tokio::task::spawn_blocking(f))
+        let timer = self.stage(stage);
+        async move { timer.await_on(tokio::task::spawn_blocking(f)).await }
     }
     fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
         self.inflight(gauge)
@@ -299,8 +312,8 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
         timeout: Duration,
         future: Fut,
     ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a {
-        self.stage(stage)
-            .await_on(tokio::time::timeout(timeout, future))
+        let timer = self.stage(stage);
+        async move { timer.await_on(tokio::time::timeout(timeout, future)).await }
     }
     fn spawn_blocking_stage<F, R>(
         &self,
@@ -311,7 +324,8 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.stage(stage).await_on(tokio::task::spawn_blocking(f))
+        let timer = self.stage(stage);
+        async move { timer.await_on(tokio::task::spawn_blocking(f)).await }
     }
     fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
         self.inflight(gauge)
@@ -1096,6 +1110,8 @@ mod tests {
 
 #[cfg(test)]
 mod helper_tests {
+    use std::rc::Rc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -1243,6 +1259,7 @@ mod helper_tests {
         started.completion.finish_ok();
         let snap = run.snapshot();
         assert_eq!(snap.requests.len(), 1);
+        assert_eq!(snap.stages.len(), 7);
         let stage = |name: &str| snap.stages.iter().find(|s| s.stage == name).unwrap();
         assert!(stage("join_ok").success);
         assert!(!stage("join_panic").success);
@@ -1251,6 +1268,78 @@ mod helper_tests {
         assert!(stage("timeout_nested").success);
         assert!(stage("blocking_ok").success);
         assert!(!stage("blocking_panic").success);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn spawn_blocking_stage_is_lazy_until_polled() {
+        let run = run();
+        let started = run.begin_request("/lazy-blocking");
+        let req = started.handle.clone();
+        let counter = Arc::new(AtomicUsize::new(0));
+        {
+            let c = Arc::clone(&counter);
+            let fut = req.spawn_blocking_stage("lazy_blocking", move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            });
+            drop(fut);
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+        assert!(run.snapshot().stages.is_empty());
+
+        {
+            let c = Arc::clone(&counter);
+            req.spawn_blocking_stage("lazy_blocking", move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            })
+            .await
+            .expect("spawn_blocking join should succeed");
+        }
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        let snap = run.snapshot();
+        let matching: Vec<_> = snap
+            .stages
+            .iter()
+            .filter(|s| s.stage == "lazy_blocking")
+            .collect();
+        assert_eq!(matching.len(), 1);
+        started.completion.finish_ok();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn timeout_stage_is_lazy_until_polled() {
+        let run = run();
+        let started = run.begin_request("/lazy-timeout");
+        let req = started.handle.clone();
+        let fut = req.timeout_stage("lazy_timeout", Duration::from_millis(10), async { 5usize });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let out = fut.await;
+        assert_eq!(out, Ok(5usize));
+        let snap = run.snapshot();
+        let matching: Vec<_> = snap
+            .stages
+            .iter()
+            .filter(|s| s.stage == "lazy_timeout")
+            .collect();
+        assert_eq!(matching.len(), 1);
+        assert!(matching[0].success);
+        started.completion.finish_ok();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn timeout_stage_does_not_require_send() {
+        let run = run();
+        let started = run.begin_request("/non-send-timeout");
+        let req = started.handle.clone();
+        let rc = Rc::new(String::from("ok"));
+        let out = req
+            .timeout_stage("non_send_timeout", Duration::from_millis(20), {
+                let rc = Rc::clone(&rc);
+                async move { rc.len() }
+            })
+            .await;
+        assert_eq!(out, Ok(2usize));
+        started.completion.finish_ok();
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1272,5 +1361,12 @@ mod helper_tests {
         assert!(run.snapshot().requests.is_empty());
         started.completion.finish_ok();
         assert_eq!(run.snapshot().requests.len(), 1);
+    }
+
+    #[test]
+    fn ext_trait_is_available_from_crate_re_exports() {
+        fn assert_ext<T: crate::TokioRequestHandleExt>() {}
+        assert_ext::<tailtriage_core::RequestHandle<'_>>();
+        assert_ext::<tailtriage_core::OwnedRequestHandle>();
     }
 }
