@@ -23,6 +23,15 @@ ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "sa
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs"
 CORE_COLLECTOR_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "collector.rs"
 CORE_LIB_SOURCE_PATH = REPO_ROOT / "tailtriage-core" / "src" / "lib.rs"
+CRATE_RUSTDOC_INCLUDE_README_PATHS = (
+    REPO_ROOT / "tailtriage" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-core" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-tokio" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
+)
 PUBLIC_DOCS_GLOB = (REPO_ROOT / "docs").glob("*.md")
 USER_FACING_TERMINOLOGY_PATHS = (
     README_PATH,
@@ -421,6 +430,21 @@ def validate_no_stale_controller_policy_names() -> None:
     if hits:
         joined = "\n".join(hits)
         raise ValueError(f"stale controller run_end_policy docs found:\n{joined}")
+
+
+def validate_crate_rustdocs_include_readmes() -> None:
+    required_token = '#![doc = include_str!("../README.md")]'
+    missing: list[str] = []
+    for path in CRATE_RUSTDOC_INCLUDE_README_PATHS:
+        text = path.read_text(encoding="utf-8")
+        if required_token not in text:
+            missing.append(path.relative_to(REPO_ROOT).as_posix())
+
+    if missing:
+        raise ValueError(
+            "crate rustdoc README include contract violation; missing token "
+            f'{required_token!r} in: {missing}'
+        )
 
 
 def normalize_doc_link(link: str) -> str:
@@ -885,6 +909,7 @@ def validate_sampler_integration_boundary() -> None:
 def main() -> int:
     _ = parse_args()
     validate_readme_analyzer_example()
+    validate_crate_rustdocs_include_readmes()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
