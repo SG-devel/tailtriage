@@ -219,7 +219,31 @@ When `primary_suspect.kind` is `insufficient_evidence`:
 
 Use [diagnostics.md](diagnostics.md) for interpretation details.
 
-## 10) Next docs
+
+## 10) Tokio primitive helpers
+
+```rust,ignore
+use tailtriage::tokio::TokioRequestHandleExt;
+```
+
+These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...).await_on(...)`, and `inflight(...)`; they do not finish requests.
+
+| Use case                     | Helper                                   | Records   |
+| ---------------------------- | ---------------------------------------- | --------- |
+| DB pool / capacity wait      | `semaphore(...).acquire()`               | queue     |
+| owned permit wait            | `owned_semaphore(...).acquire_owned()`   | queue     |
+| worker queue receive         | `mpsc_recv(...)`                         | queue     |
+| bounded channel backpressure | `mpsc_send(...)`                         | queue     |
+| async mutex contention       | `mutex_lock(...)`                        | queue     |
+| async rwlock contention      | `rwlock_read(...)` / `rwlock_write(...)` | queue     |
+| spawned task result          | `join_task(...)`                         | stage     |
+| timeout-wrapped work         | `timeout_stage(...)`                     | stage     |
+| blocking pool work           | `spawn_blocking_stage(...)`              | stage     |
+| active bounded section       | `inflight_guard(...)`                    | in-flight |
+
+See [tailtriage-tokio/README.md](../tailtriage-tokio/README.md) for a compact end-to-end example.
+
+## 11) Next docs
 
 - [Documentation index](README.md)
 - [Diagnostics guide](diagnostics.md)
