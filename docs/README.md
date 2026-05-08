@@ -1,6 +1,6 @@
 # tailtriage documentation
 
-This is the canonical documentation index for `tailtriage`.
+This is the canonical user documentation index for `tailtriage`.
 
 `tailtriage` is a Rust toolkit for Tokio tail-latency triage. It helps turn one captured run into evidence-ranked suspects and targeted next checks. Suspects are triage leads, not proof of root cause.
 
