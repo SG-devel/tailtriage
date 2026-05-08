@@ -111,6 +111,17 @@ STALE_VALIDATION_DOC_PHRASES = (
 )
 
 
+RUSTDOC_INCLUDE_CRATE_LIBS = (
+    REPO_ROOT / "tailtriage" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-core" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-tokio" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
+)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate public docs contracts.")
     return parser.parse_args()
@@ -837,6 +848,20 @@ def validate_no_user_facing_facade_wording() -> None:
         )
 
 
+
+def validate_crate_rustdocs_include_readmes() -> None:
+    required = '#![doc = include_str!("../README.md")]'
+    failures: list[str] = []
+    for path in RUSTDOC_INCLUDE_CRATE_LIBS:
+        text = path.read_text(encoding="utf-8")
+        if required not in text:
+            failures.append(
+                f"{path.relative_to(REPO_ROOT)} missing required rustdoc include_str README directive"
+            )
+
+    if failures:
+        raise ValueError("crate rustdoc README include contract violation:\n" + "\n".join(failures))
+
 def is_misleading_controller_example_flow(readme_text: str) -> bool:
     for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
         if "cargo add tailtriage-controller" in block and "cargo run --example controller_minimal" in block:
@@ -885,6 +910,7 @@ def validate_sampler_integration_boundary() -> None:
 def main() -> int:
     _ = parse_args()
     validate_readme_analyzer_example()
+    validate_crate_rustdocs_include_readmes()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
