@@ -19,6 +19,25 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+/// Extension helper methods for request handles used with Tokio integrations.
+pub trait TokioRequestHandleExt {
+    /// Alias for [`tailtriage_core::RequestHandle::inflight`] and
+    /// [`tailtriage_core::OwnedRequestHandle::inflight`] for clearer RAII naming.
+    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_>;
+}
+
+impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
+    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
+        self.inflight(gauge)
+    }
+}
+
+impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
+    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
+        self.inflight(gauge)
+    }
+}
+
 /// Returns the crate name for smoke-testing workspace wiring.
 #[must_use]
 pub const fn crate_name() -> &'static str {

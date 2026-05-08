@@ -70,6 +70,20 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+
+## Request-handle helper trait
+
+This crate also exports `TokioRequestHandleExt` for a discoverable in-flight helper alias:
+
+```rust
+use tailtriage_tokio::TokioRequestHandleExt;
+
+# fn demo(req: &tailtriage_core::RequestHandle<'_>) {
+let _guard = req.inflight_guard("db_pool_active");
+# }
+```
+
+`inflight_guard(...)` is equivalent to `inflight(...)` and keeps request completion explicit.
 ## Important constraints
 
 - `RuntimeSampler::start()` must run inside an active Tokio runtime
