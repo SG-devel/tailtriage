@@ -25,6 +25,9 @@ class ValidateDocsContractsTests(unittest.TestCase):
         validate_docs_contracts.validate_readme_analyzer_example()
         validate_docs_contracts.validate_controller_readme_toml()
 
+    def test_crate_rustdocs_include_readmes_contract(self) -> None:
+        validate_docs_contracts.validate_crate_rustdocs_include_readmes()
+
     def test_docs_index_contract(self) -> None:
         validate_docs_contracts.validate_docs_index_contract()
 

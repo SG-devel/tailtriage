@@ -110,6 +110,16 @@ STALE_VALIDATION_DOC_PHRASES = (
     "no in normal pr ci",
 )
 
+RUSTDOC_README_INCLUDE_PATHS = (
+    REPO_ROOT / "tailtriage" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-core" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-tokio" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate public docs contracts.")
@@ -185,6 +195,21 @@ def assert_same_object_shape(*, name: str, actual: dict[str, Any], expected: dic
         if actual_kind != expected_kind:
             raise ValueError(f"{name}.{key} type drift: expected {expected_kind}, got {actual_kind}")
 
+
+
+def validate_crate_rustdocs_include_readmes() -> None:
+    required = '#![doc = include_str!("../README.md")]'
+    missing: list[str] = []
+    for path in RUSTDOC_README_INCLUDE_PATHS:
+        source = path.read_text(encoding="utf-8")
+        if required not in source:
+            missing.append(str(path.relative_to(REPO_ROOT)))
+
+    if missing:
+        raise ValueError(
+            "crate rustdoc include_str README contract failed for: "
+            + ", ".join(sorted(missing))
+        )
 
 def validate_readme_analyzer_example() -> None:
     readme_text = README_PATH.read_text(encoding="utf-8")
@@ -901,6 +926,7 @@ def main() -> int:
     validate_no_user_facing_facade_wording()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
+    validate_crate_rustdocs_include_readmes()
     print("docs contracts validated successfully")
     return 0
 
