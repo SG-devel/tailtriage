@@ -224,7 +224,7 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 |---|---|---|
 | DB pool / capacity wait | `semaphore(...).acquire()` | queue |
 | owned permit wait | `owned_semaphore(...).acquire_owned()` | queue |
-| worker queue receive | `mpsc_recv(...)` | queue |
+| worker queue receive (when channel is meaningful work intake) | `mpsc_recv(...)` | queue |
 | bounded channel backpressure | `mpsc_send(...)` | queue |
 | async mutex contention | `mutex_lock(...)` | queue |
 | async rwlock contention | `rwlock_read(...)` / `rwlock_write(...)` | queue |
@@ -232,6 +232,11 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 | timeout-wrapped work | `timeout_stage(...)` | stage |
 | blocking pool work | `spawn_blocking_stage(...)` | stage |
 | active bounded section | `inflight_guard(...)` | in-flight |
+
+Semantics notes:
+
+- `spawn_blocking_stage(...)` is lazy: constructing the helper future does not spawn work. Spawning happens when the returned future is polled/awaited, and the recorded stage covers spawn through join wait.
+- `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not at helper construction.
 
 ```rust,no_run
 use std::sync::Arc;
