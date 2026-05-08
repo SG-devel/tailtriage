@@ -27,8 +27,9 @@ Choose `tailtriage-tokio` when:
 - you already use `tailtriage-core` and want runtime snapshots in the same artifact
 - you want stronger evidence for runtime-related bottlenecks
 - you want direct control over sampler cadence and runtime snapshot retention
+- you want Tokio primitive helpers that map queue/stage/in-flight instrumentation to common Tokio APIs
 
-Choose `tailtriage` instead when you want the default entry point and feature-gated access to this crate.
+Choose `tailtriage` instead when you want the default entry point, where `tailtriage::tokio` is available with default features.
 
 ## Installation
 
@@ -41,7 +42,7 @@ cargo add tailtriage-core tailtriage-tokio
 Via the default crate:
 
 ```bash
-cargo add tailtriage --features tokio
+cargo add tailtriage
 ```
 
 ## Quick start
@@ -204,6 +205,75 @@ For those surfaces, use:
 - `tailtriage-axum`
 - `tailtriage-analyzer` (in-process analysis/report generation)
 - `tailtriage-cli` (command-line analysis of saved artifacts)
+
+## Tokio primitive helper trait
+
+Primary import path for default `tailtriage` users:
+
+```ignore
+use tailtriage::tokio::TokioRequestHandleExt;
+```
+
+Direct-crate alternative:
+
+```rust
+use tailtriage_tokio::TokioRequestHandleExt;
+```
+
+Helpers map common Tokio primitives to explicit queue/stage/in-flight signals while preserving Tokio return/error types.
+
+| Use case | Helper | Records |
+|---|---|---|
+| DB pool / capacity wait | `semaphore(...).acquire()` | queue |
+| owned permit wait | `owned_semaphore(...).acquire_owned()` | queue |
+| bounded channel backpressure | `mpsc_send(...)` | queue |
+| async mutex contention | `mutex_lock(...)` | queue |
+| async rwlock contention | `rwlock_read(...)` / `rwlock_write(...)` | queue |
+| spawned task result | `join_task(...)` | stage |
+| timeout-wrapped work | `timeout_stage(...)` | stage |
+| blocking pool work | `blocking_stage(...)` | stage |
+| active bounded section | `inflight_guard(...)` | in-flight |
+
+Semantics notes:
+
+- Queue/stage helper events are completion-based: dropping/canceling a pending helper future records no queue/stage event.
+- The helper API intentionally does not include a generic mpsc receive wait helper. Receiver-side recv wait cannot distinguish idle workers from queued work residence time. For worker intake, start request/work-item capture after receiving the item unless you have explicit enqueue timestamps.
+- `join_task(...)` records await time for the supplied `JoinHandle`, not necessarily the full task runtime.
+- `join_task(...)`, `timeout_stage(...)`, and `blocking_stage(...)` preserve nested `Result`s; recorded stage success/failure comes from the outer Tokio wrapper result, so `Ok(Err(_))` is preserved and records as successful.
+- `blocking_stage(...)` is lazy: it submits `spawn_blocking` only when awaited. Use `tokio::task::spawn_blocking` plus `join_task(...)` when you need eager overlap.
+- If you need blocking work to start immediately or overlap with other work, call `tokio::task::spawn_blocking(...)` directly and instrument the returned `JoinHandle` with `join_task(...)`.
+- `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not at helper construction.
+
+```rust,no_run
+use std::sync::Arc;
+use std::time::Duration;
+
+use tailtriage_core::Tailtriage;
+use tailtriage_tokio::TokioRequestHandleExt;
+
+# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+let run = Tailtriage::builder("checkout-service").output("tailtriage-run.json").build()?;
+let started = run.begin_request("/checkout");
+let req = started.handle.clone();
+
+let db_pool = Arc::new(tokio::sync::Semaphore::new(32));
+{
+    let _permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
+    let _: Result<Result<(), ()>, tokio::time::error::Elapsed> = req
+        .timeout_stage("downstream_http", Duration::from_millis(200), async {
+            Ok::<(), ()>(())
+        })
+        .await;
+}
+
+let (tx, _rx) = tokio::sync::mpsc::channel(8);
+let _ = req.mpsc_send("worker_backpressure", &tx, "event").await;
+
+started.completion.finish_ok();
+run.shutdown()?;
+# Ok(())
+# }
+```
 
 ## Related crates
 

@@ -41,9 +41,12 @@ cargo add tailtriage
 Optional integrations:
 
 ```bash
-cargo add tailtriage --features tokio
-cargo add tailtriage --features "tokio,axum"
+cargo add tailtriage --features axum
 ```
+
+`controller` and `tokio` are enabled by default on `tailtriage`; `axum` remains opt-in.
+
+If you want a smaller core-only dependency surface, use `tailtriage-core` directly or depend on `tailtriage` with `default-features = false`.
 
 `tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work.
 
@@ -106,7 +109,7 @@ From `tailtriage`:
 
 - `tailtriage::Tailtriage` — direct capture lifecycle
 - `tailtriage::controller::TailtriageController` — repeated arm/disarm bounded capture windows for long-lived services
-- `tailtriage::tokio` _(optional feature)_ — runtime-pressure sampling
+- `tailtriage::tokio` _(default-enabled)_ — runtime-pressure sampling
 - `tailtriage::axum` _(optional feature)_ — Axum middleware/extractor ergonomics
 
 ## When to choose the controller

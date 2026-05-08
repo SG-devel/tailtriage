@@ -22,9 +22,9 @@ pub use tailtriage_axum as axum;
 pub use tailtriage_controller as controller;
 #[cfg(feature = "tokio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
-/// Optional Tokio runtime sampler namespace (`tailtriage::tokio`).
+/// Tokio runtime sampler namespace (`tailtriage::tokio`).
 ///
-/// Enable with the `tokio` feature.
+/// Enabled by default via the `tokio` feature.
 pub use tailtriage_tokio as tokio;
 
 #[cfg(test)]
@@ -38,6 +38,15 @@ mod tests {
     #[test]
     fn tokio_namespace_reexport_compiles() {
         let _name = crate::tokio::crate_name();
+    }
+
+    #[cfg(feature = "tokio")]
+    #[test]
+    fn tokio_helper_trait_reexport_path_compiles() {
+        use crate::tokio::TokioRequestHandleExt;
+
+        fn assert_trait<T: TokioRequestHandleExt>() {}
+        assert_trait::<crate::RequestHandle<'_>>();
     }
 
     #[cfg(feature = "controller")]
