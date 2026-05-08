@@ -22,63 +22,106 @@ use tokio::task::JoinHandle;
 
 /// Extension helpers that map common Tokio primitives to tailtriage queue/stage/in-flight signals.
 pub trait TokioRequestHandleExt {
-    /// Instruments semaphore permit acquisition as queue wait time.
+    /// Records a queue event while waiting to acquire a semaphore permit.
+    ///
+    /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire())` via [`InstrumentedSemaphore::acquire`].
+    ///
+    /// Records only acquisition wait time, not the protected work after the permit is acquired.
+    /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
     fn semaphore<'a>(
         &'a self,
         queue: impl Into<String>,
         semaphore: &'a tokio::sync::Semaphore,
     ) -> InstrumentedSemaphore<'a>;
-    /// Instruments owned semaphore permit acquisition as queue wait time.
+    /// Records a queue event while waiting to acquire an owned semaphore permit.
+    ///
+    /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire_owned())` via [`InstrumentedOwnedSemaphore::acquire_owned`].
+    ///
+    /// Records only acquisition wait time, not work after permit acquisition.
+    /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
     fn owned_semaphore(
         &self,
         queue: impl Into<String>,
         semaphore: Arc<tokio::sync::Semaphore>,
     ) -> InstrumentedOwnedSemaphore<'_>;
-    /// Instruments waiting to receive an item from an MPSC channel as queue wait.
-    fn mpsc_recv<'a, T: Send>(
+    /// Records a queue event while waiting for `Receiver::recv`.
+    ///
+    /// Equivalent low-level form: `req.queue(label).await_on(receiver.recv())`.
+    ///
+    /// Measures waiting for an item only, not processing after receipt. Returns `Option<T>` unchanged. Request completion remains explicit.
+    fn mpsc_recv<'a, T>(
         &'a self,
         queue: impl Into<String>,
         receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
     ) -> impl Future<Output = Option<T>> + 'a;
-    /// Instruments waiting to send into an MPSC channel as queue wait.
-    fn mpsc_send<'a, T: Send>(
+    /// Records a queue event while waiting for bounded-channel send/backpressure.
+    ///
+    /// Equivalent low-level form: `req.queue(label).await_on(sender.send(value))`.
+    ///
+    /// Preserves `Result<(), SendError<T>>` unchanged. Request completion remains explicit.
+    fn mpsc_send<'a, T>(
         &'a self,
         queue: impl Into<String>,
         sender: &'a tokio::sync::mpsc::Sender<T>,
         value: T,
     ) -> impl Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a;
-    /// Instruments async mutex lock acquisition as queue wait.
-    fn mutex_lock<'a, T: Send>(
+    /// Records a queue event while waiting to acquire an async mutex.
+    ///
+    /// Equivalent low-level form: `req.queue(label).await_on(mutex.lock())`.
+    ///
+    /// Measures lock acquisition only, not work while holding the guard. Request completion remains explicit.
+    fn mutex_lock<'a, T>(
         &'a self,
         queue: impl Into<String>,
         mutex: &'a tokio::sync::Mutex<T>,
     ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a;
-    /// Instruments async `RwLock` read acquisition as queue wait.
-    fn rwlock_read<'a, T: Send>(
+    /// Records a queue event while waiting to acquire an async read lock.
+    ///
+    /// Equivalent low-level form: `req.queue(label).await_on(lock.read())`.
+    ///
+    /// Measures acquisition only, not work while holding the guard. Request completion remains explicit.
+    fn rwlock_read<'a, T>(
         &'a self,
         queue: impl Into<String>,
         lock: &'a tokio::sync::RwLock<T>,
     ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a;
-    /// Instruments async `RwLock` write acquisition as queue wait.
-    fn rwlock_write<'a, T: Send>(
+    /// Records a queue event while waiting to acquire an async write lock.
+    ///
+    /// Equivalent low-level form: `req.queue(label).await_on(lock.write())`.
+    ///
+    /// Measures acquisition only, not work while holding the guard. Request completion remains explicit.
+    fn rwlock_write<'a, T>(
         &'a self,
         queue: impl Into<String>,
         lock: &'a tokio::sync::RwLock<T>,
     ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a;
-    /// Instruments awaiting a spawned task as stage time.
-    fn join_task<T: Send + 'static>(
+    /// Records a stage event while awaiting a spawned task's `JoinHandle`.
+    ///
+    /// Equivalent low-level form: `req.stage(label).await_on(handle)`.
+    ///
+    /// Preserves `Result<T, JoinError>` unchanged, including panic/cancel join errors. Request completion remains explicit.
+    fn join_task<T: 'static>(
         &self,
         stage: impl Into<String>,
         handle: tokio::task::JoinHandle<T>,
     ) -> impl Future<Output = Result<T, tokio::task::JoinError>>;
-    /// Instruments timeout-wrapped work as stage time.
+    /// Records a stage event around `tokio::time::timeout(timeout, future)`.
+    ///
+    /// Equivalent low-level form: `req.stage(label).await_on(tokio::time::timeout(timeout, future))`.
+    ///
+    /// Preserves the outer timeout `Result` and any nested inner `Result` exactly (no flattening/remapping).
+    /// Timeout elapsed is represented by outer `Err(Elapsed)`. Request completion remains explicit.
     fn timeout_stage<'a, Fut: Future + 'a>(
         &'a self,
         stage: impl Into<String>,
         timeout: Duration,
         future: Fut,
     ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a;
-    /// Instruments `spawn_blocking` work as stage time.
+    /// Records a stage event around `tokio::task::spawn_blocking` join wait.
+    ///
+    /// Equivalent low-level form: `req.stage(label).await_on(tokio::task::spawn_blocking(f))`.
+    ///
+    /// Preserves `Result<R, JoinError>` unchanged. Typical use: blocking pool work. Request completion remains explicit.
     fn spawn_blocking_stage<F, R>(
         &self,
         stage: impl Into<String>,
@@ -87,7 +130,11 @@ pub trait TokioRequestHandleExt {
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
-    /// Alias for `inflight(...)` with a guard-oriented name.
+    /// Alias for `inflight(...)` for RAII discoverability.
+    ///
+    /// Equivalent low-level form: `req.inflight(label)`.
+    ///
+    /// Records in-flight gauge increments/decrements only. It does not record queue or stage timing. Request completion remains explicit.
     fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_>;
 }
 
@@ -114,14 +161,14 @@ macro_rules! impl_tokio_ext {
                     semaphore,
                 }
             }
-            fn mpsc_recv<'a, T: Send>(
+            fn mpsc_recv<'a, T>(
                 &'a self,
                 queue: impl Into<String>,
                 receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
             ) -> impl Future<Output = Option<T>> + 'a {
                 self.queue(queue).await_on(receiver.recv())
             }
-            fn mpsc_send<'a, T: Send>(
+            fn mpsc_send<'a, T>(
                 &'a self,
                 queue: impl Into<String>,
                 sender: &'a tokio::sync::mpsc::Sender<T>,
@@ -129,28 +176,28 @@ macro_rules! impl_tokio_ext {
             ) -> impl Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a {
                 self.queue(queue).await_on(sender.send(value))
             }
-            fn mutex_lock<'a, T: Send>(
+            fn mutex_lock<'a, T>(
                 &'a self,
                 queue: impl Into<String>,
                 mutex: &'a tokio::sync::Mutex<T>,
             ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a {
                 self.queue(queue).await_on(mutex.lock())
             }
-            fn rwlock_read<'a, T: Send>(
+            fn rwlock_read<'a, T>(
                 &'a self,
                 queue: impl Into<String>,
                 lock: &'a tokio::sync::RwLock<T>,
             ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a {
                 self.queue(queue).await_on(lock.read())
             }
-            fn rwlock_write<'a, T: Send>(
+            fn rwlock_write<'a, T>(
                 &'a self,
                 queue: impl Into<String>,
                 lock: &'a tokio::sync::RwLock<T>,
             ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a {
                 self.queue(queue).await_on(lock.write())
             }
-            fn join_task<T: Send + 'static>(
+            fn join_task<T: 'static>(
                 &self,
                 stage: impl Into<String>,
                 handle: tokio::task::JoinHandle<T>,
@@ -190,6 +237,7 @@ impl_tokio_ext!(tailtriage_core::RequestHandle<'_>);
 impl_tokio_ext!(tailtriage_core::OwnedRequestHandle);
 
 /// Queue-instrumented semaphore acquisition helper.
+#[must_use = "constructing the wrapper records nothing until acquire() is awaited"]
 pub struct InstrumentedSemaphore<'a> {
     timer: tailtriage_core::QueueTimer<'a>,
     semaphore: &'a tokio::sync::Semaphore,
@@ -207,6 +255,7 @@ impl<'a> InstrumentedSemaphore<'a> {
     }
 }
 /// Queue-instrumented owned semaphore acquisition helper.
+#[must_use = "constructing the wrapper records nothing until acquire_owned() is awaited"]
 pub struct InstrumentedOwnedSemaphore<'a> {
     timer: tailtriage_core::QueueTimer<'a>,
     semaphore: Arc<tokio::sync::Semaphore>,
@@ -960,5 +1009,155 @@ mod tests {
             metadata.resolved_sampler_cadence_ms, 11,
             "duplicate start must not overwrite prior metadata"
         );
+    }
+}
+
+#[cfg(test)]
+mod helper_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use tailtriage_core::Tailtriage;
+
+    use crate::TokioRequestHandleExt;
+
+    fn run() -> Tailtriage {
+        Tailtriage::builder("tokio-helpers")
+            .output(std::env::temp_dir().join("tailtriage_tokio_helpers.json"))
+            .build()
+            .expect("build")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn queue_and_lock_helpers_record_queue_only() {
+        let run = run();
+        let started = run.begin_request("/helpers");
+        let req = started.handle.clone();
+        let sem = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = req.semaphore("sem", &sem).acquire().await.expect("permit");
+        drop(permit);
+        let owned = req
+            .owned_semaphore("owned_sem", Arc::clone(&sem))
+            .acquire_owned()
+            .await
+            .expect("owned permit");
+        drop(owned);
+
+        let closed = tokio::sync::Semaphore::new(0);
+        closed.close();
+        assert!(req.semaphore("closed", &closed).acquire().await.is_err());
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        tx.send(7u8).await.expect("seed send");
+        assert_eq!(req.mpsc_recv("recv", &mut rx).await, Some(7));
+        drop(tx);
+        assert_eq!(req.mpsc_recv("recv_closed", &mut rx).await, None);
+
+        let (tx2, mut rx2) = tokio::sync::mpsc::channel(1);
+        tx2.send(1u8).await.expect("fill");
+        let send_future = req.mpsc_send("send_wait", &tx2, 2u8);
+        tokio::pin!(send_future);
+        tokio::select! {
+            () = tokio::time::sleep(Duration::from_millis(5)) => {}
+            _ = &mut send_future => panic!("send should wait while channel is full"),
+        }
+        assert_eq!(rx2.recv().await, Some(1));
+        assert_eq!(send_future.await, Ok(()));
+
+        let mutex = Arc::new(tokio::sync::Mutex::new(5usize));
+        let _g = req.mutex_lock("mutex", &mutex).await;
+        let rw = Arc::new(tokio::sync::RwLock::new(3usize));
+        {
+            let _r = req.rwlock_read("rw_read", &rw).await;
+        }
+        {
+            let _w = req.rwlock_write("rw_write", &rw).await;
+        }
+
+        started.completion.finish_ok();
+        let snap = run.snapshot();
+        assert_eq!(snap.requests.len(), 1);
+        assert!(snap.queues.iter().any(|q| q.queue == "sem"));
+        assert!(snap.queues.iter().any(|q| q.queue == "owned_sem"));
+        assert!(snap.queues.iter().any(|q| q.queue == "recv"));
+        assert!(snap.queues.iter().any(|q| q.queue == "send_wait"));
+        assert!(snap.queues.iter().any(|q| q.queue == "mutex"));
+        assert!(snap.queues.iter().any(|q| q.queue == "rw_read"));
+        assert!(snap.queues.iter().any(|q| q.queue == "rw_write"));
+        assert!(snap.stages.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn stage_helpers_and_inflight_behave_and_preserve_results() {
+        let run = run();
+        let started = run.begin_request("/stages");
+        let req = started.handle.clone();
+
+        assert_eq!(
+            req.join_task("join_ok", tokio::spawn(async { 42usize }))
+                .await
+                .expect("join ok"),
+            42
+        );
+        assert!(req
+            .join_task("join_panic", tokio::spawn(async { panic!("boom") }))
+            .await
+            .is_err());
+        assert_eq!(
+            req.timeout_stage("timeout_ok", Duration::from_millis(50), async { 11usize })
+                .await,
+            Ok(11)
+        );
+        let nested: Result<Result<(), &'static str>, tokio::time::error::Elapsed> = req
+            .timeout_stage("timeout_nested", Duration::from_millis(50), async {
+                Err("inner")
+            })
+            .await;
+        assert_eq!(nested, Ok(Err("inner")));
+        assert!(req
+            .timeout_stage("timeout_elapsed", Duration::from_millis(5), async {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                1usize
+            })
+            .await
+            .is_err());
+        assert_eq!(
+            req.spawn_blocking_stage("blocking_ok", || 99usize)
+                .await
+                .expect("ok"),
+            99
+        );
+        assert!(req
+            .spawn_blocking_stage("blocking_panic", || -> usize { panic!("x") })
+            .await
+            .is_err());
+
+        {
+            let _g = req.inflight_guard("busy");
+            assert_eq!(run.snapshot().inflight.len(), 1);
+        }
+        started.completion.finish_ok();
+        let snap = run.snapshot();
+        assert_eq!(snap.requests.len(), 1);
+        assert!(snap.stages.iter().any(|s| s.stage == "join_ok"));
+        assert!(snap.stages.iter().any(|s| s.stage == "join_panic"));
+        assert!(snap.stages.iter().any(|s| s.stage == "timeout_ok"));
+        assert!(snap.stages.iter().any(|s| s.stage == "timeout_elapsed"));
+        assert!(snap.stages.iter().any(|s| s.stage == "blocking_ok"));
+        assert!(snap.stages.iter().any(|s| s.stage == "blocking_panic"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn owned_request_handle_works_and_helpers_do_not_finish_request() {
+        let run = run();
+        let started = run.begin_request("/owned");
+        let owned = started.handle.clone();
+        let _ = owned
+            .timeout_stage("owned_timeout", Duration::from_millis(10), async { 1usize })
+            .await
+            .expect("ok");
+        assert!(run.snapshot().requests.is_empty());
+        started.completion.finish_ok();
+        assert_eq!(run.snapshot().requests.len(), 1);
     }
 }

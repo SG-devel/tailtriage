@@ -98,7 +98,7 @@ Choose a focused crate only when you need a narrower boundary:
 
 - `tailtriage-core`: framework-agnostic instrumentation primitives
 - `tailtriage-controller`: repeated bounded windows
-- `tailtriage-tokio`: runtime-pressure sampling
+- `tailtriage-tokio`: runtime-pressure sampling and Tokio primitive helper trait (`TokioRequestHandleExt`)
 - `tailtriage-axum`: Axum request-boundary wiring
 
 ## Feature flags

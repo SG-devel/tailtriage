@@ -225,3 +225,27 @@ Use [diagnostics.md](diagnostics.md) for interpretation details.
 - [Diagnostics guide](diagnostics.md)
 - [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)
+
+
+## 11) Tokio primitive helpers (feature `tokio`)
+
+Import via default crate path:
+
+```rust
+use tailtriage::tokio::TokioRequestHandleExt;
+```
+
+These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...).await_on(...)`, and `inflight(...)` instrumentation; they do not finish requests.
+
+| Use case | Helper | Records |
+|---|---|---|
+| DB pool / capacity wait | `semaphore(...).acquire()` | queue |
+| owned permit wait | `owned_semaphore(...).acquire_owned()` | queue |
+| worker queue receive | `mpsc_recv(...)` | queue |
+| bounded channel backpressure | `mpsc_send(...)` | queue |
+| async mutex contention | `mutex_lock(...)` | queue |
+| async rwlock contention | `rwlock_read(...)` / `rwlock_write(...)` | queue |
+| spawned task result | `join_task(...)` | stage |
+| timeout-wrapped work | `timeout_stage(...)` | stage |
+| blocking pool work | `spawn_blocking_stage(...)` | stage |
+| active bounded section | `inflight_guard(...)` | in-flight |
