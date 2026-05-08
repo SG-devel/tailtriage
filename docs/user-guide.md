@@ -227,7 +227,7 @@ Import via default crate path:
 use tailtriage::tokio::TokioRequestHandleExt;
 ```
 
-These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...).await_on(...)`, and `inflight(...)` instrumentation; they do not finish requests.
+These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...).await_on(...)`, and `inflight(...)` instrumentation; they do not finish requests. For a compact end-to-end helper example, see the Tokio helper example in [`tailtriage-tokio/README.md`](../tailtriage-tokio/README.md).
 
 | Use case | Helper | Records |
 |---|---|---|

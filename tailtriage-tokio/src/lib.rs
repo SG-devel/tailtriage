@@ -99,6 +99,7 @@ pub trait TokioRequestHandleExt {
     ///
     /// Equivalent low-level form: `req.stage(label).await_on(handle)`.
     ///
+    /// Records time spent awaiting the supplied join handle. If the task started earlier, this may not represent the full task lifetime.
     /// Preserves `Result<T, JoinError>` unchanged, including panic/cancel join errors. Request completion remains explicit.
     fn join_task<T>(
         &self,
@@ -121,6 +122,7 @@ pub trait TokioRequestHandleExt {
     ///
     /// Equivalent low-level form: `req.stage(label).await_on(tokio::task::spawn_blocking(f))`.
     ///
+    /// Records stage time from spawning the blocking task through awaiting its join handle.
     /// Preserves `Result<R, JoinError>` unchanged. Typical use: blocking pool work. Request completion remains explicit.
     fn spawn_blocking_stage<F, R>(
         &self,
@@ -138,103 +140,183 @@ pub trait TokioRequestHandleExt {
     fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_>;
 }
 
-macro_rules! impl_tokio_ext {
-    ($ty:ty) => {
-        impl TokioRequestHandleExt for $ty {
-            fn semaphore<'a>(
-                &'a self,
-                queue: impl Into<String>,
-                semaphore: &'a tokio::sync::Semaphore,
-            ) -> InstrumentedSemaphore<'a> {
-                InstrumentedSemaphore {
-                    timer: self.queue(queue),
-                    semaphore,
-                }
-            }
-            fn owned_semaphore(
-                &self,
-                queue: impl Into<String>,
-                semaphore: Arc<tokio::sync::Semaphore>,
-            ) -> InstrumentedOwnedSemaphore<'_> {
-                InstrumentedOwnedSemaphore {
-                    timer: self.queue(queue),
-                    semaphore,
-                }
-            }
-            fn mpsc_recv<'a, T>(
-                &'a self,
-                queue: impl Into<String>,
-                receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
-            ) -> impl Future<Output = Option<T>> + 'a {
-                self.queue(queue).await_on(receiver.recv())
-            }
-            fn mpsc_send<'a, T>(
-                &'a self,
-                queue: impl Into<String>,
-                sender: &'a tokio::sync::mpsc::Sender<T>,
-                value: T,
-            ) -> impl Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a {
-                self.queue(queue).await_on(sender.send(value))
-            }
-            fn mutex_lock<'a, T>(
-                &'a self,
-                queue: impl Into<String>,
-                mutex: &'a tokio::sync::Mutex<T>,
-            ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a {
-                self.queue(queue).await_on(mutex.lock())
-            }
-            fn rwlock_read<'a, T>(
-                &'a self,
-                queue: impl Into<String>,
-                lock: &'a tokio::sync::RwLock<T>,
-            ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a {
-                self.queue(queue).await_on(lock.read())
-            }
-            fn rwlock_write<'a, T>(
-                &'a self,
-                queue: impl Into<String>,
-                lock: &'a tokio::sync::RwLock<T>,
-            ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a {
-                self.queue(queue).await_on(lock.write())
-            }
-            fn join_task<T>(
-                &self,
-                stage: impl Into<String>,
-                handle: tokio::task::JoinHandle<T>,
-            ) -> impl Future<Output = Result<T, tokio::task::JoinError>> {
-                self.stage(stage).await_on(handle)
-            }
-            fn timeout_stage<'a, Fut: Future + 'a>(
-                &'a self,
-                stage: impl Into<String>,
-                timeout: Duration,
-                future: Fut,
-            ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a {
-                self.stage(stage)
-                    .await_on(tokio::time::timeout(timeout, future))
-            }
-            fn spawn_blocking_stage<F, R>(
-                &self,
-                stage: impl Into<String>,
-                f: F,
-            ) -> impl Future<Output = Result<R, tokio::task::JoinError>>
-            where
-                F: FnOnce() -> R + Send + 'static,
-                R: Send + 'static,
-            {
-                self.stage(stage).await_on(tokio::task::spawn_blocking(f))
-            }
-            fn inflight_guard(
-                &self,
-                gauge: impl Into<String>,
-            ) -> tailtriage_core::InflightGuard<'_> {
-                self.inflight(gauge)
-            }
+impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
+    fn semaphore<'a>(
+        &'a self,
+        queue: impl Into<String>,
+        semaphore: &'a tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'a> {
+        InstrumentedSemaphore {
+            timer: self.queue(queue),
+            semaphore,
         }
-    };
+    }
+    fn owned_semaphore(
+        &self,
+        queue: impl Into<String>,
+        semaphore: Arc<tokio::sync::Semaphore>,
+    ) -> InstrumentedOwnedSemaphore<'_> {
+        InstrumentedOwnedSemaphore {
+            timer: self.queue(queue),
+            semaphore,
+        }
+    }
+    fn mpsc_recv<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
+    ) -> impl Future<Output = Option<T>> + 'a {
+        self.queue(queue).await_on(receiver.recv())
+    }
+    fn mpsc_send<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        sender: &'a tokio::sync::mpsc::Sender<T>,
+        value: T,
+    ) -> impl Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a {
+        self.queue(queue).await_on(sender.send(value))
+    }
+    fn mutex_lock<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        mutex: &'a tokio::sync::Mutex<T>,
+    ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a {
+        self.queue(queue).await_on(mutex.lock())
+    }
+    fn rwlock_read<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a {
+        self.queue(queue).await_on(lock.read())
+    }
+    fn rwlock_write<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a {
+        self.queue(queue).await_on(lock.write())
+    }
+    fn join_task<T>(
+        &self,
+        stage: impl Into<String>,
+        handle: tokio::task::JoinHandle<T>,
+    ) -> impl Future<Output = Result<T, tokio::task::JoinError>> {
+        self.stage(stage).await_on(handle)
+    }
+    fn timeout_stage<'a, Fut: Future + 'a>(
+        &'a self,
+        stage: impl Into<String>,
+        timeout: Duration,
+        future: Fut,
+    ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a {
+        self.stage(stage)
+            .await_on(tokio::time::timeout(timeout, future))
+    }
+    fn spawn_blocking_stage<F, R>(
+        &self,
+        stage: impl Into<String>,
+        f: F,
+    ) -> impl Future<Output = Result<R, tokio::task::JoinError>>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.stage(stage).await_on(tokio::task::spawn_blocking(f))
+    }
+    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
+        self.inflight(gauge)
+    }
 }
-impl_tokio_ext!(tailtriage_core::RequestHandle<'_>);
-impl_tokio_ext!(tailtriage_core::OwnedRequestHandle);
+
+impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
+    fn semaphore<'a>(
+        &'a self,
+        queue: impl Into<String>,
+        semaphore: &'a tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'a> {
+        InstrumentedSemaphore {
+            timer: self.queue(queue),
+            semaphore,
+        }
+    }
+    fn owned_semaphore(
+        &self,
+        queue: impl Into<String>,
+        semaphore: Arc<tokio::sync::Semaphore>,
+    ) -> InstrumentedOwnedSemaphore<'_> {
+        InstrumentedOwnedSemaphore {
+            timer: self.queue(queue),
+            semaphore,
+        }
+    }
+    fn mpsc_recv<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
+    ) -> impl Future<Output = Option<T>> + 'a {
+        self.queue(queue).await_on(receiver.recv())
+    }
+    fn mpsc_send<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        sender: &'a tokio::sync::mpsc::Sender<T>,
+        value: T,
+    ) -> impl Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a {
+        self.queue(queue).await_on(sender.send(value))
+    }
+    fn mutex_lock<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        mutex: &'a tokio::sync::Mutex<T>,
+    ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a {
+        self.queue(queue).await_on(mutex.lock())
+    }
+    fn rwlock_read<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a {
+        self.queue(queue).await_on(lock.read())
+    }
+    fn rwlock_write<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a {
+        self.queue(queue).await_on(lock.write())
+    }
+    fn join_task<T>(
+        &self,
+        stage: impl Into<String>,
+        handle: tokio::task::JoinHandle<T>,
+    ) -> impl Future<Output = Result<T, tokio::task::JoinError>> {
+        self.stage(stage).await_on(handle)
+    }
+    fn timeout_stage<'a, Fut: Future + 'a>(
+        &'a self,
+        stage: impl Into<String>,
+        timeout: Duration,
+        future: Fut,
+    ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a {
+        self.stage(stage)
+            .await_on(tokio::time::timeout(timeout, future))
+    }
+    fn spawn_blocking_stage<F, R>(
+        &self,
+        stage: impl Into<String>,
+        f: F,
+    ) -> impl Future<Output = Result<R, tokio::task::JoinError>>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.stage(stage).await_on(tokio::task::spawn_blocking(f))
+    }
+    fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
+        self.inflight(gauge)
+    }
+}
 
 /// Queue-instrumented semaphore acquisition helper.
 #[must_use = "constructing the wrapper records nothing until acquire() is awaited"]
