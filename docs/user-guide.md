@@ -219,15 +219,7 @@ When `primary_suspect.kind` is `insufficient_evidence`:
 
 Use [diagnostics.md](diagnostics.md) for interpretation details.
 
-## 10) Next docs
-
-- [Documentation index](README.md)
-- [Diagnostics guide](diagnostics.md)
-- [Getting started demos](getting-started-demo.md)
-- [Architecture](architecture.md)
-
-
-## 11) Tokio primitive helpers (feature `tokio`)
+## 10) Tokio primitive helpers (feature `tokio`)
 
 Import via default crate path:
 
@@ -249,3 +241,10 @@ These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...)
 | timeout-wrapped work | `timeout_stage(...)` | stage |
 | blocking pool work | `spawn_blocking_stage(...)` | stage |
 | active bounded section | `inflight_guard(...)` | in-flight |
+
+## 11) Next docs
+
+- [Documentation index](README.md)
+- [Diagnostics guide](diagnostics.md)
+- [Getting started demos](getting-started-demo.md)
+- [Architecture](architecture.md)

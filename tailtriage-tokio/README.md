@@ -27,6 +27,7 @@ Choose `tailtriage-tokio` when:
 - you already use `tailtriage-core` and want runtime snapshots in the same artifact
 - you want stronger evidence for runtime-related bottlenecks
 - you want direct control over sampler cadence and runtime snapshot retention
+- you want Tokio primitive helpers that map queue/stage/in-flight instrumentation to common Tokio APIs
 
 Choose `tailtriage` instead when you want the default entry point and feature-gated access to this crate.
 
@@ -205,21 +206,16 @@ For those surfaces, use:
 - `tailtriage-analyzer` (in-process analysis/report generation)
 - `tailtriage-cli` (command-line analysis of saved artifacts)
 
-## Related crates
-
-- `tailtriage`: recommended default entry point
-- `tailtriage-core`: core request instrumentation and artifact writing
-- `tailtriage-controller`: repeated bounded windows
-- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
-- `tailtriage-cli`: command-line analysis of saved run artifacts
-
-
 ## Tokio primitive helper trait
 
-Import the helper trait:
+Import the helper trait from either path:
 
 ```rust
 use tailtriage_tokio::TokioRequestHandleExt;
+```
+
+```ignore
+use tailtriage::tokio::TokioRequestHandleExt;
 ```
 
 Helpers map common Tokio primitives to explicit queue/stage/in-flight signals while preserving Tokio return/error types.
@@ -250,10 +246,12 @@ let started = run.begin_request("/checkout");
 let req = started.handle.clone();
 
 let db_pool = Arc::new(tokio::sync::Semaphore::new(32));
-let _permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
+let permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
 let _: Result<Result<(), ()>, tokio::time::error::Elapsed> = req
     .timeout_stage("downstream_http", Duration::from_millis(200), async { Ok::<(), ()>(()) })
     .await;
+drop(permit);
+
 let (tx, _rx) = tokio::sync::mpsc::channel(8);
 let _ = req.mpsc_send("worker_backpressure", &tx, "event").await;
 
@@ -262,3 +260,12 @@ run.shutdown()?;
 # Ok(())
 # }
 ```
+
+## Related crates
+
+- `tailtriage`: recommended default entry point
+- `tailtriage-core`: core request instrumentation and artifact writing
+- `tailtriage-controller`: repeated bounded windows
+- `tailtriage-analyzer`: in-process analysis/report generation for completed runs
+- `tailtriage-cli`: command-line analysis of saved run artifacts
+

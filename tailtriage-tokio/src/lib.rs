@@ -100,7 +100,7 @@ pub trait TokioRequestHandleExt {
     /// Equivalent low-level form: `req.stage(label).await_on(handle)`.
     ///
     /// Preserves `Result<T, JoinError>` unchanged, including panic/cancel join errors. Request completion remains explicit.
-    fn join_task<T: 'static>(
+    fn join_task<T>(
         &self,
         stage: impl Into<String>,
         handle: tokio::task::JoinHandle<T>,
@@ -197,7 +197,7 @@ macro_rules! impl_tokio_ext {
             ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a {
                 self.queue(queue).await_on(lock.write())
             }
-            fn join_task<T: 'static>(
+            fn join_task<T>(
                 &self,
                 stage: impl Into<String>,
                 handle: tokio::task::JoinHandle<T>,
@@ -1063,6 +1063,14 @@ mod helper_tests {
         }
         assert_eq!(rx2.recv().await, Some(1));
         assert_eq!(send_future.await, Ok(()));
+        drop(rx2);
+        let send_closed = req.mpsc_send("send_closed", &tx2, 9u8).await;
+        assert_eq!(
+            send_closed
+                .expect_err("closed receiver should return SendError")
+                .0,
+            9u8
+        );
 
         let mutex = Arc::new(tokio::sync::Mutex::new(5usize));
         let _g = req.mutex_lock("mutex", &mutex).await;
@@ -1077,10 +1085,12 @@ mod helper_tests {
         started.completion.finish_ok();
         let snap = run.snapshot();
         assert_eq!(snap.requests.len(), 1);
+        assert_eq!(snap.queues.len(), 10);
         assert!(snap.queues.iter().any(|q| q.queue == "sem"));
         assert!(snap.queues.iter().any(|q| q.queue == "owned_sem"));
         assert!(snap.queues.iter().any(|q| q.queue == "recv"));
         assert!(snap.queues.iter().any(|q| q.queue == "send_wait"));
+        assert!(snap.queues.iter().any(|q| q.queue == "send_closed"));
         assert!(snap.queues.iter().any(|q| q.queue == "mutex"));
         assert!(snap.queues.iter().any(|q| q.queue == "rw_read"));
         assert!(snap.queues.iter().any(|q| q.queue == "rw_write"));
@@ -1136,22 +1146,41 @@ mod helper_tests {
             let _g = req.inflight_guard("busy");
             assert_eq!(run.snapshot().inflight.len(), 1);
         }
+        let inflight_snap = run.snapshot();
+        let busy: Vec<_> = inflight_snap
+            .inflight
+            .iter()
+            .filter(|g| g.gauge == "busy")
+            .collect();
+        assert_eq!(busy.len(), 2);
+        assert_eq!(busy[0].count, 1);
+        assert_eq!(busy[1].count, 0);
+
         started.completion.finish_ok();
         let snap = run.snapshot();
         assert_eq!(snap.requests.len(), 1);
-        assert!(snap.stages.iter().any(|s| s.stage == "join_ok"));
-        assert!(snap.stages.iter().any(|s| s.stage == "join_panic"));
-        assert!(snap.stages.iter().any(|s| s.stage == "timeout_ok"));
-        assert!(snap.stages.iter().any(|s| s.stage == "timeout_elapsed"));
-        assert!(snap.stages.iter().any(|s| s.stage == "blocking_ok"));
-        assert!(snap.stages.iter().any(|s| s.stage == "blocking_panic"));
+        let stage = |name: &str| snap.stages.iter().find(|s| s.stage == name).unwrap();
+        assert!(stage("join_ok").success);
+        assert!(!stage("join_panic").success);
+        assert!(stage("timeout_ok").success);
+        assert!(!stage("timeout_elapsed").success);
+        assert!(stage("timeout_nested").success);
+        assert!(stage("blocking_ok").success);
+        assert!(!stage("blocking_panic").success);
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn owned_request_handle_works_and_helpers_do_not_finish_request() {
-        let run = run();
-        let started = run.begin_request("/owned");
+        let run = Arc::new(run());
+        let started = run.begin_request_owned("/owned");
         let owned = started.handle.clone();
+        let sem = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = owned
+            .owned_semaphore("owned_sem", Arc::clone(&sem))
+            .acquire_owned()
+            .await
+            .expect("owned permit");
+        drop(permit);
         let _ = owned
             .timeout_stage("owned_timeout", Duration::from_millis(10), async { 1usize })
             .await
