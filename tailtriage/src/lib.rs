@@ -37,7 +37,10 @@ mod tests {
     #[cfg(feature = "tokio")]
     #[test]
     fn tokio_namespace_reexport_compiles() {
+        use crate::tokio::TokioRequestHandleExt;
+
         let _name = crate::tokio::crate_name();
+        let _uses_trait = |req: &crate::RequestHandle<'_>| req.inflight_guard("smoke");
     }
 
     #[cfg(feature = "controller")]
