@@ -222,7 +222,11 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
         future: Fut,
     ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a {
         let timer = self.stage(stage);
-        async move { timer.await_on(tokio::time::timeout(timeout, future)).await }
+        async move {
+            timer
+                .await_on(async move { tokio::time::timeout(timeout, future).await })
+                .await
+        }
     }
     fn spawn_blocking_stage<F, R>(
         &self,
@@ -234,7 +238,11 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
         R: Send + 'static,
     {
         let timer = self.stage(stage);
-        async move { timer.await_on(tokio::task::spawn_blocking(f)).await }
+        async move {
+            timer
+                .await_on(async move { tokio::task::spawn_blocking(f).await })
+                .await
+        }
     }
     fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
         self.inflight(gauge)
@@ -312,7 +320,11 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
         future: Fut,
     ) -> impl Future<Output = Result<Fut::Output, tokio::time::error::Elapsed>> + 'a {
         let timer = self.stage(stage);
-        async move { timer.await_on(tokio::time::timeout(timeout, future)).await }
+        async move {
+            timer
+                .await_on(async move { tokio::time::timeout(timeout, future).await })
+                .await
+        }
     }
     fn spawn_blocking_stage<F, R>(
         &self,
@@ -324,7 +336,11 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
         R: Send + 'static,
     {
         let timer = self.stage(stage);
-        async move { timer.await_on(tokio::task::spawn_blocking(f)).await }
+        async move {
+            timer
+                .await_on(async move { tokio::task::spawn_blocking(f).await })
+                .await
+        }
     }
     fn inflight_guard(&self, gauge: impl Into<String>) -> tailtriage_core::InflightGuard<'_> {
         self.inflight(gauge)
@@ -1325,6 +1341,11 @@ mod helper_tests {
 
         let helper =
             req.timeout_stage("timeout_lazy", Duration::from_millis(50), async { 55usize });
+        assert!(run
+            .snapshot()
+            .stages
+            .iter()
+            .all(|stage| stage.stage != "timeout_lazy"));
         tokio::time::sleep(Duration::from_millis(80)).await;
         assert_eq!(helper.await, Ok(55));
 
