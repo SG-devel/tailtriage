@@ -25,9 +25,10 @@ cargo add tailtriage-analyzer
 Optional integrations:
 
 ```bash
-cargo add tailtriage --features tokio
-cargo add tailtriage --features "tokio,axum"
+cargo add tailtriage --features axum
 ```
+
+The `controller` and `tokio` namespaces are available with default features; `axum` remains opt-in.
 
 ## 2) Core workflow: capture -> analyze -> next check -> re-run
 

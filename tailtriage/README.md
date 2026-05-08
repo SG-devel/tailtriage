@@ -38,7 +38,7 @@ cargo add tailtriage
 Optional integration:
 
 ```bash
-cargo add tailtriage --features "tokio,axum"
+cargo add tailtriage --features axum
 ```
 
 `tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work.

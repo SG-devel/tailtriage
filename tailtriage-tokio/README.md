@@ -29,7 +29,7 @@ Choose `tailtriage-tokio` when:
 - you want direct control over sampler cadence and runtime snapshot retention
 - you want Tokio primitive helpers that map queue/stage/in-flight instrumentation to common Tokio APIs
 
-Choose `tailtriage` instead when you want the default entry point and feature-gated access to this crate.
+Choose `tailtriage` instead when you want the default entry point, where `tailtriage::tokio` is available with default features.
 
 ## Installation
 
@@ -42,7 +42,7 @@ cargo add tailtriage-core tailtriage-tokio
 Via the default crate:
 
 ```bash
-cargo add tailtriage --features tokio
+cargo add tailtriage
 ```
 
 ## Quick start
