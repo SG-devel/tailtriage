@@ -12,8 +12,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{
-    __internal, unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig,
-    RuntimeSamplerRegistrationError, RuntimeSnapshot, Tailtriage,
+    __internal, unix_time_ms, CaptureMode, EffectiveTokioSamplerConfig, InflightGuard,
+    OwnedRequestHandle, RequestHandle, RuntimeSamplerRegistrationError, RuntimeSnapshot,
+    Tailtriage,
 };
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
@@ -23,6 +24,318 @@ use tokio::task::JoinHandle;
 #[must_use]
 pub const fn crate_name() -> &'static str {
     "tailtriage-tokio"
+}
+
+/// Tokio primitive helpers for `tailtriage` request handles.
+#[allow(async_fn_in_trait)]
+#[allow(missing_docs)]
+pub trait TokioRequestHandleExt {
+    /// Instruments semaphore permit acquisition as a queue wait.
+    fn semaphore<'a>(
+        &'a self,
+        queue: impl Into<String>,
+        semaphore: &'a tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'a>;
+    fn owned_semaphore(
+        &self,
+        queue: impl Into<String>,
+        semaphore: Arc<tokio::sync::Semaphore>,
+    ) -> InstrumentedOwnedSemaphore<'_>;
+    async fn mpsc_recv<T>(
+        &self,
+        queue: impl Into<String>,
+        receiver: &mut tokio::sync::mpsc::Receiver<T>,
+    ) -> Option<T>;
+    async fn mpsc_send<T>(
+        &self,
+        queue: impl Into<String>,
+        sender: &tokio::sync::mpsc::Sender<T>,
+        value: T,
+    ) -> Result<(), tokio::sync::mpsc::error::SendError<T>>;
+    async fn mutex_lock<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        mutex: &'a tokio::sync::Mutex<T>,
+    ) -> tokio::sync::MutexGuard<'a, T>;
+    async fn rwlock_read<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> tokio::sync::RwLockReadGuard<'a, T>;
+    async fn rwlock_write<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> tokio::sync::RwLockWriteGuard<'a, T>;
+    async fn join_task<T>(
+        &self,
+        stage: impl Into<String>,
+        handle: tokio::task::JoinHandle<T>,
+    ) -> Result<T, tokio::task::JoinError>;
+    async fn timeout_stage<Fut>(
+        &self,
+        stage: impl Into<String>,
+        timeout: Duration,
+        future: Fut,
+    ) -> Result<Fut::Output, tokio::time::error::Elapsed>
+    where
+        Fut: std::future::Future;
+    async fn spawn_blocking_stage<F, R>(
+        &self,
+        stage: impl Into<String>,
+        f: F,
+    ) -> Result<R, tokio::task::JoinError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static;
+    fn inflight_guard(&self, gauge: impl Into<String>) -> InflightGuard<'_>;
+}
+
+/// Queue instrumentation wrapper around semaphore acquisition.
+#[allow(missing_docs)]
+pub struct InstrumentedSemaphore<'a> {
+    handle: HandleRef<'a>,
+    queue: String,
+    semaphore: &'a tokio::sync::Semaphore,
+}
+impl<'a> InstrumentedSemaphore<'a> {
+    /// Acquires a semaphore permit with queue timing instrumentation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AcquireError` when the semaphore is closed.
+    pub async fn acquire(
+        self,
+    ) -> Result<tokio::sync::SemaphorePermit<'a>, tokio::sync::AcquireError> {
+        self.handle
+            .queue(self.queue)
+            .await_on(self.semaphore.acquire())
+            .await
+    }
+}
+/// Queue instrumentation wrapper around owned semaphore acquisition.
+#[allow(missing_docs)]
+pub struct InstrumentedOwnedSemaphore<'a> {
+    queue_timer: tailtriage_core::QueueTimer<'a>,
+    semaphore: Arc<tokio::sync::Semaphore>,
+}
+impl InstrumentedOwnedSemaphore<'_> {
+    /// Acquires an owned semaphore permit with queue timing instrumentation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AcquireError` when the semaphore is closed.
+    pub async fn acquire_owned(
+        self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError> {
+        self.queue_timer
+            .await_on(self.semaphore.acquire_owned())
+            .await
+    }
+}
+enum HandleRef<'a> {
+    Borrowed(&'a RequestHandle<'a>),
+    Owned(&'a OwnedRequestHandle),
+}
+impl HandleRef<'_> {
+    fn queue(&self, queue: String) -> tailtriage_core::QueueTimer<'_> {
+        match self {
+            Self::Borrowed(handle) => handle.queue(queue),
+            Self::Owned(handle) => handle.queue(queue),
+        }
+    }
+}
+
+impl TokioRequestHandleExt for RequestHandle<'_> {
+    fn semaphore<'a>(
+        &'a self,
+        queue: impl Into<String>,
+        semaphore: &'a tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'a> {
+        InstrumentedSemaphore {
+            handle: HandleRef::Borrowed(self),
+            queue: queue.into(),
+            semaphore,
+        }
+    }
+    fn owned_semaphore(
+        &self,
+        queue: impl Into<String>,
+        semaphore: Arc<tokio::sync::Semaphore>,
+    ) -> InstrumentedOwnedSemaphore<'_> {
+        InstrumentedOwnedSemaphore {
+            queue_timer: self.queue(queue.into()),
+            semaphore,
+        }
+    }
+    async fn mpsc_recv<T>(
+        &self,
+        queue: impl Into<String>,
+        receiver: &mut tokio::sync::mpsc::Receiver<T>,
+    ) -> Option<T> {
+        self.queue(queue.into()).await_on(receiver.recv()).await
+    }
+    async fn mpsc_send<T>(
+        &self,
+        queue: impl Into<String>,
+        sender: &tokio::sync::mpsc::Sender<T>,
+        value: T,
+    ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
+        self.queue(queue.into()).await_on(sender.send(value)).await
+    }
+    async fn mutex_lock<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        mutex: &'a tokio::sync::Mutex<T>,
+    ) -> tokio::sync::MutexGuard<'a, T> {
+        self.queue(queue.into()).await_on(mutex.lock()).await
+    }
+    async fn rwlock_read<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> tokio::sync::RwLockReadGuard<'a, T> {
+        self.queue(queue.into()).await_on(lock.read()).await
+    }
+    async fn rwlock_write<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> tokio::sync::RwLockWriteGuard<'a, T> {
+        self.queue(queue.into()).await_on(lock.write()).await
+    }
+    async fn join_task<T>(
+        &self,
+        stage: impl Into<String>,
+        handle: tokio::task::JoinHandle<T>,
+    ) -> Result<T, tokio::task::JoinError> {
+        self.stage(stage.into()).await_on(handle).await
+    }
+    async fn timeout_stage<Fut>(
+        &self,
+        stage: impl Into<String>,
+        timeout: Duration,
+        future: Fut,
+    ) -> Result<Fut::Output, tokio::time::error::Elapsed>
+    where
+        Fut: std::future::Future,
+    {
+        self.stage(stage.into())
+            .await_on(tokio::time::timeout(timeout, future))
+            .await
+    }
+    async fn spawn_blocking_stage<F, R>(
+        &self,
+        stage: impl Into<String>,
+        f: F,
+    ) -> Result<R, tokio::task::JoinError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.stage(stage.into())
+            .await_on(tokio::task::spawn_blocking(f))
+            .await
+    }
+    fn inflight_guard(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
+        self.inflight(gauge)
+    }
+}
+
+impl TokioRequestHandleExt for OwnedRequestHandle {
+    fn semaphore<'a>(
+        &'a self,
+        queue: impl Into<String>,
+        semaphore: &'a tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'a> {
+        InstrumentedSemaphore {
+            handle: HandleRef::Owned(self),
+            queue: queue.into(),
+            semaphore,
+        }
+    }
+    fn owned_semaphore(
+        &self,
+        queue: impl Into<String>,
+        semaphore: Arc<tokio::sync::Semaphore>,
+    ) -> InstrumentedOwnedSemaphore<'_> {
+        InstrumentedOwnedSemaphore {
+            queue_timer: self.queue(queue.into()),
+            semaphore,
+        }
+    }
+    async fn mpsc_recv<T>(
+        &self,
+        queue: impl Into<String>,
+        receiver: &mut tokio::sync::mpsc::Receiver<T>,
+    ) -> Option<T> {
+        self.queue(queue.into()).await_on(receiver.recv()).await
+    }
+    async fn mpsc_send<T>(
+        &self,
+        queue: impl Into<String>,
+        sender: &tokio::sync::mpsc::Sender<T>,
+        value: T,
+    ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
+        self.queue(queue.into()).await_on(sender.send(value)).await
+    }
+    async fn mutex_lock<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        mutex: &'a tokio::sync::Mutex<T>,
+    ) -> tokio::sync::MutexGuard<'a, T> {
+        self.queue(queue.into()).await_on(mutex.lock()).await
+    }
+    async fn rwlock_read<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> tokio::sync::RwLockReadGuard<'a, T> {
+        self.queue(queue.into()).await_on(lock.read()).await
+    }
+    async fn rwlock_write<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> tokio::sync::RwLockWriteGuard<'a, T> {
+        self.queue(queue.into()).await_on(lock.write()).await
+    }
+    async fn join_task<T>(
+        &self,
+        stage: impl Into<String>,
+        handle: tokio::task::JoinHandle<T>,
+    ) -> Result<T, tokio::task::JoinError> {
+        self.stage(stage.into()).await_on(handle).await
+    }
+    async fn timeout_stage<Fut>(
+        &self,
+        stage: impl Into<String>,
+        timeout: Duration,
+        future: Fut,
+    ) -> Result<Fut::Output, tokio::time::error::Elapsed>
+    where
+        Fut: std::future::Future,
+    {
+        self.stage(stage.into())
+            .await_on(tokio::time::timeout(timeout, future))
+            .await
+    }
+    async fn spawn_blocking_stage<F, R>(
+        &self,
+        stage: impl Into<String>,
+        f: F,
+    ) -> Result<R, tokio::task::JoinError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.stage(stage.into())
+            .await_on(tokio::task::spawn_blocking(f))
+            .await
+    }
+    fn inflight_guard(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
+        self.inflight(gauge)
+    }
 }
 
 /// Errors produced while starting runtime sampling.
