@@ -219,6 +219,7 @@ use tailtriage::tokio::TokioRequestHandleExt;
 ```
 
 Helpers map common Tokio primitives to explicit queue/stage/in-flight signals while preserving Tokio return/error types.
+Suspects from analysis remain evidence-ranked leads, not proof of root cause.
 
 | Use case | Helper | Records |
 |---|---|---|
@@ -232,6 +233,12 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 | timeout-wrapped work | `timeout_stage(...)` | stage |
 | blocking pool work | `spawn_blocking_stage(...)` | stage |
 | active bounded section | `inflight_guard(...)` | in-flight |
+
+Helper timing semantics:
+
+- `spawn_blocking_stage(...)`: constructing the helper future does not spawn blocking work. Work is spawned when the returned future is polled/awaited. Recorded stage time covers spawn through awaiting join completion.
+- `timeout_stage(...)`: timeout budget starts when the returned helper future is polled/awaited, not when helper construction happens.
+- `mpsc_recv(...)`: receive wait is useful queue evidence when the channel represents meaningful work intake; otherwise it may also reflect idle-worker time or producer starvation.
 
 ```rust,no_run
 use std::sync::Arc;

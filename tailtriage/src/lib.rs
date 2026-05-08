@@ -47,6 +47,7 @@ mod tests {
 
         fn assert_trait<T: TokioRequestHandleExt>() {}
         assert_trait::<crate::RequestHandle<'_>>();
+        assert_trait::<crate::OwnedRequestHandle>();
     }
 
     #[cfg(feature = "controller")]
