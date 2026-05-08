@@ -251,6 +251,62 @@ CLI does not consume Report JSON as input.
             with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
                 validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
+    def test_analyzer_readme_validation_fails_with_repo_relative_docs_links(self) -> None:
+        analyzer_text = """
+tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
+Use analyze_run(run, AnalyzeOptions::default()), render_text(&report), render_json(&report), and render_json_pretty(&report).
+Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+This crate is not streaming and references tailtriage-cli.
+## How to interpret a report
+primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
+See ../docs/user-guide.md
+"""
+        cli_text = """
+tailtriage-cli loads saved run artifacts from disk, performs schema validation,
+enforces non-empty requests loader rules, uses tailtriage-analyzer, and provides command-line text/json output.
+Rust in-process users should use tailtriage-analyzer.
+Run artifact JSON is input; Report JSON is output; CLI does not consume Report JSON as input.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            analyzer_readme = repo_root / "tailtriage-analyzer" / "README.md"
+            cli_readme = repo_root / "tailtriage-cli" / "README.md"
+            analyzer_readme.parent.mkdir(parents=True, exist_ok=True)
+            cli_readme.parent.mkdir(parents=True, exist_ok=True)
+            analyzer_readme.write_text(analyzer_text, encoding="utf-8")
+            cli_readme.write_text(cli_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaisesRegex(ValueError, r"must not reference \.\./docs/"):
+                    validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
+
+    def test_analyzer_readme_validation_fails_without_interpretation_heading(self) -> None:
+        analyzer_text = """
+tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
+Use analyze_run(run, AnalyzeOptions::default()), render_text(&report), render_json(&report), and render_json_pretty(&report).
+Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+This crate is not streaming and references tailtriage-cli.
+primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
+"""
+        cli_text = """
+tailtriage-cli loads saved run artifacts from disk, performs schema validation,
+enforces non-empty requests loader rules, uses tailtriage-analyzer, and provides command-line text/json output.
+Rust in-process users should use tailtriage-analyzer.
+Run artifact JSON is input; Report JSON is output; CLI does not consume Report JSON as input.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            analyzer_readme = repo_root / "tailtriage-analyzer" / "README.md"
+            cli_readme = repo_root / "tailtriage-cli" / "README.md"
+            analyzer_readme.parent.mkdir(parents=True, exist_ok=True)
+            cli_readme.parent.mkdir(parents=True, exist_ok=True)
+            analyzer_readme.write_text(analyzer_text, encoding="utf-8")
+            cli_readme.write_text(cli_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaisesRegex(ValueError, r"missing required heading"):
+                    validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
+
     def test_analyzer_readme_validation_fails_when_json_renderer_tokens_missing(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values with typed Report output.
