@@ -115,6 +115,7 @@ Choose a focused crate only when you need a narrower boundary:
 - `full`: enables `controller`, `tokio`, and `axum`
 
 Docs.rs note: `tailtriage` docs are built with `all-features = true`, so docs.rs may render optional namespaces such as `tailtriage::tokio` and `tailtriage::axum`. In downstream crates, those namespaces are available only when their Cargo features are enabled.
+Note: the `tokio` feature controls the public `tailtriage::tokio` namespace. The default `controller` feature enables `tailtriage::controller`; controller-managed runtime sampling uses `tailtriage-tokio` internally, so default controller builds may include Tokio-related dependencies even when the public `tailtriage::tokio` namespace is not enabled.
 
 ## Important constraints
 

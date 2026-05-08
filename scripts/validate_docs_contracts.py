@@ -623,6 +623,33 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         if token not in analyzer_lower:
             raise ValueError(f"tailtriage-analyzer README missing required concept/token: {token}")
 
+    if "../docs/" in analyzer_text:
+        raise ValueError("tailtriage-analyzer README must not contain ../docs/ links")
+
+    if "## How to interpret a report" not in analyzer_text:
+        raise ValueError(
+            "tailtriage-analyzer README must include exact heading: ## How to interpret a report"
+        )
+
+    analyzer_interpretation_required = (
+        "primary_suspect",
+        "secondary_suspects",
+        "evidence[]",
+        "next_checks[]",
+        "score",
+        "confidence",
+        "evidence_quality",
+        "route_breakdowns",
+        "temporal_segments",
+        "Report JSON",
+        "Run artifact JSON",
+    )
+    for token in analyzer_interpretation_required:
+        if token not in analyzer_text:
+            raise ValueError(
+                f"tailtriage-analyzer README interpretation section missing required token: {token}"
+            )
+
     if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
         raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")
 

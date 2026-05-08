@@ -277,6 +277,64 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
                 with self.assertRaisesRegex(ValueError, r"render_json"):
                     validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
+    def test_analyzer_readme_validation_fails_when_repo_relative_docs_links_present(self) -> None:
+        analyzer_text = """
+tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
+Use analyze_run(run, AnalyzeOptions::default()) and render_text(&report).
+Use render_json(&report), render_json_pretty(&report), analyze_run_json(run, AnalyzeOptions::default()),
+and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+This crate is not streaming / not live streaming and references tailtriage-cli.
+## How to interpret a report
+primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
+See ../docs/diagnostics.md
+"""
+        cli_text = """
+tailtriage-cli loads saved run artifacts from disk, performs schema validation,
+enforces non-empty requests loader rules, uses tailtriage-analyzer, and provides command-line text/json output.
+Rust in-process users should use tailtriage-analyzer.
+Run artifact JSON is input; Report JSON is output; CLI does not consume Report JSON as input.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            analyzer_readme = repo_root / "tailtriage-analyzer" / "README.md"
+            cli_readme = repo_root / "tailtriage-cli" / "README.md"
+            analyzer_readme.parent.mkdir(parents=True, exist_ok=True)
+            cli_readme.parent.mkdir(parents=True, exist_ok=True)
+            analyzer_readme.write_text(analyzer_text, encoding="utf-8")
+            cli_readme.write_text(cli_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaisesRegex(ValueError, r"must not contain ../docs/ links"):
+                    validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
+
+    def test_analyzer_readme_validation_fails_when_interpret_heading_missing(self) -> None:
+        analyzer_text = """
+tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
+Use analyze_run(run, AnalyzeOptions::default()) and render_text(&report).
+Use render_json(&report), render_json_pretty(&report), analyze_run_json(run, AnalyzeOptions::default()),
+and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+This crate is not streaming / not live streaming and references tailtriage-cli.
+primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
+"""
+        cli_text = """
+tailtriage-cli loads saved run artifacts from disk, performs schema validation,
+enforces non-empty requests loader rules, uses tailtriage-analyzer, and provides command-line text/json output.
+Rust in-process users should use tailtriage-analyzer.
+Run artifact JSON is input; Report JSON is output; CLI does not consume Report JSON as input.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            analyzer_readme = repo_root / "tailtriage-analyzer" / "README.md"
+            cli_readme = repo_root / "tailtriage-cli" / "README.md"
+            analyzer_readme.parent.mkdir(parents=True, exist_ok=True)
+            cli_readme.parent.mkdir(parents=True, exist_ok=True)
+            analyzer_readme.write_text(analyzer_text, encoding="utf-8")
+            cli_readme.write_text(cli_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaisesRegex(ValueError, r"How to interpret a report"):
+                    validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
+
     def test_cli_readme_validation_fails_without_report_vs_run_artifact_distinction(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.

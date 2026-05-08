@@ -146,6 +146,8 @@ Current contract:
 - `requests` must contain at least one request event
 - artifacts with an empty `requests` array are rejected by the CLI loader
 
+Loader, parse, validation, and render failures return a non-zero process exit through the CLI.
+
 For Rust in-process usage, use `tailtriage-analyzer` directly (`analyze_run`, `render_text`, typed `Report`).
 The stricter non-empty `requests` rule applies to CLI artifact loading from disk.
 
