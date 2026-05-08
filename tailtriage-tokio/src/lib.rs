@@ -79,31 +79,37 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(mutex.lock())`.
     ///
     /// Measures lock acquisition only, not work while holding the guard. Request completion remains explicit.
-    fn mutex_lock<'a, T>(
-        &'a self,
+    fn mutex_lock<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        mutex: &'a tokio::sync::Mutex<T>,
-    ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a;
+        mutex: &'lock tokio::sync::Mutex<T>,
+    ) -> impl Future<Output = tokio::sync::MutexGuard<'lock, T>> + 'req
+    where
+        'lock: 'req;
     /// Records a queue event while waiting to acquire an async read lock.
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(lock.read())`.
     ///
     /// Measures acquisition only, not work while holding the guard. Request completion remains explicit.
-    fn rwlock_read<'a, T>(
-        &'a self,
+    fn rwlock_read<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        lock: &'a tokio::sync::RwLock<T>,
-    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a;
+        lock: &'lock tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'lock, T>> + 'req
+    where
+        'lock: 'req;
     /// Records a queue event while waiting to acquire an async write lock.
     ///
     /// Equivalent low-level form: `req.queue(label).await_on(lock.write())`.
     ///
     /// Measures acquisition only, not work while holding the guard. Request completion remains explicit.
-    fn rwlock_write<'a, T>(
-        &'a self,
+    fn rwlock_write<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        lock: &'a tokio::sync::RwLock<T>,
-    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a;
+        lock: &'lock tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'lock, T>> + 'req
+    where
+        'lock: 'req;
     /// Records a stage event while awaiting a spawned task's `JoinHandle`.
     ///
     /// Equivalent low-level form: `req.stage(label).await_on(handle)`.
@@ -187,25 +193,34 @@ impl TokioRequestHandleExt for tailtriage_core::RequestHandle<'_> {
     ) -> impl Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a {
         self.queue(queue).await_on(sender.send(value))
     }
-    fn mutex_lock<'a, T>(
-        &'a self,
+    fn mutex_lock<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        mutex: &'a tokio::sync::Mutex<T>,
-    ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a {
+        mutex: &'lock tokio::sync::Mutex<T>,
+    ) -> impl Future<Output = tokio::sync::MutexGuard<'lock, T>> + 'req
+    where
+        'lock: 'req,
+    {
         self.queue(queue).await_on(mutex.lock())
     }
-    fn rwlock_read<'a, T>(
-        &'a self,
+    fn rwlock_read<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        lock: &'a tokio::sync::RwLock<T>,
-    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a {
+        lock: &'lock tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'lock, T>> + 'req
+    where
+        'lock: 'req,
+    {
         self.queue(queue).await_on(lock.read())
     }
-    fn rwlock_write<'a, T>(
-        &'a self,
+    fn rwlock_write<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        lock: &'a tokio::sync::RwLock<T>,
-    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a {
+        lock: &'lock tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'lock, T>> + 'req
+    where
+        'lock: 'req,
+    {
         self.queue(queue).await_on(lock.write())
     }
     fn join_task<T>(
@@ -285,25 +300,34 @@ impl TokioRequestHandleExt for tailtriage_core::OwnedRequestHandle {
     ) -> impl Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a {
         self.queue(queue).await_on(sender.send(value))
     }
-    fn mutex_lock<'a, T>(
-        &'a self,
+    fn mutex_lock<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        mutex: &'a tokio::sync::Mutex<T>,
-    ) -> impl Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a {
+        mutex: &'lock tokio::sync::Mutex<T>,
+    ) -> impl Future<Output = tokio::sync::MutexGuard<'lock, T>> + 'req
+    where
+        'lock: 'req,
+    {
         self.queue(queue).await_on(mutex.lock())
     }
-    fn rwlock_read<'a, T>(
-        &'a self,
+    fn rwlock_read<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        lock: &'a tokio::sync::RwLock<T>,
-    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a {
+        lock: &'lock tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockReadGuard<'lock, T>> + 'req
+    where
+        'lock: 'req,
+    {
         self.queue(queue).await_on(lock.read())
     }
-    fn rwlock_write<'a, T>(
-        &'a self,
+    fn rwlock_write<'req, 'lock, T>(
+        &'req self,
         queue: impl Into<String>,
-        lock: &'a tokio::sync::RwLock<T>,
-    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a {
+        lock: &'lock tokio::sync::RwLock<T>,
+    ) -> impl Future<Output = tokio::sync::RwLockWriteGuard<'lock, T>> + 'req
+    where
+        'lock: 'req,
+    {
         self.queue(queue).await_on(lock.write())
     }
     fn join_task<T>(
@@ -1151,6 +1175,27 @@ mod helper_tests {
             .expect("permit")
     }
 
+    async fn acquire_mutex_with_primitive_lifetime<'m>(
+        req: &tailtriage_core::RequestHandle<'_>,
+        mutex: &'m tokio::sync::Mutex<u64>,
+    ) -> tokio::sync::MutexGuard<'m, u64> {
+        req.mutex_lock("mutex_lifetime", mutex).await
+    }
+
+    async fn acquire_rwlock_read_with_primitive_lifetime<'r>(
+        req: &tailtriage_core::RequestHandle<'_>,
+        lock: &'r tokio::sync::RwLock<u64>,
+    ) -> tokio::sync::RwLockReadGuard<'r, u64> {
+        req.rwlock_read("rw_read_lifetime", lock).await
+    }
+
+    async fn acquire_rwlock_write_with_primitive_lifetime<'r>(
+        req: &tailtriage_core::RequestHandle<'_>,
+        lock: &'r tokio::sync::RwLock<u64>,
+    ) -> tokio::sync::RwLockWriteGuard<'r, u64> {
+        req.rwlock_write("rw_write_lifetime", lock).await
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn queue_and_lock_helpers_record_queue_only() {
         let run = run();
@@ -1430,5 +1475,42 @@ mod helper_tests {
 
         drop(permit);
         assert_eq!(run.snapshot().requests.len(), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn lock_helpers_preserve_lock_lifetimes() {
+        let run = run();
+        let mutex = tokio::sync::Mutex::new(41_u64);
+        let rw = tokio::sync::RwLock::new(7_u64);
+
+        let mut guard = {
+            let started = run.begin_request("/lifetime-mutex");
+            let guard = acquire_mutex_with_primitive_lifetime(&started.handle, &mutex).await;
+            started.completion.finish_ok();
+            guard
+        };
+        *guard += 1;
+        drop(guard);
+
+        let read_guard = {
+            let started = run.begin_request("/lifetime-rw-read");
+            let guard = acquire_rwlock_read_with_primitive_lifetime(&started.handle, &rw).await;
+            started.completion.finish_ok();
+            guard
+        };
+        assert_eq!(*read_guard, 7);
+        drop(read_guard);
+
+        let mut write_guard = {
+            let started = run.begin_request("/lifetime-rw-write");
+            let guard = acquire_rwlock_write_with_primitive_lifetime(&started.handle, &rw).await;
+            started.completion.finish_ok();
+            guard
+        };
+        *write_guard += 2;
+        drop(write_guard);
+
+        assert_eq!(*mutex.lock().await, 42);
+        assert_eq!(*rw.read().await, 9);
     }
 }
