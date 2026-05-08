@@ -17,7 +17,7 @@ include = [
 ]
 
 [features]
-default = ["controller"]
+default = ["controller", "tokio"]
 controller = ["dep:tailtriage-controller"]
 tokio = ["dep:tailtriage-tokio"]
 axum = ["dep:tailtriage-axum"]

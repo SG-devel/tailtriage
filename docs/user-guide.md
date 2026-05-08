@@ -186,7 +186,7 @@ Add runtime sampling when request timing alone does not clearly separate:
 - executor pressure
 - blocking-pool pressure
 
-Use `tailtriage --features tokio`, then start `RuntimeSampler` for the run. `CaptureMode` does not auto-start sampling.
+With default features, `tailtriage::tokio` is available out of the box. Start `RuntimeSampler` explicitly for each run when needed; `CaptureMode` does not auto-start sampling.
 
 Key constraints:
 
@@ -219,7 +219,7 @@ When `primary_suspect.kind` is `insufficient_evidence`:
 
 Use [diagnostics.md](diagnostics.md) for interpretation details.
 
-## 10) Tokio primitive helpers (feature `tokio`)
+## 10) Tokio primitive helpers
 
 Import via default crate path:
 
@@ -246,6 +246,7 @@ Semantics notes:
 
 - `spawn_blocking_stage(...)` is lazy: constructing the helper future does not spawn work; spawning starts when the returned future is polled/awaited, and stage timing covers spawn through join wait.
 - `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not when the helper is constructed.
+- If you need blocking work to start immediately or overlap with other work, call `tokio::task::spawn_blocking(...)` directly and instrument its `JoinHandle` with `join_task(...)`.
 
 ## 11) Next docs
 

@@ -208,14 +208,16 @@ For those surfaces, use:
 
 ## Tokio primitive helper trait
 
-Import the helper trait from either path:
-
-```rust
-use tailtriage_tokio::TokioRequestHandleExt;
-```
+Primary import path for default `tailtriage` users:
 
 ```ignore
 use tailtriage::tokio::TokioRequestHandleExt;
+```
+
+Direct-crate alternative:
+
+```rust
+use tailtriage_tokio::TokioRequestHandleExt;
 ```
 
 Helpers map common Tokio primitives to explicit queue/stage/in-flight signals while preserving Tokio return/error types.
@@ -236,6 +238,7 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 Semantics notes:
 
 - `spawn_blocking_stage(...)` is lazy: constructing the helper future does not spawn work. Spawning happens when the returned future is polled/awaited, and the recorded stage covers spawn through join wait.
+- If you need blocking work to start immediately or overlap with other work, call `tokio::task::spawn_blocking(...)` directly and instrument the returned `JoinHandle` with `join_task(...)`.
 - `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not at helper construction.
 
 ```rust,no_run

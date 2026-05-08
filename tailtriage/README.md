@@ -2,7 +2,7 @@
 
 `tailtriage` is the recommended default entry point for **Tokio tail-latency triage**.
 
-It re-exports `tailtriage-core` at the crate root and exposes integration namespaces for controller workflows, Tokio runtime sampling, and Axum request boundaries. Only `controller` is enabled by default; `tokio` and `axum` are opt-in features.
+It re-exports `tailtriage-core` at the crate root and exposes integration namespaces for controller workflows, Tokio runtime sampling, and Axum request boundaries. `controller` and `tokio` are enabled by default; `axum` remains opt-in.
 
 ## What problem this solves
 
@@ -35,10 +35,9 @@ For direct capture or repeated controller-managed capture windows:
 cargo add tailtriage
 ```
 
-Optional integrations:
+Optional integration:
 
 ```bash
-cargo add tailtriage --features tokio
 cargo add tailtriage --features "tokio,axum"
 ```
 
@@ -104,18 +103,19 @@ Choose a focused crate only when you need a narrower boundary:
 ## Feature flags
 
 - `controller` _(default)_: enables `tailtriage::controller`
-- `tokio` _(opt-in)_: enables `tailtriage::tokio`
+- `tokio` _(default)_: enables `tailtriage::tokio`
 - `axum` _(opt-in)_: enables `tailtriage::axum`
 - `full`: enables `controller`, `tokio`, and `axum`
 
-Docs.rs note: `tailtriage` docs are built with `all-features = true`, so docs.rs may render optional namespaces such as `tailtriage::tokio` and `tailtriage::axum`. In downstream crates, those namespaces are available only when their Cargo features are enabled.
+Docs.rs note: `tailtriage` docs are built with `all-features = true`. In downstream crates, `tailtriage::tokio` is available with defaults, while `tailtriage::axum` remains feature-gated.
 
-Note: the `tokio` feature controls the public `tailtriage::tokio` namespace. The default `controller` feature enables `tailtriage::controller`; controller-managed runtime sampling uses `tailtriage-tokio` internally, so default controller builds may include Tokio-related dependencies even when the public `tailtriage::tokio` namespace is not enabled.
+If you want a smaller core-only dependency surface, use `tailtriage-core` directly or depend on `tailtriage` with `default-features = false`.
 
 ## Important constraints
 
 - Capture and analysis are separate. For in-process analysis/report generation, use `tailtriage-analyzer`.
 - For command-line analysis of saved artifacts, use `tailtriage-cli`.
+- Tokio runtime sampling still requires explicit `RuntimeSampler::start(...)` with an active Tokio runtime.
 - `CaptureMode` selection does not auto-start Tokio runtime sampling.
 - Analysis output is triage guidance, not root-cause proof.
 

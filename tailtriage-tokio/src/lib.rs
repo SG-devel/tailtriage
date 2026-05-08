@@ -138,8 +138,9 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     ///
     /// Equivalent low-level form: `req.stage(label).await_on(tokio::task::spawn_blocking(f))`.
     ///
-    /// Constructing the helper future does not spawn blocking work. Work is spawned when the returned future is polled/awaited.
-    /// Records stage time from spawning the blocking task through awaiting its join handle.
+    /// This helper is lazy. It does not call `tokio::task::spawn_blocking` until the returned future is first polled, normally by `.await`.
+    /// The recorded stage starts when the returned future is polled and covers `spawn_blocking` submission plus awaiting the `JoinHandle`.
+    /// If you need the blocking task to start immediately or overlap with other work, call `tokio::task::spawn_blocking` yourself and instrument the returned `JoinHandle` with `join_task(...)`.
     /// Preserves `Result<R, JoinError>` unchanged. Typical use: blocking pool work. Request completion remains explicit.
     fn spawn_blocking_stage<F, R>(
         &self,
@@ -1341,7 +1342,7 @@ mod helper_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn spawn_blocking_stage_is_lazy_until_polled() {
+    async fn spawn_blocking_stage_is_lazy_until_polled_and_records_on_await() {
         let run = run();
         let started = run.begin_request("/blocking-lazy");
         let req = started.handle.clone();

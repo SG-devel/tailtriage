@@ -14,10 +14,10 @@ This is the canonical user documentation index for `tailtriage`.
 
 Most users should start with `tailtriage`.
 
-- [`tailtriage`](../tailtriage/README.md) — recommended default entry point; re-exports core APIs and exposes optional controller, Tokio, and Axum integrations.
+- [`tailtriage`](../tailtriage/README.md) — recommended default entry point; re-exports core APIs and exposes default-enabled controller + Tokio integrations, with Axum still opt-in.
 - [`tailtriage-core`](../tailtriage-core/README.md) — smallest framework-agnostic capture surface.
 - [`tailtriage-controller`](../tailtriage-controller/README.md) — repeated bounded capture windows for long-lived services, including TOML config and reload behavior.
-- [`tailtriage-tokio`](../tailtriage-tokio/README.md) — optional Tokio runtime-pressure sampling.
+- [`tailtriage-tokio`](../tailtriage-tokio/README.md) — Tokio runtime-pressure sampling and Tokio primitive helper trait; RuntimeSampler start remains explicit.
 - [`tailtriage-axum`](../tailtriage-axum/README.md) — Axum middleware/extractor integration.
 - [`tailtriage-analyzer`](../tailtriage-analyzer/README.md) — in-process analysis of completed runs.
 - [`tailtriage-cli`](../tailtriage-cli/README.md) — command-line analysis of saved run artifacts.
