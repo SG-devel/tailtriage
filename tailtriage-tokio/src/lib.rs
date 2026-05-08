@@ -1089,6 +1089,8 @@ mod helper_tests {
         assert!(snap.queues.iter().any(|q| q.queue == "sem"));
         assert!(snap.queues.iter().any(|q| q.queue == "owned_sem"));
         assert!(snap.queues.iter().any(|q| q.queue == "recv"));
+        assert!(snap.queues.iter().any(|q| q.queue == "recv_closed"));
+        assert!(snap.queues.iter().any(|q| q.queue == "closed"));
         assert!(snap.queues.iter().any(|q| q.queue == "send_wait"));
         assert!(snap.queues.iter().any(|q| q.queue == "send_closed"));
         assert!(snap.queues.iter().any(|q| q.queue == "mutex"));

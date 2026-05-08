@@ -246,11 +246,14 @@ let started = run.begin_request("/checkout");
 let req = started.handle.clone();
 
 let db_pool = Arc::new(tokio::sync::Semaphore::new(32));
-let permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
-let _: Result<Result<(), ()>, tokio::time::error::Elapsed> = req
-    .timeout_stage("downstream_http", Duration::from_millis(200), async { Ok::<(), ()>(()) })
-    .await;
-drop(permit);
+{
+    let _permit = req.semaphore("db_pool_wait", &db_pool).acquire().await?;
+    let _: Result<Result<(), ()>, tokio::time::error::Elapsed> = req
+        .timeout_stage("downstream_http", Duration::from_millis(200), async {
+            Ok::<(), ()>(())
+        })
+        .await;
+}
 
 let (tx, _rx) = tokio::sync::mpsc::channel(8);
 let _ = req.mpsc_send("worker_backpressure", &tx, "event").await;
@@ -268,4 +271,3 @@ run.shutdown()?;
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
-
