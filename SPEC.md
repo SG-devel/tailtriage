@@ -60,8 +60,10 @@ Supporting repository areas:
 
 - `tailtriage::Tailtriage` (direct capture)
 - `tailtriage::controller::TailtriageController` (repeated bounded windows)
-- `tailtriage::tokio` (optional runtime sampler integration)
+- `tailtriage::tokio` (default-enabled runtime sampler/helper namespace; sampler start stays explicit)
 - `tailtriage::axum` (optional Axum ergonomics)
+
+For a smaller core-only dependency surface, use `tailtriage-core` directly or use `tailtriage` with `default-features = false`.
 
 ### 5.2 Direct capture lifecycle (`Tailtriage`)
 

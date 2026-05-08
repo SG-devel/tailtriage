@@ -25,9 +25,10 @@ cargo add tailtriage-analyzer
 Optional integrations:
 
 ```bash
-cargo add tailtriage --features tokio
-cargo add tailtriage --features "tokio,axum"
+cargo add tailtriage --features axum
 ```
+
+The `controller` and `tokio` namespaces are available with default features; `axum` remains opt-in.
 
 ## 2) Core workflow: capture -> analyze -> next check -> re-run
 
@@ -186,7 +187,7 @@ Add runtime sampling when request timing alone does not clearly separate:
 - executor pressure
 - blocking-pool pressure
 
-Use `tailtriage --features tokio`, then start `RuntimeSampler` for the run. `CaptureMode` does not auto-start sampling.
+With default features, `tailtriage::tokio` is available out of the box. Start `RuntimeSampler` explicitly for each run when needed; `CaptureMode` does not auto-start sampling.
 
 Key constraints:
 
@@ -219,7 +220,39 @@ When `primary_suspect.kind` is `insufficient_evidence`:
 
 Use [diagnostics.md](diagnostics.md) for interpretation details.
 
-## 10) Next docs
+## 10) Tokio primitive helpers
+
+Import via default crate path:
+
+```rust
+use tailtriage::tokio::TokioRequestHandleExt;
+```
+
+These helpers are shorthand for explicit `queue(...).await_on(...)`, `stage(...).await_on(...)`, and `inflight(...)` instrumentation; they do not finish requests. For a compact end-to-end helper example, see the Tokio helper example in [`tailtriage-tokio/README.md`](../tailtriage-tokio/README.md).
+
+| Use case | Helper | Records |
+|---|---|---|
+| DB pool / capacity wait | `semaphore(...).acquire()` | queue |
+| owned permit wait | `owned_semaphore(...).acquire_owned()` | queue |
+| bounded channel backpressure | `mpsc_send(...)` | queue |
+| async mutex contention | `mutex_lock(...)` | queue |
+| async rwlock contention | `rwlock_read(...)` / `rwlock_write(...)` | queue |
+| spawned task result | `join_task(...)` | stage |
+| timeout-wrapped work | `timeout_stage(...)` | stage |
+| blocking pool work | `blocking_stage(...)` | stage |
+| active bounded section | `inflight_guard(...)` | in-flight |
+
+Semantics notes:
+
+- Queue/stage helper events are completion-based: dropping/canceling a pending helper future records no queue/stage event.
+- The helper API intentionally does not include a generic mpsc receive wait helper. Receiver-side recv wait cannot distinguish idle workers from queued work residence time. For worker intake, start request/work-item capture after receiving the item unless you have explicit enqueue timestamps.
+- `join_task(...)` records await time for the supplied `JoinHandle`, not necessarily the full task runtime.
+- `join_task(...)`, `timeout_stage(...)`, and `blocking_stage(...)` preserve nested `Result`s; recorded stage success/failure comes from the outer Tokio wrapper result, so `Ok(Err(_))` is preserved and records as successful.
+- `blocking_stage(...)` is lazy: it submits `spawn_blocking` only when awaited. Use `tokio::task::spawn_blocking` plus `join_task(...)` when you need eager overlap.
+- `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not when the helper is constructed.
+- If you need blocking work to start immediately or overlap with other work, call `tokio::task::spawn_blocking(...)` directly and instrument its `JoinHandle` with `join_task(...)`.
+
+## 11) Next docs
 
 - [Documentation index](README.md)
 - [Diagnostics guide](diagnostics.md)
