@@ -19,6 +19,231 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+use std::future::Future;
+use std::pin::Pin;
+
+use tailtriage_core::{InflightGuard, OwnedRequestHandle, RequestHandle};
+
+/// Tokio primitive helpers for tailtriage request handles.
+#[allow(missing_docs)]
+pub trait TokioRequestHandleExt {
+    fn semaphore<'a>(
+        &'a self,
+        queue: impl Into<String>,
+        semaphore: &'a tokio::sync::Semaphore,
+    ) -> InstrumentedSemaphore<'a>;
+    fn owned_semaphore(
+        &self,
+        queue: impl Into<String>,
+        semaphore: Arc<tokio::sync::Semaphore>,
+    ) -> InstrumentedOwnedSemaphore<'_>;
+    fn mpsc_recv<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
+    ) -> InstrumentedMpscRecv<'a, T>;
+    fn mpsc_send<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        sender: &'a tokio::sync::mpsc::Sender<T>,
+        value: T,
+    ) -> InstrumentedMpscSend<'a, T>;
+    fn mutex_lock<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        mutex: &'a tokio::sync::Mutex<T>,
+    ) -> InstrumentedMutexLock<'a, T>;
+    fn rwlock_read<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> InstrumentedRwLockRead<'a, T>;
+    fn rwlock_write<'a, T>(
+        &'a self,
+        queue: impl Into<String>,
+        lock: &'a tokio::sync::RwLock<T>,
+    ) -> InstrumentedRwLockWrite<'a, T>;
+    fn join_task<'a, T: 'a>(
+        &'a self,
+        stage: impl Into<String>,
+        handle: tokio::task::JoinHandle<T>,
+    ) -> InstrumentedJoinTask<'a, T>;
+    fn timeout_stage<'a, Fut>(
+        &'a self,
+        stage: impl Into<String>,
+        timeout: Duration,
+        future: Fut,
+    ) -> InstrumentedTimeoutStage<'a, Fut::Output>
+    where
+        Fut: Future + 'a;
+    fn spawn_blocking_stage<F, R>(
+        &self,
+        stage: impl Into<String>,
+        f: F,
+    ) -> InstrumentedSpawnBlockingStage<'_, R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static;
+    fn inflight_guard(&self, gauge: impl Into<String>) -> InflightGuard<'_>;
+}
+
+#[allow(missing_docs)]
+pub struct InstrumentedSemaphore<'a> {
+    timer: tailtriage_core::QueueTimer<'a>,
+    semaphore: &'a tokio::sync::Semaphore,
+}
+#[allow(clippy::missing_errors_doc, missing_docs)]
+impl<'a> InstrumentedSemaphore<'a> {
+    pub async fn acquire(
+        self,
+    ) -> Result<tokio::sync::SemaphorePermit<'a>, tokio::sync::AcquireError> {
+        self.timer.await_on(self.semaphore.acquire()).await
+    }
+}
+
+#[allow(missing_docs)]
+pub struct InstrumentedOwnedSemaphore<'a> {
+    timer: tailtriage_core::QueueTimer<'a>,
+    semaphore: Arc<tokio::sync::Semaphore>,
+}
+#[allow(clippy::missing_errors_doc, missing_docs)]
+impl InstrumentedOwnedSemaphore<'_> {
+    pub async fn acquire_owned(
+        self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, tokio::sync::AcquireError> {
+        self.timer.await_on(self.semaphore.acquire_owned()).await
+    }
+}
+
+#[allow(missing_docs)]
+pub type InstrumentedMpscRecv<'a, T> = Pin<Box<dyn Future<Output = Option<T>> + 'a>>;
+#[allow(missing_docs)]
+pub type InstrumentedMpscSend<'a, T> =
+    Pin<Box<dyn Future<Output = Result<(), tokio::sync::mpsc::error::SendError<T>>> + 'a>>;
+#[allow(missing_docs)]
+pub type InstrumentedMutexLock<'a, T> =
+    Pin<Box<dyn Future<Output = tokio::sync::MutexGuard<'a, T>> + 'a>>;
+#[allow(missing_docs)]
+pub type InstrumentedRwLockRead<'a, T> =
+    Pin<Box<dyn Future<Output = tokio::sync::RwLockReadGuard<'a, T>> + 'a>>;
+#[allow(missing_docs)]
+pub type InstrumentedRwLockWrite<'a, T> =
+    Pin<Box<dyn Future<Output = tokio::sync::RwLockWriteGuard<'a, T>> + 'a>>;
+#[allow(missing_docs)]
+pub type InstrumentedJoinTask<'a, T> =
+    Pin<Box<dyn Future<Output = Result<T, tokio::task::JoinError>> + 'a>>;
+#[allow(missing_docs)]
+pub type InstrumentedTimeoutStage<'a, T> =
+    Pin<Box<dyn Future<Output = Result<T, tokio::time::error::Elapsed>> + 'a>>;
+#[allow(missing_docs)]
+pub type InstrumentedSpawnBlockingStage<'a, R> =
+    Pin<Box<dyn Future<Output = Result<R, tokio::task::JoinError>> + 'a>>;
+
+macro_rules! impl_ext {
+    ($ty:ty) => {
+        impl TokioRequestHandleExt for $ty {
+            fn semaphore<'a>(
+                &'a self,
+                queue: impl Into<String>,
+                semaphore: &'a tokio::sync::Semaphore,
+            ) -> InstrumentedSemaphore<'a> {
+                InstrumentedSemaphore {
+                    timer: self.queue(queue),
+                    semaphore,
+                }
+            }
+            fn owned_semaphore(
+                &self,
+                queue: impl Into<String>,
+                semaphore: Arc<tokio::sync::Semaphore>,
+            ) -> InstrumentedOwnedSemaphore<'_> {
+                InstrumentedOwnedSemaphore {
+                    timer: self.queue(queue),
+                    semaphore,
+                }
+            }
+            fn mpsc_recv<'a, T>(
+                &'a self,
+                queue: impl Into<String>,
+                receiver: &'a mut tokio::sync::mpsc::Receiver<T>,
+            ) -> InstrumentedMpscRecv<'a, T> {
+                let timer = self.queue(queue);
+                Box::pin(async move { timer.await_on(receiver.recv()).await })
+            }
+            fn mpsc_send<'a, T>(
+                &'a self,
+                queue: impl Into<String>,
+                sender: &'a tokio::sync::mpsc::Sender<T>,
+                value: T,
+            ) -> InstrumentedMpscSend<'a, T> {
+                let timer = self.queue(queue);
+                Box::pin(async move { timer.await_on(sender.send(value)).await })
+            }
+            fn mutex_lock<'a, T>(
+                &'a self,
+                queue: impl Into<String>,
+                mutex: &'a tokio::sync::Mutex<T>,
+            ) -> InstrumentedMutexLock<'a, T> {
+                let timer = self.queue(queue);
+                Box::pin(async move { timer.await_on(mutex.lock()).await })
+            }
+            fn rwlock_read<'a, T>(
+                &'a self,
+                queue: impl Into<String>,
+                lock: &'a tokio::sync::RwLock<T>,
+            ) -> InstrumentedRwLockRead<'a, T> {
+                let timer = self.queue(queue);
+                Box::pin(async move { timer.await_on(lock.read()).await })
+            }
+            fn rwlock_write<'a, T>(
+                &'a self,
+                queue: impl Into<String>,
+                lock: &'a tokio::sync::RwLock<T>,
+            ) -> InstrumentedRwLockWrite<'a, T> {
+                let timer = self.queue(queue);
+                Box::pin(async move { timer.await_on(lock.write()).await })
+            }
+            fn join_task<'a, T: 'a>(
+                &'a self,
+                stage: impl Into<String>,
+                handle: tokio::task::JoinHandle<T>,
+            ) -> InstrumentedJoinTask<'a, T> {
+                let timer = self.stage(stage);
+                Box::pin(async move { timer.await_on(handle).await })
+            }
+            fn timeout_stage<'a, Fut>(
+                &'a self,
+                stage: impl Into<String>,
+                timeout: Duration,
+                future: Fut,
+            ) -> InstrumentedTimeoutStage<'a, Fut::Output>
+            where
+                Fut: Future + 'a,
+            {
+                let timer = self.stage(stage);
+                Box::pin(async move { timer.await_on(tokio::time::timeout(timeout, future)).await })
+            }
+            fn spawn_blocking_stage<F, R>(
+                &self,
+                stage: impl Into<String>,
+                f: F,
+            ) -> InstrumentedSpawnBlockingStage<'_, R>
+            where
+                F: FnOnce() -> R + Send + 'static,
+                R: Send + 'static,
+            {
+                let timer = self.stage(stage);
+                Box::pin(async move { timer.await_on(tokio::task::spawn_blocking(f)).await })
+            }
+            fn inflight_guard(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
+                self.inflight(gauge)
+            }
+        }
+    };
+}
+impl_ext!(RequestHandle<'_>);
+impl_ext!(OwnedRequestHandle);
+
 /// Returns the crate name for smoke-testing workspace wiring.
 #[must_use]
 pub const fn crate_name() -> &'static str {
