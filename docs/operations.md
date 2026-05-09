@@ -18,10 +18,10 @@ This guide explains:
 
 For API-level usage and request lifecycle contracts, see:
 
-* `docs/user-guide.md`
-* `docs/diagnostics.md`
-* `tailtriage-controller/README.md`
-* `VALIDATION.md`
+- [user guide](user-guide.md)
+- [diagnostics guide](diagnostics.md)
+- [controller README](../tailtriage-controller/README.md)
+- [validation overview](../VALIDATION.md)
 
 ## Recommended rollout path
 
