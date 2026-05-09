@@ -2,6 +2,8 @@
 
 This guide teaches the default `tailtriage` workflow for end users.
 
+For production rollout, capture mode choice, runtime-sampling decisions, artifact sizing, truncation/capture-limit behavior, and weak-signal troubleshooting, see [operations.md](operations.md).
+
 ## 1) Default adoption path
 
 For most services, use:
