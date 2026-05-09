@@ -5,6 +5,7 @@ This page describes the repository's sustained collector-stress measurement path
 Use this path when you want to understand truncation onset, dropped-category progression, artifact-size growth, and memory trends under stress-shaped synthetic workloads.
 
 For runtime-overhead attribution across fixed modes, use [runtime-cost.md](runtime-cost.md).
+For production rollout and operations decisions that combine limits behavior with capture-mode and troubleshooting guidance, see [operations.md](operations.md).
 
 ## What this path measures
 
