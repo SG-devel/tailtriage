@@ -162,9 +162,9 @@ The repository intentionally does not claim universal production artifact sizing
 
 Use:
 
-* `docs/runtime-cost.md`
-* `docs/collector-limits.md`
-* `scripts/measure_collector_limits.py`
+* [runtime cost measurement](runtime-cost.md)
+* [collector limits and stress guidance](collector-limits.md)
+* [`scripts/measure_collector_limits.py`](../scripts/measure_collector_limits.py)
 
 when establishing local operational expectations.
 
@@ -412,11 +412,11 @@ Use these when evaluating:
 
 Primary references:
 
-* `VALIDATION.md`
-* `docs/runtime-cost.md`
-* `docs/collector-limits.md`
-* `scripts/run_operational_validation.py`
-* `scripts/measure_collector_limits.py`
+* [validation overview](../VALIDATION.md)
+* [runtime cost measurement](runtime-cost.md)
+* [collector limits and stress guidance](collector-limits.md)
+* [`scripts/run_operational_validation.py`](../scripts/run_operational_validation.py)
+* [`scripts/measure_collector_limits.py`](../scripts/measure_collector_limits.py)
 
 These measurements are:
 
