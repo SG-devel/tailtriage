@@ -292,7 +292,7 @@ For full report-field interpretation, see [`docs/diagnostics.md`](docs/diagnosti
 
 For validation scope, claims, and current diagnostic scorecard, see [VALIDATION.md](VALIDATION.md).
 
-For production rollout and day-2 operation guidance, start with [`docs/operations.md`](docs/operations.md).
+For production rollout, capture-mode selection, runtime-sampling decisions, artifact sizing, truncation handling, weak-signal troubleshooting, and current operational limits, start with [`docs/operations.md`](docs/operations.md).
 
 `tailtriage` includes repo-local measurement paths for both runtime-overhead attribution and sustained collector-stress behavior. These are based on synthetic, controlled tests in this repository and should be treated as machine- and workload-scoped guidance, not universal production guarantees.
 
