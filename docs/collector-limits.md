@@ -1,5 +1,7 @@
 # Collector limits and stress guidance
 
+For rollout and capture-mode decisions, runtime-sampling guidance, artifact-sizing policy, and bounded production operations framing, see the [production operations guide](operations.md).
+
 This page describes the repository's sustained collector-stress measurement path.
 
 Use this path when you want to understand truncation onset, dropped-category progression, artifact-size growth, and memory trends under stress-shaped synthetic workloads.

@@ -45,6 +45,7 @@ Use these docs to understand what the project claims, how those claims are teste
 
 - [Validation overview](../VALIDATION.md) — validation scope, claims, and current diagnostic scorecard entry point.
 - [Diagnostic validation](diagnostic-validation.md) — corpus-driven diagnostic-quality methodology and metrics.
+- [Production operations guide](operations.md) — first-class operations guidance for production rollout, capture-mode selection, runtime-sampling decisions, artifact sizing, truncation handling, weak-signal troubleshooting, and current operational limits.
 - [Runtime cost measurement](runtime-cost.md) — reproducible overhead attribution path for baked-in, core, sampler, and drop-path costs.
 - [Collector limits and stress guidance](collector-limits.md) — sustained-load behavior, truncation onset, artifact-size growth, and memory trend interpretation.
 

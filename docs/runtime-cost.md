@@ -1,5 +1,7 @@
 # Runtime cost measurement
 
+For rollout, mode selection, runtime-sampling decision flow, artifact-sizing policy, truncation troubleshooting, and bounded production claims, see the [production operations guide](operations.md).
+
 This page describes the repository's runtime-overhead measurement path.
 
 Use this path when you want overhead attribution across `tailtriage` integration modes on one shared synthetic workload shape.

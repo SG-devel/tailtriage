@@ -67,6 +67,7 @@ This workflow is machine/workload scoped and supports triage next checks. Mitiga
 Operational validation has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`.
 
 `scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/operational-validation/`.
+For production rollout and bounded operations interpretation, see `docs/operations.md`. `VALIDATION.md` remains the trust-boundary page for validation claims and non-claims.
 
 Runtime-cost results are machine/workload/profile scoped and are not universal production guarantees.
 

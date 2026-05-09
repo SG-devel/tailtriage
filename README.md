@@ -294,7 +294,9 @@ For validation scope, claims, and current diagnostic scorecard, see [VALIDATION.
 
 `tailtriage` includes repo-local measurement paths for both runtime-overhead attribution and sustained collector-stress behavior. These are based on synthetic, controlled tests in this repository and should be treated as machine- and workload-scoped guidance, not universal production guarantees.
 
-For overhead attribution and measurement workflow, see [`docs/runtime-cost.md`](docs/runtime-cost.md). For sustained-load behavior, truncation onset, artifact-size growth, and memory trends under stress-shaped workloads, see [`docs/collector-limits.md`](docs/collector-limits.md).
+For production operations guidance, start with [`docs/operations.md`](docs/operations.md). It covers recommended rollout path, capture-mode selection (`light` vs `investigation`), runtime-sampling decisions, artifact sizing, truncation handling, weak-signal troubleshooting, and current operational limits.
+
+For supporting validation and measurement detail, see [`docs/runtime-cost.md`](docs/runtime-cost.md) for overhead attribution workflow and [`docs/collector-limits.md`](docs/collector-limits.md) for sustained-load behavior, truncation onset, artifact-size growth, and memory trends under stress-shaped workloads.
 
 ## What this is not
 

@@ -66,6 +66,7 @@ Read output in this order:
 
 Then run one targeted check, change one thing, and re-run under comparable load.
 
+For production rollout, capture-mode choice, runtime-sampling decisions, artifact sizing, truncation/capture-limit behavior, and weak-signal troubleshooting, use the [operations guide](operations.md).
 
 ## 3) In-process analysis (embedded Rust)
 
