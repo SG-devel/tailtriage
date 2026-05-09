@@ -3,6 +3,8 @@
 ## Summary
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.
 
+For production rollout and bounded operating guidance, use `docs/operations.md`. `VALIDATION.md` remains the trust-boundary source of truth for validation claims and non-claims.
+
 ## Current validation status
 This repository includes an initial deterministic validation corpus for controlled Tokio workload fixtures. The corpus and benchmark validate bounded diagnostic behavior on committed fixtures, not universal production behavior.
 

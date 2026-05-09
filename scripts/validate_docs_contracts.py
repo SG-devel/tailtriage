@@ -15,6 +15,7 @@ README_PATH = REPO_ROOT / "README.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
+OPERATIONS_PATH = REPO_ROOT / "docs" / "operations.md"
 DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
@@ -32,6 +33,7 @@ USER_FACING_TERMINOLOGY_PATHS = (
     ARCHITECTURE_PATH,
     REPO_ROOT / "docs" / "runtime-cost.md",
     REPO_ROOT / "docs" / "collector-limits.md",
+    OPERATIONS_PATH,
     REPO_ROOT / "docs" / "getting-started-demo.md",
     REPO_ROOT / "tailtriage" / "README.md",
     REPO_ROOT / "tailtriage-core" / "README.md",
@@ -546,6 +548,42 @@ def validate_user_guide_contract() -> None:
         )
 
 
+def validate_operations_guide_contract() -> None:
+    if not OPERATIONS_PATH.exists():
+        raise ValueError("operations guide missing: docs/operations.md")
+
+    text = OPERATIONS_PATH.read_text(encoding="utf-8")
+    lower_text = text.lower()
+    required_concepts = (
+        "production operations guide",
+        "recommended rollout path",
+        "light",
+        "investigation",
+        "runtime sampling",
+        "artifact",
+        "truncation",
+        "capture limits",
+        "insufficient_evidence",
+        "evidence_quality",
+        "not universal production guarantees",
+        "not proof of root cause",
+        "controller",
+    )
+    for concept in required_concepts:
+        if concept not in lower_text:
+            raise ValueError(f"operations guide missing required concept/token: {concept}")
+
+    required_refs = (
+        "VALIDATION.md",
+        "diagnostics.md",
+        "runtime-cost.md",
+        "collector-limits.md",
+    )
+    for ref in required_refs:
+        if ref not in text:
+            raise ValueError(f"operations guide missing required reference: {ref}")
+
+
 def validate_diagnostics_contract_truthfulness() -> None:
     readme_text = README_PATH.read_text(encoding="utf-8")
     docs_index_text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
@@ -916,6 +954,7 @@ def main() -> int:
     validate_docs_index_contract()
     validate_root_readme_docs_link()
     validate_user_guide_contract()
+    validate_operations_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_cli_not_presented_as_library_analyzer_api()
     validate_analyzer_cli_docs_split_contract()

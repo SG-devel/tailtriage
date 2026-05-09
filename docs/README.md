@@ -39,10 +39,11 @@ Use these docs when running repeated capture windows or adding runtime/framework
 - [Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md) — runtime-pressure enrichment, feature requirements, and sampling constraints.
 - [Axum adapter README (`tailtriage-axum`)](../tailtriage-axum/README.md) — request-boundary wiring for Axum services.
 
-## Validation, cost, and limits
+## Validation, cost, limits, and operations
 
-Use these docs to understand what the project claims, how those claims are tested, and where measurement boundaries are.
+Use these docs to understand rollout/operations guidance, what the project claims, how those claims are tested, and where measurement boundaries are.
 
+- [Production operations guide](operations.md) — first-class production operations guidance for recommended rollout path, light vs investigation mode selection, runtime sampling decisions, artifact sizing, truncation/capture-limit handling, weak-signal troubleshooting (`insufficient_evidence` / `evidence_quality`), and current operational limits.
 - [Validation overview](../VALIDATION.md) — validation scope, claims, and current diagnostic scorecard entry point.
 - [Diagnostic validation](diagnostic-validation.md) — corpus-driven diagnostic-quality methodology and metrics.
 - [Runtime cost measurement](runtime-cost.md) — reproducible overhead attribution path for baked-in, core, sampler, and drop-path costs.

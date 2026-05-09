@@ -70,6 +70,42 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_user_guide_contract(self) -> None:
         validate_docs_contracts.validate_user_guide_contract()
 
+    def test_operations_guide_contract(self) -> None:
+        validate_docs_contracts.validate_operations_guide_contract()
+
+    def test_operations_guide_contract_fails_when_required_concepts_missing(self) -> None:
+        operations_text = """# Production operations guide
+
+Recommended rollout path.
+Use light mode first.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            operations_path = Path(tmp_dir) / "operations.md"
+            operations_path.write_text(operations_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "OPERATIONS_PATH", operations_path):
+                with self.assertRaisesRegex(ValueError, r"missing required concept/token"):
+                    validate_docs_contracts.validate_operations_guide_contract()
+
+    def test_operations_guide_contract_passes_with_complete_content(self) -> None:
+        operations_text = """# Production operations guide
+
+This production operations guide includes a recommended rollout path.
+Use light mode first and investigation mode for active incidents.
+Runtime sampling, artifact sizing, truncation, and capture limits are covered.
+When output is insufficient_evidence, inspect evidence_quality and rerun.
+Results are not universal production guarantees and not proof of root cause.
+Controller guidance is included.
+
+See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            operations_path = Path(tmp_dir) / "operations.md"
+            operations_path.write_text(operations_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "OPERATIONS_PATH", operations_path):
+                validate_docs_contracts.validate_operations_guide_contract()
+
     def test_user_guide_uses_controller_scoped_toml_shape(self) -> None:
         text = validate_docs_contracts.USER_GUIDE_PATH.read_text(encoding="utf-8")
         self.assertIn("[controller]", text)

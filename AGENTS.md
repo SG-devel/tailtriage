@@ -70,6 +70,8 @@ Optimize docs for:
 
 Docs in `docs/` are user-facing product documentation.
 
+`docs/operations.md` is the canonical operations guidance page.
+
 - `docs/` pages are for users of `tailtriage`, not repository development workflow.
 - Do not write contributor-process narration, issue-history context, or roadmap-history wording in `docs/` pages.
 - Keep docs crisp, truthful, present-tense, and aligned with the current product surface.
@@ -83,6 +85,19 @@ Docs in `docs/` are user-facing product documentation.
   - update the docs to satisfy the existing contract, or
   - update the validator and related tests so they enforce the new truthful contract.
 - When changing the validator, keep checks aligned with code truth and current public guidance, not stale phrasing.
+
+When changes affect operational behavior or guidance, update `docs/operations.md` in the same change set, including:
+
+- rollout guidance
+- capture-mode choice (`light` vs `investigation`)
+- controller/lifecycle operation
+- runtime sampling guidance
+- artifact sizing expectations
+- truncation/capture-limit behavior
+- weak-signal troubleshooting (`insufficient_evidence`, `evidence_quality`)
+- operational validation claims and non-claims
+
+Keep operations language bounded: evidence-ranked suspects and next checks are triage leads, not proof of root cause; avoid observability-platform framing.
 
 
 ## Validation documentation contract
