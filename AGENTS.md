@@ -74,6 +74,9 @@ Docs in `docs/` are user-facing product documentation.
 - Do not write contributor-process narration, issue-history context, or roadmap-history wording in `docs/` pages.
 - Keep docs crisp, truthful, present-tense, and aligned with the current product surface.
 - Do not claim behavior that is not supported by the code and current public docs.
+- Treat `docs/operations.md` as the canonical production operations guidance page.
+- Update `docs/operations.md` when behavior or guidance changes for rollout path, capture-mode choice, controller/lifecycle operation, runtime sampling guidance, artifact sizing, truncation/capture-limit behavior, weak-signal troubleshooting, `evidence_quality` interpretation, or operational validation claims.
+- Keep operations guidance bounded: evidence-ranked suspects and next checks are triage leads, not proof of root cause, and not observability-platform claims.
 - Keep `docs/README.md` as a complete user-journey index to current docs.
 - Treat `scripts/validate_docs_contracts.py` and related tests as part of the public documentation contract.
 - If docs structure, required docs links, or enforced public-doc wording changes, update the docs contract validator and related tests in the same change set.
