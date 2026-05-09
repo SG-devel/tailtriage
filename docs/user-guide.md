@@ -255,6 +255,7 @@ Semantics notes:
 ## 11) Next docs
 
 - [Documentation index](README.md)
+- [Production operations guide](operations.md) — rollout, capture-mode selection, runtime-sampling choices, artifact sizing, truncation/capture-limit handling, and weak-signal troubleshooting for production use.
 - [Diagnostics guide](diagnostics.md)
 - [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)

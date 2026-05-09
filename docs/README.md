@@ -27,6 +27,7 @@ Most users should start with `tailtriage`.
 Use these docs when wiring `tailtriage` into a service or interpreting output.
 
 - [User guide](user-guide.md) — end-to-end adoption path and operational workflow.
+- [Production operations guide](operations.md) — canonical production rollout and operation guidance: rollout path, light vs investigation capture-mode choice, runtime-sampling decisions, artifact sizing/retention expectations, truncation and capture-limit handling, weak-signal troubleshooting, evidence-quality interpretation, and current operational limits.
 - [Diagnostics guide](diagnostics.md) — how to read analyzer output, evidence quality, suspects, confidence, warnings, and field meanings.
 - [Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md) — typed in-process report contract and rendering API.
 - [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — saved-artifact loading, schema validation, and text/JSON output.

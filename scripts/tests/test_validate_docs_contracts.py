@@ -70,6 +70,42 @@ class ValidateDocsContractsTests(unittest.TestCase):
     def test_user_guide_contract(self) -> None:
         validate_docs_contracts.validate_user_guide_contract()
 
+    def test_operations_guide_contract(self) -> None:
+        validate_docs_contracts.validate_operations_guide_contract()
+
+    def test_operations_guide_contract_fails_when_required_concept_missing(self) -> None:
+        operations_text = """# Production operations guide
+
+Recommended rollout path with light and investigation capture.
+Runtime sampling and controller details are included.
+Artifact growth, truncation, capture limits, and insufficient_evidence are covered.
+VALIDATION.md diagnostics.md runtime-cost.md collector-limits.md
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            operations_path = Path(tmp_dir) / "operations.md"
+            operations_path.write_text(operations_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "OPERATIONS_PATH", operations_path):
+                with self.assertRaisesRegex(ValueError, r"evidence_quality"):
+                    validate_docs_contracts.validate_operations_guide_contract()
+
+    def test_operations_guide_contract_passes_with_complete_required_tokens(self) -> None:
+        operations_text = """# Production operations guide
+
+This production operations guide includes a recommended rollout path.
+Use light first, then investigation when needed.
+Runtime sampling and controller guidance are included.
+Artifact sizing, truncation, capture limits, insufficient_evidence, and evidence_quality are covered.
+This is not universal production guarantees guidance and not proof of root cause.
+See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            operations_path = Path(tmp_dir) / "operations.md"
+            operations_path.write_text(operations_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "OPERATIONS_PATH", operations_path):
+                validate_docs_contracts.validate_operations_guide_contract()
+
     def test_user_guide_uses_controller_scoped_toml_shape(self) -> None:
         text = validate_docs_contracts.USER_GUIDE_PATH.read_text(encoding="utf-8")
         self.assertIn("[controller]", text)

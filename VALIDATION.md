@@ -8,6 +8,7 @@ This repository includes an initial deterministic validation corpus for controll
 
 ## Validation map
 `VALIDATION.md` is the top-level validation map and trust boundary. `docs/diagnostic-validation.md` explains diagnostic validation behavior for users. `validation/diagnostics/README.md` defines the corpus/manifest contract for maintainers. `validation/diagnostics/latest/scorecard.md` is a stable note about committed scorecard status, not a live metrics file. `scripts/validate_all.py` is an orchestration convenience over existing tracks, not the source of truth.
+For production rollout and operation guidance, see `docs/operations.md`; validation claims and non-claims remain anchored here in `VALIDATION.md`.
 
 | File/script/workflow | Role | Normal CI? | Publishes durable artifacts? |
 |---|---|---:|---:|

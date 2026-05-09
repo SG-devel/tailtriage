@@ -3,6 +3,7 @@
 This page describes the repository's runtime-overhead measurement path.
 
 Use this path when you want overhead attribution across `tailtriage` integration modes on one shared synthetic workload shape.
+For production rollout and operating decisions, start with [operations.md](operations.md).
 
 For sustained stress/limits behavior instead, use [collector-limits.md](collector-limits.md).
 
