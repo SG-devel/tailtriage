@@ -7,11 +7,17 @@ use serde::{Serialize, Serializer};
 
 mod confidence;
 mod evidence;
+mod options;
 mod route;
 mod scoring;
 mod temporal;
 
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
+pub use options::{
+    analyze_option_descriptors, AnalyzeConfigError, AnalyzeOptionDescriptor, AnalyzeOptions,
+    BlockingOptions, ConfidenceOptions, DownstreamOptions, EvidenceOptions, ExecutorOptions,
+    QueueingOptions, RouteOptions, TemporalOptions,
+};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
 const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
@@ -293,7 +299,15 @@ pub struct RouteBreakdown {
 /// ```
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
+    if let Err(error) = options.validate() {
+        panic!("invalid AnalyzeOptions passed to analyze_run: {error}");
+    }
     Analyzer::new(options).analyze_run(run)
+}
+
+pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, AnalyzeConfigError> {
+    options.validate()?;
+    Ok(Analyzer::new(options).analyze_run(run))
 }
 
 /// Renders analyzer [`Report`] JSON in compact form.
@@ -330,6 +344,17 @@ pub fn render_json_pretty(report: &Report) -> Result<String, serde_json::Error> 
 ///
 /// Returns any serialization error from [`render_json`].
 #[must_use = "The rendered JSON string should be used for output or transport."]
+pub fn try_analyze_run_json(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, AnalyzeConfigError> {
+    let report = try_analyze_run(run, options)?;
+    render_json(&report).map_err(|e| AnalyzeConfigError::InvalidConfigValue {
+        path: "analyzer.json",
+        message: e.to_string(),
+    })
+}
+
 pub fn analyze_run_json(
     run: &tailtriage_core::Run,
     options: AnalyzeOptions,
@@ -347,6 +372,17 @@ pub fn analyze_run_json(
 ///
 /// Returns any serialization error from [`render_json_pretty`].
 #[must_use = "The rendered JSON string should be used for output or transport."]
+pub fn try_analyze_run_json_pretty(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, AnalyzeConfigError> {
+    let report = try_analyze_run(run, options)?;
+    render_json_pretty(&report).map_err(|e| AnalyzeConfigError::InvalidConfigValue {
+        path: "analyzer.json",
+        message: e.to_string(),
+    })
+}
+
 pub fn analyze_run_json_pretty(
     run: &tailtriage_core::Run,
     options: AnalyzeOptions,
@@ -356,10 +392,6 @@ pub fn analyze_run_json_pretty(
 }
 
 /// Options for heuristic run analysis.
-#[non_exhaustive]
-#[derive(Debug, Clone, Default)]
-pub struct AnalyzeOptions {}
-
 /// Reusable analyzer configured with [`AnalyzeOptions`].
 #[derive(Debug, Clone, Default)]
 pub struct Analyzer {
