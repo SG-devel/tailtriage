@@ -371,8 +371,9 @@ pub fn try_analyze_run_json(
     options: AnalyzeOptions,
 ) -> Result<String, AnalyzeConfigError> {
     let report = try_analyze_run(run, options)?;
-    render_json(&report).map_err(|error| AnalyzeConfigError::InvalidToml {
-        message: format!("failed to serialize report json: {error}"),
+    render_json(&report).map_err(|error| AnalyzeConfigError::InvalidConfigValue {
+        path: "analyzer.report_json",
+        message: format!("report serialization failed: {error}"),
     })
 }
 
@@ -403,8 +404,9 @@ pub fn try_analyze_run_json_pretty(
     options: AnalyzeOptions,
 ) -> Result<String, AnalyzeConfigError> {
     let report = try_analyze_run(run, options)?;
-    render_json_pretty(&report).map_err(|error| AnalyzeConfigError::InvalidToml {
-        message: format!("failed to serialize pretty report json: {error}"),
+    render_json_pretty(&report).map_err(|error| AnalyzeConfigError::InvalidConfigValue {
+        path: "analyzer.report_json",
+        message: format!("report serialization failed: {error}"),
     })
 }
 

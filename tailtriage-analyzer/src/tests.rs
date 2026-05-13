@@ -1783,6 +1783,22 @@ fn analyze_run_still_works_with_default_options() {
 }
 
 #[test]
+fn queueing_trigger_descriptor_direction_text_is_correct() {
+    let descriptor = crate::analyze_option_descriptors()
+        .iter()
+        .find(|d| d.path == "queueing.trigger_permille")
+        .expect("queueing.trigger_permille descriptor exists");
+    assert!(descriptor
+        .increasing
+        .expect("increasing text")
+        .contains("harder"));
+    assert!(descriptor
+        .decreasing
+        .expect("decreasing text")
+        .contains("easier"));
+}
+
+#[test]
 fn descriptors_have_unique_and_exact_v1_paths() {
     let descriptors = crate::analyze_option_descriptors();
     let paths = descriptors

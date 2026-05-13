@@ -7,7 +7,7 @@ pub fn analyze_option_descriptors() -> &'static [AnalyzeOptionDescriptor] {
 }
 
 const DESCRIPTORS: [AnalyzeOptionDescriptor; 29] = [
-    AnalyzeOptionDescriptor::new("queueing.trigger_permille", "300", "u64", "queue suspect trigger", "Minimum p95 queue share (permille) required before queue saturation becomes a ranked suspect.", Some("makes queue-saturation suspects easier to trigger"), Some("makes queue-saturation suspects harder to trigger")),
+    AnalyzeOptionDescriptor::new("queueing.trigger_permille", "300", "u64", "queue suspect trigger", "Minimum p95 queue share (permille) required before queue saturation becomes a ranked suspect.", Some("makes queue-saturation suspects harder to trigger"), Some("makes queue-saturation suspects easier to trigger")),
     AnalyzeOptionDescriptor::new("blocking.min_nonzero_samples_for_signal", "2", "usize", "blocking signal eligibility", "Minimum non-zero blocking queue samples required before considering blocking pressure evidence.", Some("requires more samples before blocking signal can appear"), Some("requires fewer samples before blocking signal can appear")),
     AnalyzeOptionDescriptor::new("blocking.strong_p95_threshold", "12", "u64", "blocking suspect strength", "Blocking queue-depth p95 threshold used for strong blocking-pressure evidence.", Some("requires stronger p95 pressure"), Some("accepts weaker p95 pressure")),
     AnalyzeOptionDescriptor::new("blocking.strong_peak_threshold", "20", "u64", "blocking suspect strength", "Blocking queue-depth peak threshold used for strong blocking-pressure evidence.", Some("requires stronger peak pressure"), Some("accepts weaker peak pressure")),
