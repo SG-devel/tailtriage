@@ -10,8 +10,8 @@ use super::temporal::{
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
-    render_json_pretty, render_text, AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality,
-    EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
+    render_json_pretty, render_text, AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind,
+    EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
     ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
@@ -1766,6 +1766,45 @@ fn analyze_options_validate_rejects_invalid_classes() {
         .with_downstream(|o| o.blocking_correlated_stage_patterns = vec!["  ".to_string()])
         .validate()
         .is_err());
+}
+
+#[test]
+fn validate_ratio_zero_denominators_report_exact_paths() {
+    let err = AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_fastest_p95_ratio_denominator = 0)
+        .validate()
+        .expect_err("fastest ratio denominator zero should fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "route.slowest_to_fastest_p95_ratio_denominator",
+            ..
+        }
+    ));
+
+    let err = AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_global_p95_ratio_denominator = 0)
+        .validate()
+        .expect_err("global ratio denominator zero should fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "route.slowest_to_global_p95_ratio_denominator",
+            ..
+        }
+    ));
+
+    let err = AnalyzeOptions::default()
+        .with_temporal(|o| o.p95_shift_ratio_denominator = 0)
+        .validate()
+        .expect_err("temporal p95 ratio denominator zero should fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "temporal.p95_shift_ratio_denominator",
+            ..
+        }
+    ));
 }
 
 #[test]

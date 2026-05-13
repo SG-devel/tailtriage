@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use serde::Serialize;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -213,23 +212,28 @@ impl AnalyzeOptions {
         if self.route.breakdown_limit == 0 {
             return invalid("route.breakdown_limit", "must be > 0".into());
         }
-        for (path, num, den) in [
+        for (num_path, den_path, num, den) in [
             (
-                "route.slowest_to_fastest_p95_ratio",
+                "route.slowest_to_fastest_p95_ratio_numerator",
+                "route.slowest_to_fastest_p95_ratio_denominator",
                 self.route.slowest_to_fastest_p95_ratio_numerator,
                 self.route.slowest_to_fastest_p95_ratio_denominator,
             ),
             (
-                "route.slowest_to_global_p95_ratio",
+                "route.slowest_to_global_p95_ratio_numerator",
+                "route.slowest_to_global_p95_ratio_denominator",
                 self.route.slowest_to_global_p95_ratio_numerator,
                 self.route.slowest_to_global_p95_ratio_denominator,
             ),
         ] {
-            if num == 0 || den == 0 {
-                return invalid(path, "numerator and denominator must be > 0".into());
+            if num == 0 {
+                return invalid(num_path, "must be > 0".into());
+            }
+            if den == 0 {
+                return invalid(den_path, "must be > 0".into());
             }
             if num < den {
-                return invalid(path, "numerator must be >= denominator".into());
+                return invalid(num_path, format!("must be >= {den_path}"));
             }
         }
         if self.temporal.min_segment_request_count == 0 {
@@ -246,18 +250,16 @@ impl AnalyzeOptions {
         if self.temporal.share_shift_permille > 1000 {
             return invalid("temporal.share_shift_permille", "must be <= 1000".into());
         }
-        if self.temporal.p95_shift_ratio_numerator == 0
-            || self.temporal.p95_shift_ratio_denominator == 0
-        {
-            return invalid(
-                "temporal.p95_shift_ratio",
-                "numerator and denominator must be > 0".into(),
-            );
+        if self.temporal.p95_shift_ratio_numerator == 0 {
+            return invalid("temporal.p95_shift_ratio_numerator", "must be > 0".into());
+        }
+        if self.temporal.p95_shift_ratio_denominator == 0 {
+            return invalid("temporal.p95_shift_ratio_denominator", "must be > 0".into());
         }
         if self.temporal.p95_shift_ratio_numerator < self.temporal.p95_shift_ratio_denominator {
             return invalid(
-                "temporal.p95_shift_ratio",
-                "numerator must be >= denominator".into(),
+                "temporal.p95_shift_ratio_numerator",
+                "must be >= temporal.p95_shift_ratio_denominator".into(),
             );
         }
         if self
