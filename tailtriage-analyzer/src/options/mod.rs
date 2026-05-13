@@ -27,99 +27,200 @@ pub struct AnalyzeOptions {
     pub temporal: TemporalOptions,
 }
 
-macro_rules! opt_struct { ($(#[$smeta:meta])* $name:ident { $($(#[$fmeta:meta])* $f:ident : $t:ty = $d:expr),+ $(,)? }) => {
-$(#[$smeta])*
+/// Queue-saturation suspect thresholds.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct $name { $($(#[$fmeta])* pub $f: $t),+ }
-impl Default for $name { fn default() -> Self { Self { $($f: $d),+ } } }
-}; }
-opt_struct!(
-    /// Queue-saturation suspect thresholds.
-    QueueingOptions {
+pub struct QueueingOptions {
     /// Minimum p95 queue-share permille needed before queue-saturation suspect ranking can trigger.
-    trigger_permille: u64 = 300
-});
-opt_struct!(
-    /// Blocking-pressure suspect thresholds and minimum-sample guards.
-    BlockingOptions {
+    pub trigger_permille: u64,
+}
+
+impl Default for QueueingOptions {
+    fn default() -> Self {
+        Self {
+            trigger_permille: 300,
+        }
+    }
+}
+
+/// Blocking-pressure suspect thresholds and minimum-sample guards.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BlockingOptions {
     /// Minimum number of non-zero blocking queue samples needed before blocking signal can trigger.
-    min_nonzero_samples_for_signal: usize = 2,
+    pub min_nonzero_samples_for_signal: usize,
     /// Blocking queue-depth p95 threshold used for stronger blocking-pressure suspect evidence.
-    strong_p95_threshold: u64 = 12,
+    pub strong_p95_threshold: u64,
     /// Blocking queue-depth peak threshold used for stronger blocking-pressure suspect evidence.
-    strong_peak_threshold: u64 = 20,
+    pub strong_peak_threshold: u64,
     /// Minimum non-zero blocking sample share (permille) for stronger blocking-pressure suspect evidence.
-    strong_nonzero_share_permille: u64 = 700,
+    pub strong_nonzero_share_permille: u64,
     /// Minimum blocking sample count before strong blocking heuristics can trigger.
-    strong_min_samples: usize = 30
-});
-opt_struct!(
-    /// Executor-pressure suspect thresholds derived from runtime queue pressure.
-    ExecutorOptions {
+    pub strong_min_samples: usize,
+}
+
+impl Default for BlockingOptions {
+    fn default() -> Self {
+        Self {
+            min_nonzero_samples_for_signal: 2,
+            strong_p95_threshold: 12,
+            strong_peak_threshold: 20,
+            strong_nonzero_share_permille: 700,
+            strong_min_samples: 30,
+        }
+    }
+}
+
+/// Executor-pressure suspect thresholds derived from runtime queue pressure.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExecutorOptions {
     /// Minimum runtime global-queue p95 needed before executor-pressure suspect ranking can trigger.
-    min_global_queue_p95_for_signal: u64 = 1
-});
-opt_struct!(
-    /// Downstream-stage suspect thresholds and blocking-correlation heuristics.
-    DownstreamOptions { /// Minimum stage sample count required before downstream-stage suspect ranking can trigger.
-    min_stage_samples: usize = 3, /// Stage-name substrings used to detect downstream evidence that may correlate with blocking work.
-    blocking_correlated_stage_patterns: Vec<String> = vec!["spawn_blocking".to_owned(), "blocking_path".to_owned(), "blocking".to_owned()], /// Minimum score margin required before favoring downstream-stage suspects over blocking-correlated interpretations.
-    blocking_correlation_score_margin: u8 = 2 });
-opt_struct!(
-    /// Confidence-bucket and ambiguity-warning score thresholds.
-    ConfidenceOptions {
+    pub min_global_queue_p95_for_signal: u64,
+}
+
+impl Default for ExecutorOptions {
+    fn default() -> Self {
+        Self {
+            min_global_queue_p95_for_signal: 1,
+        }
+    }
+}
+
+/// Downstream-stage suspect thresholds and blocking-correlation heuristics.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DownstreamOptions {
+    /// Minimum stage sample count required before downstream-stage suspect ranking can trigger.
+    pub min_stage_samples: usize,
+    /// Stage-name substrings used to detect downstream evidence that may correlate with blocking work.
+    pub blocking_correlated_stage_patterns: Vec<String>,
+    /// Minimum score margin required before favoring downstream-stage suspects over blocking-correlated interpretations.
+    pub blocking_correlation_score_margin: u8,
+}
+
+impl Default for DownstreamOptions {
+    fn default() -> Self {
+        Self {
+            min_stage_samples: 3,
+            blocking_correlated_stage_patterns: vec![
+                "spawn_blocking".to_owned(),
+                "blocking_path".to_owned(),
+                "blocking".to_owned(),
+            ],
+            blocking_correlation_score_margin: 2,
+        }
+    }
+}
+
+/// Confidence-bucket and ambiguity-warning score thresholds.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConfidenceOptions {
     /// Minimum suspect score treated as medium confidence.
-    medium_score_threshold: u8 = 65,
+    pub medium_score_threshold: u8,
     /// Minimum suspect score treated as high confidence.
-    high_score_threshold: u8 = 85,
+    pub high_score_threshold: u8,
     /// Minimum top-suspect score before ambiguity heuristics may emit a warning.
-    ambiguity_min_score: u8 = 60,
+    pub ambiguity_min_score: u8,
     /// Maximum score gap considered a near-tie for ambiguity warning heuristics.
-    ambiguity_score_gap: u8 = 4
-});
-opt_struct!(
-    /// Evidence-quality thresholds used for low-sample warnings.
-    EvidenceOptions {
+    pub ambiguity_score_gap: u8,
+}
+
+impl Default for ConfidenceOptions {
+    fn default() -> Self {
+        Self {
+            medium_score_threshold: 65,
+            high_score_threshold: 85,
+            ambiguity_min_score: 60,
+            ambiguity_score_gap: 4,
+        }
+    }
+}
+
+/// Evidence-quality thresholds used for low-sample warnings.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EvidenceOptions {
     /// Completed-request threshold below which low-sample evidence warnings apply.
-    low_completed_request_threshold: usize = 20
-});
-opt_struct!(
-    /// Route-breakdown thresholds used for route-level suspect comparisons.
-    RouteOptions {
+    pub low_completed_request_threshold: usize,
+}
+
+impl Default for EvidenceOptions {
+    fn default() -> Self {
+        Self {
+            low_completed_request_threshold: 20,
+        }
+    }
+}
+
+/// Route-breakdown thresholds used for route-level suspect comparisons.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RouteOptions {
     /// Minimum per-route completed requests required for route breakdown inclusion.
-    min_request_count: usize = 3,
+    pub min_request_count: usize,
     /// Maximum number of route breakdown entries emitted in one report.
-    breakdown_limit: usize = 10,
+    pub breakdown_limit: usize,
     /// Whether to emit a warning when route-level primary suspects diverge from each other.
-    emit_on_divergent_suspects: bool = true,
+    pub emit_on_divergent_suspects: bool,
     /// Numerator for slowest-to-fastest route p95 ratio heuristic threshold.
-    slowest_to_fastest_p95_ratio_numerator: u64 = 3,
+    pub slowest_to_fastest_p95_ratio_numerator: u64,
     /// Denominator for slowest-to-fastest route p95 ratio heuristic threshold.
-    slowest_to_fastest_p95_ratio_denominator: u64 = 2,
+    pub slowest_to_fastest_p95_ratio_denominator: u64,
     /// Numerator for slowest-route to global p95 ratio heuristic threshold.
-    slowest_to_global_p95_ratio_numerator: u64 = 5,
+    pub slowest_to_global_p95_ratio_numerator: u64,
     /// Denominator for slowest-route to global p95 ratio heuristic threshold.
-    slowest_to_global_p95_ratio_denominator: u64 = 4
-});
-opt_struct!(
-    /// Temporal-shift thresholds used for early/late suspect comparisons.
-    TemporalOptions {
+    pub slowest_to_global_p95_ratio_denominator: u64,
+}
+
+impl Default for RouteOptions {
+    fn default() -> Self {
+        Self {
+            min_request_count: 3,
+            breakdown_limit: 10,
+            emit_on_divergent_suspects: true,
+            slowest_to_fastest_p95_ratio_numerator: 3,
+            slowest_to_fastest_p95_ratio_denominator: 2,
+            slowest_to_global_p95_ratio_numerator: 5,
+            slowest_to_global_p95_ratio_denominator: 4,
+        }
+    }
+}
+
+/// Temporal-shift thresholds used for early/late suspect comparisons.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TemporalOptions {
     /// Minimum completed requests required before temporal segmentation heuristics run.
-    min_request_count: usize = 20,
+    pub min_request_count: usize,
     /// Minimum completed requests required in each temporal segment for suspect comparison.
-    min_segment_request_count: usize = 8,
+    pub min_segment_request_count: usize,
     /// Minimum queue/service-share movement (permille) required to flag temporal suspect shift evidence.
-    share_shift_permille: u64 = 200,
+    pub share_shift_permille: u64,
     /// Numerator for temporal p95 ratio movement heuristic threshold.
-    p95_shift_ratio_numerator: u64 = 3,
+    pub p95_shift_ratio_numerator: u64,
     /// Denominator for temporal p95 ratio movement heuristic threshold.
-    p95_shift_ratio_denominator: u64 = 2,
+    pub p95_shift_ratio_denominator: u64,
     /// Whether to emit temporal suspect-shift warnings when movement heuristics trigger.
-    emit_on_suspect_shift: bool = true,
+    pub emit_on_suspect_shift: bool,
     /// Whether to suppress runtime-sparse suspect-shift warnings when supporting movement evidence is absent.
-    suppress_runtime_sparse_suspect_shift_without_supporting_movement: bool = true
-});
+    pub suppress_runtime_sparse_suspect_shift_without_supporting_movement: bool,
+}
+
+impl Default for TemporalOptions {
+    fn default() -> Self {
+        Self {
+            min_request_count: 20,
+            min_segment_request_count: 8,
+            share_shift_permille: 200,
+            p95_shift_ratio_numerator: 3,
+            p95_shift_ratio_denominator: 2,
+            emit_on_suspect_shift: true,
+            suppress_runtime_sparse_suspect_shift_without_supporting_movement: true,
+        }
+    }
+}
 
 impl AnalyzeOptions {
     /// Applies queueing-option edits and returns updated options for fluent setup.
