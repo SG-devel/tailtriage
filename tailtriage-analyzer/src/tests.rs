@@ -10,8 +10,8 @@ use super::temporal::{
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
-    render_json_pretty, render_text, AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality,
-    EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
+    render_json_pretty, render_text, AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind,
+    EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
     ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
@@ -1641,4 +1641,387 @@ fn compact_and_pretty_report_json_are_value_equivalent() {
     let pretty_value: serde_json::Value =
         serde_json::from_str(&pretty).expect("pretty report json should parse");
     assert_eq!(compact_value, pretty_value);
+}
+
+#[test]
+fn analyze_options_defaults_match_v1_surface() {
+    let options = AnalyzeOptions::default();
+    assert_eq!(options.queueing.trigger_permille, 300);
+    assert_eq!(options.blocking.min_nonzero_samples_for_signal, 2);
+    assert_eq!(options.blocking.strong_p95_threshold, 12);
+    assert_eq!(options.blocking.strong_peak_threshold, 20);
+    assert_eq!(options.blocking.strong_nonzero_share_permille, 700);
+    assert_eq!(options.blocking.strong_min_samples, 30);
+    assert_eq!(options.executor.min_global_queue_p95_for_signal, 1);
+    assert_eq!(options.downstream.min_stage_samples, 3);
+    assert_eq!(
+        options.downstream.blocking_correlated_stage_patterns,
+        vec!["spawn_blocking", "blocking_path", "blocking"]
+    );
+    assert_eq!(options.downstream.blocking_correlation_score_margin, 2);
+    assert_eq!(options.confidence.medium_score_threshold, 65);
+    assert_eq!(options.confidence.high_score_threshold, 85);
+    assert_eq!(options.confidence.ambiguity_min_score, 60);
+    assert_eq!(options.confidence.ambiguity_score_gap, 4);
+    assert_eq!(options.evidence.low_completed_request_threshold, 20);
+    assert_eq!(options.route.min_request_count, 3);
+    assert_eq!(options.route.breakdown_limit, 10);
+    assert!(options.route.emit_on_divergent_suspects);
+    assert_eq!(options.route.slowest_to_fastest_p95_ratio_numerator, 3);
+    assert_eq!(options.route.slowest_to_fastest_p95_ratio_denominator, 2);
+    assert_eq!(options.route.slowest_to_global_p95_ratio_numerator, 5);
+    assert_eq!(options.route.slowest_to_global_p95_ratio_denominator, 4);
+    assert_eq!(options.temporal.min_request_count, 20);
+    assert_eq!(options.temporal.min_segment_request_count, 8);
+    assert_eq!(options.temporal.share_shift_permille, 200);
+    assert_eq!(options.temporal.p95_shift_ratio_numerator, 3);
+    assert_eq!(options.temporal.p95_shift_ratio_denominator, 2);
+    assert!(options.temporal.emit_on_suspect_shift);
+    assert!(
+        options
+            .temporal
+            .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+    );
+}
+
+#[test]
+fn analyze_options_default_validates() {
+    assert!(AnalyzeOptions::default().validate().is_ok());
+}
+
+#[test]
+fn analyze_options_validate_rejects_invalid_classes() {
+    assert!(AnalyzeOptions::default()
+        .with_queueing(|o| o.trigger_permille = 1001)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_blocking(|o| o.strong_nonzero_share_permille = 1001)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| {
+            o.medium_score_threshold = 90;
+            o.high_score_threshold = 80;
+        })
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| o.high_score_threshold = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| o.ambiguity_min_score = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| o.ambiguity_score_gap = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_downstream(|o| o.blocking_correlation_score_margin = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.breakdown_limit = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_fastest_p95_ratio_numerator = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_fastest_p95_ratio_numerator = 1)
+        .with_route(|o| o.slowest_to_fastest_p95_ratio_denominator = 2)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.min_segment_request_count = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.min_segment_request_count = 11)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.share_shift_permille = 1001)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.p95_shift_ratio_numerator = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| {
+            o.p95_shift_ratio_numerator = 1;
+            o.p95_shift_ratio_denominator = 2;
+        })
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_downstream(|o| o.blocking_correlated_stage_patterns = Vec::new())
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_downstream(|o| o.blocking_correlated_stage_patterns = vec!["  ".to_string()])
+        .validate()
+        .is_err());
+}
+
+#[test]
+fn validate_ratio_zero_denominators_report_exact_paths() {
+    let err = AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_fastest_p95_ratio_denominator = 0)
+        .validate()
+        .expect_err("fastest ratio denominator zero should fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "route.slowest_to_fastest_p95_ratio_denominator",
+            ..
+        }
+    ));
+
+    let err = AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_global_p95_ratio_denominator = 0)
+        .validate()
+        .expect_err("global ratio denominator zero should fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "route.slowest_to_global_p95_ratio_denominator",
+            ..
+        }
+    ));
+
+    let err = AnalyzeOptions::default()
+        .with_temporal(|o| o.p95_shift_ratio_denominator = 0)
+        .validate()
+        .expect_err("temporal p95 ratio denominator zero should fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "temporal.p95_shift_ratio_denominator",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn try_analyze_run_rejects_invalid_options() {
+    let run = test_run();
+    let options = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 1001);
+    assert!(crate::try_analyze_run(&run, options).is_err());
+}
+
+#[test]
+fn analyze_run_still_works_with_default_options() {
+    let run = test_run();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 3);
+}
+
+#[test]
+fn queueing_trigger_descriptor_direction_text_is_correct() {
+    let descriptor = crate::analyze_option_descriptors()
+        .iter()
+        .find(|d| d.path == "queueing.trigger_permille")
+        .expect("queueing.trigger_permille descriptor exists");
+    assert!(descriptor
+        .increasing
+        .expect("increasing text")
+        .contains("harder"));
+    assert!(descriptor
+        .decreasing
+        .expect("decreasing text")
+        .contains("easier"));
+}
+
+#[test]
+fn descriptors_have_unique_and_exact_v1_paths() {
+    let descriptors = crate::analyze_option_descriptors();
+    let paths = descriptors
+        .iter()
+        .map(|d| d.path)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(paths.len(), descriptors.len());
+    let expected = [
+        "queueing.trigger_permille",
+        "blocking.min_nonzero_samples_for_signal",
+        "blocking.strong_p95_threshold",
+        "blocking.strong_peak_threshold",
+        "blocking.strong_nonzero_share_permille",
+        "blocking.strong_min_samples",
+        "executor.min_global_queue_p95_for_signal",
+        "downstream.min_stage_samples",
+        "downstream.blocking_correlated_stage_patterns",
+        "downstream.blocking_correlation_score_margin",
+        "confidence.medium_score_threshold",
+        "confidence.high_score_threshold",
+        "confidence.ambiguity_min_score",
+        "confidence.ambiguity_score_gap",
+        "evidence.low_completed_request_threshold",
+        "route.min_request_count",
+        "route.breakdown_limit",
+        "route.emit_on_divergent_suspects",
+        "route.slowest_to_fastest_p95_ratio_numerator",
+        "route.slowest_to_fastest_p95_ratio_denominator",
+        "route.slowest_to_global_p95_ratio_numerator",
+        "route.slowest_to_global_p95_ratio_denominator",
+        "temporal.min_request_count",
+        "temporal.min_segment_request_count",
+        "temporal.share_shift_permille",
+        "temporal.p95_shift_ratio_numerator",
+        "temporal.p95_shift_ratio_denominator",
+        "temporal.emit_on_suspect_shift",
+        "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(paths, expected);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn descriptor_defaults_match_analyze_options_defaults() {
+    let opts = AnalyzeOptions::default();
+    let expected = std::collections::BTreeMap::from([
+        (
+            "queueing.trigger_permille",
+            opts.queueing.trigger_permille.to_string(),
+        ),
+        (
+            "blocking.min_nonzero_samples_for_signal",
+            opts.blocking.min_nonzero_samples_for_signal.to_string(),
+        ),
+        (
+            "blocking.strong_p95_threshold",
+            opts.blocking.strong_p95_threshold.to_string(),
+        ),
+        (
+            "blocking.strong_peak_threshold",
+            opts.blocking.strong_peak_threshold.to_string(),
+        ),
+        (
+            "blocking.strong_nonzero_share_permille",
+            opts.blocking.strong_nonzero_share_permille.to_string(),
+        ),
+        (
+            "blocking.strong_min_samples",
+            opts.blocking.strong_min_samples.to_string(),
+        ),
+        (
+            "executor.min_global_queue_p95_for_signal",
+            opts.executor.min_global_queue_p95_for_signal.to_string(),
+        ),
+        (
+            "downstream.min_stage_samples",
+            opts.downstream.min_stage_samples.to_string(),
+        ),
+        (
+            "downstream.blocking_correlated_stage_patterns",
+            format!(
+                "[\"{}\", \"{}\", \"{}\"]",
+                opts.downstream.blocking_correlated_stage_patterns[0],
+                opts.downstream.blocking_correlated_stage_patterns[1],
+                opts.downstream.blocking_correlated_stage_patterns[2]
+            ),
+        ),
+        (
+            "downstream.blocking_correlation_score_margin",
+            opts.downstream
+                .blocking_correlation_score_margin
+                .to_string(),
+        ),
+        (
+            "confidence.medium_score_threshold",
+            opts.confidence.medium_score_threshold.to_string(),
+        ),
+        (
+            "confidence.high_score_threshold",
+            opts.confidence.high_score_threshold.to_string(),
+        ),
+        (
+            "confidence.ambiguity_min_score",
+            opts.confidence.ambiguity_min_score.to_string(),
+        ),
+        (
+            "confidence.ambiguity_score_gap",
+            opts.confidence.ambiguity_score_gap.to_string(),
+        ),
+        (
+            "evidence.low_completed_request_threshold",
+            opts.evidence.low_completed_request_threshold.to_string(),
+        ),
+        (
+            "route.min_request_count",
+            opts.route.min_request_count.to_string(),
+        ),
+        (
+            "route.breakdown_limit",
+            opts.route.breakdown_limit.to_string(),
+        ),
+        (
+            "route.emit_on_divergent_suspects",
+            opts.route.emit_on_divergent_suspects.to_string(),
+        ),
+        (
+            "route.slowest_to_fastest_p95_ratio_numerator",
+            opts.route
+                .slowest_to_fastest_p95_ratio_numerator
+                .to_string(),
+        ),
+        (
+            "route.slowest_to_fastest_p95_ratio_denominator",
+            opts.route
+                .slowest_to_fastest_p95_ratio_denominator
+                .to_string(),
+        ),
+        (
+            "route.slowest_to_global_p95_ratio_numerator",
+            opts.route.slowest_to_global_p95_ratio_numerator.to_string(),
+        ),
+        (
+            "route.slowest_to_global_p95_ratio_denominator",
+            opts.route
+                .slowest_to_global_p95_ratio_denominator
+                .to_string(),
+        ),
+        (
+            "temporal.min_request_count",
+            opts.temporal.min_request_count.to_string(),
+        ),
+        (
+            "temporal.min_segment_request_count",
+            opts.temporal.min_segment_request_count.to_string(),
+        ),
+        (
+            "temporal.share_shift_permille",
+            opts.temporal.share_shift_permille.to_string(),
+        ),
+        (
+            "temporal.p95_shift_ratio_numerator",
+            opts.temporal.p95_shift_ratio_numerator.to_string(),
+        ),
+        (
+            "temporal.p95_shift_ratio_denominator",
+            opts.temporal.p95_shift_ratio_denominator.to_string(),
+        ),
+        (
+            "temporal.emit_on_suspect_shift",
+            opts.temporal.emit_on_suspect_shift.to_string(),
+        ),
+        (
+            "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+            opts.temporal
+                .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+                .to_string(),
+        ),
+    ]);
+    for descriptor in crate::analyze_option_descriptors() {
+        assert_eq!(
+            Some(&descriptor.default_value.to_string()),
+            expected.get(descriptor.path)
+        );
+    }
 }
