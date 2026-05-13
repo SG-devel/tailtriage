@@ -7,11 +7,17 @@ use serde::{Serialize, Serializer};
 
 mod confidence;
 mod evidence;
+mod options;
 mod route;
 mod scoring;
 mod temporal;
 
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
+pub use options::{
+    analyze_option_descriptors, AnalyzeConfigError, AnalyzeOptionDescriptor, AnalyzeOptions,
+    BlockingOptions, ConfidenceOptions, DownstreamOptions, EvidenceOptions, ExecutorOptions,
+    QueueingOptions, RouteOptions, TemporalOptions,
+};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
 const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
@@ -293,7 +299,16 @@ pub struct RouteBreakdown {
 /// ```
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
+    if let Err(err) = options.validate() {
+        panic!("invalid AnalyzeOptions passed to analyze_run: {err}");
+    }
     Analyzer::new(options).analyze_run(run)
+}
+
+/// Checked variant of [`analyze_run`] that returns a config error instead of panicking.
+pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, AnalyzeConfigError> {
+    options.validate()?;
+    Ok(Analyzer::new(options).analyze_run(run))
 }
 
 /// Renders analyzer [`Report`] JSON in compact form.
@@ -338,6 +353,18 @@ pub fn analyze_run_json(
     render_json(&report)
 }
 
+/// Checked variant of [`analyze_run_json`] that validates options and returns config errors.
+pub fn try_analyze_run_json(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, AnalyzeConfigError> {
+    let report = try_analyze_run(run, options)?;
+    match render_json(&report) {
+        Ok(json) => Ok(json),
+        Err(err) => panic!("failed to serialize analyzer report to JSON: {err}"),
+    }
+}
+
 /// Analyzes one in-memory [`Run`] and returns canonical pretty analyzer [`Report`] JSON.
 ///
 /// This analyzes a run artifact already loaded in memory and returns analyzer report JSON,
@@ -355,10 +382,17 @@ pub fn analyze_run_json_pretty(
     render_json_pretty(&report)
 }
 
-/// Options for heuristic run analysis.
-#[non_exhaustive]
-#[derive(Debug, Clone, Default)]
-pub struct AnalyzeOptions {}
+/// Checked variant of [`analyze_run_json_pretty`] that validates options first.
+pub fn try_analyze_run_json_pretty(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, AnalyzeConfigError> {
+    let report = try_analyze_run(run, options)?;
+    match render_json_pretty(&report) {
+        Ok(json) => Ok(json),
+        Err(err) => panic!("failed to serialize analyzer report to pretty JSON: {err}"),
+    }
+}
 
 /// Reusable analyzer configured with [`AnalyzeOptions`].
 #[derive(Debug, Clone, Default)]

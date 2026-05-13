@@ -1642,3 +1642,261 @@ fn compact_and_pretty_report_json_are_value_equivalent() {
         serde_json::from_str(&pretty).expect("pretty report json should parse");
     assert_eq!(compact_value, pretty_value);
 }
+
+#[test]
+fn analyze_options_defaults_match_v1_surface() {
+    let d = AnalyzeOptions::default();
+    assert_eq!(d.queueing.trigger_permille, 300);
+    assert_eq!(d.blocking.min_nonzero_samples_for_signal, 2);
+    assert_eq!(d.blocking.strong_p95_threshold, 12);
+    assert_eq!(d.blocking.strong_peak_threshold, 20);
+    assert_eq!(d.blocking.strong_nonzero_share_permille, 700);
+    assert_eq!(d.blocking.strong_min_samples, 30);
+    assert_eq!(d.executor.min_global_queue_p95_for_signal, 1);
+    assert_eq!(d.downstream.min_stage_samples, 3);
+    assert_eq!(
+        d.downstream.blocking_correlated_stage_patterns,
+        vec!["spawn_blocking", "blocking_path", "blocking"]
+    );
+    assert_eq!(d.downstream.blocking_correlation_score_margin, 2);
+    assert_eq!(d.confidence.medium_score_threshold, 65);
+    assert_eq!(d.confidence.high_score_threshold, 85);
+    assert_eq!(d.confidence.ambiguity_min_score, 60);
+    assert_eq!(d.confidence.ambiguity_score_gap, 4);
+    assert_eq!(d.evidence.low_completed_request_threshold, 20);
+    assert_eq!(d.route.min_request_count, 3);
+    assert_eq!(d.route.breakdown_limit, 10);
+    assert!(d.route.emit_on_divergent_suspects);
+    assert_eq!(d.route.slowest_to_fastest_p95_ratio_numerator, 3);
+    assert_eq!(d.route.slowest_to_fastest_p95_ratio_denominator, 2);
+    assert_eq!(d.route.slowest_to_global_p95_ratio_numerator, 5);
+    assert_eq!(d.route.slowest_to_global_p95_ratio_denominator, 4);
+    assert_eq!(d.temporal.min_request_count, 20);
+    assert_eq!(d.temporal.min_segment_request_count, 8);
+    assert_eq!(d.temporal.share_shift_permille, 200);
+    assert_eq!(d.temporal.p95_shift_ratio_numerator, 3);
+    assert_eq!(d.temporal.p95_shift_ratio_denominator, 2);
+    assert!(d.temporal.emit_on_suspect_shift);
+    assert!(
+        d.temporal
+            .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+    );
+    assert!(d.validate().is_ok());
+}
+
+#[test]
+fn analyze_options_validation_rejects_invalid_classes() {
+    assert!(AnalyzeOptions::default()
+        .with_queueing(|o| o.trigger_permille = 1001)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_blocking(|o| o.strong_nonzero_share_permille = 1001)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| o.medium_score_threshold = 90)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| o.high_score_threshold = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| o.ambiguity_min_score = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_confidence(|o| o.ambiguity_score_gap = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_downstream(|o| o.blocking_correlation_score_margin = 101)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.breakdown_limit = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_fastest_p95_ratio_denominator = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_fastest_p95_ratio_numerator = 1)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_global_p95_ratio_denominator = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_route(|o| o.slowest_to_global_p95_ratio_numerator = 1)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.min_segment_request_count = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.min_segment_request_count = 11)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.share_shift_permille = 1001)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.p95_shift_ratio_denominator = 0)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_temporal(|o| o.p95_shift_ratio_numerator = 1)
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_downstream(|o| o.blocking_correlated_stage_patterns.clear())
+        .validate()
+        .is_err());
+    assert!(AnalyzeOptions::default()
+        .with_downstream(|o| o.blocking_correlated_stage_patterns = vec![" ".to_string()])
+        .validate()
+        .is_err());
+}
+
+#[test]
+fn try_analyze_run_rejects_invalid_options() {
+    let run = test_run();
+    let bad = AnalyzeOptions::default().with_route(|o| o.breakdown_limit = 0);
+    assert!(crate::try_analyze_run(&run, bad).is_err());
+}
+
+#[test]
+fn descriptor_paths_are_unique_and_exact_v1_set() {
+    use std::collections::BTreeSet;
+    let descriptors = crate::analyze_option_descriptors();
+    let paths: Vec<&str> = descriptors.iter().map(|d| d.path).collect();
+    let unique: BTreeSet<&str> = paths.iter().copied().collect();
+    assert_eq!(paths.len(), unique.len());
+    let expected: BTreeSet<&str> = [
+        "queueing.trigger_permille",
+        "blocking.min_nonzero_samples_for_signal",
+        "blocking.strong_p95_threshold",
+        "blocking.strong_peak_threshold",
+        "blocking.strong_nonzero_share_permille",
+        "blocking.strong_min_samples",
+        "executor.min_global_queue_p95_for_signal",
+        "downstream.min_stage_samples",
+        "downstream.blocking_correlated_stage_patterns",
+        "downstream.blocking_correlation_score_margin",
+        "confidence.medium_score_threshold",
+        "confidence.high_score_threshold",
+        "confidence.ambiguity_min_score",
+        "confidence.ambiguity_score_gap",
+        "evidence.low_completed_request_threshold",
+        "route.min_request_count",
+        "route.breakdown_limit",
+        "route.emit_on_divergent_suspects",
+        "route.slowest_to_fastest_p95_ratio_numerator",
+        "route.slowest_to_fastest_p95_ratio_denominator",
+        "route.slowest_to_global_p95_ratio_numerator",
+        "route.slowest_to_global_p95_ratio_denominator",
+        "temporal.min_request_count",
+        "temporal.min_segment_request_count",
+        "temporal.share_shift_permille",
+        "temporal.p95_shift_ratio_numerator",
+        "temporal.p95_shift_ratio_denominator",
+        "temporal.emit_on_suspect_shift",
+        "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(unique, expected);
+}
+
+#[test]
+fn descriptor_defaults_match_options_defaults() {
+    let d = AnalyzeOptions::default();
+    let by_path: std::collections::HashMap<&str, &str> = crate::analyze_option_descriptors()
+        .into_iter()
+        .map(|x| (x.path, x.default_value))
+        .collect();
+    assert_eq!(by_path.get("queueing.trigger_permille"), Some(&"300"));
+    assert_eq!(
+        by_path.get("blocking.min_nonzero_samples_for_signal"),
+        Some(&"2")
+    );
+    assert_eq!(by_path.get("blocking.strong_p95_threshold"), Some(&"12"));
+    assert_eq!(by_path.get("blocking.strong_peak_threshold"), Some(&"20"));
+    assert_eq!(
+        by_path.get("blocking.strong_nonzero_share_permille"),
+        Some(&"700")
+    );
+    assert_eq!(by_path.get("blocking.strong_min_samples"), Some(&"30"));
+    assert_eq!(
+        by_path.get("executor.min_global_queue_p95_for_signal"),
+        Some(&"1")
+    );
+    assert_eq!(by_path.get("downstream.min_stage_samples"), Some(&"3"));
+    assert_eq!(
+        by_path.get("downstream.blocking_correlated_stage_patterns"),
+        Some(&"[\"spawn_blocking\",\"blocking_path\",\"blocking\"]")
+    );
+    assert_eq!(
+        by_path.get("downstream.blocking_correlation_score_margin"),
+        Some(&"2")
+    );
+    assert_eq!(
+        by_path.get("confidence.medium_score_threshold"),
+        Some(&"65")
+    );
+    assert_eq!(by_path.get("confidence.high_score_threshold"), Some(&"85"));
+    assert_eq!(by_path.get("confidence.ambiguity_min_score"), Some(&"60"));
+    assert_eq!(by_path.get("confidence.ambiguity_score_gap"), Some(&"4"));
+    assert_eq!(
+        by_path.get("evidence.low_completed_request_threshold"),
+        Some(&"20")
+    );
+    assert_eq!(by_path.get("route.min_request_count"), Some(&"3"));
+    assert_eq!(by_path.get("route.breakdown_limit"), Some(&"10"));
+    assert_eq!(
+        by_path.get("route.emit_on_divergent_suspects"),
+        Some(&"true")
+    );
+    assert_eq!(
+        by_path.get("route.slowest_to_fastest_p95_ratio_numerator"),
+        Some(&"3")
+    );
+    assert_eq!(
+        by_path.get("route.slowest_to_fastest_p95_ratio_denominator"),
+        Some(&"2")
+    );
+    assert_eq!(
+        by_path.get("route.slowest_to_global_p95_ratio_numerator"),
+        Some(&"5")
+    );
+    assert_eq!(
+        by_path.get("route.slowest_to_global_p95_ratio_denominator"),
+        Some(&"4")
+    );
+    assert_eq!(by_path.get("temporal.min_request_count"), Some(&"20"));
+    assert_eq!(
+        by_path.get("temporal.min_segment_request_count"),
+        Some(&"8")
+    );
+    assert_eq!(by_path.get("temporal.share_shift_permille"), Some(&"200"));
+    assert_eq!(
+        by_path.get("temporal.p95_shift_ratio_numerator"),
+        Some(&"3")
+    );
+    assert_eq!(
+        by_path.get("temporal.p95_shift_ratio_denominator"),
+        Some(&"2")
+    );
+    assert_eq!(by_path.get("temporal.emit_on_suspect_shift"), Some(&"true"));
+    assert_eq!(
+        by_path.get("temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement"),
+        Some(&"true")
+    );
+    let _ = d;
+}
