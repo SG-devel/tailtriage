@@ -7,11 +7,18 @@ use serde::{Serialize, Serializer};
 
 mod confidence;
 mod evidence;
+#[allow(missing_docs)]
+mod options;
 mod route;
 mod scoring;
 mod temporal;
 
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
+pub use options::{
+    analyze_option_descriptors, AnalyzeConfigError, AnalyzeOptionDescriptor, AnalyzeOptions,
+    BlockingOptions, ConfidenceOptions, DownstreamOptions, EvidenceOptions, ExecutorOptions,
+    QueueingOptions, RouteOptions, TemporalOptions,
+};
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
 const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
@@ -247,6 +254,10 @@ pub struct RouteBreakdown {
 /// The analysis ranks evidence-backed suspects and next checks; it does not
 /// claim causal certainty or proven root cause.
 ///
+/// # Panics
+///
+/// Panics if `options` fails [`AnalyzeOptions::validate`].
+///
 /// # Examples
 ///
 /// Library API example (this does not use the CLI file-loader contract):
@@ -293,7 +304,20 @@ pub struct RouteBreakdown {
 /// ```
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
+    if let Err(err) = options.validate() {
+        panic!("invalid AnalyzeOptions passed to analyze_run: {err}");
+    }
     Analyzer::new(options).analyze_run(run)
+}
+
+/// Analyzes one completed [`Run`] with validated options.
+///
+/// # Errors
+///
+/// Returns [`AnalyzeConfigError`] if options are invalid.
+pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, AnalyzeConfigError> {
+    options.validate()?;
+    Ok(Analyzer::new(options).analyze_run(run))
 }
 
 /// Renders analyzer [`Report`] JSON in compact form.
@@ -355,10 +379,37 @@ pub fn analyze_run_json_pretty(
     render_json_pretty(&report)
 }
 
-/// Options for heuristic run analysis.
-#[non_exhaustive]
-#[derive(Debug, Clone, Default)]
-pub struct AnalyzeOptions {}
+/// Analyzes one in-memory [`Run`] and returns compact analyzer [`Report`] JSON with validated options.
+///
+/// # Errors
+///
+/// Returns [`AnalyzeConfigError`] if options are invalid, or a serialization
+/// error converted into [`AnalyzeConfigError::InvalidToml`] if report rendering fails.
+pub fn try_analyze_run_json(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, AnalyzeConfigError> {
+    let report = try_analyze_run(run, options)?;
+    render_json(&report).map_err(|err| AnalyzeConfigError::InvalidToml {
+        message: format!("report serialization failed: {err}"),
+    })
+}
+
+/// Analyzes one in-memory [`Run`] and returns pretty analyzer [`Report`] JSON with validated options.
+///
+/// # Errors
+///
+/// Returns [`AnalyzeConfigError`] if options are invalid, or a serialization
+/// error converted into [`AnalyzeConfigError::InvalidToml`] if report rendering fails.
+pub fn try_analyze_run_json_pretty(
+    run: &tailtriage_core::Run,
+    options: AnalyzeOptions,
+) -> Result<String, AnalyzeConfigError> {
+    let report = try_analyze_run(run, options)?;
+    render_json_pretty(&report).map_err(|err| AnalyzeConfigError::InvalidToml {
+        message: format!("report serialization failed: {err}"),
+    })
+}
 
 /// Reusable analyzer configured with [`AnalyzeOptions`].
 #[derive(Debug, Clone, Default)]
