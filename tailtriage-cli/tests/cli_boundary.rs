@@ -49,6 +49,33 @@ fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     assert_eq!(report.request_count, 0);
 }
 
+#[test]
+fn help_analyzer_options_works_without_run_json() {
+    let exe = env!("CARGO_BIN_EXE_tailtriage");
+    let output = Command::new(exe)
+        .arg("analyze")
+        .arg("--help-analyzer-options")
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(stdout.contains("queueing.trigger_permille"));
+}
+
+#[test]
+fn missing_run_json_without_help_flag_fails_clearly() {
+    let exe = env!("CARGO_BIN_EXE_tailtriage");
+    let output = Command::new(exe)
+        .arg("analyze")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("RUN_JSON") || stderr.contains("missing required"));
+}
+
 fn valid_cli_artifact_with_requests() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
