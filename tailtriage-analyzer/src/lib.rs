@@ -20,8 +20,6 @@ pub use options::{
 };
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
-const MEDIUM_CONFIDENCE_SCORE_THRESHOLD: u8 = 65;
-const HIGH_CONFIDENCE_SCORE_THRESHOLD: u8 = 85;
 const ROUTE_DIVERGENCE_WARNING: &str =
     "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
 const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
@@ -82,15 +80,6 @@ pub enum Confidence {
 }
 
 impl Confidence {
-    fn from_score(score: u8) -> Self {
-        if score >= HIGH_CONFIDENCE_SCORE_THRESHOLD {
-            Self::High
-        } else if score >= MEDIUM_CONFIDENCE_SCORE_THRESHOLD {
-            Self::Medium
-        } else {
-            Self::Low
-        }
-    }
     fn from_score_with_options(score: u8, options: &AnalyzeOptions) -> Self {
         if score >= options.confidence.high_score_threshold {
             Self::High
@@ -131,7 +120,7 @@ impl Suspect {
         Self {
             kind,
             score,
-            confidence: Confidence::from_score(score),
+            confidence: Confidence::from_score_with_options(score, &AnalyzeOptions::default()),
             evidence,
             next_checks,
             confidence_notes: Vec::new(),
