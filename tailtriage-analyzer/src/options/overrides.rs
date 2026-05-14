@@ -61,16 +61,16 @@ impl AnalyzeOptions {
     /// # Errors
     /// Returns syntax, path, value-parse, or semantic validation errors.
     pub fn apply_override(&mut self, raw: &str) -> Result<(), AnalyzeConfigError> {
+        if raw.matches('=').count() != 1 {
+            return Err(AnalyzeConfigError::InvalidOverrideSyntax {
+                raw: raw.to_string(),
+            });
+        }
         let Some((path, value)) = raw.split_once('=') else {
             return Err(AnalyzeConfigError::InvalidOverrideSyntax {
                 raw: raw.to_string(),
             });
         };
-        if path.contains('=') {
-            return Err(AnalyzeConfigError::InvalidOverrideSyntax {
-                raw: raw.to_string(),
-            });
-        }
         apply_override_path(self, path, value)?;
         self.validate()
     }
@@ -325,6 +325,14 @@ mod tests {
             Err(AnalyzeConfigError::InvalidOverrideSyntax { .. })
         ));
     }
+
+    #[test]
+    fn extra_equals_fails() {
+        assert!(matches!(
+            AnalyzeOptions::default().apply_override("queueing.trigger_permille=1=2"),
+            Err(AnalyzeConfigError::InvalidOverrideSyntax { .. })
+        ));
+    }
     #[test]
     fn unknown_path_fails() {
         assert!(matches!(
@@ -362,14 +370,22 @@ mod tests {
             Err(AnalyzeConfigError::InvalidOverrideValue { .. })
         ));
     }
+
+    #[test]
+    fn valid_bool_override_works() {
+        let mut opts = AnalyzeOptions::default();
+        opts.apply_override("route.emit_on_divergent_suspects=false")
+            .expect("valid bool");
+        assert!(!opts.route.emit_on_divergent_suspects);
+    }
     #[test]
     fn list_parsing_trims_entries() {
         let mut opts = AnalyzeOptions::default();
-        opts.apply_override("downstream.blocking_correlated_stage_patterns= db , cache ")
+        opts.apply_override("downstream.blocking_correlated_stage_patterns=alpha,beta")
             .expect("valid list");
         assert_eq!(
             opts.downstream.blocking_correlated_stage_patterns,
-            vec!["db", "cache"]
+            vec!["alpha", "beta"]
         );
     }
     #[test]
