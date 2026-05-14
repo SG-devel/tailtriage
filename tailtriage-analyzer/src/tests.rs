@@ -453,7 +453,7 @@ fn downstream_beats_weak_blocking() {
 #[test]
 fn score_100_is_reserved_for_overwhelming_queue_evidence() {
     let mut run = test_run();
-    run.requests = (0..40)
+    run.requests = (0_u64..40)
         .map(|i| RequestEvent {
             request_id: format!("req-{i}"),
             route: "/test".into(),
@@ -2140,4 +2140,219 @@ fn descriptor_defaults_match_analyze_options_defaults() {
             expected.get(descriptor.path)
         );
     }
+}
+
+fn assert_default_report_has_no_analyzer_config(report: &Report) {
+    assert!(report.analyzer_config.is_none());
+}
+
+#[test]
+fn default_options_compat_queue_saturation_case() {
+    let mut run = test_run();
+    run.queues = run
+        .requests
+        .iter()
+        .map(|r| QueueEvent {
+            request_id: r.request_id.clone(),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+            depth_at_start: Some(9),
+        })
+        .collect();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_blocking_pool_pressure_case() {
+    let mut run = test_run();
+    run.requests = (0..40).map(sample_request).collect();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|r| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "spawn_blocking_path".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 3_900_000,
+            success: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_insufficient_and_weak_evidence_case() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::InsufficientEvidence
+    );
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.contains("Low completed-request count")));
+    assert_eq!(report.evidence_quality.quality, EvidenceQualityLevel::Weak);
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_downstream_stage_dominates_case() {
+    let mut run = test_run();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|r| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 900,
+            success: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_truncated_evidence_case() {
+    let mut run = test_run();
+    run.truncation.dropped_requests = 2;
+    run.truncation.limits_hit = true;
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.contains("dropped evidence can reduce diagnosis completeness and confidence")));
+    assert!(report.evidence_quality.truncated);
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_ambiguous_top_suspects_case() {
+    let suspects = vec![
+        Suspect::new(
+            DiagnosisKind::DownstreamStageDominates,
+            82,
+            vec!["e".into()],
+            vec![],
+        ),
+        Suspect::new(
+            DiagnosisKind::BlockingPoolPressure,
+            79,
+            vec!["e".into()],
+            vec![],
+        ),
+    ];
+    assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
+}
+
+#[test]
+fn default_options_compat_route_breakdowns_case() {
+    let mut run = test_run();
+    run.requests.clear();
+    for idx in 1..=4 {
+        let mut req = sample_request(idx);
+        req.route = "/a".into();
+        req.latency_us = 10_000;
+        run.requests.push(req);
+    }
+    for idx in 5..=7 {
+        let mut req = sample_request(idx);
+        req.route = "/b".into();
+        req.latency_us = 2_000;
+        run.requests.push(req);
+    }
+    for req_id in ["req-1", "req-2", "req-3", "req-4"] {
+        run.queues.push(QueueEvent {
+            request_id: req_id.to_owned(),
+            queue: "ingress".into(),
+            wait_us: 9_000,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(9),
+        });
+    }
+    for req_id in ["req-5", "req-6", "req-7"] {
+        run.stages.push(StageEvent {
+            request_id: req_id.to_owned(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 1_900,
+            success: true,
+        });
+    }
+    run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(!report.route_breakdowns.is_empty());
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w == ROUTE_DIVERGENCE_WARNING));
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_temporal_segments_case() {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            finished_at_unix_ms: i + 1,
+            latency_us: if i < 20 { 2_000 } else { 5_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.queues = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, r)| QueueEvent {
+            request_id: r.request_id.clone(),
+            queue: "q".into(),
+            wait_us: if i < 20 { 1_500 } else { 100 },
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+            depth_at_start: Some(3),
+        })
+        .collect();
+    run.stages = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, r)| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: if i < 20 { 200 } else { 4_400 },
+            success: true,
+        })
+        .collect();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(!report.temporal_segments.is_empty());
+    assert_default_report_has_no_analyzer_config(&report);
 }
