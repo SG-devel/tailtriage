@@ -12,28 +12,71 @@ use tailtriage_analyzer::{analyze_option_descriptors, AnalyzeConfigError, Analyz
 /// Artifact loading and validation helpers for CLI workflows.
 pub mod artifact;
 
+/// CLI-local error for building analyzer options from config and overrides.
+#[derive(Debug)]
+pub enum CliAnalyzeConfigError {
+    /// Failed to read analyzer config file from disk.
+    ReadConfig {
+        /// Path passed by the user.
+        path: std::path::PathBuf,
+        /// Underlying filesystem I/O error.
+        source: std::io::Error,
+    },
+    /// Analyzer TOML/override/validation error.
+    Analyzer(AnalyzeConfigError),
+}
+
+impl std::fmt::Display for CliAnalyzeConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadConfig { path, source } => {
+                write!(
+                    f,
+                    "failed to read analyzer config '{}': {source}",
+                    path.display()
+                )
+            }
+            Self::Analyzer(inner) => inner.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for CliAnalyzeConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ReadConfig { source, .. } => Some(source),
+            Self::Analyzer(inner) => Some(inner),
+        }
+    }
+}
+
+impl From<AnalyzeConfigError> for CliAnalyzeConfigError {
+    fn from(value: AnalyzeConfigError) -> Self {
+        Self::Analyzer(value)
+    }
+}
+
 /// Builds analyzer options from defaults, optional TOML config path, and ordered CLI overrides.
 ///
 /// Precedence order is:
 /// built-in defaults < analyzer TOML < ordered `overrides`.
 ///
 /// # Errors
-/// Returns an [`AnalyzeConfigError`] for TOML parse/schema/semantic errors or override errors.
-/// Returns an I/O error wrapped as [`AnalyzeConfigError::InvalidConfigValue`] when the config file
-/// cannot be read.
+/// Returns [`CliAnalyzeConfigError::ReadConfig`] if the config file cannot be read.
+/// Returns [`CliAnalyzeConfigError::Analyzer`] for TOML parse/schema/semantic errors or override
+/// errors.
 pub fn build_analyze_options(
     analyzer_config: Option<&Path>,
     overrides: &[String],
-) -> Result<AnalyzeOptions, AnalyzeConfigError> {
+) -> Result<AnalyzeOptions, CliAnalyzeConfigError> {
     let mut options = AnalyzeOptions::default();
 
     if let Some(path) = analyzer_config {
-        let input = std::fs::read_to_string(path).map_err(|error| {
-            AnalyzeConfigError::InvalidConfigValue {
-                path: "analyzer.config_path",
-                message: format!("failed to read {}: {error}", path.display()),
-            }
-        })?;
+        let input =
+            std::fs::read_to_string(path).map_err(|source| CliAnalyzeConfigError::ReadConfig {
+                path: path.to_path_buf(),
+                source,
+            })?;
         options = options.merge_toml_str(&input)?;
     }
 
@@ -120,5 +163,32 @@ mod tests {
             .expect_err("expected error");
         let msg = err.to_string();
         assert!(msg.contains("u64"));
+        assert!(matches!(err, CliAnalyzeConfigError::Analyzer(_)));
+    }
+
+    #[test]
+    fn missing_config_returns_read_config_error_with_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing_path = dir.path().join("missing-analyzer.toml");
+        let err = build_analyze_options(Some(&missing_path), &[]).expect_err("expected error");
+        let msg = err.to_string();
+        assert!(msg.contains(&format!(
+            "failed to read analyzer config '{}'",
+            missing_path.display()
+        )));
+        assert!(!msg.contains("analyzer.config_path"));
+        assert!(matches!(
+            err,
+            CliAnalyzeConfigError::ReadConfig { ref path, .. } if path == &missing_path
+        ));
+    }
+
+    #[test]
+    fn invalid_toml_returns_analyzer_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("invalid-analyzer.toml");
+        std::fs::write(&path, "[analyzer.queueing\ntrigger_permille=410\n").expect("write config");
+        let err = build_analyze_options(Some(&path), &[]).expect_err("expected error");
+        assert!(matches!(err, CliAnalyzeConfigError::Analyzer(_)));
     }
 }
