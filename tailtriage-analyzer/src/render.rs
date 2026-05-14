@@ -106,6 +106,12 @@ pub fn render_text(report: &Report) -> String {
             ));
         }
     }
+    if let Some(config) = &report.analyzer_config {
+        lines.push("Analyzer config:".to_string());
+        for entry in &config.non_default_options {
+            lines.push(format!("- {}={}", entry.path, entry.value));
+        }
+    }
     if !report.route_breakdowns.is_empty() {
         lines.push("Route breakdowns:".to_string());
         for route in &report.route_breakdowns {

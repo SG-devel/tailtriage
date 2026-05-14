@@ -20,17 +20,6 @@ pub use options::{
 };
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
-const LOW_COMPLETED_REQUEST_THRESHOLD: usize = 20;
-const QUEUE_SHARE_TRIGGER_PERMILLE: u64 = 300;
-const MEDIUM_CONFIDENCE_SCORE_THRESHOLD: u8 = 65;
-const HIGH_CONFIDENCE_SCORE_THRESHOLD: u8 = 85;
-const AMBIGUITY_MIN_SCORE_THRESHOLD: u8 = 60;
-const AMBIGUITY_SCORE_GAP_THRESHOLD: u8 = 4;
-const ROUTE_MIN_REQUEST_COUNT: usize = 3;
-const ROUTE_BREAKDOWN_LIMIT: usize = 10;
-const TEMPORAL_MIN_REQUEST_COUNT: usize = 20;
-const TEMPORAL_MIN_SEGMENT_REQUEST_COUNT: usize = 8;
-const TEMPORAL_SHARE_SHIFT_PERMILLE: u64 = 200;
 const ROUTE_DIVERGENCE_WARNING: &str =
     "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
 const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
@@ -91,10 +80,10 @@ pub enum Confidence {
 }
 
 impl Confidence {
-    fn from_score(score: u8) -> Self {
-        if score >= HIGH_CONFIDENCE_SCORE_THRESHOLD {
+    fn from_score(score: u8, options: &AnalyzeOptions) -> Self {
+        if score >= options.confidence.high_score_threshold {
             Self::High
-        } else if score >= MEDIUM_CONFIDENCE_SCORE_THRESHOLD {
+        } else if score >= options.confidence.medium_score_threshold {
             Self::Medium
         } else {
             Self::Low
@@ -127,11 +116,12 @@ impl Suspect {
         score: u8,
         evidence: Vec<String>,
         next_checks: Vec<String>,
+        options: &AnalyzeOptions,
     ) -> Self {
         Self {
             kind,
             score,
-            confidence: Confidence::from_score(score),
+            confidence: Confidence::from_score(score, options),
             evidence,
             next_checks,
             confidence_notes: Vec::new(),
@@ -188,6 +178,21 @@ pub struct Report {
     pub route_breakdowns: Vec<RouteBreakdown>,
     /// Supporting early/late temporal triage summaries when within-run shifts add value.
     pub temporal_segments: Vec<TemporalSegment>,
+    /// Optional summary of non-default analyzer config used to produce this report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analyzer_config: Option<AnalyzerConfigSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AnalyzerConfigSummary {
+    pub schema_version: u32,
+    pub non_default_options: Vec<AnalyzeConfigOverrideSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AnalyzeConfigOverrideSummary {
+    pub path: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -430,18 +435,23 @@ impl Analyzer {
     }
 }
 
-fn analyze_run_with_options(run: &Run, _options: &AnalyzeOptions) -> Report {
-    let mut report = analyze_run_internal(run);
-    let route_context = route::route_breakdowns(run, &report);
+fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
+    let mut report = analyze_run_internal(run, options);
+    let route_context = route::route_breakdowns(run, &report, options);
     if route_context.divergent {
         report.warnings.push(ROUTE_DIVERGENCE_WARNING.to_string());
     }
     report.route_breakdowns = route_context.breakdowns;
-    report.temporal_segments = temporal::temporal_segments(run, &mut report.warnings);
+    report.temporal_segments = temporal::temporal_segments(run, &mut report.warnings, options);
+    let overrides = options.non_default_overrides();
+    report.analyzer_config = (!overrides.is_empty()).then_some(AnalyzerConfigSummary {
+        schema_version: 1,
+        non_default_options: overrides,
+    });
     report
 }
 
-fn analyze_run_internal(run: &Run) -> Report {
+fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     let request_latencies = run
         .requests
         .iter()
@@ -458,20 +468,20 @@ fn analyze_run_internal(run: &Run) -> Report {
 
     let mut suspects = Vec::new();
 
-    if let Some(queue_suspect) = scoring::queue_saturation_suspect(run, inflight_trend.as_ref()) {
+    if let Some(queue_suspect) = scoring::queue_saturation_suspect(run, inflight_trend.as_ref(), options) {
         suspects.push(queue_suspect);
     }
 
-    if let Some(blocking_suspect) = scoring::blocking_pressure_suspect(run) {
+    if let Some(blocking_suspect) = scoring::blocking_pressure_suspect(run, options) {
         suspects.push(blocking_suspect);
     }
 
-    if let Some(executor_suspect) = scoring::executor_pressure_suspect(run, inflight_trend.as_ref())
+    if let Some(executor_suspect) = scoring::executor_pressure_suspect(run, inflight_trend.as_ref(), options)
     {
         suspects.push(executor_suspect);
     }
 
-    if let Some(stage_suspect) = scoring::downstream_stage_suspect(run) {
+    if let Some(stage_suspect) = scoring::downstream_stage_suspect(run, options) {
         suspects.push(stage_suspect);
     }
 
@@ -488,15 +498,16 @@ fn analyze_run_internal(run: &Run) -> Report {
                 "Enable RuntimeSampler during the run to capture runtime pressure signals."
                     .to_string(),
             ],
+            options,
         ));
     }
 
     suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
-    let warnings = analysis_warnings(run, &suspects);
-    let evidence_quality = evidence::evidence_quality(run);
+    let warnings = analysis_warnings(run, &suspects, options);
+    let evidence_quality = evidence::evidence_quality(run, options);
 
-    confidence::apply_evidence_aware_confidence_caps(&mut suspects, run, &evidence_quality);
+    confidence::apply_evidence_aware_confidence_caps(&mut suspects, run, &evidence_quality, options);
 
     let mut ranked = suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
@@ -505,6 +516,7 @@ fn analyze_run_internal(run: &Run) -> Report {
             50,
             vec!["No diagnosis signals were captured for this run.".to_string()],
             vec!["Verify that request, queue, or stage instrumentation is enabled.".to_string()],
+            options,
         )
     });
 
@@ -522,19 +534,20 @@ fn analyze_run_internal(run: &Run) -> Report {
         secondary_suspects: ranked.collect(),
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
+        analyzer_config: None,
     }
 }
 
-fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
+fn ambiguity_warning(suspects: &[Suspect], options: &AnalyzeOptions) -> Option<String> {
     let mut ranked = suspects
         .iter()
         .filter(|s| s.kind != DiagnosisKind::InsufficientEvidence)
         .collect::<Vec<_>>();
     ranked.sort_by_key(|s| std::cmp::Reverse(s.score));
     if ranked.len() >= 2
-        && ranked[0].score >= AMBIGUITY_MIN_SCORE_THRESHOLD
-        && ranked[1].score >= AMBIGUITY_MIN_SCORE_THRESHOLD
-        && ranked[0].score.abs_diff(ranked[1].score) <= AMBIGUITY_SCORE_GAP_THRESHOLD
+        && ranked[0].score >= options.confidence.ambiguity_min_score
+        && ranked[1].score >= options.confidence.ambiguity_min_score
+        && ranked[0].score.abs_diff(ranked[1].score) <= options.confidence.ambiguity_score_gap
     {
         Some("Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string())
     } else {
@@ -542,9 +555,9 @@ fn ambiguity_warning(suspects: &[Suspect]) -> Option<String> {
     }
 }
 
-fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
+fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) -> Vec<String> {
     let mut warnings = evidence::truncation_warnings(run);
-    if run.requests.len() < LOW_COMPLETED_REQUEST_THRESHOLD {
+    if run.requests.len() < options.evidence.low_completed_request_threshold {
         warnings.push(
             "Low completed-request count; diagnosis ranking may be unstable for this run window."
                 .to_string(),
@@ -591,7 +604,7 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect]) -> Vec<String> {
     {
         warnings.push("Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited.".to_string());
     }
-    if let Some(w) = ambiguity_warning(suspects) {
+    if let Some(w) = ambiguity_warning(suspects, options) {
         warnings.push(w);
     }
     warnings

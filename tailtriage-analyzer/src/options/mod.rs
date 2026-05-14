@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use crate::AnalyzeConfigOverrideSummary;
 
 mod descriptors;
 pub use descriptors::analyze_option_descriptors;
@@ -223,6 +224,57 @@ impl Default for TemporalOptions {
 }
 
 impl AnalyzeOptions {
+    #[must_use]
+    pub fn non_default_overrides(&self) -> Vec<AnalyzeConfigOverrideSummary> {
+        let default = Self::default();
+        let mut overrides = Vec::new();
+        macro_rules! push_if_changed {
+            ($path:literal, $value:expr, $default:expr) => {
+                if $value != $default {
+                    overrides.push(AnalyzeConfigOverrideSummary {
+                        path: $path.to_string(),
+                        value: $value.to_string(),
+                    });
+                }
+            };
+        }
+        push_if_changed!("queueing.trigger_permille", self.queueing.trigger_permille, default.queueing.trigger_permille);
+        push_if_changed!("blocking.min_nonzero_samples_for_signal", self.blocking.min_nonzero_samples_for_signal, default.blocking.min_nonzero_samples_for_signal);
+        push_if_changed!("blocking.strong_p95_threshold", self.blocking.strong_p95_threshold, default.blocking.strong_p95_threshold);
+        push_if_changed!("blocking.strong_peak_threshold", self.blocking.strong_peak_threshold, default.blocking.strong_peak_threshold);
+        push_if_changed!("blocking.strong_nonzero_share_permille", self.blocking.strong_nonzero_share_permille, default.blocking.strong_nonzero_share_permille);
+        push_if_changed!("blocking.strong_min_samples", self.blocking.strong_min_samples, default.blocking.strong_min_samples);
+        push_if_changed!("executor.min_global_queue_p95_for_signal", self.executor.min_global_queue_p95_for_signal, default.executor.min_global_queue_p95_for_signal);
+        push_if_changed!("downstream.min_stage_samples", self.downstream.min_stage_samples, default.downstream.min_stage_samples);
+        if self.downstream.blocking_correlated_stage_patterns != default.downstream.blocking_correlated_stage_patterns {
+            overrides.push(AnalyzeConfigOverrideSummary {
+                path: "downstream.blocking_correlated_stage_patterns".to_string(),
+                value: self.downstream.blocking_correlated_stage_patterns.join(","),
+            });
+        }
+        push_if_changed!("downstream.blocking_correlation_score_margin", self.downstream.blocking_correlation_score_margin, default.downstream.blocking_correlation_score_margin);
+        push_if_changed!("confidence.medium_score_threshold", self.confidence.medium_score_threshold, default.confidence.medium_score_threshold);
+        push_if_changed!("confidence.high_score_threshold", self.confidence.high_score_threshold, default.confidence.high_score_threshold);
+        push_if_changed!("confidence.ambiguity_min_score", self.confidence.ambiguity_min_score, default.confidence.ambiguity_min_score);
+        push_if_changed!("confidence.ambiguity_score_gap", self.confidence.ambiguity_score_gap, default.confidence.ambiguity_score_gap);
+        push_if_changed!("evidence.low_completed_request_threshold", self.evidence.low_completed_request_threshold, default.evidence.low_completed_request_threshold);
+        push_if_changed!("route.min_request_count", self.route.min_request_count, default.route.min_request_count);
+        push_if_changed!("route.breakdown_limit", self.route.breakdown_limit, default.route.breakdown_limit);
+        push_if_changed!("route.emit_on_divergent_suspects", self.route.emit_on_divergent_suspects, default.route.emit_on_divergent_suspects);
+        push_if_changed!("route.slowest_to_fastest_p95_ratio_numerator", self.route.slowest_to_fastest_p95_ratio_numerator, default.route.slowest_to_fastest_p95_ratio_numerator);
+        push_if_changed!("route.slowest_to_fastest_p95_ratio_denominator", self.route.slowest_to_fastest_p95_ratio_denominator, default.route.slowest_to_fastest_p95_ratio_denominator);
+        push_if_changed!("route.slowest_to_global_p95_ratio_numerator", self.route.slowest_to_global_p95_ratio_numerator, default.route.slowest_to_global_p95_ratio_numerator);
+        push_if_changed!("route.slowest_to_global_p95_ratio_denominator", self.route.slowest_to_global_p95_ratio_denominator, default.route.slowest_to_global_p95_ratio_denominator);
+        push_if_changed!("temporal.min_request_count", self.temporal.min_request_count, default.temporal.min_request_count);
+        push_if_changed!("temporal.min_segment_request_count", self.temporal.min_segment_request_count, default.temporal.min_segment_request_count);
+        push_if_changed!("temporal.share_shift_permille", self.temporal.share_shift_permille, default.temporal.share_shift_permille);
+        push_if_changed!("temporal.p95_shift_ratio_numerator", self.temporal.p95_shift_ratio_numerator, default.temporal.p95_shift_ratio_numerator);
+        push_if_changed!("temporal.p95_shift_ratio_denominator", self.temporal.p95_shift_ratio_denominator, default.temporal.p95_shift_ratio_denominator);
+        push_if_changed!("temporal.emit_on_suspect_shift", self.temporal.emit_on_suspect_shift, default.temporal.emit_on_suspect_shift);
+        push_if_changed!("temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement", self.temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement, default.temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement);
+        overrides.sort_by(|a, b| a.path.cmp(&b.path));
+        overrides
+    }
     /// Applies queueing-option edits and returns updated options for fluent setup.
     #[must_use]
     pub fn with_queueing(mut self, f: impl FnOnce(&mut QueueingOptions)) -> Self {

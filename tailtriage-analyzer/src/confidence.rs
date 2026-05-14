@@ -2,13 +2,14 @@ use tailtriage_core::Run;
 
 use super::{
     Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, Suspect,
-    AMBIGUITY_MIN_SCORE_THRESHOLD, AMBIGUITY_SCORE_GAP_THRESHOLD, LOW_COMPLETED_REQUEST_THRESHOLD,
+    AnalyzeOptions,
 };
 
 pub(super) fn apply_evidence_aware_confidence_caps(
     suspects: &mut [Suspect],
     run: &Run,
     evidence_quality: &EvidenceQuality,
+    options: &AnalyzeOptions,
 ) {
     let runtime_snapshots_missing = run.runtime_snapshots.is_empty();
     let runtime_partial_key_fields = !runtime_snapshots_missing
@@ -24,7 +25,7 @@ pub(super) fn apply_evidence_aware_confidence_caps(
                 .runtime_snapshots
                 .iter()
                 .all(|snapshot| snapshot.global_queue_depth.is_none()));
-    let ambiguous_cluster = ambiguity_cluster_indices(suspects);
+    let ambiguous_cluster = ambiguity_cluster_indices(suspects, options);
     for (i, suspect) in suspects.iter_mut().enumerate() {
         let mut cap = Confidence::High;
         let mut notes = Vec::new();
@@ -36,7 +37,7 @@ pub(super) fn apply_evidence_aware_confidence_caps(
         if !is_insufficient && run.requests.is_empty() {
             cap = Confidence::Low;
             notes.push("Low completed-request count caps confidence.".to_string());
-        } else if run.requests.len() < LOW_COMPLETED_REQUEST_THRESHOLD {
+        } else if run.requests.len() < options.evidence.low_completed_request_threshold {
             if !is_insufficient {
                 cap = cap.min(Confidence::Medium);
             }
@@ -142,7 +143,7 @@ fn apply_family_evidence_caps(
     }
 }
 
-fn ambiguity_cluster_indices(suspects: &[Suspect]) -> Vec<usize> {
+fn ambiguity_cluster_indices(suspects: &[Suspect], options: &AnalyzeOptions) -> Vec<usize> {
     let mut ranked = suspects
         .iter()
         .enumerate()
@@ -152,14 +153,14 @@ fn ambiguity_cluster_indices(suspects: &[Suspect]) -> Vec<usize> {
     let Some((_, top)) = ranked.first() else {
         return Vec::new();
     };
-    if top.score < AMBIGUITY_MIN_SCORE_THRESHOLD {
+    if top.score < options.confidence.ambiguity_min_score {
         return Vec::new();
     }
     let cluster = ranked
         .iter()
         .take_while(|(_, s)| {
-            s.score >= AMBIGUITY_MIN_SCORE_THRESHOLD
-                && top.score.abs_diff(s.score) <= AMBIGUITY_SCORE_GAP_THRESHOLD
+            s.score >= options.confidence.ambiguity_min_score
+                && top.score.abs_diff(s.score) <= options.confidence.ambiguity_score_gap
         })
         .map(|(idx, _)| *idx)
         .collect::<Vec<_>>();
