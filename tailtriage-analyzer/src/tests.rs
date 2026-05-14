@@ -2443,3 +2443,70 @@ fn analyzer_config_transparency_non_default_report_includes_config() {
     assert!(text.contains("- queueing.trigger_permille=400"));
     assert!(text.contains("- temporal.min_request_count=30"));
 }
+
+fn option_run_twenty_requests() -> Run {
+    let mut run = test_run();
+    run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+    run
+}
+
+#[test]
+fn option_queueing_trigger_permille_changes_queue_suspect() {
+    let mut run = option_run_twenty_requests();
+    for i in 1..=20 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 400,
+            waited_from_unix_ms: i,
+            waited_until_unix_ms: i + 1,
+            depth_at_start: Some(3),
+        });
+    }
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    let strict = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 600);
+    let strict_report = analyze_run(&run, strict);
+    assert_ne!(
+        strict_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+}
+
+#[test]
+fn option_blocking_min_nonzero_samples_changes_signal_emission() {
+    let mut run = option_run_twenty_requests();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(0)); 100];
+    run.runtime_snapshots[0].blocking_queue_depth = Some(1);
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_ne!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+    let relaxed = AnalyzeOptions::default().with_blocking(|o| o.min_nonzero_samples_for_signal = 1);
+    let relaxed_report = analyze_run(&run, relaxed);
+    assert_eq!(
+        relaxed_report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+}
+
+#[test]
+fn option_executor_min_global_queue_p95_changes_signal_emission() {
+    let mut run = option_run_twenty_requests();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(0), Some(0)); 20];
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::ExecutorPressureSuspected
+    );
+    let strict = AnalyzeOptions::default().with_executor(|o| o.min_global_queue_p95_for_signal = 2);
+    let strict_report = analyze_run(&run, strict);
+    assert_ne!(
+        strict_report.primary_suspect.kind,
+        DiagnosisKind::ExecutorPressureSuspected
+    );
+}
