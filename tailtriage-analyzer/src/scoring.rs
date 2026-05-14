@@ -298,7 +298,9 @@ pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> O
         && blocking.is_some_and(|signal| strong_blocking_signal(signal, options))
         && blocking_score.is_some()
     {
-        let cap = blocking_score.unwrap_or(downstream_score).saturating_sub(2);
+        let cap = blocking_score
+            .unwrap_or(downstream_score)
+            .saturating_sub(options.downstream.blocking_correlation_score_margin);
         downstream_score = downstream_score.min(cap);
         correlation_evidence = Some(format!(
             "Stage '{}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized.",

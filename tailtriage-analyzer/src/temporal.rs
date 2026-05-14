@@ -95,42 +95,25 @@ pub(super) fn temporal_segments(
     };
     let mut early_seg = build("early", early);
     let mut late_seg = build("late", late);
-    let suspect_shift_raw = early_seg.primary_suspect.kind != late_seg.primary_suspect.kind;
     let p95_shift =
         has_material_p95_shift(early_seg.p95_latency_us, late_seg.p95_latency_us, options);
-    let queue_move = matches!((early_seg.p95_queue_share_permille, late_seg.p95_queue_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= options.temporal.share_shift_permille);
-    let service_move = matches!((early_seg.p95_service_share_permille, late_seg.p95_service_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= options.temporal.share_shift_permille);
-    let runtime_sparse = early_seg.evidence_quality.runtime_snapshots
-        != SignalCoverageStatus::Present
-        || early_seg.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present
-        || late_seg.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present
-        || late_seg.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present;
-    let runtime_dependent_shift = matches!(
-        (
-            &early_seg.primary_suspect.kind,
-            &late_seg.primary_suspect.kind
-        ),
-        (
-            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure,
-            _
-        ) | (
-            _,
-            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
-        )
+    let queue_move = has_material_share_shift(
+        early_seg.p95_queue_share_permille,
+        late_seg.p95_queue_share_permille,
+        options,
     );
-    let suspect_shift = suspect_shift_raw
-        && (!options
-            .temporal
-            .suppress_runtime_sparse_suspect_shift_without_supporting_movement
-            || !runtime_sparse
-            || !runtime_dependent_shift
-            || p95_shift
-            || queue_move
-            || service_move);
-    let material = (options.temporal.emit_on_suspect_shift && suspect_shift)
-        || p95_shift
-        || queue_move
-        || service_move;
+    let service_move = has_material_share_shift(
+        early_seg.p95_service_share_permille,
+        late_seg.p95_service_share_permille,
+        options,
+    );
+    let movement = TemporalMovement {
+        p95_shift,
+        queue_move,
+        service_move,
+    };
+    let suspect_shift = has_material_suspect_shift(&early_seg, &late_seg, movement, options);
+    let material = has_material_temporal_signal(suspect_shift, movement, options);
     if !material {
         return vec![];
     }
@@ -142,6 +125,72 @@ pub(super) fn temporal_segments(
     }
     apply_temporal_overlap_attribution_warning(&mut early_seg, &mut late_seg);
     vec![early_seg, late_seg]
+}
+
+fn has_material_share_shift(
+    left: Option<u64>,
+    right: Option<u64>,
+    options: &AnalyzeOptions,
+) -> bool {
+    matches!((left, right), (Some(a), Some(b)) if a.abs_diff(b) >= options.temporal.share_shift_permille)
+}
+
+fn has_runtime_sparse_temporal_evidence(early: &TemporalSegment, late: &TemporalSegment) -> bool {
+    early.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present
+        || early.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present
+        || late.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present
+        || late.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present
+}
+
+#[derive(Clone, Copy)]
+struct TemporalMovement {
+    p95_shift: bool,
+    queue_move: bool,
+    service_move: bool,
+}
+
+fn is_runtime_dependent_suspect_shift(early: &TemporalSegment, late: &TemporalSegment) -> bool {
+    matches!(
+        (&early.primary_suspect.kind, &late.primary_suspect.kind),
+        (
+            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure,
+            _
+        ) | (
+            _,
+            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
+        )
+    )
+}
+
+fn has_material_suspect_shift(
+    early: &TemporalSegment,
+    late: &TemporalSegment,
+    movement: TemporalMovement,
+    options: &AnalyzeOptions,
+) -> bool {
+    let suspect_shift_raw = early.primary_suspect.kind != late.primary_suspect.kind;
+    let runtime_sparse = has_runtime_sparse_temporal_evidence(early, late);
+    let runtime_dependent_shift = is_runtime_dependent_suspect_shift(early, late);
+    suspect_shift_raw
+        && (!options
+            .temporal
+            .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+            || !runtime_sparse
+            || !runtime_dependent_shift
+            || movement.p95_shift
+            || movement.queue_move
+            || movement.service_move)
+}
+
+fn has_material_temporal_signal(
+    suspect_shift: bool,
+    movement: TemporalMovement,
+    options: &AnalyzeOptions,
+) -> bool {
+    (options.temporal.emit_on_suspect_shift && suspect_shift)
+        || movement.p95_shift
+        || movement.queue_move
+        || movement.service_move
 }
 
 pub(super) fn apply_temporal_overlap_attribution_warning(

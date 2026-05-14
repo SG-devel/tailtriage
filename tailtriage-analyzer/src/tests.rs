@@ -558,6 +558,70 @@ fn retry_or_db_stage_is_not_treated_as_blocking_correlated_stage() {
 }
 
 #[test]
+fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            finished_at_unix_ms: i + 1,
+            latency_us: 4_000_000,
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|r| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "spawn_blocking_path".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 3_900_000,
+            success: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
+
+    let downstream_score_for = |margin: u8| {
+        let options = AnalyzeOptions::default()
+            .with_downstream(|o| o.blocking_correlation_score_margin = margin);
+        let report = analyze_run(&run, options);
+        report
+            .secondary_suspects
+            .iter()
+            .find(|s| s.kind == DiagnosisKind::DownstreamStageDominates)
+            .map(|s| s.score)
+            .expect("downstream suspect should be present")
+    };
+
+    let no_margin_score = downstream_score_for(0);
+    let large_margin_score = downstream_score_for(10);
+    assert!(large_margin_score < no_margin_score);
+}
+
+#[test]
+fn non_default_overrides_are_sorted_and_include_downstream_margin_override() {
+    let options = AnalyzeOptions::default()
+        .with_temporal(|o| o.min_request_count = 25)
+        .with_downstream(|o| o.blocking_correlation_score_margin = 7)
+        .with_queueing(|o| o.trigger_permille = 250);
+    let overrides = options.non_default_overrides();
+    let paths = overrides
+        .iter()
+        .map(|o| o.path.as_str())
+        .collect::<Vec<_>>();
+    let mut sorted = paths.clone();
+    sorted.sort_unstable();
+    assert_eq!(paths, sorted);
+    assert!(overrides
+        .iter()
+        .any(|o| { o.path == "downstream.blocking_correlation_score_margin" && o.value == "7" }));
+}
+
+#[test]
 fn truncation_warnings_remain_additive() {
     let mut run = test_run();
     run.truncation.dropped_requests = 1;
