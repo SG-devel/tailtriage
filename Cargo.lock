@@ -804,6 +804,7 @@ dependencies = [
  "serde_json",
  "tailtriage-core",
  "tokio",
+ "toml",
 ]
 
 [[package]]

@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod descriptors;
+mod toml;
 pub use descriptors::analyze_option_descriptors;
 
 /// Semantic analyzer options grouped by triage domain.
@@ -541,6 +542,24 @@ fn temporal_non_default_overrides(
     }
 }
 impl AnalyzeOptions {
+    /// Parses analyzer TOML from `input` using `[analyzer]` v1 schema and defaults for missing groups/fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AnalyzeConfigError`] when TOML is invalid, required analyzer schema fields are missing,
+    /// unknown analyzer fields are present, or resulting values fail validation.
+    pub fn from_toml_str(input: &str) -> Result<Self, AnalyzeConfigError> {
+        toml::parse_from_toml_str(input)
+    }
+    /// Merges analyzer TOML from `input` over `self` using `[analyzer]` v1 schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AnalyzeConfigError`] when TOML is invalid, required analyzer schema fields are missing,
+    /// unknown analyzer fields are present, or resulting values fail validation.
+    pub fn merge_toml_str(self, input: &str) -> Result<Self, AnalyzeConfigError> {
+        toml::merge_toml_str(self, input)
+    }
     /// Returns sorted non-default semantic option overrides as stable path/value summaries.
     #[must_use]
     pub fn non_default_overrides(&self) -> Vec<AnalyzeConfigOverrideSummary> {

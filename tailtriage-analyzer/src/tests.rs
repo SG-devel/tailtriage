@@ -2596,3 +2596,140 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
     assert_eq!(strict_report.primary_suspect.score, 90);
     assert_eq!(strict_report.primary_suspect.confidence, Confidence::Medium);
 }
+
+#[test]
+fn analyzer_toml_full_parses() {
+    let input = std::fs::read_to_string("tailtriage-analyzer/examples/analyzer-config.toml")
+        .or_else(|_| std::fs::read_to_string("examples/analyzer-config.toml"))
+        .expect("example config exists");
+    let opts = AnalyzeOptions::from_toml_str(&input).expect("full analyzer toml parses");
+    assert_eq!(opts.queueing.trigger_permille, 400);
+}
+
+#[test]
+fn analyzer_toml_sparse_parses_with_defaults() {
+    let opts = AnalyzeOptions::from_toml_str(
+        "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=450",
+    )
+    .expect("sparse analyzer toml parses");
+    assert_eq!(opts.queueing.trigger_permille, 450);
+    assert_eq!(
+        opts.blocking.strong_p95_threshold,
+        AnalyzeOptions::default().blocking.strong_p95_threshold
+    );
+}
+
+#[test]
+fn merge_toml_str_applies_over_non_default_base() {
+    let base = AnalyzeOptions::default().with_blocking(|o| o.strong_p95_threshold = 99);
+    let merged = base
+        .merge_toml_str("[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=410")
+        .expect("merge parses");
+    assert_eq!(merged.queueing.trigger_permille, 410);
+    assert_eq!(merged.blocking.strong_p95_threshold, 99);
+}
+
+#[test]
+fn analyzer_toml_missing_analyzer_fails() {
+    let err =
+        AnalyzeOptions::from_toml_str("[queueing]\ntrigger_permille=400").expect_err("must fail");
+    assert!(matches!(err, AnalyzeConfigError::MissingAnalyzerTable));
+}
+
+#[test]
+fn analyzer_toml_missing_schema_version_fails() {
+    let err =
+        AnalyzeOptions::from_toml_str("[analyzer]\n[analyzer.queueing]\ntrigger_permille=400")
+            .expect_err("must fail");
+    assert!(matches!(err, AnalyzeConfigError::MissingSchemaVersion));
+}
+
+#[test]
+fn analyzer_toml_unsupported_schema_version_fails() {
+    let err = AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=2").expect_err("must fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::UnsupportedSchemaVersion {
+            found: 2,
+            supported: 1
+        }
+    ));
+}
+
+#[test]
+fn analyzer_toml_unknown_top_level_sibling_is_ignored() {
+    let opts = AnalyzeOptions::from_toml_str("[shared]\nfoo='bar'\n[analyzer]\nschema_version=1")
+        .expect("sibling table ignored");
+    assert_eq!(opts, AnalyzeOptions::default());
+}
+
+#[test]
+fn analyzer_toml_unknown_field_under_analyzer_fails() {
+    let err = AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\nextra=1")
+        .expect_err("must fail");
+    assert!(matches!(err, AnalyzeConfigError::InvalidToml { .. }));
+}
+
+#[test]
+fn analyzer_toml_unknown_subgroup_fails() {
+    let err =
+        AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\n[analyzer.unknown]\nfoo=1")
+            .expect_err("must fail");
+    assert!(matches!(err, AnalyzeConfigError::InvalidToml { .. }));
+}
+
+#[test]
+fn analyzer_toml_unknown_field_inside_known_subgroup_fails() {
+    let err =
+        AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\n[analyzer.queueing]\nnope=1")
+            .expect_err("must fail");
+    assert!(matches!(err, AnalyzeConfigError::InvalidToml { .. }));
+}
+
+#[test]
+fn analyzer_toml_invalid_type_fails() {
+    let err = AnalyzeOptions::from_toml_str(
+        "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille='high'",
+    )
+    .expect_err("must fail");
+    assert!(matches!(err, AnalyzeConfigError::InvalidToml { .. }));
+}
+
+#[test]
+fn analyzer_toml_invalid_range_fails_validation() {
+    let err = AnalyzeOptions::from_toml_str(
+        "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=1001",
+    )
+    .expect_err("must fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "queueing.trigger_permille",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn analyzer_toml_pattern_list_parses() {
+    let opts = AnalyzeOptions::from_toml_str(
+        "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['spawn_blocking','blocking']",
+    )
+    .expect("list parses");
+    assert_eq!(opts.downstream.blocking_correlated_stage_patterns.len(), 2);
+}
+
+#[test]
+fn analyzer_toml_empty_pattern_fails_validation() {
+    let err = AnalyzeOptions::from_toml_str(
+        "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['']",
+    )
+    .expect_err("empty pattern should fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "downstream.blocking_correlated_stage_patterns",
+            ..
+        }
+    ));
+}
