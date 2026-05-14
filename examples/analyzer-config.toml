@@ -1,0 +1,48 @@
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+trigger_permille = 400
+
+[analyzer.blocking]
+min_nonzero_samples_for_signal = 2
+strong_p95_threshold = 12
+strong_peak_threshold = 20
+strong_nonzero_share_permille = 700
+strong_min_samples = 30
+
+[analyzer.executor]
+min_global_queue_p95_for_signal = 1
+
+[analyzer.downstream]
+min_stage_samples = 3
+blocking_correlated_stage_patterns = ["spawn_blocking", "blocking_path", "blocking"]
+blocking_correlation_score_margin = 2
+
+[analyzer.confidence]
+medium_score_threshold = 65
+high_score_threshold = 85
+ambiguity_min_score = 60
+ambiguity_score_gap = 4
+
+[analyzer.evidence]
+low_completed_request_threshold = 20
+
+[analyzer.route]
+min_request_count = 3
+breakdown_limit = 10
+emit_on_divergent_suspects = true
+slowest_to_fastest_p95_ratio_numerator = 3
+slowest_to_fastest_p95_ratio_denominator = 2
+slowest_to_global_p95_ratio_numerator = 5
+slowest_to_global_p95_ratio_denominator = 4
+
+[analyzer.temporal]
+# Keep enough requests in each segment to compare suspect movement.
+min_request_count = 20
+min_segment_request_count = 8
+share_shift_permille = 200
+p95_shift_ratio_numerator = 3
+p95_shift_ratio_denominator = 2
+emit_on_suspect_shift = true
+suppress_runtime_sparse_suspect_shift_without_supporting_movement = true
