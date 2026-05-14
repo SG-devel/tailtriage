@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod descriptors;
+mod toml;
 pub use descriptors::analyze_option_descriptors;
 
 /// Semantic analyzer options grouped by triage domain.
