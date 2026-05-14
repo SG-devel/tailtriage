@@ -1,3 +1,4 @@
+use crate::AnalyzeConfigOverrideSummary;
 use serde::Serialize;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -223,6 +224,232 @@ impl Default for TemporalOptions {
 }
 
 impl AnalyzeOptions {
+    /// Returns sorted non-default semantic option overrides as stable path/value summaries.
+    #[must_use]
+    pub fn non_default_overrides(&self) -> Vec<AnalyzeConfigOverrideSummary> {
+        let defaults = Self::default();
+        let mut out = Vec::new();
+        let mut push = |path: &str, value: String| {
+            out.push(AnalyzeConfigOverrideSummary {
+                path: path.to_string(),
+                value,
+            })
+        };
+        if self.queueing.trigger_permille != defaults.queueing.trigger_permille {
+            push(
+                "queueing.trigger_permille",
+                self.queueing.trigger_permille.to_string(),
+            );
+        }
+        if self.blocking.min_nonzero_samples_for_signal
+            != defaults.blocking.min_nonzero_samples_for_signal
+        {
+            push(
+                "blocking.min_nonzero_samples_for_signal",
+                self.blocking.min_nonzero_samples_for_signal.to_string(),
+            );
+        }
+        if self.blocking.strong_p95_threshold != defaults.blocking.strong_p95_threshold {
+            push(
+                "blocking.strong_p95_threshold",
+                self.blocking.strong_p95_threshold.to_string(),
+            );
+        }
+        if self.blocking.strong_peak_threshold != defaults.blocking.strong_peak_threshold {
+            push(
+                "blocking.strong_peak_threshold",
+                self.blocking.strong_peak_threshold.to_string(),
+            );
+        }
+        if self.blocking.strong_nonzero_share_permille
+            != defaults.blocking.strong_nonzero_share_permille
+        {
+            push(
+                "blocking.strong_nonzero_share_permille",
+                self.blocking.strong_nonzero_share_permille.to_string(),
+            );
+        }
+        if self.blocking.strong_min_samples != defaults.blocking.strong_min_samples {
+            push(
+                "blocking.strong_min_samples",
+                self.blocking.strong_min_samples.to_string(),
+            );
+        }
+        if self.executor.min_global_queue_p95_for_signal
+            != defaults.executor.min_global_queue_p95_for_signal
+        {
+            push(
+                "executor.min_global_queue_p95_for_signal",
+                self.executor.min_global_queue_p95_for_signal.to_string(),
+            );
+        }
+        if self.downstream.min_stage_samples != defaults.downstream.min_stage_samples {
+            push(
+                "downstream.min_stage_samples",
+                self.downstream.min_stage_samples.to_string(),
+            );
+        }
+        if self.downstream.blocking_correlated_stage_patterns
+            != defaults.downstream.blocking_correlated_stage_patterns
+        {
+            push(
+                "downstream.blocking_correlated_stage_patterns",
+                self.downstream.blocking_correlated_stage_patterns.join(","),
+            );
+        }
+        if self.downstream.blocking_correlation_score_margin
+            != defaults.downstream.blocking_correlation_score_margin
+        {
+            push(
+                "downstream.blocking_correlation_score_margin",
+                self.downstream
+                    .blocking_correlation_score_margin
+                    .to_string(),
+            );
+        }
+        if self.confidence.medium_score_threshold != defaults.confidence.medium_score_threshold {
+            push(
+                "confidence.medium_score_threshold",
+                self.confidence.medium_score_threshold.to_string(),
+            );
+        }
+        if self.confidence.high_score_threshold != defaults.confidence.high_score_threshold {
+            push(
+                "confidence.high_score_threshold",
+                self.confidence.high_score_threshold.to_string(),
+            );
+        }
+        if self.confidence.ambiguity_min_score != defaults.confidence.ambiguity_min_score {
+            push(
+                "confidence.ambiguity_min_score",
+                self.confidence.ambiguity_min_score.to_string(),
+            );
+        }
+        if self.confidence.ambiguity_score_gap != defaults.confidence.ambiguity_score_gap {
+            push(
+                "confidence.ambiguity_score_gap",
+                self.confidence.ambiguity_score_gap.to_string(),
+            );
+        }
+        if self.evidence.low_completed_request_threshold
+            != defaults.evidence.low_completed_request_threshold
+        {
+            push(
+                "evidence.low_completed_request_threshold",
+                self.evidence.low_completed_request_threshold.to_string(),
+            );
+        }
+        if self.route.min_request_count != defaults.route.min_request_count {
+            push(
+                "route.min_request_count",
+                self.route.min_request_count.to_string(),
+            );
+        }
+        if self.route.breakdown_limit != defaults.route.breakdown_limit {
+            push(
+                "route.breakdown_limit",
+                self.route.breakdown_limit.to_string(),
+            );
+        }
+        if self.route.emit_on_divergent_suspects != defaults.route.emit_on_divergent_suspects {
+            push(
+                "route.emit_on_divergent_suspects",
+                self.route.emit_on_divergent_suspects.to_string(),
+            );
+        }
+        if self.route.slowest_to_fastest_p95_ratio_numerator
+            != defaults.route.slowest_to_fastest_p95_ratio_numerator
+        {
+            push(
+                "route.slowest_to_fastest_p95_ratio_numerator",
+                self.route
+                    .slowest_to_fastest_p95_ratio_numerator
+                    .to_string(),
+            );
+        }
+        if self.route.slowest_to_fastest_p95_ratio_denominator
+            != defaults.route.slowest_to_fastest_p95_ratio_denominator
+        {
+            push(
+                "route.slowest_to_fastest_p95_ratio_denominator",
+                self.route
+                    .slowest_to_fastest_p95_ratio_denominator
+                    .to_string(),
+            );
+        }
+        if self.route.slowest_to_global_p95_ratio_numerator
+            != defaults.route.slowest_to_global_p95_ratio_numerator
+        {
+            push(
+                "route.slowest_to_global_p95_ratio_numerator",
+                self.route.slowest_to_global_p95_ratio_numerator.to_string(),
+            );
+        }
+        if self.route.slowest_to_global_p95_ratio_denominator
+            != defaults.route.slowest_to_global_p95_ratio_denominator
+        {
+            push(
+                "route.slowest_to_global_p95_ratio_denominator",
+                self.route
+                    .slowest_to_global_p95_ratio_denominator
+                    .to_string(),
+            );
+        }
+        if self.temporal.min_request_count != defaults.temporal.min_request_count {
+            push(
+                "temporal.min_request_count",
+                self.temporal.min_request_count.to_string(),
+            );
+        }
+        if self.temporal.min_segment_request_count != defaults.temporal.min_segment_request_count {
+            push(
+                "temporal.min_segment_request_count",
+                self.temporal.min_segment_request_count.to_string(),
+            );
+        }
+        if self.temporal.share_shift_permille != defaults.temporal.share_shift_permille {
+            push(
+                "temporal.share_shift_permille",
+                self.temporal.share_shift_permille.to_string(),
+            );
+        }
+        if self.temporal.p95_shift_ratio_numerator != defaults.temporal.p95_shift_ratio_numerator {
+            push(
+                "temporal.p95_shift_ratio_numerator",
+                self.temporal.p95_shift_ratio_numerator.to_string(),
+            );
+        }
+        if self.temporal.p95_shift_ratio_denominator
+            != defaults.temporal.p95_shift_ratio_denominator
+        {
+            push(
+                "temporal.p95_shift_ratio_denominator",
+                self.temporal.p95_shift_ratio_denominator.to_string(),
+            );
+        }
+        if self.temporal.emit_on_suspect_shift != defaults.temporal.emit_on_suspect_shift {
+            push(
+                "temporal.emit_on_suspect_shift",
+                self.temporal.emit_on_suspect_shift.to_string(),
+            );
+        }
+        if self
+            .temporal
+            .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+            != defaults
+                .temporal
+                .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+        {
+            push(
+                "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+                self.temporal
+                    .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+                    .to_string(),
+            );
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        out
+    }
     /// Applies queueing-option edits and returns updated options for fluent setup.
     #[must_use]
     pub fn with_queueing(mut self, f: impl FnOnce(&mut QueueingOptions)) -> Self {

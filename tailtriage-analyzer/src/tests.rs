@@ -270,6 +270,7 @@ fn render_text_formats_inflight_trend_fields() {
         secondary_suspects: Vec::new(),
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
+        analyzer_config: None,
     };
 
     let text = render_text(&report);
@@ -323,6 +324,7 @@ fn render_text_marks_missing_inflight_trend() {
         secondary_suspects: Vec::new(),
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
+        analyzer_config: None,
     };
 
     let text = render_text(&report);
@@ -498,7 +500,7 @@ fn ambiguity_warning_requires_close_calibrated_scores() {
             vec![],
         ),
     ];
-    assert!(super::ambiguity_warning(&suspects).is_some());
+    assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
 }
 
 #[test]
@@ -542,13 +544,16 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
 #[test]
 fn retry_or_db_stage_is_not_treated_as_blocking_correlated_stage() {
     assert!(!super::scoring::stage_correlates_with_blocking_pool(
-        "db_query"
+        "db_query",
+        &AnalyzeOptions::default()
     ));
     assert!(!super::scoring::stage_correlates_with_blocking_pool(
-        "retry_attempt"
+        "retry_attempt",
+        &AnalyzeOptions::default()
     ));
     assert!(super::scoring::stage_correlates_with_blocking_pool(
-        "spawn_blocking_path"
+        "spawn_blocking_path",
+        &AnalyzeOptions::default()
     ));
 }
 
@@ -902,14 +907,19 @@ fn missing_queue_instrumentation_uses_missing_queue_note() {
     let mut run = test_run();
     run.requests = vec![sample_request(1)];
     run.queues.clear();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::ApplicationQueueSaturation,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert!(suspects[0]
         .confidence_notes
         .iter()
@@ -962,14 +972,19 @@ fn missing_stage_instrumentation_uses_missing_stage_note() {
     let mut run = test_run();
     run.requests = vec![sample_request(1)];
     run.stages.clear();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::DownstreamStageDominates,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert!(suspects[0]
         .confidence_notes
         .iter()
@@ -990,14 +1005,19 @@ fn runtime_partial_fields_cap_executor_or_blocking_confidence() {
             remote_schedule_count: Some(0),
         })
         .collect();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::BlockingPoolPressure,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert_eq!(suspects[0].confidence, Confidence::Medium);
     assert!(suspects[0]
             .confidence_notes
@@ -1014,14 +1034,19 @@ fn missing_runtime_snapshots_use_missing_runtime_note() {
     let mut run = test_run();
     run.requests = vec![sample_request(1)];
     run.runtime_snapshots.clear();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::ExecutorPressureSuspected,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert!(suspects[0]
         .confidence_notes
         .iter()
@@ -1040,8 +1065,13 @@ fn ambiguity_cap_adds_note_to_close_top_suspects() {
         Suspect::new(DiagnosisKind::DownstreamStageDominates, 97, vec![], vec![]),
     ];
     let run = test_run();
-    let eq = evidence::evidence_quality(&run);
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert_eq!(suspects[0].confidence, Confidence::Medium);
     assert_eq!(suspects[1].confidence, Confidence::Medium);
     assert!(suspects[0]
@@ -1066,8 +1096,13 @@ fn ambiguity_capping_preserves_order_and_scores() {
         Suspect::new(DiagnosisKind::DownstreamStageDominates, 100, vec![], vec![]),
     ];
     let run = test_run();
-    let eq = evidence::evidence_quality(&run);
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
 
     assert_eq!(suspects[0].score, 100);
     assert_eq!(suspects[1].score, 100);
@@ -1119,8 +1154,13 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
         Suspect::new(DiagnosisKind::DownstreamStageDominates, 10, vec![], vec![]),
     ];
     suspects[0].confidence = Confidence::High;
-    let eq = evidence::evidence_quality(&run);
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert_eq!(suspects[0].confidence, Confidence::High);
     assert!(suspects[0].confidence_notes.is_empty());
 }
@@ -1270,7 +1310,7 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
 fn route_breakdowns_do_not_change_global_primary_suspect() {
     let mut run = test_run();
     run.runtime_snapshots = vec![runtime_snapshot(Some(300), Some(250), Some(200))];
-    let global = analyze_run_internal(&run);
+    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
@@ -1386,9 +1426,21 @@ fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
         .iter()
         .any(|w| w == TEMPORAL_P95_SHIFT_WARNING));
 
-    assert!(!has_material_p95_shift(Some(0), Some(5_000)));
-    assert!(!has_material_p95_shift(None, Some(5_000)));
-    assert!(!has_material_p95_shift(Some(10), None));
+    assert!(!has_material_p95_shift(
+        Some(0),
+        Some(5_000),
+        &AnalyzeOptions::default()
+    ));
+    assert!(!has_material_p95_shift(
+        None,
+        Some(5_000),
+        &AnalyzeOptions::default()
+    ));
+    assert!(!has_material_p95_shift(
+        Some(10),
+        None,
+        &AnalyzeOptions::default()
+    ));
 }
 
 #[test]
@@ -1405,7 +1457,7 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
             depth_at_start: Some(9),
         });
     }
-    let global = analyze_run_internal(&run);
+    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
@@ -1463,7 +1515,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
         count: 1,
     }];
 
-    let global = analyze_run_internal(&run);
+    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
     let report = analyze_run(&run, AnalyzeOptions::default());
 
     assert_eq!(report.temporal_segments.len(), 2);
