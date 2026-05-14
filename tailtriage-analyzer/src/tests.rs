@@ -2356,3 +2356,90 @@ fn default_options_compat_temporal_segments_case() {
     assert!(!report.temporal_segments.is_empty());
     assert_default_report_has_no_analyzer_config(&report);
 }
+
+#[test]
+fn analyzer_config_transparency_default_report_omits_config() {
+    let run = test_run();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert!(report.analyzer_config.is_none());
+
+    let report_json = serde_json::to_value(&report).expect("serialize report");
+    assert!(
+        report_json.get("analyzer_config").is_none(),
+        "default report JSON must not include analyzer_config"
+    );
+
+    let text = render_text(&report);
+    assert!(
+        !text.contains("Analyzer config:"),
+        "default report text must not include analyzer config section"
+    );
+}
+
+#[test]
+fn analyzer_config_transparency_non_default_report_includes_config() {
+    let run = test_run();
+    let mut options = AnalyzeOptions::default();
+    options.queueing.trigger_permille = 400;
+    options.temporal.min_request_count = 30;
+
+    let report = analyze_run(&run, options);
+    let config = report
+        .analyzer_config
+        .as_ref()
+        .expect("non-default options should surface analyzer_config");
+    assert_eq!(config.schema_version, 1);
+    assert_eq!(
+        config.non_default_options.len(),
+        2,
+        "only explicitly changed options should be surfaced"
+    );
+    assert_eq!(
+        config.non_default_options[0].path,
+        "queueing.trigger_permille"
+    );
+    assert_eq!(config.non_default_options[0].value, "400");
+    assert_eq!(
+        config.non_default_options[1].path,
+        "temporal.min_request_count"
+    );
+    assert_eq!(config.non_default_options[1].value, "30");
+
+    let report_json = serde_json::to_value(&report).expect("serialize report");
+    let json_overrides = report_json
+        .get("analyzer_config")
+        .and_then(|config| config.get("non_default_options"))
+        .and_then(serde_json::Value::as_array)
+        .expect("analyzer_config.non_default_options should be present");
+    assert_eq!(json_overrides.len(), 2);
+    assert_eq!(
+        json_overrides[0]
+            .get("path")
+            .and_then(serde_json::Value::as_str),
+        Some("queueing.trigger_permille")
+    );
+    assert_eq!(
+        json_overrides[0]
+            .get("value")
+            .and_then(serde_json::Value::as_str),
+        Some("400")
+    );
+    assert_eq!(
+        json_overrides[1]
+            .get("path")
+            .and_then(serde_json::Value::as_str),
+        Some("temporal.min_request_count")
+    );
+    assert_eq!(
+        json_overrides[1]
+            .get("value")
+            .and_then(serde_json::Value::as_str),
+        Some("30")
+    );
+
+    let text = render_text(&report);
+    assert!(text.contains("Analyzer config:"));
+    assert!(text.contains("- queueing.trigger_permille=400"));
+    assert!(text.contains("- temporal.min_request_count=30"));
+}
