@@ -119,6 +119,13 @@ pub fn render_text(report: &Report) -> String {
             ));
         }
     }
+    if let Some(config) = &report.analyzer_config {
+        lines.push("Analyzer config:".to_string());
+        lines.push(format!("- schema_version: {}", config.schema_version));
+        for override_item in &config.non_default_options {
+            lines.push(format!("- {}={}", override_item.path, override_item.value));
+        }
+    }
     append_temporal_segment_text(&mut lines, &report.temporal_segments);
     lines.join("\n")
 }

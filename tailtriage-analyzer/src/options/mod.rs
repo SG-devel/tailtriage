@@ -223,6 +223,172 @@ impl Default for TemporalOptions {
 }
 
 impl AnalyzeOptions {
+    /// Returns sorted summaries for all non-default semantic option overrides.
+    #[must_use]
+    pub fn non_default_overrides(&self) -> Vec<(String, String)> {
+        let defaults = Self::default();
+        let mut overrides = Vec::new();
+        macro_rules! push_if_non_default {
+            ($path:literal, $value:expr, $default:expr) => {
+                if $value != $default {
+                    overrides.push(($path.to_string(), $value.to_string()));
+                }
+            };
+        }
+        push_if_non_default!(
+            "queueing.trigger_permille",
+            self.queueing.trigger_permille,
+            defaults.queueing.trigger_permille
+        );
+        push_if_non_default!(
+            "blocking.min_nonzero_samples_for_signal",
+            self.blocking.min_nonzero_samples_for_signal,
+            defaults.blocking.min_nonzero_samples_for_signal
+        );
+        push_if_non_default!(
+            "blocking.strong_p95_threshold",
+            self.blocking.strong_p95_threshold,
+            defaults.blocking.strong_p95_threshold
+        );
+        push_if_non_default!(
+            "blocking.strong_peak_threshold",
+            self.blocking.strong_peak_threshold,
+            defaults.blocking.strong_peak_threshold
+        );
+        push_if_non_default!(
+            "blocking.strong_nonzero_share_permille",
+            self.blocking.strong_nonzero_share_permille,
+            defaults.blocking.strong_nonzero_share_permille
+        );
+        push_if_non_default!(
+            "blocking.strong_min_samples",
+            self.blocking.strong_min_samples,
+            defaults.blocking.strong_min_samples
+        );
+        push_if_non_default!(
+            "executor.min_global_queue_p95_for_signal",
+            self.executor.min_global_queue_p95_for_signal,
+            defaults.executor.min_global_queue_p95_for_signal
+        );
+        push_if_non_default!(
+            "downstream.min_stage_samples",
+            self.downstream.min_stage_samples,
+            defaults.downstream.min_stage_samples
+        );
+        if self.downstream.blocking_correlated_stage_patterns
+            != defaults.downstream.blocking_correlated_stage_patterns
+        {
+            overrides.push((
+                "downstream.blocking_correlated_stage_patterns".to_string(),
+                self.downstream.blocking_correlated_stage_patterns.join(","),
+            ));
+        }
+        push_if_non_default!(
+            "downstream.blocking_correlation_score_margin",
+            self.downstream.blocking_correlation_score_margin,
+            defaults.downstream.blocking_correlation_score_margin
+        );
+        push_if_non_default!(
+            "confidence.medium_score_threshold",
+            self.confidence.medium_score_threshold,
+            defaults.confidence.medium_score_threshold
+        );
+        push_if_non_default!(
+            "confidence.high_score_threshold",
+            self.confidence.high_score_threshold,
+            defaults.confidence.high_score_threshold
+        );
+        push_if_non_default!(
+            "confidence.ambiguity_min_score",
+            self.confidence.ambiguity_min_score,
+            defaults.confidence.ambiguity_min_score
+        );
+        push_if_non_default!(
+            "confidence.ambiguity_score_gap",
+            self.confidence.ambiguity_score_gap,
+            defaults.confidence.ambiguity_score_gap
+        );
+        push_if_non_default!(
+            "evidence.low_completed_request_threshold",
+            self.evidence.low_completed_request_threshold,
+            defaults.evidence.low_completed_request_threshold
+        );
+        push_if_non_default!(
+            "route.min_request_count",
+            self.route.min_request_count,
+            defaults.route.min_request_count
+        );
+        push_if_non_default!(
+            "route.breakdown_limit",
+            self.route.breakdown_limit,
+            defaults.route.breakdown_limit
+        );
+        push_if_non_default!(
+            "route.emit_on_divergent_suspects",
+            self.route.emit_on_divergent_suspects,
+            defaults.route.emit_on_divergent_suspects
+        );
+        push_if_non_default!(
+            "route.slowest_to_fastest_p95_ratio_numerator",
+            self.route.slowest_to_fastest_p95_ratio_numerator,
+            defaults.route.slowest_to_fastest_p95_ratio_numerator
+        );
+        push_if_non_default!(
+            "route.slowest_to_fastest_p95_ratio_denominator",
+            self.route.slowest_to_fastest_p95_ratio_denominator,
+            defaults.route.slowest_to_fastest_p95_ratio_denominator
+        );
+        push_if_non_default!(
+            "route.slowest_to_global_p95_ratio_numerator",
+            self.route.slowest_to_global_p95_ratio_numerator,
+            defaults.route.slowest_to_global_p95_ratio_numerator
+        );
+        push_if_non_default!(
+            "route.slowest_to_global_p95_ratio_denominator",
+            self.route.slowest_to_global_p95_ratio_denominator,
+            defaults.route.slowest_to_global_p95_ratio_denominator
+        );
+        push_if_non_default!(
+            "temporal.min_request_count",
+            self.temporal.min_request_count,
+            defaults.temporal.min_request_count
+        );
+        push_if_non_default!(
+            "temporal.min_segment_request_count",
+            self.temporal.min_segment_request_count,
+            defaults.temporal.min_segment_request_count
+        );
+        push_if_non_default!(
+            "temporal.share_shift_permille",
+            self.temporal.share_shift_permille,
+            defaults.temporal.share_shift_permille
+        );
+        push_if_non_default!(
+            "temporal.p95_shift_ratio_numerator",
+            self.temporal.p95_shift_ratio_numerator,
+            defaults.temporal.p95_shift_ratio_numerator
+        );
+        push_if_non_default!(
+            "temporal.p95_shift_ratio_denominator",
+            self.temporal.p95_shift_ratio_denominator,
+            defaults.temporal.p95_shift_ratio_denominator
+        );
+        push_if_non_default!(
+            "temporal.emit_on_suspect_shift",
+            self.temporal.emit_on_suspect_shift,
+            defaults.temporal.emit_on_suspect_shift
+        );
+        push_if_non_default!(
+            "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+            self.temporal
+                .suppress_runtime_sparse_suspect_shift_without_supporting_movement,
+            defaults
+                .temporal
+                .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+        );
+        overrides.sort_by(|a, b| a.0.cmp(&b.0));
+        overrides
+    }
     /// Applies queueing-option edits and returns updated options for fluent setup.
     #[must_use]
     pub fn with_queueing(mut self, f: impl FnOnce(&mut QueueingOptions)) -> Self {

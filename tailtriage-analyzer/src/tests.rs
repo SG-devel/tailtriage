@@ -224,6 +224,7 @@ fn inflight_trend_handles_monotonic_increase() {
 #[test]
 fn render_text_formats_inflight_trend_fields() {
     let report = Report {
+        analyzer_config: None,
         request_count: 2,
         p50_latency_us: Some(10),
         p95_latency_us: Some(20),
@@ -284,6 +285,7 @@ fn render_text_formats_inflight_trend_fields() {
 #[test]
 fn render_text_marks_missing_inflight_trend() {
     let report = Report {
+        analyzer_config: None,
         request_count: 0,
         p50_latency_us: None,
         p95_latency_us: None,

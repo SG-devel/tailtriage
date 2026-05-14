@@ -1,7 +1,7 @@
 use serde::Serialize;
 use tailtriage_core::Run;
 
-use super::LOW_COMPLETED_REQUEST_THRESHOLD;
+use crate::AnalyzeOptions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,7 +71,14 @@ pub struct EvidenceQuality {
 }
 
 pub(super) fn evidence_quality(run: &Run) -> EvidenceQuality {
-    let requests = request_status(run);
+    evidence_quality_with_options(run, &AnalyzeOptions::default())
+}
+
+pub(super) fn evidence_quality_with_options(
+    run: &Run,
+    options: &AnalyzeOptions,
+) -> EvidenceQuality {
+    let requests = request_status(run, options);
     let queues = family_status(run.queues.is_empty(), run.truncation.dropped_queues);
     let stages = family_status(run.stages.is_empty(), run.truncation.dropped_stages);
     let runtime_snapshots = runtime_status(run);
@@ -79,7 +86,7 @@ pub(super) fn evidence_quality(run: &Run) -> EvidenceQuality {
         run.inflight.is_empty(),
         run.truncation.dropped_inflight_snapshots,
     );
-    let limitations = evidence_limitations(run, queues, stages, runtime_snapshots);
+    let limitations = evidence_limitations(options, run, queues, stages, runtime_snapshots);
     let non_request_truncated = matches!(queues, SignalCoverageStatus::Truncated)
         || matches!(stages, SignalCoverageStatus::Truncated)
         || matches!(runtime_snapshots, SignalCoverageStatus::Truncated)
@@ -87,7 +94,7 @@ pub(super) fn evidence_quality(run: &Run) -> EvidenceQuality {
     let explanatory_present =
         !run.queues.is_empty() || !run.stages.is_empty() || !run.runtime_snapshots.is_empty();
     let quality = if run.requests.is_empty()
-        || run.requests.len() < LOW_COMPLETED_REQUEST_THRESHOLD
+        || run.requests.len() < options.evidence.low_completed_request_threshold
         || run.truncation.dropped_requests > 0
         || !explanatory_present
     {
@@ -123,12 +130,12 @@ pub(super) fn evidence_quality(run: &Run) -> EvidenceQuality {
     }
 }
 
-fn request_status(run: &Run) -> SignalCoverageStatus {
+fn request_status(run: &Run, options: &AnalyzeOptions) -> SignalCoverageStatus {
     if run.requests.is_empty() {
         SignalCoverageStatus::Missing
     } else if run.truncation.dropped_requests > 0 {
         SignalCoverageStatus::Truncated
-    } else if run.requests.len() < LOW_COMPLETED_REQUEST_THRESHOLD {
+    } else if run.requests.len() < options.evidence.low_completed_request_threshold {
         SignalCoverageStatus::Partial
     } else {
         SignalCoverageStatus::Present
@@ -170,13 +177,14 @@ fn runtime_status(run: &Run) -> SignalCoverageStatus {
 }
 
 fn evidence_limitations(
+    options: &AnalyzeOptions,
     run: &Run,
     queues: SignalCoverageStatus,
     stages: SignalCoverageStatus,
     runtime_snapshots: SignalCoverageStatus,
 ) -> Vec<String> {
     let mut limitations = Vec::new();
-    if run.requests.len() < LOW_COMPLETED_REQUEST_THRESHOLD {
+    if run.requests.len() < options.evidence.low_completed_request_threshold {
         limitations
             .push("Low completed-request count can make suspect ranking unstable.".to_string());
     }
