@@ -9,10 +9,10 @@ use super::temporal::{
     TEMPORAL_SUSPECT_SHIFT_WARNING,
 };
 use crate::{
-    analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
-    render_json_pretty, render_text, AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind,
-    EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
-    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+    analyze_option_descriptors, analyze_run, analyze_run_internal, analyze_run_json_pretty,
+    evidence, render_json, render_json_pretty, render_text, AnalyzeConfigError, AnalyzeOptions,
+    Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report,
+    SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -2749,4 +2749,122 @@ fn analyzer_toml_empty_pattern_fails_validation() {
             ..
         }
     ));
+}
+
+#[test]
+fn analyzer_override_valid_paths_apply_and_registry_matches_descriptors() {
+    let mut opts = AnalyzeOptions::default();
+    let overrides = vec![
+        "queueing.trigger_permille=400",
+        "blocking.min_nonzero_samples_for_signal=3",
+        "blocking.strong_p95_threshold=13",
+        "blocking.strong_peak_threshold=21",
+        "blocking.strong_nonzero_share_permille=701",
+        "blocking.strong_min_samples=31",
+        "executor.min_global_queue_p95_for_signal=2",
+        "downstream.min_stage_samples=4",
+        "downstream.blocking_correlated_stage_patterns=io,blocking",
+        "downstream.blocking_correlation_score_margin=3",
+        "confidence.medium_score_threshold=66",
+        "confidence.high_score_threshold=86",
+        "confidence.ambiguity_min_score=61",
+        "confidence.ambiguity_score_gap=5",
+        "evidence.low_completed_request_threshold=21",
+        "route.min_request_count=4",
+        "route.breakdown_limit=11",
+        "route.emit_on_divergent_suspects=false",
+        "route.slowest_to_fastest_p95_ratio_numerator=4",
+        "route.slowest_to_fastest_p95_ratio_denominator=2",
+        "route.slowest_to_global_p95_ratio_numerator=6",
+        "route.slowest_to_global_p95_ratio_denominator=4",
+        "temporal.min_request_count=30",
+        "temporal.min_segment_request_count=10",
+        "temporal.share_shift_permille=300",
+        "temporal.p95_shift_ratio_numerator=4",
+        "temporal.p95_shift_ratio_denominator=2",
+        "temporal.emit_on_suspect_shift=false",
+        "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement=false",
+    ];
+    opts.apply_overrides(&overrides).unwrap();
+
+    let descriptor_paths: std::collections::BTreeSet<_> = analyze_option_descriptors()
+        .iter()
+        .map(|d| d.path)
+        .collect();
+    let valid_paths = AnalyzeOptions::valid_override_paths();
+    let valid_set: std::collections::BTreeSet<_> = valid_paths.iter().copied().collect();
+    assert_eq!(valid_paths.len(), valid_set.len());
+    assert_eq!(descriptor_paths, valid_set);
+}
+
+#[test]
+fn analyzer_override_errors_and_parsing_behavior() {
+    let mut opts = AnalyzeOptions::default();
+    assert!(matches!(
+        opts.apply_override("missing"),
+        Err(AnalyzeConfigError::InvalidOverrideSyntax { .. })
+    ));
+    assert!(matches!(
+        opts.apply_override("=1"),
+        Err(AnalyzeConfigError::UnknownOverridePath { .. })
+    ));
+
+    match opts.apply_override("queuing.trigger_permille=200") {
+        Err(AnalyzeConfigError::UnknownOverridePath { suggestion, .. }) => {
+            assert_eq!(suggestion, Some("queueing.trigger_permille"));
+        }
+        other => panic!("unexpected result: {other:?}"),
+    }
+    assert!(matches!(
+        opts.apply_override("queueing.trigger_permille=-1"),
+        Err(AnalyzeConfigError::InvalidOverrideValue { .. })
+    ));
+    assert!(matches!(
+        opts.apply_override("confidence.high_score_threshold=300"),
+        Err(AnalyzeConfigError::InvalidOverrideValue { .. })
+    ));
+    assert!(matches!(
+        opts.apply_override("route.emit_on_divergent_suspects=True"),
+        Err(AnalyzeConfigError::InvalidOverrideValue { .. })
+    ));
+
+    opts.apply_override("downstream.blocking_correlated_stage_patterns= alpha , beta ")
+        .unwrap();
+    assert_eq!(
+        opts.downstream.blocking_correlated_stage_patterns,
+        vec!["alpha", "beta"]
+    );
+    assert!(matches!(
+        opts.apply_override("downstream.blocking_correlated_stage_patterns=alpha,,beta"),
+        Err(AnalyzeConfigError::InvalidOverrideValue { .. })
+    ));
+}
+
+#[test]
+fn analyzer_override_last_value_wins_and_validation_and_stop_on_error() {
+    let mut opts = AnalyzeOptions::default();
+    opts.apply_override("queueing.trigger_permille=350")
+        .unwrap();
+    opts.apply_override("queueing.trigger_permille=360")
+        .unwrap();
+    assert_eq!(opts.queueing.trigger_permille, 360);
+
+    let err = opts
+        .apply_override("route.slowest_to_fastest_p95_ratio_denominator=0")
+        .unwrap_err();
+    assert!(matches!(err, AnalyzeConfigError::InvalidConfigValue { .. }));
+
+    let mut opts2 = AnalyzeOptions::default();
+    let err = opts2
+        .apply_overrides([
+            "queueing.trigger_permille=333",
+            "queueing.trigger_permille=bad",
+            "queueing.trigger_permille=444",
+        ])
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidOverrideValue { .. }
+    ));
+    assert_eq!(opts2.queueing.trigger_permille, 333);
 }
