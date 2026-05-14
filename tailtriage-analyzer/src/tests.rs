@@ -2613,15 +2613,13 @@ fn analyzer_toml_sparse_preserves_defaults() {
 }
 
 #[test]
-fn analyzer_toml_merge_over_base() {
-    let base = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 350);
+fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
+    let base = AnalyzeOptions::default().with_blocking(|o| o.strong_p95_threshold = 99);
     let merged = base
-        .merge_toml_str(
-            "[analyzer]\nschema_version=1\n[analyzer.blocking]\nstrong_min_samples=99\n",
-        )
+        .merge_toml_str("[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=410\n")
         .expect("merge");
-    assert_eq!(merged.queueing.trigger_permille, 350);
-    assert_eq!(merged.blocking.strong_min_samples, 99);
+    assert_eq!(merged.queueing.trigger_permille, 410);
+    assert_eq!(merged.blocking.strong_p95_threshold, 99);
 }
 
 #[test]
@@ -2631,6 +2629,14 @@ fn analyzer_toml_missing_analyzer_fails() {
         Err(AnalyzeConfigError::MissingAnalyzerTable)
     ));
 }
+#[test]
+fn analyzer_toml_root_level_queueing_group_is_rejected() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str("[queueing]\ntrigger_permille=400\n"),
+        Err(AnalyzeConfigError::MissingAnalyzerTable)
+    ));
+}
+
 #[test]
 fn analyzer_toml_missing_schema_fails() {
     assert!(matches!(
@@ -2700,9 +2706,29 @@ fn analyzer_toml_invalid_range_fails_validation() {
     ));
 }
 #[test]
-fn analyzer_toml_example_file_parses() {
+fn analyzer_toml_canonical_example_path_parses() {
     let _ = AnalyzeOptions::from_toml_str(include_str!("../../examples/analyzer-config.toml"))
-        .expect("example parse");
+        .expect("canonical repo-root example parse");
+}
+
+#[test]
+fn analyzer_toml_example_file_has_v1_namespaced_groups_only() {
+    let input = include_str!("../../examples/analyzer-config.toml");
+    assert!(input.contains("[analyzer]"));
+    assert!(input.contains("schema_version = 1"));
+    for group in [
+        "queueing",
+        "blocking",
+        "executor",
+        "downstream",
+        "confidence",
+        "evidence",
+        "route",
+        "temporal",
+    ] {
+        assert!(input.contains(&format!("[analyzer.{group}]")));
+        assert!(!input.contains(&format!("[{group}]")));
+    }
 }
 #[test]
 fn analyzer_toml_downstream_patterns_list_parses() {
