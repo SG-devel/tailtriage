@@ -1,8 +1,7 @@
 use tailtriage_core::{RequestEvent, Run};
 
 use super::{
-    analyze_run_internal, DiagnosisKind, SignalCoverageStatus, TemporalSegment,
-    TEMPORAL_MIN_REQUEST_COUNT, TEMPORAL_MIN_SEGMENT_REQUEST_COUNT, TEMPORAL_SHARE_SHIFT_PERMILLE,
+    analyze_run_internal, AnalyzeOptions, DiagnosisKind, SignalCoverageStatus, TemporalSegment,
 };
 use crate::route;
 
@@ -37,8 +36,9 @@ fn filtered_run_for_temporal_segment(
 pub(super) fn temporal_segments(
     run: &Run,
     global_warnings: &mut Vec<String>,
+    options: &AnalyzeOptions,
 ) -> Vec<TemporalSegment> {
-    if run.requests.len() < TEMPORAL_MIN_REQUEST_COUNT {
+    if run.requests.len() < options.temporal.min_request_count {
         return vec![];
     }
     let mut requests = run.requests.clone();
@@ -49,8 +49,8 @@ pub(super) fn temporal_segments(
     });
     let split = requests.len() / 2;
     let (early, late) = requests.split_at(split);
-    if early.len() < TEMPORAL_MIN_SEGMENT_REQUEST_COUNT
-        || late.len() < TEMPORAL_MIN_SEGMENT_REQUEST_COUNT
+    if early.len() < options.temporal.min_segment_request_count
+        || late.len() < options.temporal.min_segment_request_count
     {
         return vec![];
     }
@@ -60,9 +60,9 @@ pub(super) fn temporal_segments(
         let finish = seg.iter().map(|r| r.finished_at_unix_ms).max();
         let mut analyzed = match (start, finish) {
             (Some(s), Some(f)) => {
-                analyze_run_internal(&filtered_run_for_temporal_segment(run, &ids, s, f))
+                analyze_run_internal(&filtered_run_for_temporal_segment(run, &ids, s, f), options)
             }
-            _ => analyze_run_internal(&route::filtered_run_for_route(run, &ids)),
+            _ => analyze_run_internal(&route::filtered_run_for_route(run, &ids), options),
         };
         let sparse_runtime =
             analyzed.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present;
@@ -96,9 +96,10 @@ pub(super) fn temporal_segments(
     let mut early_seg = build("early", early);
     let mut late_seg = build("late", late);
     let suspect_shift_raw = early_seg.primary_suspect.kind != late_seg.primary_suspect.kind;
-    let p95_shift = has_material_p95_shift(early_seg.p95_latency_us, late_seg.p95_latency_us);
-    let queue_move = matches!((early_seg.p95_queue_share_permille, late_seg.p95_queue_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= TEMPORAL_SHARE_SHIFT_PERMILLE);
-    let service_move = matches!((early_seg.p95_service_share_permille, late_seg.p95_service_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= TEMPORAL_SHARE_SHIFT_PERMILLE);
+    let p95_shift =
+        has_material_p95_shift(early_seg.p95_latency_us, late_seg.p95_latency_us, options);
+    let queue_move = matches!((early_seg.p95_queue_share_permille, late_seg.p95_queue_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= options.temporal.share_shift_permille);
+    let service_move = matches!((early_seg.p95_service_share_permille, late_seg.p95_service_share_permille), (Some(a), Some(b)) if a.abs_diff(b) >= options.temporal.share_shift_permille);
     let runtime_sparse = early_seg.evidence_quality.runtime_snapshots
         != SignalCoverageStatus::Present
         || early_seg.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present
@@ -117,13 +118,27 @@ pub(super) fn temporal_segments(
             DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
         )
     );
-    let suspect_shift = suspect_shift_raw
-        && (!runtime_sparse || !runtime_dependent_shift || p95_shift || queue_move || service_move);
-    let material = suspect_shift || p95_shift || queue_move || service_move;
+    let suspect_shift = if options
+        .temporal
+        .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+    {
+        suspect_shift_raw
+            && (!runtime_sparse
+                || !runtime_dependent_shift
+                || p95_shift
+                || queue_move
+                || service_move)
+    } else {
+        suspect_shift_raw
+    };
+    let material = (options.temporal.emit_on_suspect_shift && suspect_shift)
+        || p95_shift
+        || queue_move
+        || service_move;
     if !material {
         return vec![];
     }
-    if suspect_shift {
+    if options.temporal.emit_on_suspect_shift && suspect_shift {
         global_warnings.push(TEMPORAL_SUSPECT_SHIFT_WARNING.to_string());
     }
     if p95_shift {
@@ -161,7 +176,11 @@ pub(super) fn apply_temporal_overlap_attribution_warning(
     }
 }
 
-pub(super) fn has_material_p95_shift(left: Option<u64>, right: Option<u64>) -> bool {
+pub(super) fn has_material_p95_shift(
+    left: Option<u64>,
+    right: Option<u64>,
+    options: &AnalyzeOptions,
+) -> bool {
     let (Some(a), Some(b)) = (left, right) else {
         return false;
     };
@@ -170,5 +189,6 @@ pub(super) fn has_material_p95_shift(left: Option<u64>, right: Option<u64>) -> b
     if lower == 0 {
         return false;
     }
-    higher.saturating_mul(2) >= lower.saturating_mul(3)
+    higher.saturating_mul(options.temporal.p95_shift_ratio_denominator)
+        >= lower.saturating_mul(options.temporal.p95_shift_ratio_numerator)
 }

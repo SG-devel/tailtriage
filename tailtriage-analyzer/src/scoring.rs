@@ -3,11 +3,9 @@ use std::collections::BTreeMap;
 use tailtriage_core::Run;
 
 use crate::{
-    percentile, request_time_shares, runtime_metric_series, DiagnosisKind, InflightTrend, Suspect,
-    QUEUE_SHARE_TRIGGER_PERMILLE,
+    percentile, request_time_shares, runtime_metric_series, AnalyzeOptions, DiagnosisKind,
+    InflightTrend, Suspect,
 };
-
-const DOWNSTREAM_MIN_STAGE_SAMPLES: usize = 3;
 const SAMPLE_QUALITY_HIGH_SAMPLE_COUNT: usize = 100;
 const SAMPLE_QUALITY_MEDIUM_SAMPLE_COUNT: usize = 40;
 const SAMPLE_QUALITY_LOW_SAMPLE_COUNT: usize = 20;
@@ -16,10 +14,11 @@ const SAMPLE_QUALITY_MIN_NONZERO_SAMPLE_COUNT: usize = 8;
 pub(super) fn queue_saturation_suspect(
     run: &Run,
     inflight_trend: Option<&InflightTrend>,
+    options: &AnalyzeOptions,
 ) -> Option<Suspect> {
     let (queue_shares, _) = request_time_shares(run);
     let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
-    if p95_queue_share_permille < QUEUE_SHARE_TRIGGER_PERMILLE {
+    if p95_queue_share_permille < options.queueing.trigger_permille {
         return None;
     }
     let queue_depths = run
@@ -77,11 +76,11 @@ struct BlockingSignal {
     nz_share_permille: u64,
 }
 
-fn blocking_signal(run: &Run) -> Option<BlockingSignal> {
+fn blocking_signal(run: &Run, options: &AnalyzeOptions) -> Option<BlockingSignal> {
     let depths = runtime_metric_series(&run.runtime_snapshots, |s| s.blocking_queue_depth);
     let p95 = percentile(&depths, 95, 100)?;
     let nonzero = nonzero_sample_count(&depths);
-    if p95 == 0 && nonzero < 2 {
+    if p95 == 0 && nonzero < options.blocking.min_nonzero_samples_for_signal {
         return None;
     }
     let peak = max_or_zero(&depths);
@@ -99,8 +98,11 @@ fn blocking_signal(run: &Run) -> Option<BlockingSignal> {
     })
 }
 
-fn strong_blocking_signal(signal: BlockingSignal) -> bool {
-    signal.p95 >= 12 && signal.peak >= 20 && signal.nz_share_permille >= 700 && signal.samples >= 30
+fn strong_blocking_signal(signal: BlockingSignal, options: &AnalyzeOptions) -> bool {
+    signal.p95 >= options.blocking.strong_p95_threshold
+        && signal.peak >= options.blocking.strong_peak_threshold
+        && signal.nz_share_permille >= options.blocking.strong_nonzero_share_permille
+        && signal.samples >= options.blocking.strong_min_samples
 }
 
 pub(super) fn stage_correlates_with_blocking_pool(stage: &str) -> bool {
@@ -110,8 +112,8 @@ pub(super) fn stage_correlates_with_blocking_pool(stage: &str) -> bool {
         || lower.contains("blocking")
 }
 
-pub(super) fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
-    let signal = blocking_signal(run)?;
+pub(super) fn blocking_pressure_suspect(run: &Run, options: &AnalyzeOptions) -> Option<Suspect> {
+    let signal = blocking_signal(run, options)?;
     let clean_extreme = signal.p95 >= 16 && signal.peak >= 24 && signal.nz_share_permille >= 900;
     let score = cap_unless_clean_evidence(
         32 + signal.p95.min(24)
@@ -139,10 +141,11 @@ pub(super) fn blocking_pressure_suspect(run: &Run) -> Option<Suspect> {
 pub(super) fn executor_pressure_suspect(
     run: &Run,
     inflight_trend: Option<&InflightTrend>,
+    options: &AnalyzeOptions,
 ) -> Option<Suspect> {
     let global = runtime_metric_series(&run.runtime_snapshots, |s| s.global_queue_depth);
     let p95_global = percentile(&global, 95, 100)?;
-    if p95_global == 0 {
+    if p95_global < options.executor.min_global_queue_p95_for_signal {
         return None;
     }
     let local = runtime_metric_series(&run.runtime_snapshots, |s| s.local_queue_depth);
@@ -191,7 +194,12 @@ struct StageCandidate {
     score: u8,
 }
 
-fn downstream_stage_candidates(run: &Run, p95_req: u64, total_req: u64) -> Vec<StageCandidate> {
+fn downstream_stage_candidates(
+    run: &Run,
+    p95_req: u64,
+    total_req: u64,
+    options: &AnalyzeOptions,
+) -> Vec<StageCandidate> {
     let tail_ids: std::collections::HashMap<&str, u64> = run
         .requests
         .iter()
@@ -205,7 +213,7 @@ fn downstream_stage_candidates(run: &Run, p95_req: u64, total_req: u64) -> Vec<S
     }
     let mut cands = Vec::new();
     for (name, ss) in by {
-        if ss.len() < DOWNSTREAM_MIN_STAGE_SAMPLES {
+        if ss.len() < options.downstream.min_stage_samples {
             continue;
         }
         let lats = ss.iter().map(|s| s.latency_us).collect::<Vec<_>>();
@@ -245,7 +253,7 @@ fn downstream_stage_candidates(run: &Run, p95_req: u64, total_req: u64) -> Vec<S
     cands
 }
 
-pub(super) fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
+pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> Option<Suspect> {
     let p95_req = percentile(
         &run.requests
             .iter()
@@ -259,7 +267,7 @@ pub(super) fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         .iter()
         .map(|r| r.latency_us)
         .fold(0_u64, u64::saturating_add);
-    let blocking = blocking_signal(run);
+    let blocking = blocking_signal(run, options);
     let blocking_score = blocking.map(|signal| {
         let clean_extreme =
             signal.p95 >= 16 && signal.peak >= 24 && signal.nz_share_permille >= 900;
@@ -272,7 +280,7 @@ pub(super) fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
             94,
         )
     });
-    let best = downstream_stage_candidates(run, p95_req, total_req)
+    let best = downstream_stage_candidates(run, p95_req, total_req, options)
         .into_iter()
         .max_by(|a, b| {
             a.score
@@ -283,11 +291,21 @@ pub(super) fn downstream_stage_suspect(run: &Run) -> Option<Suspect> {
         })?;
     let mut downstream_score = best.score;
     let mut correlation_evidence: Option<String> = None;
-    if stage_correlates_with_blocking_pool(&best.stage)
-        && blocking.is_some_and(strong_blocking_signal)
+    if options
+        .downstream
+        .blocking_correlated_stage_patterns
+        .iter()
+        .any(|p| {
+            best.stage
+                .to_ascii_lowercase()
+                .contains(&p.trim().to_ascii_lowercase())
+        })
+        && blocking.is_some_and(|b| strong_blocking_signal(b, options))
         && blocking_score.is_some()
     {
-        let cap = blocking_score.unwrap_or(downstream_score).saturating_sub(2);
+        let cap = blocking_score
+            .unwrap_or(downstream_score)
+            .saturating_sub(options.downstream.blocking_correlation_score_margin);
         downstream_score = downstream_score.min(cap);
         correlation_evidence = Some(format!(
             "Stage '{}' looks blocking-correlated; strong runtime blocking-queue evidence keeps blocking_pool_pressure prioritized.",

@@ -120,6 +120,12 @@ pub fn render_text(report: &Report) -> String {
         }
     }
     append_temporal_segment_text(&mut lines, &report.temporal_segments);
+    if let Some(cfg) = &report.analyzer_config {
+        lines.push("Analyzer config:".to_string());
+        for o in &cfg.non_default_options {
+            lines.push(format!("- {}={}", o.path, o.value));
+        }
+    }
     lines.join("\n")
 }
 
