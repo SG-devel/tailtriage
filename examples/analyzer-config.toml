@@ -1,0 +1,48 @@
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+# Raise to require stronger queue-share evidence before queue saturation leads.
+trigger_permille = 400
+
+[analyzer.blocking]
+min_nonzero_samples_for_signal = 3
+strong_p95_threshold = 16
+strong_peak_threshold = 28
+strong_nonzero_share_permille = 750
+strong_min_samples = 40
+
+[analyzer.executor]
+min_global_queue_p95_for_signal = 2
+
+[analyzer.downstream]
+min_stage_samples = 4
+blocking_correlated_stage_patterns = ["spawn_blocking", "blocking", "sync_io"]
+blocking_correlation_score_margin = 3
+
+[analyzer.confidence]
+medium_score_threshold = 70
+high_score_threshold = 90
+ambiguity_min_score = 65
+ambiguity_score_gap = 5
+
+[analyzer.evidence]
+low_completed_request_threshold = 25
+
+[analyzer.route]
+min_request_count = 4
+breakdown_limit = 12
+emit_on_divergent_suspects = true
+slowest_to_fastest_p95_ratio_numerator = 3
+slowest_to_fastest_p95_ratio_denominator = 2
+slowest_to_global_p95_ratio_numerator = 5
+slowest_to_global_p95_ratio_denominator = 4
+
+[analyzer.temporal]
+min_request_count = 30
+min_segment_request_count = 12
+share_shift_permille = 240
+p95_shift_ratio_numerator = 3
+p95_shift_ratio_denominator = 2
+emit_on_suspect_shift = true
+suppress_runtime_sparse_suspect_shift_without_supporting_movement = true
