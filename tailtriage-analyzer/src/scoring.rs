@@ -12,6 +12,23 @@ const SAMPLE_QUALITY_MEDIUM_SAMPLE_COUNT: usize = 40;
 const SAMPLE_QUALITY_LOW_SAMPLE_COUNT: usize = 20;
 const SAMPLE_QUALITY_MIN_NONZERO_SAMPLE_COUNT: usize = 8;
 
+fn suspect(
+    kind: DiagnosisKind,
+    score: u8,
+    evidence: Vec<String>,
+    next_checks: Vec<String>,
+    options: &AnalyzeOptions,
+) -> Suspect {
+    Suspect {
+        kind,
+        score,
+        confidence: crate::Confidence::from_score_with_options(score, options),
+        evidence,
+        next_checks,
+        confidence_notes: Vec::new(),
+    }
+}
+
 pub(super) fn queue_saturation_suspect(
     run: &Run,
     inflight_trend: Option<&InflightTrend>,
@@ -56,7 +73,7 @@ pub(super) fn queue_saturation_suspect(
             trend.gauge, trend.growth_delta, trend.p95_count, trend.peak_count
         ));
     }
-    Some(Suspect::new(
+    Some(suspect(
         DiagnosisKind::ApplicationQueueSaturation,
         score,
         evidence,
@@ -65,6 +82,7 @@ pub(super) fn queue_saturation_suspect(
             "Compare queue wait distribution before and after increasing worker parallelism."
                 .to_string(),
         ],
+        options,
     ))
 }
 
@@ -126,7 +144,7 @@ pub(super) fn blocking_pressure_suspect(run: &Run, options: &AnalyzeOptions) -> 
         clean_extreme,
         94,
     );
-    Some(Suspect::new(
+    Some(suspect(
         DiagnosisKind::BlockingPoolPressure,
         score,
         vec![format!(
@@ -138,6 +156,7 @@ pub(super) fn blocking_pressure_suspect(run: &Run, options: &AnalyzeOptions) -> 
                 .to_string(),
             "Inspect spawn_blocking callsites for long-running CPU or I/O work.".to_string(),
         ],
+        options,
     ))
 }
 
@@ -175,7 +194,7 @@ pub(super) fn executor_pressure_suspect(
     if let Some(ap95) = percentile(&alive, 95, 100) {
         evidence.push(format!("Runtime alive_tasks p95 is {ap95}."));
     }
-    Some(Suspect::new(
+    Some(suspect(
         DiagnosisKind::ExecutorPressureSuspected,
         score,
         evidence,
@@ -183,6 +202,7 @@ pub(super) fn executor_pressure_suspect(
             "Check for long polls without yielding and uneven task fan-out.".to_string(),
             "Compare with per-stage timings to isolate overloaded async stages.".to_string(),
         ],
+        options,
     ))
 }
 
@@ -324,7 +344,7 @@ pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> O
     if let Some(extra) = correlation_evidence {
         evidence.push(extra);
     }
-    Some(Suspect::new(
+    Some(suspect(
         DiagnosisKind::DownstreamStageDominates,
         downstream_score,
         evidence,
@@ -338,6 +358,7 @@ pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> O
             "Review downstream SLO/error budget and align retry budget/backoff with it."
                 .to_string(),
         ],
+        options,
     ))
 }
 

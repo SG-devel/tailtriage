@@ -80,7 +80,7 @@ pub enum Confidence {
 }
 
 impl Confidence {
-    fn from_score_with_options(score: u8, options: &AnalyzeOptions) -> Self {
+    pub(crate) fn from_score_with_options(score: u8, options: &AnalyzeOptions) -> Self {
         if score >= options.confidence.high_score_threshold {
             Self::High
         } else if score >= options.confidence.medium_score_threshold {

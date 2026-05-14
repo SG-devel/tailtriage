@@ -2564,3 +2564,35 @@ fn option_executor_min_global_queue_p95_changes_signal_emission() {
         DiagnosisKind::ExecutorPressureSuspected
     );
 }
+
+#[test]
+fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
+    let mut run = option_run_twenty_requests();
+    for i in 1..=20 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 800,
+            waited_from_unix_ms: i,
+            waited_until_unix_ms: i + 1,
+            depth_at_start: Some(12),
+        });
+    }
+
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(default_report.primary_suspect.score, 90);
+    assert_eq!(default_report.primary_suspect.confidence, Confidence::High);
+
+    let strict = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 91);
+    let strict_report = analyze_run(&run, strict);
+    assert_eq!(
+        strict_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(strict_report.primary_suspect.score, 90);
+    assert_eq!(strict_report.primary_suspect.confidence, Confidence::Medium);
+}
