@@ -8,7 +8,7 @@ use super::{
 
 pub(super) struct RouteBreakdownContext {
     pub(super) breakdowns: Vec<RouteBreakdown>,
-    pub(super) divergent: bool,
+    pub(super) warn_on_divergence: bool,
 }
 
 pub(super) fn route_breakdowns(
@@ -30,7 +30,7 @@ pub(super) fn route_breakdowns(
     if eligible.len() < 2 {
         return RouteBreakdownContext {
             breakdowns: vec![],
-            divergent: false,
+            warn_on_divergence: false,
         };
     }
 
@@ -69,7 +69,7 @@ pub(super) fn route_breakdowns(
     if !should_emit_route_breakdowns(global, &candidates, options) {
         return RouteBreakdownContext {
             breakdowns: vec![],
-            divergent: false,
+            warn_on_divergence: false,
         };
     }
     let mut emitted = candidates;
@@ -80,7 +80,7 @@ pub(super) fn route_breakdowns(
             .then_with(|| a.route.cmp(&b.route))
     });
     emitted.truncate(options.route.breakdown_limit);
-    let divergent = route_divergence(&emitted);
+    let warn_on_divergence = options.route.emit_on_divergent_suspects && route_divergence(&emitted);
     if omitted_routes > 0 {
         let min_count = options.route.min_request_count;
         let note = format!(
@@ -92,7 +92,7 @@ pub(super) fn route_breakdowns(
     }
     RouteBreakdownContext {
         breakdowns: emitted,
-        divergent,
+        warn_on_divergence,
     }
 }
 

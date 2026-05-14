@@ -443,7 +443,7 @@ impl Analyzer {
 fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     let mut report = analyze_run_internal(run, options);
     let route_context = route::route_breakdowns(run, &report, options);
-    if route_context.divergent {
+    if route_context.warn_on_divergence {
         report.warnings.push(ROUTE_DIVERGENCE_WARNING.to_string());
     }
     report.route_breakdowns = route_context.breakdowns;

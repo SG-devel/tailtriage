@@ -1335,6 +1335,60 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
 }
 
 #[test]
+fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_p95_disparity() {
+    let mut run = test_run();
+    run.requests.clear();
+    for idx in 1..=4 {
+        let mut req = sample_request(idx);
+        req.route = "/a".into();
+        req.latency_us = 10_000;
+        run.requests.push(req);
+    }
+    for idx in 5..=7 {
+        let mut req = sample_request(idx);
+        req.route = "/b".into();
+        req.latency_us = 2_000;
+        run.requests.push(req);
+    }
+    for req_id in ["req-1", "req-2", "req-3", "req-4"] {
+        run.queues.push(QueueEvent {
+            request_id: req_id.to_owned(),
+            queue: "ingress".into(),
+            wait_us: 9_000,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(9),
+        });
+    }
+    for req_id in ["req-5", "req-6", "req-7"] {
+        run.stages.push(StageEvent {
+            request_id: req_id.to_owned(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 1_900,
+            success: true,
+        });
+    }
+
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(default_report.route_breakdowns.len(), 2);
+    assert!(default_report
+        .warnings
+        .iter()
+        .any(|warning| warning == ROUTE_DIVERGENCE_WARNING));
+
+    let mut options = AnalyzeOptions::default();
+    options.route.emit_on_divergent_suspects = false;
+    let toggled_report = analyze_run(&run, options);
+    assert_eq!(toggled_report.route_breakdowns.len(), 2);
+    assert!(toggled_report
+        .warnings
+        .iter()
+        .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
+}
+
+#[test]
 fn multi_route_same_primary_keeps_route_breakdowns_empty() {
     let mut run = test_run();
     run.requests.clear();
