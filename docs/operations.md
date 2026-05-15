@@ -75,6 +75,21 @@ enable -> capture -> disable -> re-enable later
 
 Controller capture is usually the better production operational model.
 
+## Analyzer tuning in production
+
+Prefer default analyzer behavior first.
+
+Use analyzer tuning only after comparing representative runs and confirming workload fit for a threshold adjustment.
+
+Operational guardrails:
+
+* do not tune around missing queue/stage/runtime instrumentation
+* do not use tuning to hide truncation or dropped-signal warnings
+* commit analyzer TOML (`[analyzer]` with `schema_version = 1`) for repeatable production analysis
+* compare runs only when analyzer configuration is the same, or explicitly account for changed analyzer config in interpretation
+
+Analyzer tuning changes interpretation of captured evidence. It does not change capture artifacts.
+
 ## Capture mode guidance
 
 ### `light`

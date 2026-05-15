@@ -102,6 +102,39 @@ Warnings show interpretation limits (missing signal families, sparse coverage, a
 
 As always: suspects are leads for next checks, not proof.
 
+## Analyzer tuning
+
+Start with analyzer defaults.
+
+Tune only after you have representative bounded runs and a clear reason to adjust interpretation thresholds.
+
+Analyzer tuning groups map to report interpretation families:
+
+- `queueing`
+- `blocking`
+- `executor`
+- `downstream`
+- `confidence`
+- `evidence`
+- `route`
+- `temporal`
+
+Non-default analyzer settings appear in Report JSON as `analyzer_config` so downstream comparisons can see interpretation changes.
+
+Analyzer tuning does not change capture artifacts. It changes how the analyzer interprets already captured evidence.
+
+Do not use analyzer tuning to compensate for missing instrumentation or truncation. Improve capture quality first, then tune if needed.
+
+Suspects remain evidence-ranked leads, not proof. Confidence is ranking confidence under observed evidence limits, not causal certainty.
+
+For the complete option surface and field-level help, use:
+
+```bash
+tailtriage analyze --help-analyzer-options
+```
+
+For a maintained starter config, use [`examples/analyzer-config.toml`](../examples/analyzer-config.toml).
+
 ## Warning semantics
 
 `warnings[]` is additive and can include multiple classes together:

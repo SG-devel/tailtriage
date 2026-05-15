@@ -143,6 +143,12 @@ Semantics:
 - `analyze_run_json(&Run, AnalyzeOptions)` for analyze+compact Report JSON
 - `analyze_run_json_pretty(&Run, AnalyzeOptions)` for analyze+pretty Report JSON
 
+`AnalyzeOptions` is a meaningful analyzer tuning surface. Equivalent analyzer configuration is available in-process (Rust), via analyzer TOML (`[analyzer]` with `schema_version = 1`), and via CLI flags. Defaults preserve current analyzer behavior.
+
+Report JSON includes `analyzer_config` only when non-default analyzer options are used.
+
+Analyzer tuning only changes how captured evidence is interpreted; it does not change run capture artifacts.
+
 Semantics are batch/snapshot for completed runs, not streaming analysis.
 
 ### 5.9 Analyzer CLI (`tailtriage-cli`)

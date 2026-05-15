@@ -26,9 +26,9 @@ Most users should start with `tailtriage`.
 
 Use these docs when wiring `tailtriage` into a service or interpreting output.
 
-- [User guide](user-guide.md) — end-to-end adoption path and operational workflow.
+- [User guide](user-guide.md) — end-to-end adoption path, plus concise analyzer tuning examples for Rust/TOML/CLI.
 - [Operations guide](operations.md) — primary production operations guidance for rollout path, capture-mode selection, runtime sampling decisions, artifact sizing, truncation/capture-limit handling, weak-signal troubleshooting, and current operational limits.
-- [Diagnostics guide](diagnostics.md) — how to read analyzer output, evidence quality, suspects, confidence, warnings, and field meanings.
+- [Diagnostics guide](diagnostics.md) — how to read analyzer output, evidence quality, suspects, confidence, warnings, and analyzer tuning boundaries.
 - [Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md) — typed in-process report contract and rendering API.
 - [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — saved-artifact loading, schema validation, and text/JSON output.
 
@@ -72,3 +72,5 @@ Use these docs for project-level information rather than product workflow guidan
 - [Contributing guide](../CONTRIBUTING.md) — contributor workflow, scope guardrails, local checks, and docs-update expectations.
 - [Code of Conduct](../CODE_OF_CONDUCT.md) — community participation policy.
 - [Security policy](../SECURITY.md) — private vulnerability reporting guidance.
+
+- [Analyzer config example](../examples/analyzer-config.toml) — maintained `[analyzer]` TOML starter with `schema_version = 1`.

@@ -58,6 +58,57 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 - `analyze_run_json` and `analyze_run_json_pretty` combine analysis + canonical JSON rendering
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
 
+## Analyzer options and tuning
+
+Start with defaults:
+
+```rust
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+# use tailtriage_core::Run;
+# fn example(run: &Run) {
+let report = analyze_run(run, AnalyzeOptions::default());
+# let _ = report;
+# }
+```
+
+Checked custom options in process:
+
+```rust
+use tailtriage_analyzer::{
+    try_analyze_run, AnalyzeOptions,
+};
+# use tailtriage_core::Run;
+# fn example(run: &Run) -> Result<(), Box<dyn std::error::Error>> {
+let options = AnalyzeOptions::default().with_queueing(|q| {
+    q.trigger_permille = 450;
+}) ;
+let report = try_analyze_run(run, options)?;
+# let _ = report;
+# Ok(())
+# }
+```
+
+Parse analyzer options from TOML text:
+
+```rust
+use tailtriage_analyzer::AnalyzeOptions;
+
+let toml = r#"
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+trigger_permille = 450
+"#;
+
+let options = AnalyzeOptions::from_toml_str(toml)?;
+# Ok::<(), tailtriage_analyzer::AnalyzeConfigError>(())
+```
+
+When non-default analyzer options are used, Report JSON includes `analyzer_config`. With default options, `analyzer_config` is omitted.
+
+Analyzer tuning changes interpretation of captured evidence; it does not change capture artifacts.
+
 ## Semantics and boundaries
 
 - batch/snapshot analysis of one completed run
