@@ -30,6 +30,7 @@
 mod convention;
 mod error;
 mod jsonl;
+mod live;
 mod types;
 
 use tailtriage_core::{
@@ -42,6 +43,7 @@ pub use convention::{
 };
 pub use error::ImportError;
 pub use jsonl::{import_jsonl_path, import_jsonl_reader};
+pub use live::{TailtriageLayer, TracingRecorder, TracingRecorderBuilder};
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.

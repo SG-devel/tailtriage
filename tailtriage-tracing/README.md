@@ -1,19 +1,65 @@
 # tailtriage-tracing
 
-`tailtriage-tracing` is a focused intake bridge surface for tracing-shaped span
-records that can be converted into `tailtriage_core::Run` inputs.
+`tailtriage-tracing` is a focused intake bridge for tracing-shaped span data that
+can be converted into `tailtriage_core::Run` triage inputs.
 
-This crate is intentionally narrow:
+This crate provides:
 
-- It defines semantic convention keys (`tt.*`) for triage-oriented span fields.
-- It defines typed intake records and import option/result types.
-- It converts typed `SpanRecord` values with `run_from_span_records`.
-- It imports JSONL from readers/paths when records contain completed span timing.
-- It does **not** install or provide a `tracing_subscriber::Layer`.
-- It does **not** implement OpenTelemetry or OTLP.
-- It does **not** change `tailtriage-analyzer`.
+- semantic convention keys (`tt.*`) for triage-oriented span fields
+- typed intake records and import option/result types
+- `run_from_span_records` for converting `SpanRecord` values into `Run`
+- JSONL import helpers for completed spans
+- a live `tracing_subscriber::Layer` recorder for completed spans
 
-## JSONL import support in this phase
+This crate does **not** provide OTel/OTLP integration and does **not** change
+`tailtriage-analyzer` behavior.
+
+## Live tracing recorder
+
+Public APIs:
+
+- `TracingRecorder`
+- `TracingRecorderBuilder`
+- `TailtriageLayer`
+
+Minimal example:
+
+```rust
+use tracing_subscriber::{layer::SubscriberExt, Registry};
+use tailtriage_tracing::TracingRecorder;
+
+let recorder = TracingRecorder::builder("checkout-service")
+    .service_version("1.2.3")
+    .build();
+
+let subscriber = Registry::default().with(recorder.layer());
+tracing::subscriber::with_default(subscriber, || {
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-42",
+        tt.route = "/checkout"
+    );
+    let _entered = request.enter();
+});
+
+let imported = recorder.snapshot_run()?;
+assert_eq!(imported.run().requests.len(), 1);
+# Ok::<(), tailtriage_tracing::ImportError>(())
+```
+
+Async instrumentation note:
+
+- Prefer `#[tracing::instrument(fields(...))]` or `.instrument(...)`.
+- Do not hold a manual entered-span guard across `.await`.
+
+Runtime-pressure evidence note:
+
+- tracing spans work outside Tokio for request/stage/queue evidence.
+- Runtime-pressure evidence still requires tailtriage Tokio runtime sampling or
+  future runtime metrics import.
+
+## JSONL import support
 
 Public APIs:
 
@@ -38,31 +84,3 @@ Supported stable contract (recommended for tests and integrations):
   }
 }
 ```
-
-Notes:
-
-- Importer accepts `started_at_unix_ms`/`finished_at_unix_ms` and aliases `start_unix_ms`/`end_unix_ms`.
-- In this phase, normalized shape uses **literal dotted keys** inside `fields` (for example `"tt.kind"` and `"tt.request_id"`), not nested objects that require flattening.
-- Importer reads `tt.*` fields from `fields`, `span.fields`, or top-level `tt.*` keys when present.
-- Scalars can be strings, bools, numbers, or null.
-- Empty lines are ignored.
-- Malformed JSON line input is an import error in both strict and non-strict mode.
-
-## tracing-subscriber JSON caveat
-
-Direct `tracing-subscriber` JSON output can vary by formatter configuration. In
-this phase, the importer supports:
-
-- normalized completed-span JSONL (shape above), and
-- close-event-like records only when they include explicit start/end unix-ms timestamps.
-
-It does not guess missing timing from line receive time and does not claim broad
-automatic parsing for every tracing JSON variant.
-
-## Intended field shape
-
-Typical span fields are expected to follow this shape:
-
-- request: `tt.kind`, `tt.request_id`, `tt.route`
-- stage: `tt.kind`, `tt.request_id`, `tt.stage`
-- queue: `tt.kind`, `tt.request_id`, `tt.queue`, `tt.depth_at_start`
