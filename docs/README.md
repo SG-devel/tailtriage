@@ -24,11 +24,11 @@ Most users should start with `tailtriage`.
 
 ## Capture and analysis workflow
 
-Use these docs when wiring `tailtriage` into a service or interpreting output.
+Use these docs when wiring `tailtriage` into a service or interpreting output. Analyzer tuning references are part of this same workflow (defaults first, tune after representative runs).
 
 - [User guide](user-guide.md) — end-to-end adoption path and operational workflow.
 - [Operations guide](operations.md) — primary production operations guidance for rollout path, capture-mode selection, runtime sampling decisions, artifact sizing, truncation/capture-limit handling, weak-signal troubleshooting, and current operational limits.
-- [Diagnostics guide](diagnostics.md) — how to read analyzer output, evidence quality, suspects, confidence, warnings, and field meanings.
+- [Diagnostics guide](diagnostics.md) — how to read analyzer output, evidence quality, suspects, confidence, warnings, and analyzer tuning guardrails.
 - [Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md) — typed in-process report contract and rendering API.
 - [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — saved-artifact loading, schema validation, and text/JSON output.
 

@@ -115,6 +115,97 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
     def test_diagnostics_contract_truthfulness(self) -> None:
         validate_docs_contracts.validate_diagnostics_contract_truthfulness()
 
+    def test_analyzer_config_example_contract(self) -> None:
+        validate_docs_contracts.validate_analyzer_config_example_contract()
+
+    def test_analyzer_config_example_contract_rejects_missing_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "analyzer-config.toml"
+            path.write_text("[analyzer]\n[analyzer.queueing]\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"schema_version = 1"):
+                validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
+
+    def test_analyzer_config_example_contract_rejects_missing_analyzer_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "analyzer-config.toml"
+            path.write_text("schema_version = 1\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"\[analyzer\]"):
+                validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
+
+    def test_analyzer_config_example_contract_rejects_missing_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "analyzer-config.toml"
+            body = "[analyzer]\nschema_version = 1\n" + "\n".join(
+                f"[analyzer.{g}]" for g in validate_docs_contracts.ANALYZER_GROUPS if g != "temporal"
+            )
+            path.write_text(body, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"temporal"):
+                validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
+
+    def test_analyzer_config_example_contract_rejects_root_level_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "analyzer-config.toml"
+            body = "[analyzer]\nschema_version = 1\n" + "\n".join(
+                f"[analyzer.{g}]" for g in validate_docs_contracts.ANALYZER_GROUPS
+            ) + "\n[queueing]\ntrigger_permille = 100\n"
+            path.write_text(body, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"root-level analyzer groups"):
+                validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
+
+    def test_extract_analyzer_paths_for_validation(self) -> None:
+        text = """
+Use `queueing.trigger_permille`, queueing.trigger_permille=400,
+--analyzer-set queueing.trigger_permille=400, and `confidence.high_score_threshold`.
+Ignore file names like docs/operations.md, foo.bar, and include queuing.trigger_permille too.
+"""
+        paths = validate_docs_contracts._extract_analyzer_paths_for_validation(text)
+        self.assertIn("queueing.trigger_permille", paths)
+        self.assertIn("confidence.high_score_threshold", paths)
+        self.assertIn("queuing.trigger_permille", paths)
+        self.assertNotIn("foo.bar", paths)
+        self.assertNotIn("docs/operations.md", paths)
+
+    def test_analyzer_tuning_docs_contracts_on_committed_docs(self) -> None:
+        validate_docs_contracts.validate_analyzer_tuning_tokens_contract()
+        validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs()
+        validate_docs_contracts.validate_analyzer_override_paths_contract()
+
+    def test_analyzer_no_root_level_docs_rejects_root_level_table_header(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            docs_dir = repo_root / "docs"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            path = docs_dir / "diagnostics.md"
+            path.write_text("[queueing]\ntrigger_permille = 400\n", encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaisesRegex(ValueError, r"invalid root-level TOML header"):
+                    validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs(doc_paths=(path,))
+
+    def test_analyzer_no_root_level_docs_allows_namespaced_table_header(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "docs.md"
+            path.write_text("[analyzer.queueing]\ntrigger_permille = 400\n", encoding="utf-8")
+            validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs(doc_paths=(path,))
+
+    def test_analyzer_override_paths_contract_rejects_invalid_paths(self) -> None:
+        invalid_candidates = (
+            "confidence.high_threshold",
+            "route.max_routes",
+            "temporal.windows",
+            "queuing.trigger_permille",
+        )
+        for candidate in invalid_candidates:
+            with self.subTest(candidate=candidate):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    repo_root = Path(tmp_dir)
+                    doc = repo_root / "docs.md"
+                    doc.write_text(f"`{candidate}`\n", encoding="utf-8")
+                    with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                        with self.assertRaisesRegex(ValueError, candidate):
+                            validate_docs_contracts.validate_analyzer_override_paths_contract(
+                                doc_paths=(doc,)
+                            )
+
     def test_validation_ci_contract_checks_committed_workflow_and_docs(self) -> None:
         validate_docs_contracts.validate_diagnostic_benchmark_ci_contract()
         validate_docs_contracts.validate_validation_docs_ci_contract()

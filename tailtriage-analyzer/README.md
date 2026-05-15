@@ -58,6 +58,55 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 - `analyze_run_json` and `analyze_run_json_pretty` combine analysis + canonical JSON rendering
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
 
+## Analyzer tuning options
+
+Start with defaults:
+
+```rust
+use tailtriage_analyzer::AnalyzeOptions;
+
+let options = AnalyzeOptions::default();
+let _ = options;
+```
+
+In-process checked custom options:
+
+```rust
+use tailtriage_analyzer::{try_analyze_run, AnalyzeOptions};
+use tailtriage_core::Run;
+
+fn analyze_checked(run: &Run) -> Result<(), Box<dyn std::error::Error>> {
+    let options = AnalyzeOptions::default()
+        .with_queueing(|o| o.trigger_permille = 450);
+    let report = try_analyze_run(run, options)?;
+    let _ = report;
+    Ok(())
+}
+```
+
+TOML parsing example:
+
+```rust
+use tailtriage_analyzer::AnalyzeOptions;
+
+let input = r#"
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+trigger_permille = 450
+"#;
+
+let options = AnalyzeOptions::from_toml_str(input)?;
+# Ok::<(), tailtriage_analyzer::AnalyzeConfigError>(())
+```
+
+Report transparency behavior:
+
+- default options omit `analyzer_config` from Report JSON
+- non-default options include `analyzer_config` with active non-default overrides
+- tuning changes interpretation of captured evidence; it does not change capture artifacts
+
 ## Semantics and boundaries
 
 - batch/snapshot analysis of one completed run

@@ -102,6 +102,34 @@ Warnings show interpretation limits (missing signal families, sparse coverage, a
 
 As always: suspects are leads for next checks, not proof.
 
+## Analyzer tuning
+
+Start with defaults (`AnalyzeOptions::default()` or no analyzer overrides in CLI/TOML).
+
+Tune only after representative runs under comparable workload. First validate that capture evidence is usable (enough requests, relevant queue/stage instrumentation, and acceptable truncation state), then adjust analyzer thresholds if ranking behavior needs tighter workload fit.
+
+Analyzer option groups:
+
+- **queueing**: queue-share and queue-pressure thresholds for queue saturation leads
+- **blocking**: blocking-pool queue-depth/coverage thresholds
+- **executor**: runtime queue-depth thresholds for executor-pressure leads
+- **downstream**: stage eligibility and blocking-correlation heuristics
+- **confidence**: score bands and ambiguity boundaries for confidence labeling
+- **evidence**: low-evidence thresholds that shape evidence-quality interpretation
+- **route**: conservative route-breakdown emission thresholds
+- **temporal**: conservative within-run segment emission thresholds
+
+When non-default options are used, report JSON includes `analyzer_config` with the active non-default overrides. Default analyzer behavior omits `analyzer_config` from report JSON.
+
+Use tuning as interpretation control, not data repair: tuning cannot recover missing instrumentation and cannot compensate for truncation or dropped evidence.
+
+Suspects remain evidence-ranked leads, not proof. `confidence` is ranking confidence under observed evidence and limits; it is not causal certainty.
+
+For the complete option list and valid override paths, use:
+
+- `tailtriage analyze --help-analyzer-options`
+- `examples/analyzer-config.toml`
+
 ## Warning semantics
 
 `warnings[]` is additive and can include multiple classes together:
