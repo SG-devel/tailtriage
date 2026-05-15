@@ -244,3 +244,96 @@ fn parse_report_json(output: std::process::Output) -> serde_json::Value {
 fn valid_cli_artifact_with_empty_requests() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
+
+#[test]
+fn import_tracing_json_writes_run_json_that_loader_and_analyzer_accept() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let input_path = dir.path().join("spans.jsonl");
+    let output_path = dir.path().join("run.json");
+
+    std::fs::write(
+        &input_path,
+        "{\"span\":{\"name\":\"http.request\",\"started_at_unix_ms\":10,\"finished_at_unix_ms\":20,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"req-1\",\"tt.route\":\"/checkout\",\"tt.success\":true}}}\n",
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&input_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.trim().is_empty(), "unexpected stderr: {stderr}");
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&output_path)
+        .expect("imported run should load");
+    assert_eq!(loaded.run.metadata.service_name, "checkout");
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}
+
+#[test]
+fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let input_path = dir.path().join("spans.jsonl");
+    let output_path = dir.path().join("run.json");
+
+    std::fs::write(
+        &input_path,
+        "{\"span\":{\"name\":\"http.request\",\"started_at_unix_ms\":10,\"finished_at_unix_ms\":20,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"req-1\"}}}\n",
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&input_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--strict")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("strict import violation"));
+    assert!(!output_path.exists(), "run json should not be created");
+}
+
+#[test]
+fn import_tracing_json_non_strict_writes_output_and_emits_warning() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let input_path = dir.path().join("spans.jsonl");
+    let output_path = dir.path().join("run.json");
+
+    std::fs::write(
+        &input_path,
+        "{\"span\":{\"name\":\"http.request\",\"started_at_unix_ms\":10,\"finished_at_unix_ms\":20,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"req-1\"}}}\n",
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&input_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(output_path.exists(), "run json should be written");
+}
