@@ -118,6 +118,10 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
     def test_validation_ci_contract_checks_committed_workflow_and_docs(self) -> None:
         validate_docs_contracts.validate_diagnostic_benchmark_ci_contract()
         validate_docs_contracts.validate_validation_docs_ci_contract()
+        validate_docs_contracts.validate_analyzer_config_example_contract()
+        validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs()
+        validate_docs_contracts.validate_analyzer_tuning_tokens_contract()
+        validate_docs_contracts.validate_analyzer_override_paths_contract()
 
     def test_validation_ci_contract_fails_without_diagnostic_benchmark_command(self) -> None:
         workflow_text = """name: CI
@@ -213,6 +217,47 @@ Normal CI does not publish durable diagnostic scorecards.
 
             with self.assertRaisesRegex(ValueError, r"validation-snapshot.yml"):
                 validate_docs_contracts.validate_validation_docs_ci_contract(
+                    doc_paths=(doc_path,)
+                )
+
+    def test_analyzer_config_contract_fails_without_schema_version(self) -> None:
+        text = """
+[analyzer]
+
+[analyzer.queueing]
+trigger_permille = 600
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "analyzer-config.toml"
+            config_path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"schema_version = 1"):
+                validate_docs_contracts.validate_analyzer_config_example_contract(
+                    config_path=config_path
+                )
+
+    def test_rejects_root_level_analyzer_group_header(self) -> None:
+        text = """
+# docs
+```toml
+[queueing]
+trigger_permille = 700
+```
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            doc_path = Path(tmp_dir) / "diagnostics.md"
+            doc_path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"root-level analyzer TOML"):
+                validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs(
+                    doc_paths=(doc_path,)
+                )
+
+    def test_rejects_invalid_analyzer_override_path(self) -> None:
+        text = "Use `confidence.high_threshold=0.9` or `queuing.trigger_permille=700`."
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            doc_path = Path(tmp_dir) / "user-guide.md"
+            doc_path.write_text(text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"invalid analyzer override path"):
+                validate_docs_contracts.validate_analyzer_override_paths_contract(
                     doc_paths=(doc_path,)
                 )
 

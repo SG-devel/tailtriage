@@ -112,6 +112,60 @@ STALE_VALIDATION_DOC_PHRASES = (
     "no in normal pr ci",
 )
 
+ANALYZER_CONFIG_EXAMPLE_PATH = REPO_ROOT / "examples" / "analyzer-config.toml"
+ANALYZER_DOC_PATHS = (
+    DIAGNOSTICS_PATH,
+    OPERATIONS_PATH,
+    USER_GUIDE_PATH,
+    REPO_ROOT / "tailtriage-analyzer" / "README.md",
+    REPO_ROOT / "tailtriage-cli" / "README.md",
+)
+ANALYZER_GROUPS = (
+    "queueing",
+    "blocking",
+    "executor",
+    "downstream",
+    "confidence",
+    "evidence",
+    "route",
+    "temporal",
+)
+ANALYZER_V1_VALID_PATHS = {
+    "queueing.trigger_permille",
+    "queueing.clear_permille",
+    "queueing.min_share_of_total",
+    "queueing.min_p95_ms",
+    "blocking.trigger_permille",
+    "blocking.clear_permille",
+    "blocking.min_share_of_total",
+    "blocking.min_p95_ms",
+    "blocking.min_queue_depth_p95",
+    "executor.trigger_permille",
+    "executor.clear_permille",
+    "executor.min_runtime_busy_permille_p95",
+    "executor.min_runtime_queue_depth_p95",
+    "downstream.trigger_permille",
+    "downstream.clear_permille",
+    "downstream.min_share_of_total",
+    "downstream.min_p95_ms",
+    "downstream.dominance_ratio",
+    "confidence.high_min_score",
+    "confidence.medium_min_score",
+    "evidence.min_items_for_high",
+    "evidence.min_items_for_medium",
+    "route.enabled",
+    "route.min_samples",
+    "route.min_p95_ms",
+    "route.max_routes",
+    "route.min_share_to_flag",
+    "route.ratio_threshold",
+    "temporal.enabled",
+    "temporal.tail_fraction",
+    "temporal.head_tail_ratio_threshold",
+    "temporal.min_samples",
+    "temporal.min_p95_ms",
+}
+
 
 RUSTDOC_INCLUDE_CRATE_LIBS = (
     REPO_ROOT / "tailtriage" / "src" / "lib.rs",
@@ -838,6 +892,110 @@ def validate_validation_docs_ci_contract(
             "validation docs must state normal CI does not publish durable diagnostic scorecards"
         )
 
+def validate_analyzer_config_example_contract(
+    *, config_path: Path = ANALYZER_CONFIG_EXAMPLE_PATH
+) -> None:
+    if not config_path.exists():
+        raise ValueError(f"missing analyzer config example: {config_path.relative_to(REPO_ROOT)}")
+    try:
+        parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"analyzer config example must parse as TOML: {exc}") from exc
+
+    analyzer = parsed.get("analyzer")
+    if not isinstance(analyzer, dict):
+        raise ValueError("analyzer config example must include an [analyzer] table")
+    if analyzer.get("schema_version") != 1:
+        raise ValueError("analyzer config example must set analyzer.schema_version = 1")
+
+    for group in ANALYZER_GROUPS:
+        value = analyzer.get(group)
+        if not isinstance(value, dict):
+            raise ValueError(f"analyzer config example missing [analyzer.{group}] table")
+        if group in parsed:
+            raise ValueError(
+                f"analyzer config example must not include root-level [{group}] table"
+            )
+
+
+def validate_no_root_level_analyzer_toml_in_docs(
+    *, doc_paths: tuple[Path, ...] = ANALYZER_DOC_PATHS
+) -> None:
+    pattern = re.compile(
+        rf"(?m)^\s*\[(?P<group>{'|'.join(ANALYZER_GROUPS)})\]\s*$"
+    )
+    hits: list[str] = []
+    for path in doc_paths:
+        text = path.read_text(encoding="utf-8")
+        for match in pattern.finditer(text):
+            try:
+                display_path = str(path.relative_to(REPO_ROOT))
+            except ValueError:
+                display_path = str(path)
+            hits.append(f"{display_path} contains root-level analyzer TOML header [{match.group('group')}]")
+
+    if hits:
+        raise ValueError("docs include stale root-level analyzer TOML tables:\n" + "\n".join(hits))
+
+
+def validate_analyzer_tuning_tokens_contract() -> None:
+    diagnostics_text = DIAGNOSTICS_PATH.read_text(encoding="utf-8")
+    for token in ("Analyzer tuning", "AnalyzeOptions", "--help-analyzer-options"):
+        if token not in diagnostics_text:
+            raise ValueError(f"docs/diagnostics.md missing required analyzer token: {token}")
+    diagnostics_lower = diagnostics_text.lower()
+    if "not proof" not in diagnostics_lower and "not proof of root cause" not in diagnostics_lower:
+        raise ValueError("docs/diagnostics.md must include bounded wording that suspects are not proof")
+
+    operations_text = OPERATIONS_PATH.read_text(encoding="utf-8").lower()
+    if "analyzer config" not in operations_text and "analyzer tuning" not in operations_text:
+        raise ValueError("docs/operations.md must mention analyzer config or analyzer tuning")
+    for token in ("representative runs", "truncation"):
+        if token not in operations_text:
+            raise ValueError(f"docs/operations.md missing required analyzer token: {token}")
+    if "same analyzer config" not in operations_text and "changed analyzer config" not in operations_text:
+        raise ValueError("docs/operations.md must explain comparing runs with same analyzer config")
+
+    user_guide_text = USER_GUIDE_PATH.read_text(encoding="utf-8")
+    for token in ("[analyzer]", "schema_version = 1", "--analyzer-config", "--analyzer-set", "try_analyze_run"):
+        if token not in user_guide_text:
+            raise ValueError(f"docs/user-guide.md missing required analyzer token: {token}")
+
+    cli_readme_text = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8")
+    for token in ("--analyzer-config", "--analyzer-set", "--help-analyzer-options", "Report JSON"):
+        if token not in cli_readme_text:
+            raise ValueError(f"tailtriage-cli/README.md missing required analyzer token: {token}")
+
+    analyzer_readme_text = (REPO_ROOT / "tailtriage-analyzer" / "README.md").read_text(encoding="utf-8")
+    for token in ("AnalyzeOptions", "try_analyze_run", "with_queueing", "analyzer_config"):
+        if token not in analyzer_readme_text:
+            raise ValueError(f"tailtriage-analyzer/README.md missing required analyzer token: {token}")
+
+
+def validate_analyzer_override_paths_contract(
+    *, doc_paths: tuple[Path, ...] = ANALYZER_DOC_PATHS
+) -> None:
+    backticked = re.compile(r"`([^`]+)`")
+    dotted_token = re.compile(r"\b([a-z_]+\.[a-z0-9_\.]+)\b")
+    allowed_prefixes = set(ANALYZER_GROUPS)
+    failures: list[str] = []
+    for path in doc_paths:
+        text = path.read_text(encoding="utf-8")
+        candidates: set[str] = set()
+        for raw in backticked.findall(text):
+            candidates.update(dotted_token.findall(raw))
+        for token in dotted_token.findall(text):
+            candidates.add(token)
+        for candidate in sorted(candidates):
+            prefix = candidate.split(".", 1)[0]
+            if prefix not in allowed_prefixes:
+                continue
+            if candidate not in ANALYZER_V1_VALID_PATHS:
+                rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
+                failures.append(f"{rel} mentions invalid analyzer override path: {candidate}")
+    if failures:
+        raise ValueError("docs mention stale/invalid analyzer override paths:\n" + "\n".join(failures))
+
 
 def validate_architecture_contract() -> None:
     text = ARCHITECTURE_PATH.read_text(encoding="utf-8")
@@ -956,6 +1114,10 @@ def main() -> int:
     validate_capture_readmes_analyzer_cli_wording_contract()
     validate_diagnostic_benchmark_ci_contract()
     validate_validation_docs_ci_contract()
+    validate_analyzer_config_example_contract()
+    validate_no_root_level_analyzer_toml_in_docs()
+    validate_analyzer_tuning_tokens_contract()
+    validate_analyzer_override_paths_contract()
     validate_architecture_contract()
     validate_docs_no_history_framing()
     validate_no_user_facing_facade_wording()
