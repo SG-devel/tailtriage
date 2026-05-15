@@ -29,6 +29,7 @@
 
 mod convention;
 mod error;
+mod jsonl;
 mod types;
 
 use tailtriage_core::{
@@ -41,6 +42,36 @@ pub use convention::{
 };
 pub use error::ImportError;
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
+
+/// Imports newline-delimited JSON span records and converts them into a
+/// `tailtriage_core::Run` using [`run_from_span_records`].
+///
+/// This phase supports normalized records and close-event-like records that
+/// carry explicit start/end unix-ms timestamps.
+///
+/// # Errors
+///
+/// Returns [`ImportError`] for malformed JSON and path/reader failures.
+pub fn import_jsonl_reader<R: std::io::Read>(
+    reader: R,
+    options: ImportOptions,
+) -> Result<ImportedRun, ImportError> {
+    jsonl::import_jsonl_reader(reader, options)
+}
+
+/// Imports newline-delimited JSON from a path and converts it into a
+/// `tailtriage_core::Run` using [`run_from_span_records`].
+///
+/// # Errors
+///
+/// Returns [`ImportError`] for I/O failures, malformed JSON, and strict-mode
+/// conversion violations.
+pub fn import_jsonl_path(
+    path: impl AsRef<std::path::Path>,
+    options: ImportOptions,
+) -> Result<ImportedRun, ImportError> {
+    jsonl::import_jsonl_path(path, options)
+}
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
 ///

@@ -867,7 +867,9 @@ name = "tailtriage-tracing"
 version = "0.2.0"
 dependencies = [
  "serde",
+ "serde_json",
  "tailtriage-core",
+ "tempfile",
 ]
 
 [[package]]
