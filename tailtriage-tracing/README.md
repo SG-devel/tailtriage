@@ -109,5 +109,5 @@ Tracing span capture for request/stage/queue evidence works outside Tokio runtim
 
 ## Examples
 
-- `examples/live_recorder.rs`: captures completed `tt.*` spans with `TracingRecorder`, imports a run, and renders analyzer suspects and next checks.
-- `examples/tracing_spans.jsonl`: normalized completed-span JSONL fixture for `import_jsonl_reader`/`import_jsonl_path` workflows.
+- `examples/live_recorder.rs`: records one request span, one queue span, and one stage span with `TracingRecorder`, imports a run, and renders analyzer suspects and next checks.
+- `examples/tracing_spans.jsonl`: normalized completed-span JSONL fixture importable via `import_jsonl_path` or CLI `tailtriage import tracing-json`.
