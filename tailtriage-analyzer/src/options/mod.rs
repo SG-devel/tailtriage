@@ -791,9 +791,9 @@ impl Display for AnalyzeConfigError {
             Self::InvalidOverrideSyntax { raw } => write!(f, "invalid override syntax: {raw}"),
             Self::UnknownOverridePath { path, suggestion } => {
                 if let Some(s) = suggestion {
-                    write!(f, "unknown override path '{path}', did you mean '{s}'?")
+                    write!(f, "unknown analyzer option '{path}'; did you mean '{s}'?")
                 } else {
-                    write!(f, "unknown override path '{path}'")
+                    write!(f, "unknown analyzer option '{path}'")
                 }
             }
             Self::InvalidOverrideValue {
