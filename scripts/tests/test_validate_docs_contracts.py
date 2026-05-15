@@ -542,6 +542,55 @@ impl Tailtriage {
     def test_sampler_integration_boundary_contract_validates(self) -> None:
         validate_docs_contracts.validate_sampler_integration_boundary()
 
+    def test_analyzer_config_example_contract(self) -> None:
+        validate_docs_contracts.validate_analyzer_config_example_contract()
+
+    def test_analyzer_config_example_contract_rejects_missing_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cfg = Path(tmp_dir) / "analyzer-config.toml"
+            cfg.write_text(
+                """
+[analyzer]
+
+[analyzer.queueing]
+[analyzer.blocking]
+[analyzer.executor]
+[analyzer.downstream]
+[analyzer.confidence]
+[analyzer.evidence]
+[analyzer.route]
+[analyzer.temporal]
+""".strip(),
+                encoding="utf-8",
+            )
+            with mock.patch.object(validate_docs_contracts, "ANALYZER_CONFIG_EXAMPLE_PATH", cfg):
+                with self.assertRaisesRegex(ValueError, r"schema_version = 1"):
+                    validate_docs_contracts.validate_analyzer_config_example_contract()
+
+    def test_extract_analyzer_like_paths(self) -> None:
+        text = "`queueing.min_trigger_permille` `confidence.high` foo.bar route.max_routes"
+        found = validate_docs_contracts._extract_analyzer_like_paths(text)
+        self.assertIn("queueing.min_trigger_permille", found)
+        self.assertIn("confidence.high", found)
+        self.assertIn("route.max_routes", found)
+        self.assertNotIn("foo.bar", found)
+
+    def test_analyzer_override_paths_contract_rejects_invalid_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            doc = Path(tmp_dir) / "doc.md"
+            doc.write_text("Use `confidence.high_threshold`.", encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "ANALYZER_DOC_PATHS", (doc,)):
+                with self.assertRaisesRegex(ValueError, r"confidence.high_threshold"):
+                    validate_docs_contracts.validate_analyzer_override_paths_contract()
+
+    def test_root_level_analyzer_group_headers_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            doc = Path(tmp_dir) / "doc.md"
+            doc.write_text("```toml\n[queueing]\nmin_trigger_permille = 50\n```", encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "ANALYZER_DOC_PATHS", (doc,)):
+                with self.assertRaisesRegex(ValueError, r"root-level analyzer TOML headers"):
+                    validate_docs_contracts.validate_no_root_level_analyzer_group_headers_in_docs()
+
     def test_controller_readme_toml_validation_allows_equivalent_headings(self) -> None:
         readme_text = """# tailtriage-controller
 
