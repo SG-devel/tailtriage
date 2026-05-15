@@ -42,7 +42,8 @@ Supported stable contract (recommended for tests and integrations):
 Notes:
 
 - Importer accepts `started_at_unix_ms`/`finished_at_unix_ms` and aliases `start_unix_ms`/`end_unix_ms`.
-- Field flattening accepts `fields.tt.kind`, `span.fields.tt.kind`, or top-level `tt.kind`.
+- In this phase, normalized shape uses **literal dotted keys** inside `fields` (for example `"tt.kind"` and `"tt.request_id"`), not nested objects that require flattening.
+- Importer reads `tt.*` fields from `fields`, `span.fields`, or top-level `tt.*` keys when present.
 - Scalars can be strings, bools, numbers, or null.
 - Empty lines are ignored.
 - Malformed JSON line input is an import error in both strict and non-strict mode.

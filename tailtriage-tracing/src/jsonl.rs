@@ -71,11 +71,21 @@ pub fn import_jsonl_path(
 
 fn parse_record(value: &Value) -> Result<Option<SpanRecord>, ImportError> {
     if let Some(span_obj) = value.get("span").and_then(Value::as_object) {
+        let has_tt_kind = span_obj
+            .get("fields")
+            .and_then(Value::as_object)
+            .is_some_and(|fields| fields.contains_key(TT_KIND));
         let has_name = span_obj.contains_key("name");
         let has_start =
             span_obj.contains_key("started_at_unix_ms") || span_obj.contains_key("start_unix_ms");
         let has_finish =
             span_obj.contains_key("finished_at_unix_ms") || span_obj.contains_key("end_unix_ms");
+        if has_tt_kind && !(has_name && has_start && has_finish) && !indicates_close_event(value) {
+            return Err(ImportError::InvalidField {
+                field: "span",
+                reason: "tailtriage span with fields.tt.kind must include name, started_at_unix_ms/start_unix_ms, and finished_at_unix_ms/end_unix_ms".to_owned(),
+            });
+        }
         if has_name && has_start && has_finish {
             return parse_normalized_span(span_obj).map(Some);
         }
@@ -134,8 +144,11 @@ fn parse_close_event_shape(value: &Value) -> Result<Option<SpanRecord>, ImportEr
         .or_else(|| optional_string(obj, "name").ok().flatten())
         .unwrap_or_else(|| "tracing.close".to_owned());
 
-    let started_at_unix_ms = required_timestamp_obj(obj, "started_at_unix_ms", "start_unix_ms")?;
-    let finished_at_unix_ms = required_timestamp_obj(obj, "finished_at_unix_ms", "end_unix_ms")?;
+    let span_obj = obj.get("span").and_then(Value::as_object);
+    let started_at_unix_ms =
+        required_timestamp_obj_or_nested(obj, span_obj, "started_at_unix_ms", "start_unix_ms")?;
+    let finished_at_unix_ms =
+        required_timestamp_obj_or_nested(obj, span_obj, "finished_at_unix_ms", "end_unix_ms")?;
 
     let mut span = SpanRecord::new(name, started_at_unix_ms, finished_at_unix_ms);
     if let Some(id) = optional_string(obj, "id")? {
@@ -256,6 +269,21 @@ fn required_timestamp_obj(
     }
     Err(ImportError::MissingField(primary))
 }
+fn required_timestamp_obj_or_nested(
+    obj: &serde_json::Map<String, Value>,
+    nested_obj: Option<&serde_json::Map<String, Value>>,
+    primary: &'static str,
+    alias: &'static str,
+) -> Result<u64, ImportError> {
+    if let Some(v) = obj.get(primary).or_else(|| obj.get(alias)) {
+        return parse_u64(v, primary);
+    }
+    if let Some(v) = nested_obj.and_then(|nested| nested.get(primary).or_else(|| nested.get(alias)))
+    {
+        return parse_u64(v, primary);
+    }
+    Err(ImportError::MissingField(primary))
+}
 fn parse_u64(v: &Value, field: &'static str) -> Result<u64, ImportError> {
     v.as_u64().ok_or_else(|| ImportError::InvalidField {
         field,
@@ -342,6 +370,31 @@ mod tests {
     #[test]
     fn close_event_shape_with_explicit_timestamps_is_supported() {
         let input = r#"{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}},"started_at_unix_ms":5,"finished_at_unix_ms":8}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].stage, "db");
+    }
+
+    #[test]
+    fn incomplete_normalized_tt_kind_span_errors_in_strict_and_non_strict_modes() {
+        let input = r#"{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::InvalidField { field: "span", .. }
+        ));
+
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::InvalidField { field: "span", .. }
+        ));
+    }
+
+    #[test]
+    fn close_event_shape_with_nested_span_timestamps_is_supported() {
+        let input = r#"{"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
