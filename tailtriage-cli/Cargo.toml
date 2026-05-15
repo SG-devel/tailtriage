@@ -19,6 +19,7 @@ include = [
 [[bin]]
 name = "tailtriage"
 path = "src/main.rs"
+doc = false
 
 [dependencies]
 clap = { version = "4.5.40", features = ["derive"] }
