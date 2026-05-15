@@ -9,7 +9,7 @@ This crate is intentionally narrow:
 - It defines typed intake records and import option/result types.
 - It converts typed `SpanRecord` values with `run_from_span_records`.
 - It imports JSONL from readers/paths when records contain completed span timing.
-- It does **not** install or provide a `tracing_subscriber::Layer`.
+- It provides an in-process `tracing_subscriber::Layer` recorder for completed `tt.*` spans.
 - It does **not** implement OpenTelemetry or OTLP.
 - It does **not** change `tailtriage-analyzer`.
 
@@ -66,3 +66,39 @@ Typical span fields are expected to follow this shape:
 - request: `tt.kind`, `tt.request_id`, `tt.route`
 - stage: `tt.kind`, `tt.request_id`, `tt.stage`
 - queue: `tt.kind`, `tt.request_id`, `tt.queue`, `tt.depth_at_start`
+
+
+## Live tracing recorder
+
+```rust
+use tracing_subscriber::prelude::*;
+use tailtriage_tracing::TracingRecorder;
+
+let recorder = TracingRecorder::builder("checkout-service")
+    .service_version("1.2.3")
+    .run_id("run-42")
+    .strict(false)
+    .build();
+
+let subscriber = tracing_subscriber::registry().with(recorder.layer());
+tracing::subscriber::with_default(subscriber, || {
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-42",
+        tt.route = "/checkout",
+        tt.outcome = tracing::field::Empty
+    );
+    request.record("tt.outcome", "ok");
+});
+
+let imported = recorder.shutdown()?;
+let run = imported.run();
+assert_eq!(run.requests.len(), 1);
+# Ok::<(), tailtriage_tracing::ImportError>(())
+```
+
+Use `#[tracing::instrument(fields(...))]` or `.instrument(...)` so span fields attach to async work correctly.
+Do not hold a manual entered-span guard across `.await`; async spans may enter/exit many times, and this recorder finalizes completed work on `on_close` (drop), not enter/exit transitions.
+
+Tracing span capture for request/stage/queue evidence works outside Tokio runtimes. Runtime-pressure evidence still requires tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans cannot infer executor or blocking-pool pressure by themselves.
