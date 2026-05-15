@@ -302,6 +302,15 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
+    fn fixture_jsonl_imports_request_stage_and_queue() {
+        let input = include_str!("../examples/tracing_spans.jsonl");
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().queues.len(), 1);
+    }
+
+    #[test]
     fn normalized_jsonl_request_only() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
