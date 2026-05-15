@@ -642,54 +642,60 @@ def validate_diagnostics_contract_truthfulness() -> None:
             "but docs/diagnostics.md lacks a matching field reference section"
         )
 
-def validate_analyzer_config_example_contract() -> None:
-    if not ANALYZER_CONFIG_EXAMPLE_PATH.exists():
-        raise ValueError("missing analyzer config example: examples/analyzer-config.toml")
-    text = ANALYZER_CONFIG_EXAMPLE_PATH.read_text(encoding="utf-8")
+def validate_analyzer_config_example_contract(*, config_path: Path = ANALYZER_CONFIG_EXAMPLE_PATH) -> None:
+    if not config_path.exists():
+        raise ValueError(f"missing analyzer config example: {config_path}")
+    text = config_path.read_text(encoding="utf-8")
     try:
         parsed = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"invalid TOML in {ANALYZER_CONFIG_EXAMPLE_PATH}: {exc}") from exc
+        raise ValueError(f"invalid TOML in {config_path}: {exc}") from exc
 
     analyzer = parsed.get("analyzer")
     if not isinstance(analyzer, dict):
-        raise ValueError("examples/analyzer-config.toml must define an [analyzer] table")
+        raise ValueError(f"{config_path} must define an [analyzer] table")
     if analyzer.get("schema_version") != 1:
-        raise ValueError("examples/analyzer-config.toml must set analyzer.schema_version = 1")
+        raise ValueError(f"{config_path} must set analyzer.schema_version = 1")
 
     missing_groups = [group for group in ANALYZER_GROUPS if not isinstance(analyzer.get(group), dict)]
     if missing_groups:
         raise ValueError(
-            "examples/analyzer-config.toml missing required [analyzer.*] groups: "
+            f"{config_path} missing required [analyzer.*] groups: "
             f"{', '.join(missing_groups)}"
         )
 
     invalid_root = sorted(group for group in ANALYZER_GROUPS if isinstance(parsed.get(group), dict))
     if invalid_root:
         raise ValueError(
-            "examples/analyzer-config.toml must not define root-level analyzer groups: "
+            f"{config_path} must not define root-level analyzer groups: "
             f"{', '.join(invalid_root)}"
         )
 
 
 def _extract_analyzer_paths_for_validation(text: str) -> set[str]:
-    prefixes = "|".join(ANALYZER_GROUPS)
-    pattern = re.compile(rf"(?:`([^`]+)`|\b(({prefixes})\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\b)")
+    prefixes = "|".join((*ANALYZER_GROUPS, "queuing"))
+    pattern = re.compile(
+        rf"(?:`([^`]+)`|\b(--analyzer-set\s+)?(({prefixes})\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)(?:=[^\s`]+)?)"
+    )
     paths: set[str] = set()
-    for quoted, bare, _ in pattern.findall(text):
-        candidate = quoted or bare
+    for quoted, _, bare_with_optional_value, _ in pattern.findall(text):
+        candidate = quoted or bare_with_optional_value
+        candidate = candidate.split("=", 1)[0].strip()
+        candidate = re.sub(r"^--analyzer-set\s+", "", candidate)
         if re.fullmatch(rf"(?:{prefixes})\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*", candidate):
             paths.add(candidate)
     return paths
 
 
-def validate_analyzer_tuning_docs_contract() -> None:
-    for path in ANALYZER_DOC_PATHS:
+def validate_no_root_level_analyzer_toml_in_docs(*, doc_paths: tuple[Path, ...] = ANALYZER_DOC_PATHS) -> None:
+    for path in doc_paths:
         text = path.read_text(encoding="utf-8")
         for group in ANALYZER_GROUPS:
             if re.search(rf"(?m)^\s*\[{group}\]\s*$", text):
                 raise ValueError(f"{path.relative_to(REPO_ROOT)} contains invalid root-level TOML header: [{group}]")
 
+
+def validate_analyzer_tuning_tokens_contract() -> None:
     diagnostics_text = DIAGNOSTICS_PATH.read_text(encoding="utf-8")
     diagnostics_lower = diagnostics_text.lower()
     diagnostics_required = ("analyzer tuning", "analyzeoptions", "--help-analyzer-options")
@@ -726,7 +732,8 @@ def validate_analyzer_tuning_docs_contract() -> None:
         if token not in analyzer_lower:
             raise ValueError(f"tailtriage-analyzer/README.md missing required analyzer token: {token}")
 
-    for path in ANALYZER_DOC_PATHS:
+def validate_analyzer_override_paths_contract(*, doc_paths: tuple[Path, ...] = ANALYZER_DOC_PATHS) -> None:
+    for path in doc_paths:
         text = path.read_text(encoding="utf-8")
         candidates = _extract_analyzer_paths_for_validation(text)
         invalid = sorted(candidate for candidate in candidates if candidate not in ANALYZER_V1_VALID_PATHS)
@@ -1096,7 +1103,9 @@ def main() -> int:
     validate_operations_guide_contract()
     validate_diagnostics_contract_truthfulness()
     validate_analyzer_config_example_contract()
-    validate_analyzer_tuning_docs_contract()
+    validate_no_root_level_analyzer_toml_in_docs()
+    validate_analyzer_tuning_tokens_contract()
+    validate_analyzer_override_paths_contract()
     validate_cli_not_presented_as_library_analyzer_api()
     validate_analyzer_cli_docs_split_contract()
     validate_capture_readmes_analyzer_cli_wording_contract()
