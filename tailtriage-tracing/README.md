@@ -68,6 +68,19 @@ Typical span fields are expected to follow this shape:
 - queue: `tt.kind`, `tt.request_id`, `tt.queue`, `tt.depth_at_start`
 
 
+
+## Examples
+
+- `examples/live_recorder.rs`: capture completed `tt.*` spans in-process with `TracingRecorder`, then analyze with `tailtriage-analyzer`.
+- `examples/import_jsonl.rs`: import normalized completed-span JSONL from `examples/tracing_spans.jsonl`, then analyze with `tailtriage-analyzer`.
+
+Run from this crate directory:
+
+```bash
+cargo run --example live_recorder
+cargo run --example import_jsonl
+```
+
 ## Live tracing recorder
 
 ```rust
