@@ -270,6 +270,7 @@ fn render_text_formats_inflight_trend_fields() {
         secondary_suspects: Vec::new(),
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
+        analyzer_config: None,
     };
 
     let text = render_text(&report);
@@ -323,6 +324,7 @@ fn render_text_marks_missing_inflight_trend() {
         secondary_suspects: Vec::new(),
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
+        analyzer_config: None,
     };
 
     let text = render_text(&report);
@@ -403,6 +405,50 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
 }
 
 #[test]
+fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
+    let mut run = test_run();
+    run.queues = vec![
+        QueueEvent {
+            request_id: "req-1".into(),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(9),
+        },
+        QueueEvent {
+            request_id: "req-2".into(),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+            depth_at_start: Some(9),
+        },
+    ];
+
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert!(default_report.primary_suspect.score >= 85);
+    assert!(default_report.primary_suspect.score < 95);
+    assert!(!default_report
+        .warnings
+        .iter()
+        .any(|w| w.contains("No runtime snapshots captured")));
+    assert!(default_report.analyzer_config.is_none());
+
+    let strict_options = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 95);
+    let strict_report = analyze_run(&run, strict_options);
+    assert!(strict_report
+        .warnings
+        .iter()
+        .any(|w| w.contains("No runtime snapshots captured")));
+    assert!(strict_report.analyzer_config.is_some());
+}
+
+#[test]
 fn runtime_warning_emitted_when_insufficient_evidence() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default());
     assert!(report
@@ -451,7 +497,7 @@ fn downstream_beats_weak_blocking() {
 #[test]
 fn score_100_is_reserved_for_overwhelming_queue_evidence() {
     let mut run = test_run();
-    run.requests = (0..40)
+    run.requests = (0_u64..40)
         .map(|i| RequestEvent {
             request_id: format!("req-{i}"),
             route: "/test".into(),
@@ -498,7 +544,7 @@ fn ambiguity_warning_requires_close_calibrated_scores() {
             vec![],
         ),
     ];
-    assert!(super::ambiguity_warning(&suspects).is_some());
+    assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
 }
 
 #[test]
@@ -542,14 +588,81 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
 #[test]
 fn retry_or_db_stage_is_not_treated_as_blocking_correlated_stage() {
     assert!(!super::scoring::stage_correlates_with_blocking_pool(
-        "db_query"
+        "db_query",
+        &AnalyzeOptions::default()
     ));
     assert!(!super::scoring::stage_correlates_with_blocking_pool(
-        "retry_attempt"
+        "retry_attempt",
+        &AnalyzeOptions::default()
     ));
     assert!(super::scoring::stage_correlates_with_blocking_pool(
-        "spawn_blocking_path"
+        "spawn_blocking_path",
+        &AnalyzeOptions::default()
     ));
+}
+
+#[test]
+fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            finished_at_unix_ms: i + 1,
+            latency_us: 4_000_000,
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|r| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "spawn_blocking_path".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 3_900_000,
+            success: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
+
+    let downstream_score_for = |margin: u8| {
+        let options = AnalyzeOptions::default()
+            .with_downstream(|o| o.blocking_correlation_score_margin = margin);
+        let report = analyze_run(&run, options);
+        report
+            .secondary_suspects
+            .iter()
+            .find(|s| s.kind == DiagnosisKind::DownstreamStageDominates)
+            .map(|s| s.score)
+            .expect("downstream suspect should be present")
+    };
+
+    let no_margin_score = downstream_score_for(0);
+    let large_margin_score = downstream_score_for(10);
+    assert!(large_margin_score < no_margin_score);
+}
+
+#[test]
+fn non_default_overrides_are_sorted_and_include_downstream_margin_override() {
+    let options = AnalyzeOptions::default()
+        .with_temporal(|o| o.min_request_count = 25)
+        .with_downstream(|o| o.blocking_correlation_score_margin = 7)
+        .with_queueing(|o| o.trigger_permille = 250);
+    let overrides = options.non_default_overrides();
+    let paths = overrides
+        .iter()
+        .map(|o| o.path.as_str())
+        .collect::<Vec<_>>();
+    let mut sorted = paths.clone();
+    sorted.sort_unstable();
+    assert_eq!(paths, sorted);
+    assert!(overrides
+        .iter()
+        .any(|o| { o.path == "downstream.blocking_correlation_score_margin" && o.value == "7" }));
 }
 
 #[test]
@@ -902,14 +1015,19 @@ fn missing_queue_instrumentation_uses_missing_queue_note() {
     let mut run = test_run();
     run.requests = vec![sample_request(1)];
     run.queues.clear();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::ApplicationQueueSaturation,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert!(suspects[0]
         .confidence_notes
         .iter()
@@ -962,14 +1080,19 @@ fn missing_stage_instrumentation_uses_missing_stage_note() {
     let mut run = test_run();
     run.requests = vec![sample_request(1)];
     run.stages.clear();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::DownstreamStageDominates,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert!(suspects[0]
         .confidence_notes
         .iter()
@@ -990,14 +1113,19 @@ fn runtime_partial_fields_cap_executor_or_blocking_confidence() {
             remote_schedule_count: Some(0),
         })
         .collect();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::BlockingPoolPressure,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert_eq!(suspects[0].confidence, Confidence::Medium);
     assert!(suspects[0]
             .confidence_notes
@@ -1014,14 +1142,19 @@ fn missing_runtime_snapshots_use_missing_runtime_note() {
     let mut run = test_run();
     run.requests = vec![sample_request(1)];
     run.runtime_snapshots.clear();
-    let eq = evidence::evidence_quality(&run);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
     let mut suspects = vec![Suspect::new(
         DiagnosisKind::ExecutorPressureSuspected,
         100,
         vec![],
         vec![],
     )];
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert!(suspects[0]
         .confidence_notes
         .iter()
@@ -1040,8 +1173,13 @@ fn ambiguity_cap_adds_note_to_close_top_suspects() {
         Suspect::new(DiagnosisKind::DownstreamStageDominates, 97, vec![], vec![]),
     ];
     let run = test_run();
-    let eq = evidence::evidence_quality(&run);
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert_eq!(suspects[0].confidence, Confidence::Medium);
     assert_eq!(suspects[1].confidence, Confidence::Medium);
     assert!(suspects[0]
@@ -1066,8 +1204,13 @@ fn ambiguity_capping_preserves_order_and_scores() {
         Suspect::new(DiagnosisKind::DownstreamStageDominates, 100, vec![], vec![]),
     ];
     let run = test_run();
-    let eq = evidence::evidence_quality(&run);
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
 
     assert_eq!(suspects[0].score, 100);
     assert_eq!(suspects[1].score, 100);
@@ -1119,8 +1262,13 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
         Suspect::new(DiagnosisKind::DownstreamStageDominates, 10, vec![], vec![]),
     ];
     suspects[0].confidence = Confidence::High;
-    let eq = evidence::evidence_quality(&run);
-    super::confidence::apply_evidence_aware_confidence_caps(&mut suspects, &run, &eq);
+    let eq = evidence::evidence_quality(&run, &AnalyzeOptions::default());
+    super::confidence::apply_evidence_aware_confidence_caps(
+        &mut suspects,
+        &run,
+        &eq,
+        &AnalyzeOptions::default(),
+    );
     assert_eq!(suspects[0].confidence, Confidence::High);
     assert!(suspects[0].confidence_notes.is_empty());
 }
@@ -1231,6 +1379,60 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
 }
 
 #[test]
+fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_p95_disparity() {
+    let mut run = test_run();
+    run.requests.clear();
+    for idx in 1..=4 {
+        let mut req = sample_request(idx);
+        req.route = "/a".into();
+        req.latency_us = 10_000;
+        run.requests.push(req);
+    }
+    for idx in 5..=7 {
+        let mut req = sample_request(idx);
+        req.route = "/b".into();
+        req.latency_us = 2_000;
+        run.requests.push(req);
+    }
+    for req_id in ["req-1", "req-2", "req-3", "req-4"] {
+        run.queues.push(QueueEvent {
+            request_id: req_id.to_owned(),
+            queue: "ingress".into(),
+            wait_us: 9_000,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(9),
+        });
+    }
+    for req_id in ["req-5", "req-6", "req-7"] {
+        run.stages.push(StageEvent {
+            request_id: req_id.to_owned(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 1_900,
+            success: true,
+        });
+    }
+
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(default_report.route_breakdowns.len(), 2);
+    assert!(default_report
+        .warnings
+        .iter()
+        .any(|warning| warning == ROUTE_DIVERGENCE_WARNING));
+
+    let mut options = AnalyzeOptions::default();
+    options.route.emit_on_divergent_suspects = false;
+    let toggled_report = analyze_run(&run, options);
+    assert_eq!(toggled_report.route_breakdowns.len(), 2);
+    assert!(toggled_report
+        .warnings
+        .iter()
+        .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
+}
+
+#[test]
 fn multi_route_same_primary_keeps_route_breakdowns_empty() {
     let mut run = test_run();
     run.requests.clear();
@@ -1270,7 +1472,7 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
 fn route_breakdowns_do_not_change_global_primary_suspect() {
     let mut run = test_run();
     run.runtime_snapshots = vec![runtime_snapshot(Some(300), Some(250), Some(200))];
-    let global = analyze_run_internal(&run);
+    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
@@ -1386,9 +1588,21 @@ fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
         .iter()
         .any(|w| w == TEMPORAL_P95_SHIFT_WARNING));
 
-    assert!(!has_material_p95_shift(Some(0), Some(5_000)));
-    assert!(!has_material_p95_shift(None, Some(5_000)));
-    assert!(!has_material_p95_shift(Some(10), None));
+    assert!(!has_material_p95_shift(
+        Some(0),
+        Some(5_000),
+        &AnalyzeOptions::default()
+    ));
+    assert!(!has_material_p95_shift(
+        None,
+        Some(5_000),
+        &AnalyzeOptions::default()
+    ));
+    assert!(!has_material_p95_shift(
+        Some(10),
+        None,
+        &AnalyzeOptions::default()
+    ));
 }
 
 #[test]
@@ -1405,7 +1619,7 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
             depth_at_start: Some(9),
         });
     }
-    let global = analyze_run_internal(&run);
+    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
@@ -1463,7 +1677,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
         count: 1,
     }];
 
-    let global = analyze_run_internal(&run);
+    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
     let report = analyze_run(&run, AnalyzeOptions::default());
 
     assert_eq!(report.temporal_segments.len(), 2);
@@ -2024,4 +2238,559 @@ fn descriptor_defaults_match_analyze_options_defaults() {
             expected.get(descriptor.path)
         );
     }
+}
+
+fn assert_default_report_has_no_analyzer_config(report: &Report) {
+    assert!(report.analyzer_config.is_none());
+}
+
+#[test]
+fn default_options_compat_queue_saturation_case() {
+    let mut run = test_run();
+    run.queues = run
+        .requests
+        .iter()
+        .map(|r| QueueEvent {
+            request_id: r.request_id.clone(),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+            depth_at_start: Some(9),
+        })
+        .collect();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_blocking_pool_pressure_case() {
+    let mut run = test_run();
+    run.requests = (0..40).map(sample_request).collect();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|r| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "spawn_blocking_path".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 3_900_000,
+            success: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_insufficient_and_weak_evidence_case() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::InsufficientEvidence
+    );
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.contains("Low completed-request count")));
+    assert_eq!(report.evidence_quality.quality, EvidenceQualityLevel::Weak);
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_downstream_stage_dominates_case() {
+    let mut run = test_run();
+    run.stages = run
+        .requests
+        .iter()
+        .map(|r| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 900,
+            success: true,
+        })
+        .collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_truncated_evidence_case() {
+    let mut run = test_run();
+    run.truncation.dropped_requests = 2;
+    run.truncation.limits_hit = true;
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.contains("dropped evidence can reduce diagnosis completeness and confidence")));
+    assert!(report.evidence_quality.truncated);
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_ambiguous_top_suspects_case() {
+    let suspects = vec![
+        Suspect::new(
+            DiagnosisKind::DownstreamStageDominates,
+            82,
+            vec!["e".into()],
+            vec![],
+        ),
+        Suspect::new(
+            DiagnosisKind::BlockingPoolPressure,
+            79,
+            vec!["e".into()],
+            vec![],
+        ),
+    ];
+    assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
+}
+
+#[test]
+fn default_options_compat_route_breakdowns_case() {
+    let mut run = test_run();
+    run.requests.clear();
+    for idx in 1..=4 {
+        let mut req = sample_request(idx);
+        req.route = "/a".into();
+        req.latency_us = 10_000;
+        run.requests.push(req);
+    }
+    for idx in 5..=7 {
+        let mut req = sample_request(idx);
+        req.route = "/b".into();
+        req.latency_us = 2_000;
+        run.requests.push(req);
+    }
+    for req_id in ["req-1", "req-2", "req-3", "req-4"] {
+        run.queues.push(QueueEvent {
+            request_id: req_id.to_owned(),
+            queue: "ingress".into(),
+            wait_us: 9_000,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(9),
+        });
+    }
+    for req_id in ["req-5", "req-6", "req-7"] {
+        run.stages.push(StageEvent {
+            request_id: req_id.to_owned(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 1_900,
+            success: true,
+        });
+    }
+    run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(!report.route_breakdowns.is_empty());
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w == ROUTE_DIVERGENCE_WARNING));
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn default_options_compat_temporal_segments_case() {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            finished_at_unix_ms: i + 1,
+            latency_us: if i < 20 { 2_000 } else { 5_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.queues = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, r)| QueueEvent {
+            request_id: r.request_id.clone(),
+            queue: "q".into(),
+            wait_us: if i < 20 { 1_500 } else { 100 },
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+            depth_at_start: Some(3),
+        })
+        .collect();
+    run.stages = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, r)| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: if i < 20 { 200 } else { 4_400 },
+            success: true,
+        })
+        .collect();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(!report.temporal_segments.is_empty());
+    assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn analyzer_config_transparency_default_report_omits_config() {
+    let run = test_run();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert!(report.analyzer_config.is_none());
+
+    let report_json = serde_json::to_value(&report).expect("serialize report");
+    assert!(
+        report_json.get("analyzer_config").is_none(),
+        "default report JSON must not include analyzer_config"
+    );
+
+    let text = render_text(&report);
+    assert!(
+        !text.contains("Analyzer config:"),
+        "default report text must not include analyzer config section"
+    );
+}
+
+#[test]
+fn analyzer_config_transparency_non_default_report_includes_config() {
+    let run = test_run();
+    let mut options = AnalyzeOptions::default();
+    options.queueing.trigger_permille = 400;
+    options.temporal.min_request_count = 30;
+
+    let report = analyze_run(&run, options);
+    let config = report
+        .analyzer_config
+        .as_ref()
+        .expect("non-default options should surface analyzer_config");
+    assert_eq!(config.schema_version, 1);
+    assert_eq!(
+        config.non_default_options.len(),
+        2,
+        "only explicitly changed options should be surfaced"
+    );
+    assert_eq!(
+        config.non_default_options[0].path,
+        "queueing.trigger_permille"
+    );
+    assert_eq!(config.non_default_options[0].value, "400");
+    assert_eq!(
+        config.non_default_options[1].path,
+        "temporal.min_request_count"
+    );
+    assert_eq!(config.non_default_options[1].value, "30");
+
+    let report_json = serde_json::to_value(&report).expect("serialize report");
+    let json_overrides = report_json
+        .get("analyzer_config")
+        .and_then(|config| config.get("non_default_options"))
+        .and_then(serde_json::Value::as_array)
+        .expect("analyzer_config.non_default_options should be present");
+    assert_eq!(json_overrides.len(), 2);
+    assert_eq!(
+        json_overrides[0]
+            .get("path")
+            .and_then(serde_json::Value::as_str),
+        Some("queueing.trigger_permille")
+    );
+    assert_eq!(
+        json_overrides[0]
+            .get("value")
+            .and_then(serde_json::Value::as_str),
+        Some("400")
+    );
+    assert_eq!(
+        json_overrides[1]
+            .get("path")
+            .and_then(serde_json::Value::as_str),
+        Some("temporal.min_request_count")
+    );
+    assert_eq!(
+        json_overrides[1]
+            .get("value")
+            .and_then(serde_json::Value::as_str),
+        Some("30")
+    );
+
+    let text = render_text(&report);
+    assert!(text.contains("Analyzer config:"));
+    assert!(text.contains("- queueing.trigger_permille=400"));
+    assert!(text.contains("- temporal.min_request_count=30"));
+}
+
+fn option_run_twenty_requests() -> Run {
+    let mut run = test_run();
+    run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+    run
+}
+
+#[test]
+fn option_queueing_trigger_permille_changes_queue_suspect() {
+    let mut run = option_run_twenty_requests();
+    for i in 1..=20 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 400,
+            waited_from_unix_ms: i,
+            waited_until_unix_ms: i + 1,
+            depth_at_start: Some(3),
+        });
+    }
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    let strict = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 600);
+    let strict_report = analyze_run(&run, strict);
+    assert_ne!(
+        strict_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+}
+
+#[test]
+fn option_blocking_min_nonzero_samples_changes_signal_emission() {
+    let mut run = option_run_twenty_requests();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(0)); 100];
+    run.runtime_snapshots[0].blocking_queue_depth = Some(1);
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_ne!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+    let relaxed = AnalyzeOptions::default().with_blocking(|o| o.min_nonzero_samples_for_signal = 1);
+    let relaxed_report = analyze_run(&run, relaxed);
+    assert_eq!(
+        relaxed_report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+}
+
+#[test]
+fn option_executor_min_global_queue_p95_changes_signal_emission() {
+    let mut run = option_run_twenty_requests();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(0), Some(0)); 20];
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::ExecutorPressureSuspected
+    );
+    let strict = AnalyzeOptions::default().with_executor(|o| o.min_global_queue_p95_for_signal = 2);
+    let strict_report = analyze_run(&run, strict);
+    assert_ne!(
+        strict_report.primary_suspect.kind,
+        DiagnosisKind::ExecutorPressureSuspected
+    );
+}
+
+#[test]
+fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
+    let mut run = option_run_twenty_requests();
+    for i in 1..=20 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 800,
+            waited_from_unix_ms: i,
+            waited_until_unix_ms: i + 1,
+            depth_at_start: Some(12),
+        });
+    }
+
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        default_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(default_report.primary_suspect.score, 90);
+    assert_eq!(default_report.primary_suspect.confidence, Confidence::High);
+
+    let strict = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 91);
+    let strict_report = analyze_run(&run, strict);
+    assert_eq!(
+        strict_report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(strict_report.primary_suspect.score, 90);
+    assert_eq!(strict_report.primary_suspect.confidence, Confidence::Medium);
+}
+
+#[test]
+fn analyzer_toml_full_parses() {
+    let input = include_str!("../../examples/analyzer-config.toml");
+    let options = AnalyzeOptions::from_toml_str(input).expect("parse full analyzer toml");
+    assert_eq!(options.queueing.trigger_permille, 400);
+}
+
+#[test]
+fn analyzer_toml_sparse_preserves_defaults() {
+    let input = "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=450\n";
+    let options = AnalyzeOptions::from_toml_str(input).expect("parse sparse toml");
+    assert_eq!(options.queueing.trigger_permille, 450);
+    assert_eq!(options.blocking, AnalyzeOptions::default().blocking);
+}
+
+#[test]
+fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
+    let base = AnalyzeOptions::default().with_blocking(|o| o.strong_p95_threshold = 99);
+    let merged = base
+        .merge_toml_str("[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=410\n")
+        .expect("merge");
+    assert_eq!(merged.queueing.trigger_permille, 410);
+    assert_eq!(merged.blocking.strong_p95_threshold, 99);
+}
+
+#[test]
+fn analyzer_toml_missing_analyzer_fails() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str("[other]\na=1\n"),
+        Err(AnalyzeConfigError::MissingAnalyzerTable)
+    ));
+}
+#[test]
+fn analyzer_toml_root_level_queueing_group_is_rejected() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str("[queueing]\ntrigger_permille=400\n"),
+        Err(AnalyzeConfigError::MissingAnalyzerTable)
+    ));
+}
+
+#[test]
+fn analyzer_toml_missing_schema_fails() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str("[analyzer]\n"),
+        Err(AnalyzeConfigError::MissingSchemaVersion)
+    ));
+}
+#[test]
+fn analyzer_toml_unsupported_schema_fails() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=2\n"),
+        Err(AnalyzeConfigError::UnsupportedSchemaVersion {
+            found: 2,
+            supported: 1
+        })
+    ));
+}
+#[test]
+fn analyzer_toml_unknown_top_level_sibling_ignored() {
+    let input = "[controller]\nmode='light'\n[analyzer]\nschema_version=1\n";
+    assert!(AnalyzeOptions::from_toml_str(input).is_ok());
+}
+#[test]
+fn analyzer_toml_unknown_field_under_analyzer_fails() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\nfoo=1\n"),
+        Err(AnalyzeConfigError::InvalidToml { .. })
+    ));
+}
+#[test]
+fn analyzer_toml_unknown_subgroup_fails() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\n[analyzer.unknown]\na=1\n"),
+        Err(AnalyzeConfigError::InvalidToml { .. })
+    ));
+}
+#[test]
+fn analyzer_toml_unknown_field_in_known_subgroup_fails() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str(
+            "[analyzer]\nschema_version=1\n[analyzer.queueing]\nnope=1\n"
+        ),
+        Err(AnalyzeConfigError::InvalidToml { .. })
+    ));
+}
+#[test]
+fn analyzer_toml_invalid_type_fails() {
+    assert!(matches!(
+        AnalyzeOptions::from_toml_str(
+            "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille='bad'\n"
+        ),
+        Err(AnalyzeConfigError::InvalidToml { .. })
+    ));
+}
+#[test]
+fn analyzer_toml_invalid_range_fails_validation() {
+    let err = AnalyzeOptions::from_toml_str(
+        "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=1001\n",
+    )
+    .expect_err("invalid range");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "queueing.trigger_permille",
+            ..
+        }
+    ));
+}
+#[test]
+fn analyzer_toml_canonical_example_path_parses() {
+    let _ = AnalyzeOptions::from_toml_str(include_str!("../../examples/analyzer-config.toml"))
+        .expect("canonical repo-root example parse");
+}
+
+#[test]
+fn analyzer_toml_example_file_has_v1_namespaced_groups_only() {
+    let input = include_str!("../../examples/analyzer-config.toml");
+    assert!(input.contains("[analyzer]"));
+    assert!(input.contains("schema_version = 1"));
+    for group in [
+        "queueing",
+        "blocking",
+        "executor",
+        "downstream",
+        "confidence",
+        "evidence",
+        "route",
+        "temporal",
+    ] {
+        assert!(input.contains(&format!("[analyzer.{group}]")));
+        assert!(!input.contains(&format!("[{group}]")));
+    }
+}
+#[test]
+fn analyzer_toml_downstream_patterns_list_parses() {
+    let input = "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['db','cache']\n";
+    let opts = AnalyzeOptions::from_toml_str(input).expect("parse list");
+    assert_eq!(
+        opts.downstream.blocking_correlated_stage_patterns,
+        vec!["db", "cache"]
+    );
+}
+#[test]
+fn analyzer_toml_empty_pattern_fails_validation() {
+    let err = AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['']\n").expect_err("must fail");
+    assert!(matches!(
+        err,
+        AnalyzeConfigError::InvalidConfigValue {
+            path: "downstream.blocking_correlated_stage_patterns",
+            ..
+        }
+    ));
 }

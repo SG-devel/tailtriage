@@ -91,6 +91,45 @@ Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI o
 
 Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
 
+### Analyzer tuning examples
+
+Start from defaults, then tune only what you need.
+
+Rust (checked API):
+
+```rust
+use tailtriage::Run;
+use tailtriage_analyzer::{try_analyze_run, AnalyzeOptions};
+
+fn analyze_with_tuning(run: &Run) -> Result<(), Box<dyn std::error::Error>> {
+    let options = AnalyzeOptions::default()
+        .with_queueing(|o| o.trigger_permille = 450);
+    let report = try_analyze_run(run, options)?;
+    let _ = report;
+    Ok(())
+}
+```
+
+TOML (`[analyzer]` schema):
+
+```toml
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+trigger_permille = 450
+```
+
+CLI:
+
+```bash
+tailtriage analyze tailtriage-run.json \
+  --analyzer-config examples/analyzer-config.toml \
+  --analyzer-set queueing.trigger_permille=450
+```
+
+Use `tailtriage analyze --help-analyzer-options` to list supported override paths and value formats.
+
 ## 4) Request lifecycle contract (required)
 
 `begin_request(...)` / `begin_request_with(...)` returns `StartedRequest`:

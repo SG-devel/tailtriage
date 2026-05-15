@@ -1,11 +1,27 @@
+use crate::AnalyzeConfigOverrideSummary;
 use serde::Serialize;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod descriptors;
+mod overrides;
+mod toml;
 pub use descriptors::analyze_option_descriptors;
 
 /// Semantic analyzer options grouped by triage domain.
+///
+/// # Examples
+///
+/// ```
+/// use tailtriage_analyzer::AnalyzeOptions;
+///
+/// let options = AnalyzeOptions::default()
+///     .with_queueing(|o| o.trigger_permille = 450)
+///     .with_confidence(|o| o.high_score_threshold = 90);
+///
+/// assert_eq!(options.queueing.trigger_permille, 450);
+/// assert_eq!(options.confidence.high_score_threshold, 90);
+/// ```
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct AnalyzeOptions {
@@ -222,7 +238,340 @@ impl Default for TemporalOptions {
     }
 }
 
+fn push_non_default_override(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    path: &str,
+    value: String,
+) {
+    out.push(AnalyzeConfigOverrideSummary {
+        path: path.to_string(),
+        value,
+    });
+}
+
+fn queueing_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.queueing.trigger_permille != defaults.queueing.trigger_permille {
+        push_non_default_override(
+            out,
+            "queueing.trigger_permille",
+            options.queueing.trigger_permille.to_string(),
+        );
+    }
+}
+
+fn blocking_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.blocking.min_nonzero_samples_for_signal
+        != defaults.blocking.min_nonzero_samples_for_signal
+    {
+        push_non_default_override(
+            out,
+            "blocking.min_nonzero_samples_for_signal",
+            options.blocking.min_nonzero_samples_for_signal.to_string(),
+        );
+    }
+    if options.blocking.strong_p95_threshold != defaults.blocking.strong_p95_threshold {
+        push_non_default_override(
+            out,
+            "blocking.strong_p95_threshold",
+            options.blocking.strong_p95_threshold.to_string(),
+        );
+    }
+    if options.blocking.strong_peak_threshold != defaults.blocking.strong_peak_threshold {
+        push_non_default_override(
+            out,
+            "blocking.strong_peak_threshold",
+            options.blocking.strong_peak_threshold.to_string(),
+        );
+    }
+    if options.blocking.strong_nonzero_share_permille
+        != defaults.blocking.strong_nonzero_share_permille
+    {
+        push_non_default_override(
+            out,
+            "blocking.strong_nonzero_share_permille",
+            options.blocking.strong_nonzero_share_permille.to_string(),
+        );
+    }
+    if options.blocking.strong_min_samples != defaults.blocking.strong_min_samples {
+        push_non_default_override(
+            out,
+            "blocking.strong_min_samples",
+            options.blocking.strong_min_samples.to_string(),
+        );
+    }
+}
+
+fn executor_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.executor.min_global_queue_p95_for_signal
+        != defaults.executor.min_global_queue_p95_for_signal
+    {
+        push_non_default_override(
+            out,
+            "executor.min_global_queue_p95_for_signal",
+            options.executor.min_global_queue_p95_for_signal.to_string(),
+        );
+    }
+}
+
+fn downstream_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.downstream.min_stage_samples != defaults.downstream.min_stage_samples {
+        push_non_default_override(
+            out,
+            "downstream.min_stage_samples",
+            options.downstream.min_stage_samples.to_string(),
+        );
+    }
+    if options.downstream.blocking_correlated_stage_patterns
+        != defaults.downstream.blocking_correlated_stage_patterns
+    {
+        push_non_default_override(
+            out,
+            "downstream.blocking_correlated_stage_patterns",
+            options
+                .downstream
+                .blocking_correlated_stage_patterns
+                .join(","),
+        );
+    }
+    if options.downstream.blocking_correlation_score_margin
+        != defaults.downstream.blocking_correlation_score_margin
+    {
+        push_non_default_override(
+            out,
+            "downstream.blocking_correlation_score_margin",
+            options
+                .downstream
+                .blocking_correlation_score_margin
+                .to_string(),
+        );
+    }
+}
+
+fn confidence_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.confidence.medium_score_threshold != defaults.confidence.medium_score_threshold {
+        push_non_default_override(
+            out,
+            "confidence.medium_score_threshold",
+            options.confidence.medium_score_threshold.to_string(),
+        );
+    }
+    if options.confidence.high_score_threshold != defaults.confidence.high_score_threshold {
+        push_non_default_override(
+            out,
+            "confidence.high_score_threshold",
+            options.confidence.high_score_threshold.to_string(),
+        );
+    }
+    if options.confidence.ambiguity_min_score != defaults.confidence.ambiguity_min_score {
+        push_non_default_override(
+            out,
+            "confidence.ambiguity_min_score",
+            options.confidence.ambiguity_min_score.to_string(),
+        );
+    }
+    if options.confidence.ambiguity_score_gap != defaults.confidence.ambiguity_score_gap {
+        push_non_default_override(
+            out,
+            "confidence.ambiguity_score_gap",
+            options.confidence.ambiguity_score_gap.to_string(),
+        );
+    }
+}
+
+fn evidence_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.evidence.low_completed_request_threshold
+        != defaults.evidence.low_completed_request_threshold
+    {
+        push_non_default_override(
+            out,
+            "evidence.low_completed_request_threshold",
+            options.evidence.low_completed_request_threshold.to_string(),
+        );
+    }
+}
+
+fn route_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.route.min_request_count != defaults.route.min_request_count {
+        push_non_default_override(
+            out,
+            "route.min_request_count",
+            options.route.min_request_count.to_string(),
+        );
+    }
+    if options.route.breakdown_limit != defaults.route.breakdown_limit {
+        push_non_default_override(
+            out,
+            "route.breakdown_limit",
+            options.route.breakdown_limit.to_string(),
+        );
+    }
+    if options.route.emit_on_divergent_suspects != defaults.route.emit_on_divergent_suspects {
+        push_non_default_override(
+            out,
+            "route.emit_on_divergent_suspects",
+            options.route.emit_on_divergent_suspects.to_string(),
+        );
+    }
+    if options.route.slowest_to_fastest_p95_ratio_numerator
+        != defaults.route.slowest_to_fastest_p95_ratio_numerator
+    {
+        push_non_default_override(
+            out,
+            "route.slowest_to_fastest_p95_ratio_numerator",
+            options
+                .route
+                .slowest_to_fastest_p95_ratio_numerator
+                .to_string(),
+        );
+    }
+    if options.route.slowest_to_fastest_p95_ratio_denominator
+        != defaults.route.slowest_to_fastest_p95_ratio_denominator
+    {
+        push_non_default_override(
+            out,
+            "route.slowest_to_fastest_p95_ratio_denominator",
+            options
+                .route
+                .slowest_to_fastest_p95_ratio_denominator
+                .to_string(),
+        );
+    }
+    if options.route.slowest_to_global_p95_ratio_numerator
+        != defaults.route.slowest_to_global_p95_ratio_numerator
+    {
+        push_non_default_override(
+            out,
+            "route.slowest_to_global_p95_ratio_numerator",
+            options
+                .route
+                .slowest_to_global_p95_ratio_numerator
+                .to_string(),
+        );
+    }
+    if options.route.slowest_to_global_p95_ratio_denominator
+        != defaults.route.slowest_to_global_p95_ratio_denominator
+    {
+        push_non_default_override(
+            out,
+            "route.slowest_to_global_p95_ratio_denominator",
+            options
+                .route
+                .slowest_to_global_p95_ratio_denominator
+                .to_string(),
+        );
+    }
+}
+
+fn temporal_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.temporal.min_request_count != defaults.temporal.min_request_count {
+        push_non_default_override(
+            out,
+            "temporal.min_request_count",
+            options.temporal.min_request_count.to_string(),
+        );
+    }
+    if options.temporal.min_segment_request_count != defaults.temporal.min_segment_request_count {
+        push_non_default_override(
+            out,
+            "temporal.min_segment_request_count",
+            options.temporal.min_segment_request_count.to_string(),
+        );
+    }
+    if options.temporal.share_shift_permille != defaults.temporal.share_shift_permille {
+        push_non_default_override(
+            out,
+            "temporal.share_shift_permille",
+            options.temporal.share_shift_permille.to_string(),
+        );
+    }
+    if options.temporal.p95_shift_ratio_numerator != defaults.temporal.p95_shift_ratio_numerator {
+        push_non_default_override(
+            out,
+            "temporal.p95_shift_ratio_numerator",
+            options.temporal.p95_shift_ratio_numerator.to_string(),
+        );
+    }
+    if options.temporal.p95_shift_ratio_denominator != defaults.temporal.p95_shift_ratio_denominator
+    {
+        push_non_default_override(
+            out,
+            "temporal.p95_shift_ratio_denominator",
+            options.temporal.p95_shift_ratio_denominator.to_string(),
+        );
+    }
+    if options.temporal.emit_on_suspect_shift != defaults.temporal.emit_on_suspect_shift {
+        push_non_default_override(
+            out,
+            "temporal.emit_on_suspect_shift",
+            options.temporal.emit_on_suspect_shift.to_string(),
+        );
+    }
+    if options
+        .temporal
+        .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+        != defaults
+            .temporal
+            .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+    {
+        push_non_default_override(
+            out,
+            "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+            options
+                .temporal
+                .suppress_runtime_sparse_suspect_shift_without_supporting_movement
+                .to_string(),
+        );
+    }
+}
 impl AnalyzeOptions {
+    /// Returns sorted non-default semantic option overrides as stable path/value summaries.
+    #[must_use]
+    pub fn non_default_overrides(&self) -> Vec<AnalyzeConfigOverrideSummary> {
+        let defaults = Self::default();
+        let mut out = Vec::new();
+        queueing_non_default_overrides(&mut out, self, &defaults);
+        blocking_non_default_overrides(&mut out, self, &defaults);
+        executor_non_default_overrides(&mut out, self, &defaults);
+        downstream_non_default_overrides(&mut out, self, &defaults);
+        confidence_non_default_overrides(&mut out, self, &defaults);
+        evidence_non_default_overrides(&mut out, self, &defaults);
+        route_non_default_overrides(&mut out, self, &defaults);
+        temporal_non_default_overrides(&mut out, self, &defaults);
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        out
+    }
     /// Applies queueing-option edits and returns updated options for fluent setup.
     #[must_use]
     pub fn with_queueing(mut self, f: impl FnOnce(&mut QueueingOptions)) -> Self {
@@ -442,9 +791,9 @@ impl Display for AnalyzeConfigError {
             Self::InvalidOverrideSyntax { raw } => write!(f, "invalid override syntax: {raw}"),
             Self::UnknownOverridePath { path, suggestion } => {
                 if let Some(s) = suggestion {
-                    write!(f, "unknown override path '{path}', did you mean '{s}'?")
+                    write!(f, "unknown analyzer option '{path}'; did you mean '{s}'?")
                 } else {
-                    write!(f, "unknown override path '{path}'")
+                    write!(f, "unknown analyzer option '{path}'")
                 }
             }
             Self::InvalidOverrideValue {
