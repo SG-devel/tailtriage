@@ -29,6 +29,7 @@
 
 mod convention;
 mod error;
+mod jsonl;
 mod types;
 
 use tailtriage_core::{
@@ -40,6 +41,7 @@ pub use convention::{
     TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
 };
 pub use error::ImportError;
+pub use jsonl::{import_jsonl_path, import_jsonl_reader};
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
@@ -676,5 +678,64 @@ mod tests {
             .clone();
         assert!(!run.stages[0].success);
         assert_eq!(run.queues[0].depth_at_start, Some(9));
+    }
+}
+
+#[cfg(test)]
+mod jsonl_tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn import_normalized_request_only() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/x","tt.success":true}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn import_normalized_request_stage_queue() {
+        let input = [
+            r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/x","tt.success":true}}}"#,
+            r#"{"span":{"name":"st","started_at_unix_ms":2,"finished_at_unix_ms":7,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db","tt.success":true}}}"#,
+            r#"{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"db","tt.depth_at_start":3}}}"#,
+        ].join("\n");
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().queues.len(), 1);
+    }
+
+    #[test]
+    fn unrelated_and_empty_lines_ignored() {
+        let input = "\n{\"event\":\"info\",\"fields\":{\"foo\":\"bar\"}}\n\n";
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+    }
+
+    #[test]
+    fn malformed_json_errors() {
+        let err = import_jsonl_reader(Cursor::new("{"), ImportOptions::new("svc")).unwrap_err();
+        assert!(matches!(err, ImportError::MalformedJsonLine { .. }));
+    }
+
+    #[test]
+    fn missing_required_fields_warning_and_strict_error() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.route":"/x"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(!imported.warnings().is_empty());
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn import_path_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("spans.jsonl");
+        std::fs::write(&path, r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/x","tt.success":true}}}"#).unwrap();
+        let imported = import_jsonl_path(&path, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
     }
 }
