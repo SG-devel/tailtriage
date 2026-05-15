@@ -47,6 +47,24 @@ tailtriage analyze tailtriage-run.json --format json
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
 CLI input is Run artifact JSON from disk. CLI does not consume Report JSON as input.
 
+
+## Import tracing JSONL into run artifacts
+
+Import completed tracing span records in the documented JSONL shape into a tailtriage Run JSON artifact:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output run.json
+```
+
+Optional metadata and strict mode:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output run.json --service-version v1 --run-id run-42 --strict
+```
+
+`tailtriage import tracing-json` writes pretty Run JSON and prints import warnings to stderr as `warning: ...`.
+This command only imports to Run JSON; run analysis separately with `tailtriage analyze run.json`.
+
 ## Analyzer tuning flags
 
 Start with default analyzer behavior first.

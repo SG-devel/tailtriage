@@ -244,3 +244,101 @@ fn parse_report_json(output: std::process::Output) -> serde_json::Value {
 fn valid_cli_artifact_with_empty_requests() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
+
+#[test]
+fn import_tracing_json_writes_run_json_that_loader_and_analyzer_accept() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+
+    std::fs::write(
+        &spans_path,
+        concat!(
+            "{\"span\":{\"name\":\"http.request\",\"started_at_unix_ms\":1000,\"finished_at_unix_ms\":1012,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"req-1\",\"tt.route\":\"/checkout\",\"tt.success\":true}}}\n",
+            "{\"span\":{\"name\":\"db.stage\",\"started_at_unix_ms\":1002,\"finished_at_unix_ms\":1008,\"fields\":{\"tt.kind\":\"stage\",\"tt.request_id\":\"req-1\",\"tt.stage\":\"db\",\"tt.success\":true}}}\n"
+        ),
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load with CLI loader");
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}
+
+#[test]
+fn import_tracing_json_strict_mode_fails_on_incomplete_tailtriage_span() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+
+    std::fs::write(
+        &spans_path,
+        "{\"span\":{\"name\":\"http.request\",\"started_at_unix_ms\":1000,\"finished_at_unix_ms\":1012,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"req-1\",\"tt.success\":true}}}\n",
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--strict")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("strict import violation"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_non_strict_writes_output_and_warns_for_incomplete_span() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+
+    std::fs::write(
+        &spans_path,
+        concat!(
+            "{\"span\":{\"name\":\"http.request\",\"started_at_unix_ms\":1000,\"finished_at_unix_ms\":1012,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"req-1\",\"tt.success\":true}}}\n",
+            "{\"span\":{\"name\":\"http.request\",\"started_at_unix_ms\":2000,\"finished_at_unix_ms\":2020,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"req-2\",\"tt.route\":\"/checkout\",\"tt.success\":true}}}\n"
+        ),
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).expect("run loads");
+    assert_eq!(loaded.run.requests.len(), 1);
+}
