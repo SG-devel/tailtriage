@@ -67,10 +67,20 @@ where
     let mut max_finish: Option<u64> = None;
 
     for span in spans {
-        update_min_max(&mut min_start, &mut max_finish, &span);
-
-        let Some(kind) = get_string_field(&span, TT_KIND) else {
-            continue;
+        let kind = match get_string_field_state(&span, TT_KIND) {
+            StringFieldState::Missing => continue,
+            StringFieldState::Value(kind) => kind,
+            StringFieldState::InvalidType => {
+                strict_or_warn(
+                    options.strict_mode(),
+                    &mut warnings,
+                    format!(
+                        "invalid field '{TT_KIND}' in span '{}': expected string",
+                        span.name()
+                    ),
+                )?;
+                continue;
+            }
         };
 
         if span.finished_at_unix_ms() < span.started_at_unix_ms() {
@@ -90,8 +100,10 @@ where
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let route = required_string(&span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(route)) = (request_id, route) {
-                    let outcome = get_string_field(&span, TT_OUTCOME)
-                        .map_or_else(|| "ok".to_owned(), ToOwned::to_owned);
+                    let Some(outcome) = parse_outcome(&span, options.strict_mode(), &mut warnings)?
+                    else {
+                        continue;
+                    };
                     requests.push(RequestEvent {
                         request_id,
                         route,
@@ -101,6 +113,7 @@ where
                         latency_us: (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
                         outcome,
                     });
+                    update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
             "stage" => {
@@ -118,6 +131,7 @@ where
                         latency_us: (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
                         success,
                     });
+                    update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
             "queue" => {
@@ -135,6 +149,7 @@ where
                         wait_us: (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
                         depth_at_start,
                     });
+                    update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
             other => {
@@ -156,6 +171,7 @@ where
 
     let lifecycle_warnings = warnings
         .iter()
+        .filter(|warning| is_lifecycle_warning(warning.message()))
         .map(|w| w.message().to_owned())
         .collect::<Vec<_>>();
 
@@ -203,10 +219,17 @@ fn update_min_max(min_start: &mut Option<u64>, max_finish: &mut Option<u64>, spa
     }));
 }
 
-fn get_string_field<'a>(span: &'a SpanRecord, key: &str) -> Option<&'a str> {
+enum StringFieldState<'a> {
+    Missing,
+    Value(&'a str),
+    InvalidType,
+}
+
+fn get_string_field_state<'a>(span: &'a SpanRecord, key: &str) -> StringFieldState<'a> {
     match span.fields().get(key) {
-        Some(FieldValue::String(value)) => Some(value.as_str()),
-        _ => None,
+        Some(FieldValue::String(value)) => StringFieldState::Value(value.as_str()),
+        Some(_) => StringFieldState::InvalidType,
+        None => StringFieldState::Missing,
     }
 }
 
@@ -216,16 +239,34 @@ fn required_string(
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
 ) -> Result<Option<String>, ImportError> {
-    if let Some(value) = get_string_field(span, key) {
-        return Ok(Some(value.to_owned()));
+    match get_string_field_state(span, key) {
+        StringFieldState::Value(value) => Ok(Some(value.to_owned())),
+        StringFieldState::Missing => {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!("missing required field '{key}' in span '{}'", span.name()),
+            )?;
+            Ok(None)
+        }
+        StringFieldState::InvalidType => {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "invalid field '{key}' in span '{}': expected string",
+                    span.name()
+                ),
+            )?;
+            Ok(None)
+        }
     }
+}
 
-    strict_or_warn(
-        strict,
-        warnings,
-        format!("missing required field '{key}' in span '{}'", span.name()),
-    )?;
-    Ok(None)
+fn is_lifecycle_warning(message: &str) -> bool {
+    message.starts_with("skipped span")
+        || message.starts_with("missing required field")
+        || message.starts_with("invalid field")
 }
 
 fn strict_or_warn(
@@ -238,6 +279,28 @@ fn strict_or_warn(
     }
     warnings.push(ImportWarning::new(message));
     Ok(())
+}
+
+fn parse_outcome(
+    span: &SpanRecord,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<Option<String>, ImportError> {
+    match get_string_field_state(span, TT_OUTCOME) {
+        StringFieldState::Missing => Ok(Some("ok".to_owned())),
+        StringFieldState::Value(value) => Ok(Some(value.to_owned())),
+        StringFieldState::InvalidType => {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "invalid field '{TT_OUTCOME}' in span '{}': expected string",
+                    span.name()
+                ),
+            )?;
+            Ok(None)
+        }
+    }
 }
 
 fn parse_success(
@@ -427,5 +490,79 @@ mod tests {
         let imported = run_from_span_records(Vec::new(), ImportOptions::new("svc")).unwrap();
         assert!(imported.run().runtime_snapshots.is_empty());
         assert!(imported.run().inflight.is_empty());
+    }
+
+    #[test]
+    fn ordinary_span_without_kind_does_not_affect_metadata_bounds() {
+        let spans = vec![
+            SpanRecord::new("ordinary", 1, 1_000).field("foo", "bar"),
+            SpanRecord::new("req", 10, 20)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+        ];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.metadata.started_at_unix_ms, 10);
+        assert_eq!(run.metadata.finished_at_unix_ms, 20);
+    }
+
+    #[test]
+    fn unknown_kind_does_not_affect_metadata_bounds_and_lifecycle_warning() {
+        let spans = vec![
+            SpanRecord::new("unknown", 1, 1_000).field(TT_KIND, "wat"),
+            SpanRecord::new("req", 10, 20)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
+        assert_eq!(imported.run().metadata.finished_at_unix_ms, 20);
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .all(|w| !w.contains("unknown tt.kind")));
+    }
+
+    #[test]
+    fn non_string_kind_warns_non_strict_and_errors_strict() {
+        let bad = SpanRecord::new("bad", 1, 2).field(TT_KIND, true);
+        let imported = run_from_span_records(vec![bad.clone()], ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(run_from_span_records(vec![bad], ImportOptions::new("svc").strict(true)).is_err());
+    }
+
+    #[test]
+    fn non_string_required_and_optional_fields_warn_non_strict_and_error_strict() {
+        let bad_route = SpanRecord::new("req", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, true);
+        let imported =
+            run_from_span_records(vec![bad_route.clone()], ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(
+            run_from_span_records(vec![bad_route], ImportOptions::new("svc").strict(true)).is_err()
+        );
+
+        let bad_outcome = SpanRecord::new("req", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, 7_u64);
+        let imported =
+            run_from_span_records(vec![bad_outcome.clone()], ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(
+            run_from_span_records(vec![bad_outcome], ImportOptions::new("svc").strict(true))
+                .is_err()
+        );
     }
 }
