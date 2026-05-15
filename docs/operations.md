@@ -156,6 +156,20 @@ Start conservatively.
 
 Prefer moderate intervals and bounded runs before increasing density.
 
+## Tracing-based run operations guidance
+
+When you import completed tracing spans (JSONL) or use the live `TracingRecorder`, the resulting run can still provide strong request/stage/queue evidence for triage.
+
+Operational constraints for tracing-only runs:
+
+- tracing-only imports usually do not include Tokio runtime snapshots
+- without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
+- request/stage/queue evidence can still produce useful evidence-ranked suspects and next checks
+
+When runtime-pressure evidence is required, run `tailtriage` capture with Tokio runtime sampling enabled and compare results under a similar window.
+
+Treat all reports as triage leads. Suspects are leads, not proof of root cause.
+
 ## Artifact sizing and retention expectations
 
 Artifact size depends on:

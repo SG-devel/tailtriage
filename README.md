@@ -66,6 +66,21 @@ Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust c
 - `tailtriage-cli` consumes Run artifact JSON from disk.
 - `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
 
+## Already using `tracing`?
+
+If your service already emits completed `tracing` spans with `tt.*` fields, use `tailtriage-tracing` as an intake path into the same triage workflow.
+
+- Offline import path (JSONL -> Run JSON):
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
+```
+
+- Live in-process path: record completed spans with `tailtriage_tracing::TracingRecorder`, then analyze the imported `Run`.
+
+Both paths produce standard `tailtriage_core::Run` data for the existing analyzer/report workflow. Runtime-pressure evidence still requires Tokio runtime snapshots; tracing-only imports are often strongest for request/stage/queue evidence.
+
 ## Why not just tokio-console or tokio-metrics?
 
 Those tools are complementary building blocks. `tailtriage` fills a different gap: it turns request lifecycle timing plus optional runtime signals into a focused triage loop:

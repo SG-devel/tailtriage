@@ -104,6 +104,18 @@ Near-term tasks:
 - keep validation docs present-tense and stable, not PR-history oriented
 - update docs contract tests when public docs structure intentionally changes
 
+### 6) Tracing intake adoption path
+
+Keep tracing intake as a scoped adoption-friction reduction path for users who already instrument with `tracing`.
+
+Near-term tasks:
+
+- keep docs clear on the two supported tracing adoption paths: offline JSONL import and live in-memory recorder
+- keep tracing intake mapped to standard `Run` artifacts and the existing analyzer/report workflow
+- keep runtime-pressure limitations explicit when runtime snapshots are absent
+- avoid broadening into observability-platform positioning
+- keep OTel/OTLP out of scope for this completed slice
+
 ## Near-term sequencing
 
 Before the next public promotion or release:

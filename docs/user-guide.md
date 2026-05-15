@@ -239,7 +239,48 @@ Key constraints:
 
 Sampler details: [tailtriage-tokio/README.md](../tailtriage-tokio/README.md)
 
-## 8) Axum adapter: what it is and is not
+## 8) Using existing `tracing` spans
+
+If your service already has `tracing` spans, use `tailtriage-tracing` to convert tracing-shaped request/stage/queue evidence into a standard `Run`, then use the same analyzer workflow.
+
+Offline JSONL import:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
+```
+
+Use the documented completed-span JSONL shape from `tailtriage-tracing` (including literal dotted `tt.*` keys). This import path writes Run JSON, and analysis is a separate step.
+
+Live in-memory recorder:
+
+```rust
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+use tailtriage_tracing::TracingRecorder;
+use tracing_subscriber::prelude::*;
+
+let recorder = TracingRecorder::builder("checkout-service").build();
+let subscriber = tracing_subscriber::registry().with(recorder.layer());
+
+tracing::subscriber::with_default(subscriber, || {
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-1",
+        tt.route = "/checkout"
+    );
+    let _entered = request.enter();
+});
+
+let imported = recorder.shutdown()?;
+let report = analyze_run(imported.run(), AnalyzeOptions::default());
+# let _ = report;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+This live path supports in-process diagnosis from imported span evidence. It is an adoption path for existing `tracing` instrumentation, not a tracing backend or OpenTelemetry implementation.
+
+## 9) Axum adapter: what it is and is not
 
 `tailtriage-axum` is a framework-boundary ergonomics layer:
 
@@ -250,7 +291,7 @@ It is not automatic diagnosis. Queue/stage/inflight instrumentation is still exp
 
 Adapter details: [tailtriage-axum/README.md](../tailtriage-axum/README.md)
 
-## 9) What to do when result is `insufficient_evidence`
+## 10) What to do when result is `insufficient_evidence`
 
 When `primary_suspect.kind` is `insufficient_evidence`:
 
@@ -261,7 +302,7 @@ When `primary_suspect.kind` is `insufficient_evidence`:
 
 Use [diagnostics.md](diagnostics.md) for interpretation details.
 
-## 10) Tokio primitive helpers
+## 11) Tokio primitive helpers
 
 Import via default crate path:
 
@@ -293,7 +334,7 @@ Semantics notes:
 - `timeout_stage(...)` is lazy: timeout budget starts when the returned future is polled/awaited, not when the helper is constructed.
 - If you need blocking work to start immediately or overlap with other work, call `tokio::task::spawn_blocking(...)` directly and instrument its `JoinHandle` with `join_task(...)`.
 
-## 11) Next docs
+## 12) Next docs
 
 - [Documentation index](README.md)
 - [Diagnostics guide](diagnostics.md)
