@@ -284,8 +284,11 @@ fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
-    std::fs::write(&spans_path, incomplete_tailtriage_span_fixture())
-        .expect("fixture should write");
+    std::fs::write(
+        &spans_path,
+        mixed_valid_and_incomplete_request_span_fixture(),
+    )
+    .expect("fixture should write");
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
@@ -299,9 +302,73 @@ fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
     assert!(run_path.exists(), "run output should be written");
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
+}
+
+#[test]
+fn import_tracing_json_writes_metadata_flags_into_run_json() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, one_valid_request_span_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--service-version")
+        .arg("v1")
+        .arg("--run-id")
+        .arg("run-42")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.metadata.service_name, "checkout");
+    assert_eq!(loaded.run.metadata.service_version.as_deref(), Some("v1"));
+    assert_eq!(loaded.run.metadata.run_id, "run-42");
+}
+
+#[test]
+fn import_tracing_json_accepts_paths_with_spaces() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("tracing spans.jsonl");
+    let run_path = dir.path().join("imported run.json");
+    std::fs::write(&spans_path, one_valid_request_span_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(run_path.exists(), "run output should be written");
+
+    tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
 }
 
 fn valid_cli_artifact_with_requests() -> &'static str {
@@ -336,5 +403,16 @@ fn complete_span_jsonl_fixture() -> &'static str {
 
 fn incomplete_tailtriage_span_fixture() -> &'static str {
     r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
+"#
+}
+
+fn one_valid_request_span_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.success":true}}}
+"#
+}
+
+fn mixed_valid_and_incomplete_request_span_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.success":true}}}
 "#
 }

@@ -48,7 +48,19 @@ Import completed tracing span records from JSONL into Run JSON:
 tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
 ```
 
-The import command consumes completed tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`). Run analysis separately with `tailtriage analyze`.
+With optional metadata flags and strict validation:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+```
+
+When paths include spaces, quote them in shell usage:
+
+```bash
+tailtriage import tracing-json "fixtures/tracing spans.jsonl" --service checkout --output "runs/imported run.json"
+```
+
+The command imports completed tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
 
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
 
