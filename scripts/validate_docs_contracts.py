@@ -16,6 +16,14 @@ DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
 OPERATIONS_PATH = REPO_ROOT / "docs" / "operations.md"
+ANALYZER_CONFIG_EXAMPLE_PATH = REPO_ROOT / "examples" / "analyzer-config.toml"
+ANALYZER_DOC_PATHS = (
+    DIAGNOSTICS_PATH,
+    OPERATIONS_PATH,
+    USER_GUIDE_PATH,
+    REPO_ROOT / "tailtriage-analyzer" / "README.md",
+    REPO_ROOT / "tailtriage-cli" / "README.md",
+)
 DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
@@ -122,6 +130,48 @@ RUSTDOC_INCLUDE_CRATE_LIBS = (
     REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
 )
+
+ANALYZER_GROUPS = (
+    "queueing",
+    "blocking",
+    "executor",
+    "downstream",
+    "confidence",
+    "evidence",
+    "route",
+    "temporal",
+)
+ANALYZER_V1_VALID_PATHS = {
+    "queueing.trigger_permille",
+    "blocking.min_nonzero_samples_for_signal",
+    "blocking.strong_p95_threshold",
+    "blocking.strong_peak_threshold",
+    "blocking.strong_nonzero_share_permille",
+    "blocking.strong_min_samples",
+    "executor.min_global_queue_p95_for_signal",
+    "downstream.blocking_correlated_stage_patterns",
+    "downstream.min_stage_samples",
+    "downstream.blocking_correlation_score_margin",
+    "confidence.medium_score_threshold",
+    "confidence.high_score_threshold",
+    "confidence.ambiguity_min_score",
+    "confidence.ambiguity_score_gap",
+    "evidence.low_completed_request_threshold",
+    "route.min_request_count",
+    "route.breakdown_limit",
+    "route.emit_on_divergent_suspects",
+    "route.slowest_to_fastest_p95_ratio_numerator",
+    "route.slowest_to_fastest_p95_ratio_denominator",
+    "route.slowest_to_global_p95_ratio_numerator",
+    "route.slowest_to_global_p95_ratio_denominator",
+    "temporal.min_request_count",
+    "temporal.min_segment_request_count",
+    "temporal.share_shift_permille",
+    "temporal.p95_shift_ratio_numerator",
+    "temporal.p95_shift_ratio_denominator",
+    "temporal.emit_on_suspect_shift",
+    "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -592,6 +642,100 @@ def validate_diagnostics_contract_truthfulness() -> None:
             "but docs/diagnostics.md lacks a matching field reference section"
         )
 
+def validate_analyzer_config_example_contract() -> None:
+    if not ANALYZER_CONFIG_EXAMPLE_PATH.exists():
+        raise ValueError("missing analyzer config example: examples/analyzer-config.toml")
+    text = ANALYZER_CONFIG_EXAMPLE_PATH.read_text(encoding="utf-8")
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"invalid TOML in {ANALYZER_CONFIG_EXAMPLE_PATH}: {exc}") from exc
+
+    analyzer = parsed.get("analyzer")
+    if not isinstance(analyzer, dict):
+        raise ValueError("examples/analyzer-config.toml must define an [analyzer] table")
+    if analyzer.get("schema_version") != 1:
+        raise ValueError("examples/analyzer-config.toml must set analyzer.schema_version = 1")
+
+    missing_groups = [group for group in ANALYZER_GROUPS if not isinstance(analyzer.get(group), dict)]
+    if missing_groups:
+        raise ValueError(
+            "examples/analyzer-config.toml missing required [analyzer.*] groups: "
+            f"{', '.join(missing_groups)}"
+        )
+
+    invalid_root = sorted(group for group in ANALYZER_GROUPS if isinstance(parsed.get(group), dict))
+    if invalid_root:
+        raise ValueError(
+            "examples/analyzer-config.toml must not define root-level analyzer groups: "
+            f"{', '.join(invalid_root)}"
+        )
+
+
+def _extract_analyzer_paths_for_validation(text: str) -> set[str]:
+    prefixes = "|".join(ANALYZER_GROUPS)
+    pattern = re.compile(rf"(?:`([^`]+)`|\b(({prefixes})\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\b)")
+    paths: set[str] = set()
+    for quoted, bare, _ in pattern.findall(text):
+        candidate = quoted or bare
+        if re.fullmatch(rf"(?:{prefixes})\.[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*", candidate):
+            paths.add(candidate)
+    return paths
+
+
+def validate_analyzer_tuning_docs_contract() -> None:
+    for path in ANALYZER_DOC_PATHS:
+        text = path.read_text(encoding="utf-8")
+        for group in ANALYZER_GROUPS:
+            if re.search(rf"(?m)^\s*\[{group}\]\s*$", text):
+                raise ValueError(f"{path.relative_to(REPO_ROOT)} contains invalid root-level TOML header: [{group}]")
+
+    diagnostics_text = DIAGNOSTICS_PATH.read_text(encoding="utf-8")
+    diagnostics_lower = diagnostics_text.lower()
+    diagnostics_required = ("analyzer tuning", "analyzeoptions", "--help-analyzer-options")
+    for token in diagnostics_required:
+        if token not in diagnostics_lower:
+            raise ValueError(f"docs/diagnostics.md missing required analyzer token: {token}")
+    if "not proof" not in diagnostics_lower:
+        raise ValueError("docs/diagnostics.md must include bounded wording that suspects are not proof")
+
+    operations_lower = OPERATIONS_PATH.read_text(encoding="utf-8").lower()
+    if "analyzer config" not in operations_lower and "analyzer tuning" not in operations_lower:
+        raise ValueError("docs/operations.md missing analyzer config/tuning guidance")
+    for token in ("representative runs", "truncation"):
+        if token not in operations_lower:
+            raise ValueError(f"docs/operations.md missing required analyzer-operations token: {token}")
+    if (
+        "same analyzer config" not in operations_lower
+        and re.search(r"analyzer config\s+is\s+the\s+same", operations_lower) is None
+    ):
+        raise ValueError("docs/operations.md must mention using the same analyzer config across comparisons")
+
+    user_guide_lower = USER_GUIDE_PATH.read_text(encoding="utf-8").lower()
+    for token in ("[analyzer]", "schema_version = 1", "--analyzer-config", "--analyzer-set", "try_analyze_run"):
+        if token not in user_guide_lower:
+            raise ValueError(f"docs/user-guide.md missing required analyzer token: {token}")
+
+    cli_lower = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8").lower()
+    for token in ("--analyzer-config", "--analyzer-set", "--help-analyzer-options", "report json"):
+        if token not in cli_lower:
+            raise ValueError(f"tailtriage-cli/README.md missing required analyzer token: {token}")
+
+    analyzer_lower = (REPO_ROOT / "tailtriage-analyzer" / "README.md").read_text(encoding="utf-8").lower()
+    for token in ("analyzeoptions", "try_analyze_run", "with_queueing", "analyzer_config"):
+        if token not in analyzer_lower:
+            raise ValueError(f"tailtriage-analyzer/README.md missing required analyzer token: {token}")
+
+    for path in ANALYZER_DOC_PATHS:
+        text = path.read_text(encoding="utf-8")
+        candidates = _extract_analyzer_paths_for_validation(text)
+        invalid = sorted(candidate for candidate in candidates if candidate not in ANALYZER_V1_VALID_PATHS)
+        if invalid:
+            raise ValueError(
+                f"{path.relative_to(REPO_ROOT)} contains invalid analyzer override path(s): "
+                + ", ".join(invalid)
+            )
+
 
 
 def _strip_allowed_analyzer_migration_note(text: str) -> str:
@@ -951,6 +1095,8 @@ def main() -> int:
     validate_user_guide_contract()
     validate_operations_guide_contract()
     validate_diagnostics_contract_truthfulness()
+    validate_analyzer_config_example_contract()
+    validate_analyzer_tuning_docs_contract()
     validate_cli_not_presented_as_library_analyzer_api()
     validate_analyzer_cli_docs_split_contract()
     validate_capture_readmes_analyzer_cli_wording_contract()
