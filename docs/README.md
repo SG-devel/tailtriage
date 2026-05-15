@@ -21,6 +21,7 @@ Most users should start with `tailtriage`.
 - [`tailtriage-axum`](../tailtriage-axum/README.md) — Axum middleware/extractor integration.
 - [`tailtriage-analyzer`](../tailtriage-analyzer/README.md) — in-process analysis of completed runs.
 - [`tailtriage-cli`](../tailtriage-cli/README.md) — command-line analysis of saved run artifacts.
+- [`tailtriage-tracing`](../tailtriage-tracing/README.md) — tracing-shaped intake data types and semantic conventions for future run import; no JSONL/layer/OTel bridge implementation yet.
 
 ## Capture and analysis workflow
 
