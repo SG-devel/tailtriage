@@ -50,6 +50,56 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 
 ## Report contract
 
+## Analyzer options and tuning
+
+Start with defaults:
+
+```rust
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+# use tailtriage_core::Run;
+# fn demo(run: &Run) {
+let report = analyze_run(run, AnalyzeOptions::default());
+# let _ = report;
+# }
+```
+
+Checked custom options in process:
+
+```rust
+use tailtriage_analyzer::{try_analyze_run, AnalyzeOptions};
+# use tailtriage_core::Run;
+# fn demo(run: &Run) -> Result<(), Box<dyn std::error::Error>> {
+let options = AnalyzeOptions::default()
+    .with_queueing(|o| o.trigger_permille = 450);
+let report = try_analyze_run(run, options)?;
+# let _ = report;
+# Ok(())
+# }
+```
+
+TOML parsing example:
+
+```rust
+use tailtriage_analyzer::AnalyzeOptions;
+
+let options = AnalyzeOptions::from_toml_str(r#"
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+trigger_permille = 450
+"#)?;
+# Ok::<(), tailtriage_analyzer::AnalyzeConfigError>(())
+```
+
+`analyzer_config` report behavior:
+
+- default options: `analyzer_config` is omitted from report JSON
+- non-default options: `analyzer_config` includes non-default path/value overrides used for that report
+
+Analyzer tuning changes interpretation/ranking of captured evidence. It does not change the capture artifact.
+
+
 - `analyze_run` currently returns `Report` directly and is currently infallible
 - `AnalyzeOptions::default()` is the normal path today and leaves room for future analyzer options
 - `Report` is the typed analyzer output model and should be your primary integration surface

@@ -102,6 +102,33 @@ Warnings show interpretation limits (missing signal families, sparse coverage, a
 
 As always: suspects are leads for next checks, not proof.
 
+
+## Analyzer tuning
+
+Start with `AnalyzeOptions::default()` (or no analyzer overrides in CLI/TOML). Defaults are the recommended baseline for first interpretation passes.
+
+Tune only after representative runs under comparable load show a recurring interpretation gap for your workload. Analyzer tuning changes how captured evidence is interpreted; it does not add missing queue/stage/runtime evidence and it does not recover truncated data.
+
+Tuning groups are organized by purpose:
+
+- `queueing`: queue-share/depth thresholds for queue-saturation signals
+- `blocking`: blocking-pool signal thresholds and minimum-sample constraints
+- `executor`: executor-pressure thresholds
+- `downstream`: downstream-stage filtering/correlation heuristics
+- `confidence`: score bands and ambiguity handling for confidence labeling
+- `evidence`: evidence-quality thresholds (for example low request-count boundaries)
+- `route`: route-breakdown emission gates and limits
+- `temporal`: early/late temporal-segment emission gates and movement thresholds
+
+When non-default analyzer options are used, report output includes `analyzer_config` with the non-default paths/values used for that diagnosis. Default runs omit `analyzer_config`.
+
+Suspects remain evidence-ranked leads and `confidence` remains ranking confidence for triage interpretation. Neither is causal proof.
+
+For full option paths and accepted value types, use:
+
+- `tailtriage analyze --help-analyzer-options`
+- `examples/analyzer-config.toml`
+
 ## Warning semantics
 
 `warnings[]` is additive and can include multiple classes together:

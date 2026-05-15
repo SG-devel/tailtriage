@@ -47,6 +47,31 @@ tailtriage analyze tailtriage-run.json --format json
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
 CLI input is Run artifact JSON from disk. CLI does not consume Report JSON as input.
 
+
+## Analyzer tuning flags
+
+Use analyzer defaults first, then tune only after representative runs.
+
+```bash
+tailtriage analyze run.json --analyzer-config examples/analyzer-config.toml
+tailtriage analyze run.json --analyzer-set queueing.trigger_permille=450
+tailtriage analyze run.json --analyzer-config examples/analyzer-config.toml --analyzer-set queueing.trigger_permille=450
+tailtriage analyze --help-analyzer-options
+```
+
+Precedence:
+
+1. start from built-in defaults
+2. apply `--analyzer-config` TOML if present
+3. apply each `--analyzer-set PATH=VALUE` override
+
+Unknown paths or misspelled option names fail fast with an error (including suggestions for close matches where available).
+
+Report JSON vs artifact JSON remains unchanged:
+
+- CLI input: Run artifact JSON
+- CLI output: analyzer Report JSON
+
 ## How to read the result
 
 Read output in this order:

@@ -203,6 +203,21 @@ For controller-managed runs, consider:
 
 based on whether bounded retention or uninterrupted capture matters more operationally.
 
+
+## Analyzer tuning in operations
+
+Prefer default analyzer behavior first. Treat tuning as a later calibration step after you have representative runs and stable instrumentation coverage.
+
+Operational guardrails:
+
+- do not tune around missing instrumentation; add queue/stage/runtime evidence first
+- do not use tuning to hide truncation; reduce density/increase limits and re-run
+- commit analyzer TOML (`[analyzer] schema_version = 1`) for production repeatability
+- compare runs only when analyzer config is the same, or explicitly account for config changes
+- tune after comparing representative runs and confirming workload fit
+
+Analyzer tuning changes report interpretation only. It does not change captured run artifacts.
+
 ## Operational guidance for bounded runs
 
 Prefer bounded investigative windows over continuous long-lived capture.

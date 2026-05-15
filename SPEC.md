@@ -145,6 +145,16 @@ Semantics:
 
 Semantics are batch/snapshot for completed runs, not streaming analysis.
 
+Analyzer tuning contract:
+
+- `AnalyzeOptions` is a meaningful public surface for checked analyzer tuning in Rust.
+- Analyzer configuration is supported through Rust (`AnalyzeOptions` builders), TOML (`[analyzer] schema_version = 1`), and CLI (`--analyzer-config`, `--analyzer-set`).
+- `AnalyzeOptions::default()` preserves current analyzer behavior and is the recommended starting point.
+- Report JSON includes `analyzer_config` only when non-default analyzer options are used for that report.
+- Tuning changes interpretation/ranking of captured evidence; it does not change the capture artifact itself.
+- Analyzer semantics remain batch/snapshot analysis of completed runs, not streaming analysis.
+
+
 ### 5.9 Analyzer CLI (`tailtriage-cli`)
 
 `tailtriage-cli` owns artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic. CLI JSON output delegates to `tailtriage-analyzer`’s canonical pretty Report JSON renderer.
