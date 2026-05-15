@@ -863,6 +863,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tailtriage-tracing"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "tailtriage-core",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

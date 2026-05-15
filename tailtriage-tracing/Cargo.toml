@@ -1,0 +1,27 @@
+[package]
+name = "tailtriage-tracing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tracing-shaped intake types for importing spans into tailtriage_core::Run"
+documentation = "https://docs.rs/tailtriage-tracing"
+readme = "README.md"
+keywords = ["tokio", "tracing", "latency", "diagnostics", "triage"]
+categories = ["asynchronous", "development-tools::debugging", "development-tools::profiling"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "src/**",
+]
+
+[dependencies]
+tailtriage-core.workspace = true
+serde = { version = "1", features = ["derive"] }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
