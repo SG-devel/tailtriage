@@ -43,6 +43,13 @@ Examples:
 
 This crate does not change core request lifecycle semantics.
 
+## Focused examples
+
+- `examples/live_recorder.rs`: minimal tracing-intake-style walkthrough that records one request with one queue and one stage signal, shuts down, then analyzes in-memory and prints a text triage report.
+- `examples/tracing_spans.jsonl`: tiny normalized JSONL fixture with one request, one stage, and one queue completed-span style record for smoke-style ingestion checks.
+
+These examples are a narrow tracing intake path for tailtriage triage workflows, not a telemetry backend surface.
+
 ## When to choose this crate
 
 Choose `tailtriage-tokio` when:

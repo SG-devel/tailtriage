@@ -1,0 +1,3 @@
+{"schema_version":1,"record_type":"request","request_id":"req-1","route":"/demo","latency_us":1200,"start_unix_us":1000000,"end_unix_us":1001200,"outcome":"ok"}
+{"schema_version":1,"record_type":"stage","request_id":"req-1","stage":"downstream","duration_us":800,"success":true}
+{"schema_version":1,"record_type":"queue","request_id":"req-1","queue":"ingress","wait_us":300,"depth_at_start":2}

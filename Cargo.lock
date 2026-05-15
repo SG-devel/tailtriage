@@ -858,6 +858,8 @@ dependencies = [
 name = "tailtriage-tokio"
 version = "0.2.0"
 dependencies = [
+ "serde_json",
+ "tailtriage-analyzer",
  "tailtriage-core",
  "tokio",
 ]

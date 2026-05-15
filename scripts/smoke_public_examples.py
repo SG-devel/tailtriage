@@ -37,6 +37,11 @@ EXAMPLES = [
         "artifact": "tailtriage-run.json",
     },
     {
+        "package": "tailtriage-tokio",
+        "name": "live_recorder",
+        "artifact": "tailtriage-run.json",
+    },
+    {
         "package": "tailtriage-controller",
         "name": "controller_minimal",
         "artifact": "tailtriage-run-generation-1.json",
