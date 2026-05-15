@@ -40,6 +40,18 @@ Recommended progression:
 
 A conservative rollout usually gives better operational signal than enabling every feature immediately.
 
+## Analyzer tuning in operations
+
+Keep rollout conservative: prefer default analyzer behavior first and tune only after comparing representative runs for your workload profile.
+
+Operational guardrails:
+
+- Do not tune around missing instrumentation; add needed queue/stage/runtime evidence first.
+- Do not use tuning to hide truncation or dropped-event warnings; address capture density/limits and re-run.
+- Commit analyzer TOML used in production workflows so repeated runs are reproducible.
+- Compare runs only when analyzer config is the same, or explicitly account for changed analyzer config when interpreting movement.
+- Use tuning to improve workload fit of evidence interpretation after baseline runs, not as a substitute for capture quality.
+
 ## Choosing direct capture vs controller capture
 
 ### Direct capture

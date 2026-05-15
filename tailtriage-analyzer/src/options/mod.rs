@@ -9,6 +9,19 @@ mod toml;
 pub use descriptors::analyze_option_descriptors;
 
 /// Semantic analyzer options grouped by triage domain.
+///
+/// # Examples
+///
+/// ```
+/// use tailtriage_analyzer::AnalyzeOptions;
+///
+/// let options = AnalyzeOptions::default()
+///     .with_queueing(|o| o.trigger_permille = 450)
+///     .with_confidence(|o| o.high_score_threshold = 90);
+///
+/// assert_eq!(options.queueing.trigger_permille, 450);
+/// assert_eq!(options.confidence.high_score_threshold, 90);
+/// ```
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct AnalyzeOptions {
