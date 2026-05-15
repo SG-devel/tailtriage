@@ -16,9 +16,10 @@ use crate::{
 ///
 /// # Errors
 ///
-/// Returns [`ImportError`] for malformed JSON lines, malformed tailtriage-tagged
-/// close-event records, I/O read errors, or strict conversion violations surfaced
-/// by [`run_from_span_records`].
+/// Returns [`ImportError::Io`] for reader I/O failures,
+/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
+/// and existing field/conversion errors for malformed tailtriage span records
+/// or strict conversion violations surfaced by [`run_from_span_records`].
 pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
@@ -26,10 +27,11 @@ pub fn import_jsonl_reader<R: Read>(
     let mut spans = Vec::new();
     let reader = BufReader::new(reader);
 
-    for line_result in reader.lines() {
-        let line = line_result.map_err(|err| ImportError::InvalidField {
-            field: "jsonl",
-            reason: format!("failed to read line: {err}"),
+    for (line_no, line_result) in reader.lines().enumerate() {
+        let line = line_result.map_err(|err| ImportError::Io {
+            operation: "read jsonl line",
+            context: format!("line {}", line_no + 1),
+            reason: err.to_string(),
         })?;
 
         if line.trim().is_empty() {
@@ -37,9 +39,9 @@ pub fn import_jsonl_reader<R: Read>(
         }
 
         let value: Value =
-            serde_json::from_str(&line).map_err(|err| ImportError::InvalidField {
-                field: "jsonl",
-                reason: format!("malformed json line: {err}"),
+            serde_json::from_str(&line).map_err(|err| ImportError::MalformedJsonLine {
+                line: line_no + 1,
+                reason: err.to_string(),
             })?;
 
         if let Some(span) = parse_record(&value)? {
@@ -54,17 +56,19 @@ pub fn import_jsonl_reader<R: Read>(
 ///
 /// # Errors
 ///
-/// Returns [`ImportError`] if the path cannot be opened or if reader import
-/// fails (malformed JSON lines, malformed tailtriage-tagged records, or strict
-/// conversion violations).
+/// Returns [`ImportError::Io`] when path open or line reads fail,
+/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
+/// and existing field/conversion errors for malformed tailtriage-tagged records
+/// or strict conversion violations.
 pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
     let path_ref = path.as_ref();
-    let file = std::fs::File::open(path_ref).map_err(|err| ImportError::InvalidField {
-        field: "jsonl_path",
-        reason: format!("failed to open '{}': {err}", path_ref.display()),
+    let file = std::fs::File::open(path_ref).map_err(|err| ImportError::Io {
+        operation: "open jsonl path",
+        context: path_ref.display().to_string(),
+        reason: err.to_string(),
     })?;
     import_jsonl_reader(file, options)
 }
@@ -333,12 +337,22 @@ mod tests {
     }
 
     #[test]
-    fn malformed_json_returns_error() {
+    fn malformed_json_returns_malformed_json_line_error() {
         let err =
             import_jsonl_reader(Cursor::new("{not-json}"), ImportOptions::new("svc")).unwrap_err();
         assert!(matches!(
             err,
-            ImportError::InvalidField { field: "jsonl", .. }
+            ImportError::MalformedJsonLine { line: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn malformed_json_reports_correct_line_number() {
+        let input = "{\"message\":\"ok\"}\n{not-json}";
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::MalformedJsonLine { line: 2, .. }
         ));
     }
 
@@ -365,6 +379,42 @@ mod tests {
         std::fs::write(&path, r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#).unwrap();
         let imported = import_jsonl_path(&path, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn path_open_failure_returns_io_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing.jsonl");
+        let err = import_jsonl_path(&path, ImportOptions::new("svc")).unwrap_err();
+        match err {
+            ImportError::Io {
+                operation, context, ..
+            } => {
+                assert_eq!(operation, "open jsonl path");
+                assert!(context.contains("missing.jsonl"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    struct BoomReader;
+
+    impl Read for BoomReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("boom"))
+        }
+    }
+
+    #[test]
+    fn reader_error_returns_io_error() {
+        let err = import_jsonl_reader(BoomReader, ImportOptions::new("svc")).unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::Io {
+                operation: "read jsonl line",
+                ..
+            }
+        ));
     }
 
     #[test]
