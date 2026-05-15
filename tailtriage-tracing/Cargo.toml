@@ -14,6 +14,7 @@ include = [
   "README.md",
   "LICENSE",
   "src/**",
+  "examples/**",
 ]
 
 [dependencies]
@@ -30,4 +31,5 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dev-dependencies]
+tailtriage-analyzer.workspace = true
 tempfile = "3"
