@@ -19,6 +19,7 @@ Most users should start with `tailtriage`.
 - [`tailtriage-controller`](../tailtriage-controller/README.md) — repeated bounded capture windows for long-lived services, including TOML config and reload behavior.
 - [`tailtriage-tokio`](../tailtriage-tokio/README.md) — Tokio runtime-pressure sampling and Tokio primitive helper trait; RuntimeSampler start remains explicit.
 - [`tailtriage-axum`](../tailtriage-axum/README.md) — Axum middleware/extractor integration.
+- [`tailtriage-tracing`](../tailtriage-tracing/README.md) — tracing intake examples for converting spans into tailtriage triage artifacts.
 - [`tailtriage-analyzer`](../tailtriage-analyzer/README.md) — in-process analysis of completed runs.
 - [`tailtriage-cli`](../tailtriage-cli/README.md) — command-line analysis of saved run artifacts.
 

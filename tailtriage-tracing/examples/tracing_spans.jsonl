@@ -1,0 +1,3 @@
+{"kind":"request","name":"http.request","tt.request_id":"req-1","tt.route":"/checkout","duration_us":1200}
+{"kind":"stage","name":"db.query","tt.request_id":"req-1","tt.stage":"db","duration_us":700}
+{"kind":"queue","name":"request.queue","tt.request_id":"req-1","tt.queue":"ingress","duration_us":250}

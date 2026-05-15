@@ -1,0 +1,20 @@
+[package]
+name = "tailtriage-tracing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tracing intake helpers for tailtriage triage examples"
+
+[dependencies]
+serde_json = "1"
+tailtriage-core.workspace = true
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+
+[dev-dependencies]
+tailtriage-analyzer.workspace = true
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true
