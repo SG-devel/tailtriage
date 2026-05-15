@@ -42,7 +42,14 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Import completed tracing span JSONL into a tailtriage Run artifact:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output run.json
+```
+
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
+`tailtriage import tracing-json` imports completed tracing span records in the documented JSONL shape and writes pretty Run JSON with import warnings on stderr.
 
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
 CLI input is Run artifact JSON from disk. CLI does not consume Report JSON as input.

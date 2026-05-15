@@ -4,6 +4,7 @@ use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
+use tailtriage_tracing::{import_jsonl_path, ImportOptions};
 
 #[derive(Debug, Parser)]
 #[command(name = "tailtriage")]
@@ -32,6 +33,36 @@ enum Command {
         /// Print analyzer option help and exit successfully.
         #[arg(long)]
         help_analyzer_options: bool,
+    },
+    /// Import tracing JSONL span records into a tailtriage run JSON artifact.
+    Import {
+        #[command(subcommand)]
+        command: ImportCommand,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum ImportCommand {
+    /// Import completed tracing span records in the documented JSONL shape.
+    TracingJson {
+        /// Path to tracing span JSONL input.
+        #[arg(value_name = "SPANS_JSONL")]
+        spans_jsonl: PathBuf,
+        /// Service name for output run metadata.
+        #[arg(long, value_name = "SERVICE")]
+        service: String,
+        /// Output path for pretty run JSON artifact.
+        #[arg(long, value_name = "RUN_JSON")]
+        output: PathBuf,
+        /// Optional service version for output run metadata.
+        #[arg(long, value_name = "VERSION")]
+        service_version: Option<String>,
+        /// Optional explicit run id for output run metadata.
+        #[arg(long, value_name = "RUN_ID")]
+        run_id: Option<String>,
+        /// Enable strict import mode (fail on malformed/incomplete tt.* spans).
+        #[arg(long)]
+        strict: bool,
     },
 }
 
@@ -79,6 +110,31 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Command::Import { command } => match command {
+            ImportCommand::TracingJson {
+                spans_jsonl,
+                service,
+                output,
+                service_version,
+                run_id,
+                strict,
+            } => {
+                let mut options = ImportOptions::new(service).strict(strict);
+                if let Some(version) = service_version {
+                    options = options.service_version(version);
+                }
+                if let Some(run_id) = run_id {
+                    options = options.run_id(run_id);
+                }
+
+                let imported = import_jsonl_path(&spans_jsonl, options)?;
+                for warning in imported.warnings() {
+                    eprintln!("warning: {}", warning.message());
+                }
+                let file = std::fs::File::create(&output)?;
+                serde_json::to_writer_pretty(file, imported.run())?;
+            }
+        },
     }
 
     Ok(())
