@@ -603,7 +603,7 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) 
     let strong_non_runtime_primary = suspects.first().is_some_and(|s| {
         (s.kind == DiagnosisKind::ApplicationQueueSaturation
             || s.kind == DiagnosisKind::DownstreamStageDominates)
-            && s.score >= 85
+            && s.score >= options.confidence.high_score_threshold
     });
 
     if run.runtime_snapshots.is_empty() {
