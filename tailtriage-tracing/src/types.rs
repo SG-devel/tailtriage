@@ -206,6 +206,17 @@ impl ImportOptions {
     pub fn strict_mode(&self) -> bool {
         self.strict
     }
+
+    /// Splits options into owned values for import execution.
+    #[must_use]
+    pub fn into_parts(self) -> (String, Option<String>, Option<String>, bool) {
+        (
+            self.service_name,
+            self.service_version,
+            self.run_id,
+            self.strict,
+        )
+    }
 }
 
 /// Non-fatal warning produced while importing tracing-shaped spans.
