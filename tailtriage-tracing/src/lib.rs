@@ -121,8 +121,12 @@ where
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let stage = required_string(&span, TT_STAGE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(stage)) = (request_id, stage) {
-                    let success =
-                        parse_success(&span, options.strict_mode(), &mut warnings)?.unwrap_or(true);
+                    let success = match parse_success(&span, options.strict_mode(), &mut warnings)?
+                    {
+                        OptionalField::Missing => true,
+                        OptionalField::Value(success) => success,
+                        OptionalField::Invalid => continue,
+                    };
                     stages.push(StageEvent {
                         request_id,
                         stage,
@@ -140,7 +144,11 @@ where
                 let queue = required_string(&span, TT_QUEUE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(queue)) = (request_id, queue) {
                     let depth_at_start =
-                        parse_depth_at_start(&span, options.strict_mode(), &mut warnings)?;
+                        match parse_depth_at_start(&span, options.strict_mode(), &mut warnings)? {
+                            OptionalField::Missing => None,
+                            OptionalField::Value(depth) => Some(depth),
+                            OptionalField::Invalid => continue,
+                        };
                     queues.push(QueueEvent {
                         request_id,
                         queue,
@@ -225,6 +233,12 @@ enum StringFieldState<'a> {
     InvalidType,
 }
 
+enum OptionalField<T> {
+    Missing,
+    Value(T),
+    Invalid,
+}
+
 fn get_string_field_state<'a>(span: &'a SpanRecord, key: &str) -> StringFieldState<'a> {
     match span.fields().get(key) {
         Some(FieldValue::String(value)) => StringFieldState::Value(value.as_str()),
@@ -307,16 +321,20 @@ fn parse_success(
     span: &SpanRecord,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
-) -> Result<Option<bool>, ImportError> {
+) -> Result<OptionalField<bool>, ImportError> {
     match span.fields().get(TT_SUCCESS) {
-        Some(FieldValue::Bool(value)) => Ok(Some(*value)),
-        Some(FieldValue::String(value)) if value.eq_ignore_ascii_case("true") => Ok(Some(true)),
-        Some(FieldValue::String(value)) if value.eq_ignore_ascii_case("false") => Ok(Some(false)),
+        Some(FieldValue::Bool(value)) => Ok(OptionalField::Value(*value)),
+        Some(FieldValue::String(value)) if value.eq_ignore_ascii_case("true") => {
+            Ok(OptionalField::Value(true))
+        }
+        Some(FieldValue::String(value)) if value.eq_ignore_ascii_case("false") => {
+            Ok(OptionalField::Value(false))
+        }
         Some(_) => {
             strict_or_warn(strict, warnings, format!("invalid field '{TT_SUCCESS}' in span '{}': expected bool or 'true'/'false' string", span.name()))?;
-            Ok(None)
+            Ok(OptionalField::Invalid)
         }
-        None => Ok(None),
+        None => Ok(OptionalField::Missing),
     }
 }
 
@@ -324,12 +342,12 @@ fn parse_depth_at_start(
     span: &SpanRecord,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
-) -> Result<Option<u64>, ImportError> {
+) -> Result<OptionalField<u64>, ImportError> {
     match span.fields().get(TT_DEPTH_AT_START) {
-        Some(FieldValue::U64(value)) => Ok(Some(*value)),
+        Some(FieldValue::U64(value)) => Ok(OptionalField::Value(*value)),
         Some(FieldValue::I64(value)) if *value >= 0 => {
             if let Ok(parsed) = u64::try_from(*value) {
-                Ok(Some(parsed))
+                Ok(OptionalField::Value(parsed))
             } else {
                 strict_or_warn(
                 strict,
@@ -339,14 +357,14 @@ fn parse_depth_at_start(
                     span.name()
                 ),
             )?;
-                Ok(None)
+                Ok(OptionalField::Invalid)
             }
         }
         Some(_) => {
             strict_or_warn(strict, warnings, format!("invalid field '{TT_DEPTH_AT_START}' in span '{}': expected non-negative integer", span.name()))?;
-            Ok(None)
+            Ok(OptionalField::Invalid)
         }
-        None => Ok(None),
+        None => Ok(OptionalField::Missing),
     }
 }
 
@@ -564,5 +582,99 @@ mod tests {
             run_from_span_records(vec![bad_outcome], ImportOptions::new("svc").strict(true))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn invalid_success_warns_and_skips_stage_non_strict() {
+        let spans = vec![
+            SpanRecord::new("req", 10, 20)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("st", 1, 1_000)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db")
+                .field(TT_SUCCESS, 7_u64),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+        assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
+        assert_eq!(imported.run().metadata.finished_at_unix_ms, 20);
+    }
+
+    #[test]
+    fn invalid_success_errors_strict() {
+        let spans = vec![
+            SpanRecord::new("req", 10, 20)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("st", 1, 1_000)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db")
+                .field(TT_SUCCESS, 7_u64),
+        ];
+        assert!(run_from_span_records(spans, ImportOptions::new("svc").strict(true)).is_err());
+    }
+
+    #[test]
+    fn invalid_depth_warns_and_skips_queue_non_strict() {
+        let spans = vec![
+            SpanRecord::new("req", 10, 20)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("q", 1, 1_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits")
+                .field(TT_DEPTH_AT_START, -1_i64),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().queues.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+        assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
+        assert_eq!(imported.run().metadata.finished_at_unix_ms, 20);
+    }
+
+    #[test]
+    fn invalid_depth_errors_strict() {
+        let spans = vec![
+            SpanRecord::new("req", 10, 20)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("q", 1, 1_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits")
+                .field(TT_DEPTH_AT_START, 3.5_f64),
+        ];
+        assert!(run_from_span_records(spans, ImportOptions::new("svc").strict(true)).is_err());
+    }
+
+    #[test]
+    fn valid_optional_fields_are_applied() {
+        let spans = vec![
+            SpanRecord::new("st", 10, 20)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db")
+                .field(TT_SUCCESS, "false"),
+            SpanRecord::new("q", 21, 30)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits")
+                .field(TT_DEPTH_AT_START, 9_i64),
+        ];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert!(!run.stages[0].success);
+        assert_eq!(run.queues[0].depth_at_start, Some(9));
     }
 }
