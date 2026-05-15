@@ -5,8 +5,7 @@
 //!
 //! This crate provides semantic keys and typed records for importing
 //! tracing-shaped span data into [`tailtriage_core::Run`].
-//! It intentionally does not provide a `tracing` layer,
-//! OpenTelemetry integration, or analyzer behavior changes.
+//! It intentionally does not provide OpenTelemetry integration or analyzer behavior changes.
 //!
 //! # Example
 //!
@@ -30,6 +29,7 @@
 mod convention;
 mod error;
 mod jsonl;
+mod recorder;
 mod types;
 
 use tailtriage_core::{
@@ -42,6 +42,7 @@ pub use convention::{
 };
 pub use error::ImportError;
 pub use jsonl::{import_jsonl_path, import_jsonl_reader};
+pub use recorder::{TailtriageLayer, TracingRecorder, TracingRecorderBuilder};
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
