@@ -105,3 +105,11 @@ Use `#[tracing::instrument(fields(...))]` or `.instrument(...)` so span fields a
 Do not hold a manual entered-span guard across `.await`; async spans may enter/exit many times, and this recorder finalizes completed work on `on_close` (drop), not enter/exit transitions.
 
 Tracing span capture for request/stage/queue evidence works outside Tokio runtimes. Runtime-pressure evidence still requires tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans cannot infer executor or blocking-pool pressure by themselves.
+
+
+## Focused examples
+
+- `examples/live_recorder.rs`: records one request span and one stage span with `tt.*` fields, converts the captured spans into a run, then renders an in-memory analyzer text report.
+- `examples/tracing_spans.jsonl`: normalized JSONL fixture with one completed request, stage, and queue span for deterministic import/testing.
+
+These examples demonstrate tracing intake for tailtriage triage workflows only; they do not add telemetry backend behavior.

@@ -449,4 +449,14 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
     }
+
+    #[test]
+    fn imports_examples_fixture_with_request_stage_and_queue() {
+        let input = include_str!("../examples/tracing_spans.jsonl");
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+    }
 }

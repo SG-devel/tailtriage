@@ -1,0 +1,3 @@
+{"span":{"name":"http.request","id":"span-request-1","started_at_unix_ms":1700000000000,"finished_at_unix_ms":1700000000120,"fields":{"tt.kind":"request","tt.request_id":"req-42","tt.route":"/checkout"}}}
+{"span":{"name":"checkout.db","id":"span-stage-1","parent_id":"span-request-1","started_at_unix_ms":1700000000020,"finished_at_unix_ms":1700000000090,"fields":{"tt.kind":"stage","tt.request_id":"req-42","tt.stage":"db_call","tt.success":true}}}
+{"span":{"name":"admission.queue","id":"span-queue-1","parent_id":"span-request-1","started_at_unix_ms":1700000000002,"finished_at_unix_ms":1700000000018,"fields":{"tt.kind":"queue","tt.request_id":"req-42","tt.queue":"admission","tt.depth_at_start":3}}}
