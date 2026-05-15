@@ -48,6 +48,15 @@ Notes:
 - Empty lines are ignored.
 - Malformed JSON line input is an import error in both strict and non-strict mode.
 
+
+## Focused examples
+
+- `examples/live_recorder.rs`: records completed `tt.*` request/stage spans with
+  `TracingRecorder`, converts to an in-memory run, and renders an analyzer text
+  triage report.
+- `examples/tracing_spans.jsonl`: normalized JSONL fixture with one request, one
+  stage, and one queue completed span for deterministic intake/import smoke use.
+
 ## tracing-subscriber JSON caveat
 
 Direct `tracing-subscriber` JSON output can vary by formatter configuration. In
