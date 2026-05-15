@@ -161,9 +161,6 @@ fn cli_misspelled_analyzer_set_reports_suggestion() {
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("queueing.trigger_permille"));
-    if stderr.contains("did you mean") {
-        assert!(stderr.contains("did you mean"));
-    }
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
 }
 
@@ -203,7 +200,15 @@ fn cli_missing_analyzer_config_file_reports_path() {
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains(&missing_path.display().to_string()));
+    assert!(
+        stderr.contains(&format!(
+            "failed to read analyzer config '{}'",
+            missing_path.display()
+        )) || stderr.contains(&format!(
+            "Error: ReadConfig {{ path: \"{}\"",
+            missing_path.display()
+        ))
+    );
     assert!(!stderr.contains("analyzer.config_path"));
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
 }
