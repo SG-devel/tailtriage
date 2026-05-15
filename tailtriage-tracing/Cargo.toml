@@ -1,0 +1,27 @@
+[package]
+name = "tailtriage-tracing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tracing intake bridge types and semantic conventions for tailtriage"
+documentation = "https://docs.rs/tailtriage-tracing"
+readme = "README.md"
+keywords = ["tokio", "latency", "tracing", "diagnostics", "triage"]
+categories = ["asynchronous", "development-tools::profiling", "development-tools::debugging"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "src/**",
+]
+
+[dependencies]
+tailtriage-core.workspace = true
+serde = { version = "1", features = ["derive"] }
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
