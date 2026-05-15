@@ -449,4 +449,15 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
     }
+
+    #[test]
+    fn fixture_jsonl_has_request_stage_and_queue() {
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("tracing_spans.jsonl");
+        let imported = import_jsonl_path(fixture_path, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().queues.len(), 1);
+    }
 }
