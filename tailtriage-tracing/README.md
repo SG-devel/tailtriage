@@ -68,6 +68,12 @@ Typical span fields are expected to follow this shape:
 - queue: `tt.kind`, `tt.request_id`, `tt.queue`, `tt.depth_at_start`
 
 
+
+## Examples
+
+- [`examples/live_recorder.rs`](examples/live_recorder.rs): capture completed `tt.*` spans with `TracingRecorder`, convert to a run, and render an analyzer report.
+- [`examples/import_jsonl.rs`](examples/import_jsonl.rs): import normalized JSONL spans from [`examples/tracing_spans.jsonl`](examples/tracing_spans.jsonl), then analyze and render a text report.
+
 ## Live tracing recorder
 
 ```rust
