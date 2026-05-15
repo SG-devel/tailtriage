@@ -12,14 +12,15 @@
 //!
 //! ```
 //! use tailtriage_tracing::{
-//!     FieldValue, ImportOptions, SpanRecord, TT_KIND, TT_REQUEST_ID, TT_ROUTE, TT_SUCCESS,
+//!     ImportOptions, SpanRecord, TT_DEPTH_AT_START, TT_KIND, TT_REQUEST_ID, TT_ROUTE, TT_SUCCESS,
 //! };
 //!
 //! let record = SpanRecord::new("http.request", 1_700_000_000_000, 1_700_000_000_120)
-//!     .field(TT_KIND, FieldValue::String("request".to_owned()))
-//!     .field(TT_REQUEST_ID, FieldValue::String("req-42".to_owned()))
-//!     .field(TT_ROUTE, FieldValue::String("/checkout".to_owned()))
-//!     .field(TT_SUCCESS, FieldValue::Bool(true));
+//!     .field(TT_KIND, "request")
+//!     .field(TT_REQUEST_ID, "req-42")
+//!     .field(TT_ROUTE, "/checkout")
+//!     .field(TT_SUCCESS, true)
+//!     .field(TT_DEPTH_AT_START, 7_u64);
 //!
 //! let options = ImportOptions::new("checkout-service").strict(false);
 //! assert_eq!(record.name(), "http.request");
