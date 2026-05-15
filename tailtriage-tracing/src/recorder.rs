@@ -44,6 +44,13 @@ struct OpenSpan {
     started_at_unix_ms: u64,
 }
 
+fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
+    match state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 impl TracingRecorder {
     /// Creates a builder with required service name metadata.
     pub fn builder(service_name: impl Into<String>) -> TracingRecorderBuilder {
@@ -64,13 +71,10 @@ impl TracingRecorder {
     ///
     /// # Errors
     ///
-    /// Returns [`ImportError`] when strict conversion fails or the recorder mutex is poisoned.
+    /// Returns [`ImportError`] when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
         let spans = {
-            let state = self.state.lock().map_err(|e| ImportError::InvalidField {
-                field: "recorder",
-                reason: format!("recorder mutex poisoned: {e}"),
-            })?;
+            let state = lock_state(&self.state);
             state.completed.clone()
         };
         run_from_span_records(spans, self.options.clone())
@@ -82,7 +86,7 @@ impl TracingRecorder {
     ///
     /// # Errors
     ///
-    /// Returns [`ImportError`] when strict conversion fails or the recorder mutex is poisoned.
+    /// Returns [`ImportError`] when strict conversion fails.
     pub fn shutdown(&self) -> Result<ImportedRun, ImportError> {
         self.snapshot_run()
     }
@@ -142,45 +146,42 @@ where
             fields: visitor.fields,
             started_at_unix_ms: tailtriage_core::unix_time_ms(),
         };
-        if let Ok(mut state) = self.state.lock() {
-            state.open.insert(id.into_u64().to_string(), open_span);
-        }
+        let mut state = lock_state(&self.state);
+        state.open.insert(id.into_u64().to_string(), open_span);
     }
 
     fn on_record(&self, span_id: &Id, values: &tracing::span::Record<'_>, _ctx: Context<'_, S>) {
         let mut visitor = FieldVisitor::default();
         values.record(&mut visitor);
-        if let Ok(mut state) = self.state.lock() {
-            let key = span_id.into_u64().to_string();
-            if let Some(span) = state.open.get_mut(&key) {
-                span.fields.extend(visitor.fields);
-            }
+        let mut state = lock_state(&self.state);
+        let key = span_id.into_u64().to_string();
+        if let Some(span) = state.open.get_mut(&key) {
+            span.fields.extend(visitor.fields);
         }
     }
 
     fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
-        if let Ok(mut state) = self.state.lock() {
-            let key = id.into_u64().to_string();
-            if let Some(open) = state.open.remove(&key) {
-                if !open.fields.contains_key(TT_KIND) {
-                    return;
-                }
-                let mut record = SpanRecord::new(
-                    open.name,
-                    open.started_at_unix_ms,
-                    tailtriage_core::unix_time_ms(),
-                );
-                if let Some(span_id) = open.id {
-                    record = record.id(span_id);
-                }
-                if let Some(parent_id) = open.parent_id {
-                    record = record.parent_id(parent_id);
-                }
-                for (k, v) in open.fields {
-                    record = record.field(k, v);
-                }
-                state.completed.push(record);
+        let mut state = lock_state(&self.state);
+        let key = id.into_u64().to_string();
+        if let Some(open) = state.open.remove(&key) {
+            if !open.fields.contains_key(TT_KIND) {
+                return;
             }
+            let mut record = SpanRecord::new(
+                open.name,
+                open.started_at_unix_ms,
+                tailtriage_core::unix_time_ms(),
+            );
+            if let Some(span_id) = open.id {
+                record = record.id(span_id);
+            }
+            if let Some(parent_id) = open.parent_id {
+                record = record.parent_id(parent_id);
+            }
+            for (k, v) in open.fields {
+                record = record.field(k, v);
+            }
+            state.completed.push(record);
         }
     }
 }
@@ -308,6 +309,77 @@ mod tests {
             assert!(run.run().requests.is_empty());
             assert!(run.run().stages.is_empty());
             assert!(run.run().queues.is_empty());
+        });
+    }
+
+    #[test]
+    fn shutdown_returns_imported_run() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+            let run = recorder.shutdown().unwrap();
+            assert_eq!(run.run().requests.len(), 1);
+            assert_eq!(run.run().requests[0].request_id, "r1");
+            assert_eq!(run.run().requests[0].route, "/checkout");
+        });
+    }
+
+    #[test]
+    fn builder_metadata_applies_to_imported_run() {
+        let recorder = TracingRecorder::builder("checkout-service")
+            .service_version("1.2.3")
+            .run_id("run-42")
+            .strict(false)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+
+        let run = recorder.snapshot_run().unwrap();
+        assert_eq!(run.run().metadata.service_name, "checkout-service");
+        assert_eq!(run.run().metadata.service_version.as_deref(), Some("1.2.3"));
+        assert_eq!(run.run().metadata.run_id, "run-42");
+    }
+
+    #[test]
+    fn strict_mode_errors_on_malformed_request() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1");
+            drop(span);
+        });
+
+        assert!(recorder.snapshot_run().is_err());
+    }
+
+    #[test]
+    fn tt_kind_recorded_later_is_captured() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r1",
+                tt.route = "/late-kind"
+            );
+            span.record("tt.kind", "request");
+            drop(span);
+
+            let run = recorder.snapshot_run().unwrap();
+            assert_eq!(run.run().requests.len(), 1);
+            assert_eq!(run.run().requests[0].route, "/late-kind");
         });
     }
 }

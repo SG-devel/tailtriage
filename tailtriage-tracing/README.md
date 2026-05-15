@@ -82,14 +82,17 @@ let recorder = TracingRecorder::builder("checkout-service")
 
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
 tracing::subscriber::with_default(subscriber, || {
-    let request = tracing::info_span!(
-        "http.request",
-        tt.kind = "request",
-        tt.request_id = "req-42",
-        tt.route = "/checkout",
-        tt.outcome = tracing::field::Empty
-    );
-    request.record("tt.outcome", "ok");
+    {
+        let request = tracing::info_span!(
+            "http.request",
+            tt.kind = "request",
+            tt.request_id = "req-42",
+            tt.route = "/checkout",
+            tt.outcome = tracing::field::Empty
+        );
+        let _entered = request.enter();
+        request.record("tt.outcome", "ok");
+    }
 });
 
 let imported = recorder.shutdown()?;
