@@ -414,6 +414,103 @@ fn runtime_warning_emitted_when_insufficient_evidence() {
 }
 
 #[test]
+fn runtime_warning_respects_configured_high_confidence_threshold() {
+    let mut run = test_run();
+    run.requests = vec![
+        RequestEvent {
+            request_id: "req-1".into(),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: 0,
+            finished_at_unix_ms: 2,
+            latency_us: 1500,
+            outcome: "ok".into(),
+        },
+        RequestEvent {
+            request_id: "req-2".into(),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 3,
+            latency_us: 1500,
+            outcome: "ok".into(),
+        },
+        RequestEvent {
+            request_id: "req-3".into(),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: 2,
+            finished_at_unix_ms: 4,
+            latency_us: 1500,
+            outcome: "ok".into(),
+        },
+        RequestEvent {
+            request_id: "req-4".into(),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: 3,
+            finished_at_unix_ms: 5,
+            latency_us: 1500,
+            outcome: "ok".into(),
+        },
+    ];
+    run.stages = vec![
+        StageEvent {
+            request_id: "req-1".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 0,
+            finished_at_unix_ms: 1,
+            latency_us: 850,
+            success: true,
+        },
+        StageEvent {
+            request_id: "req-2".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 850,
+            success: true,
+        },
+        StageEvent {
+            request_id: "req-3".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 2,
+            finished_at_unix_ms: 3,
+            latency_us: 850,
+            success: true,
+        },
+        StageEvent {
+            request_id: "req-4".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 3,
+            finished_at_unix_ms: 4,
+            latency_us: 850,
+            success: true,
+        },
+    ];
+
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(
+        default_report.primary_suspect.score >= 85 && default_report.primary_suspect.score < 95,
+        "expected score in [85, 95), got {}",
+        default_report.primary_suspect.score
+    );
+    assert!(!default_report
+        .warnings
+        .iter()
+        .any(|w| w.contains("No runtime snapshots captured")));
+    assert!(default_report.analyzer_config.is_none());
+
+    let custom = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 95);
+    let strict_report = analyze_run(&run, custom);
+    assert!(strict_report
+        .warnings
+        .iter()
+        .any(|w| w.contains("No runtime snapshots captured")));
+    assert!(strict_report.analyzer_config.is_some());
+}
+
+#[test]
 fn downstream_beats_weak_blocking() {
     let mut run = test_run();
     run.stages = vec![
@@ -422,7 +519,7 @@ fn downstream_beats_weak_blocking() {
             stage: "db".into(),
             started_at_unix_ms: 1,
             finished_at_unix_ms: 2,
-            latency_us: 900,
+            latency_us: 850,
             success: true,
         },
         StageEvent {
@@ -430,7 +527,7 @@ fn downstream_beats_weak_blocking() {
             stage: "db".into(),
             started_at_unix_ms: 2,
             finished_at_unix_ms: 3,
-            latency_us: 900,
+            latency_us: 850,
             success: true,
         },
         StageEvent {
@@ -438,7 +535,7 @@ fn downstream_beats_weak_blocking() {
             stage: "db".into(),
             started_at_unix_ms: 3,
             finished_at_unix_ms: 4,
-            latency_us: 900,
+            latency_us: 850,
             success: true,
         },
     ];
@@ -2274,7 +2371,7 @@ fn default_options_compat_downstream_stage_dominates_case() {
             stage: "db".into(),
             started_at_unix_ms: 1,
             finished_at_unix_ms: 2,
-            latency_us: 900,
+            latency_us: 850,
             success: true,
         })
         .collect();
