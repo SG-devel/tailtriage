@@ -41,7 +41,7 @@ enum OutputFormat {
     Json,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -82,4 +82,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn main() {
+    if let Err(err) = run() {
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
 }
