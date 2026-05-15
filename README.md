@@ -223,6 +223,12 @@ if let Some(finalized_run) = sink.take_run() {
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Import completed tracing span records (JSONL) into a Run artifact first when needed:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+```
+
 Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).
 
 #### Example output (representative JSON)
