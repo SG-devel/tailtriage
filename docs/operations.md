@@ -439,6 +439,19 @@ These measurements are:
 
 They are not universal production guarantees.
 
+## Tracing-based run operations
+
+When runs are imported from tracing-shaped spans (`tailtriage import tracing-json`) or captured through `tailtriage_tracing::TracingRecorder`, request/stage/queue evidence can still support useful triage.
+
+Operational guidance:
+
+* tracing-only imports usually lack Tokio runtime snapshots
+* without runtime snapshots, executor-pressure and blocking-pool suspects can be lower-confidence or absent
+* enable tailtriage Tokio runtime sampling when runtime-pressure evidence is required
+* treat evidence-ranked suspects and next checks as triage leads, not proof
+
+Tracing intake is an adoption path for existing `tracing` instrumentation, not a replacement for runtime sampling when runtime-pressure diagnosis is required.
+
 ## Current known limits and non-fits
 
 `tailtriage` is intentionally not:

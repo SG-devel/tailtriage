@@ -155,7 +155,16 @@ Analyzer configuration contract:
 - Analyzer tuning changes interpretation/ranking of already captured evidence; it does not change capture artifacts, capture limits, truncation, or what was collected.
 
 
-### 5.9 Analyzer CLI (`tailtriage-cli`)
+### 5.9 Optional tracing intake (`tailtriage-tracing`)
+
+`tailtriage-tracing` is an optional adoption surface for users who already have `tracing` spans.
+
+- converts tracing-shaped request/stage/queue evidence into standard `Run` values
+- supports offline JSONL import and a live in-memory recorder
+- feeds the existing analyzer/report workflow without changing analyzer semantics
+- does not provide OpenTelemetry/OTLP or a tracing backend
+
+### 5.10 Analyzer CLI (`tailtriage-cli`)
 
 `tailtriage-cli` owns artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic. CLI JSON output delegates to `tailtriage-analyzer`’s canonical pretty Report JSON renderer.
 

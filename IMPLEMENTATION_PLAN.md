@@ -104,6 +104,18 @@ Near-term tasks:
 - keep validation docs present-tense and stable, not PR-history oriented
 - update docs contract tests when public docs structure intentionally changes
 
+### 6) Tracing intake adoption friction
+
+Keep the optional `tailtriage-tracing` path clear for users who already instrument with `tracing`.
+
+Near-term tasks:
+
+- keep JSONL import and live recorder guidance aligned with implemented APIs
+- reinforce that tracing intake produces standard `Run` artifacts for the existing analyzer
+- keep runtime-pressure limitations explicit when runtime snapshots are missing
+- keep this scoped as adoption-friction reduction, not observability-platform expansion
+- keep OpenTelemetry/OTLP out of scope for this completed slice
+
 ## Near-term sequencing
 
 Before the next public promotion or release:
