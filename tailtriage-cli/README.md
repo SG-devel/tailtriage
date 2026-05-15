@@ -47,6 +47,24 @@ tailtriage analyze tailtriage-run.json --format json
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
 CLI input is Run artifact JSON from disk. CLI does not consume Report JSON as input.
 
+## Analyzer tuning flags
+
+Start with default analyzer behavior first.
+
+- `--analyzer-config <path>` loads analyzer options from TOML (`[analyzer]`, `schema_version = 1`).
+- `--analyzer-set PATH=VALUE` applies one override (repeatable).
+- `--help-analyzer-options` prints supported override paths and value formats.
+
+Precedence:
+
+1. analyzer defaults
+2. options loaded from `--analyzer-config`
+3. one or more `--analyzer-set PATH=VALUE` overrides (last assignment to the same path wins)
+
+Override parsing/validation errors fail fast so misspelled paths or invalid values are rejected rather than silently ignored.
+
+Run artifact JSON remains CLI input. Report JSON remains analyzer/CLI output. Analyzer tuning changes report interpretation, not captured artifact contents.
+
 ## How to read the result
 
 Read output in this order:

@@ -223,6 +223,8 @@ if let Some(finalized_run) = sink.take_run() {
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).
+
 #### Example output (representative JSON)
 
 ```json
