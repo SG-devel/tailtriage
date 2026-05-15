@@ -77,7 +77,7 @@ If you want analysis/report generation inside service code or tests, use `tailtr
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 use tailtriage_analyzer::render_json_pretty;
 
-# use tailtriage::Run;
+# use tailtriage_core::Run;
 # fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
 let report = analyze_run(&run, AnalyzeOptions::default());
 let text = render_text(&report);
@@ -90,6 +90,41 @@ let json = render_json_pretty(&report)?;
 Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI output. Typed `Report` is the in-process analyzer result.
 
 Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
+
+
+## 3.1) Analyzer tuning (Rust, TOML, CLI)
+
+Start with defaults. Tune only after representative runs under comparable load.
+
+Rust checked API example:
+
+```rust
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+
+# use tailtriage_core::Run;
+# fn example(run: Run) {
+let opts = AnalyzeOptions::default().with_queueing(|q| q.trigger_permille = 450);
+let _report = tailtriage_analyzer::try_analyze_run(&run, opts).expect("valid analyzer options");
+# }
+```
+
+TOML example:
+
+```toml
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+trigger_permille = 450
+```
+
+CLI example:
+
+```bash
+tailtriage analyze tailtriage-run.json   --analyzer-config examples/analyzer-config.toml   --analyzer-set queueing.trigger_permille=450
+```
+
+Use `tailtriage analyze --help-analyzer-options` for the full option list.
 
 ## 4) Request lifecycle contract (required)
 

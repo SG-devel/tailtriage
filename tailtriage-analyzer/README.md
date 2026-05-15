@@ -89,3 +89,42 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions};
 ```
+
+
+## Custom analyzer options (checked)
+
+Start with defaults and tune only when representative runs show a repeatable fit issue.
+
+```rust
+use tailtriage_analyzer::AnalyzeOptions;
+
+let opts = AnalyzeOptions::default().with_queueing(|q| q.trigger_permille = 450);
+```
+
+To validate options and analyze in one checked call:
+
+```rust
+use tailtriage_analyzer::AnalyzeOptions;
+# use tailtriage_core::Run;
+# fn demo(run: Run) {
+let opts = AnalyzeOptions::default().with_queueing(|q| q.trigger_permille = 450);
+let _report = tailtriage_analyzer::try_analyze_run(&run, opts).expect("valid analyzer options");
+# }
+```
+
+TOML string parsing example:
+
+```rust
+use tailtriage_analyzer::AnalyzeOptions;
+
+let toml = r#"
+[analyzer]
+schema_version = 1
+
+[analyzer.queueing]
+trigger_permille = 450
+"#;
+let _opts = AnalyzeOptions::from_toml_str(toml).expect("valid analyzer config");
+```
+
+Report JSON includes `analyzer_config` only when non-default options were used.

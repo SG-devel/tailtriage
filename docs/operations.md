@@ -203,6 +203,21 @@ For controller-managed runs, consider:
 
 based on whether bounded retention or uninterrupted capture matters more operationally.
 
+
+## Analyzer tuning in operations
+
+Prefer default analyzer behavior first.
+
+Do not tune around missing instrumentation. Add queue/stage/runtime signal where needed, then re-run.
+
+Do not use tuning to hide truncation. If limits were hit, address capture density/limits and compare again.
+
+For production repeatability, commit analyzer TOML (for example `examples/analyzer-config.toml` shape with `[analyzer]` and `schema_version = 1`) and treat it as part of run context.
+
+Compare runs only when analyzer config is the same, or explicitly account for analyzer-config changes in interpretation.
+
+Apply analyzer tuning only after comparing representative runs and confirming workload fit.
+
 ## Operational guidance for bounded runs
 
 Prefer bounded investigative windows over continuous long-lived capture.

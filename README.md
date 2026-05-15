@@ -63,6 +63,7 @@ cargo add tailtriage-analyzer
 ```
 
 Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust code.
+Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML analyzer config, and CLI flags. Start with defaults first; see [docs/diagnostics.md](docs/diagnostics.md) and [docs/user-guide.md](docs/user-guide.md).
 - `tailtriage-cli` consumes Run artifact JSON from disk.
 - `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
 
