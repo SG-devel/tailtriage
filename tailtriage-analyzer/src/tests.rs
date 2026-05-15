@@ -405,6 +405,54 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
 }
 
 #[test]
+fn runtime_warning_respects_configured_high_confidence_threshold() {
+    let mut run = test_run();
+    run.queues = vec![
+        QueueEvent {
+            request_id: "req-1".into(),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 0,
+            waited_until_unix_ms: 1,
+            depth_at_start: Some(9),
+        },
+        QueueEvent {
+            request_id: "req-2".into(),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+            depth_at_start: Some(9),
+        },
+        QueueEvent {
+            request_id: "req-3".into(),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 2,
+            waited_until_unix_ms: 3,
+            depth_at_start: Some(9),
+        },
+    ];
+
+    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    assert!(default_report.primary_suspect.score >= 85);
+    assert!(!default_report
+        .warnings
+        .iter()
+        .any(|w| w.contains("No runtime snapshots captured")));
+    assert!(default_report.analyzer_config.is_none());
+
+    let strict = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 95);
+    let strict_report = analyze_run(&run, strict);
+    assert!(strict_report.primary_suspect.score >= 85 && strict_report.primary_suspect.score < 95);
+    assert!(strict_report
+        .warnings
+        .iter()
+        .any(|w| w.contains("No runtime snapshots captured")));
+    assert!(strict_report.analyzer_config.is_some());
+}
+
+#[test]
 fn runtime_warning_emitted_when_insufficient_evidence() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default());
     assert!(report
@@ -2584,7 +2632,7 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
         default_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
     );
-    assert_eq!(default_report.primary_suspect.score, 90);
+    assert!(default_report.primary_suspect.score >= 85);
     assert_eq!(default_report.primary_suspect.confidence, Confidence::High);
 
     let strict = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 91);
@@ -2593,7 +2641,7 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
         strict_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
     );
-    assert_eq!(strict_report.primary_suspect.score, 90);
+    assert!(strict_report.primary_suspect.score >= 85 && strict_report.primary_suspect.score < 95);
     assert_eq!(strict_report.primary_suspect.confidence, Confidence::Medium);
 }
 

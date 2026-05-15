@@ -41,7 +41,7 @@ impl AnalyzeOptions {
         &VALID_OVERRIDE_PATHS
     }
 
-    /// Applies CLI overrides in order, validating after each applied override.
+    /// Applies CLI overrides in order as a transactional batch.
     ///
     /// # Errors
     /// Returns the first syntax, path, parse, or semantic validation error.
@@ -50,9 +50,11 @@ impl AnalyzeOptions {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        let mut updated = self.clone();
         for raw in overrides {
-            self.apply_override(raw.as_ref())?;
+            updated.apply_override(raw.as_ref())?;
         }
+        *self = updated;
         Ok(())
     }
 
@@ -71,8 +73,11 @@ impl AnalyzeOptions {
                 raw: raw.to_string(),
             });
         };
-        apply_override_path(self, path, value)?;
-        self.validate()
+        let mut updated = self.clone();
+        apply_override_path(&mut updated, path, value)?;
+        updated.validate()?;
+        *self = updated;
+        Ok(())
     }
 }
 
@@ -213,6 +218,7 @@ fn parse_bool(path: &str, value: &str) -> Result<bool, AnalyzeConfigError> {
         }),
     }
 }
+
 fn parse_string_list(path: &str, value: &str) -> Result<Vec<String>, AnalyzeConfigError> {
     let mut out = Vec::new();
     for entry in value.split(',') {
@@ -415,8 +421,51 @@ mod tests {
             })
         ));
     }
+
     #[test]
-    fn apply_overrides_stops_on_first_error() {
+    fn apply_override_invalid_semantic_value_is_transactional() {
+        let mut opts = AnalyzeOptions::default();
+        let original = opts.clone();
+
+        let err = opts
+            .apply_override("route.breakdown_limit=0")
+            .expect_err("must fail validation");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::InvalidConfigValue {
+                path: "route.breakdown_limit",
+                ..
+            }
+        ));
+        assert_eq!(opts, original);
+    }
+
+    #[test]
+    fn apply_override_invalid_path_is_transactional() {
+        let mut opts = AnalyzeOptions::default();
+        let original = opts.clone();
+
+        let err = opts.apply_override("bad.path=1").expect_err("must fail");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::UnknownOverridePath { .. }
+        ));
+        assert_eq!(opts, original);
+    }
+
+    #[test]
+    fn apply_overrides_repeated_valid_override_commits_last_value() {
+        let mut opts = AnalyzeOptions::default();
+        opts.apply_overrides([
+            "queueing.trigger_permille=350",
+            "queueing.trigger_permille=450",
+        ])
+        .expect("batch succeeds");
+        assert_eq!(opts.queueing.trigger_permille, 450);
+    }
+
+    #[test]
+    fn apply_overrides_stops_on_first_error_and_is_transactional() {
         let mut opts = AnalyzeOptions::default();
         let err = opts
             .apply_overrides([
@@ -429,7 +478,10 @@ mod tests {
             err,
             AnalyzeConfigError::UnknownOverridePath { .. }
         ));
-        assert_eq!(opts.queueing.trigger_permille, 450);
+        assert_eq!(
+            opts.queueing.trigger_permille,
+            AnalyzeOptions::default().queueing.trigger_permille
+        );
         assert_eq!(opts.confidence.high_score_threshold, 85);
     }
 }
