@@ -223,11 +223,18 @@ if let Some(finalized_run) = sink.take_run() {
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-Import completed tracing span records (JSONL) into a Run artifact first when needed:
+### Already using `tracing`?
+
+Use `tailtriage-tracing` as an adoption path when you already emit Rust `tracing` spans.
 
 ```bash
 tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
 ```
+
+Or record completed `tt.*` spans in-process with `tailtriage_tracing::TracingRecorder`, then analyze the imported `Run` with the same analyzer workflow. Both paths produce standard `Run` data.
+
+Tracing-only runs usually do not include Tokio runtime snapshots. Request/stage/queue evidence can still be useful, but executor-pressure and blocking-pool suspects are usually weaker or absent until runtime snapshots are captured.
 
 Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).
 

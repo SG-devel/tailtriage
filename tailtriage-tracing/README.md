@@ -1,26 +1,39 @@
 # tailtriage-tracing
 
-`tailtriage-tracing` is a focused intake bridge surface for tracing-shaped span
-records that can be converted into `tailtriage_core::Run` inputs.
+`tailtriage-tracing` is a narrow tracing intake surface for teams that already use Rust `tracing` spans.
 
-This crate is intentionally narrow:
+It converts tracing-shaped request/stage/queue evidence into standard `tailtriage_core::Run` values that feed the same analyzer/report workflow as native capture.
 
-- It defines semantic convention keys (`tt.*`) for triage-oriented span fields.
-- It defines typed intake records and import option/result types.
-- It converts typed `SpanRecord` values with `run_from_span_records`.
-- It imports JSONL from readers/paths when records contain completed span timing.
-- It provides an in-process `tracing_subscriber::Layer` recorder for completed `tt.*` spans.
-- It does **not** implement OpenTelemetry or OTLP.
-- It does **not** change `tailtriage-analyzer`.
+It is not a tracing backend, not an observability platform, and does not implement OpenTelemetry or OTLP.
 
-## JSONL import support in this phase
+## JSONL import support
 
-Public APIs:
+Public import APIs:
 
 - `import_jsonl_reader(reader, options)`
 - `import_jsonl_path(path, options)`
 
-Supported stable contract (recommended for tests and integrations):
+Offline CLI path:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
+```
+
+The import command writes pretty Run JSON (not Report JSON). Warnings are emitted to stderr as `warning: ...`.
+
+## tracing-subscriber JSON caveat
+
+`tracing-subscriber` JSON output formats vary by formatter options. This crate supports:
+
+- normalized completed-span JSONL (documented below)
+- close-event-like rows only when explicit unix-ms start/end timestamps are present
+
+It does not guess timing from line receive time, and it does not claim arbitrary tracing JSON compatibility.
+
+## Intended field shape
+
+Use literal dotted `tt.*` keys in the span `fields` object:
 
 ```json
 {
@@ -41,73 +54,51 @@ Supported stable contract (recommended for tests and integrations):
 
 Notes:
 
-- Importer accepts `started_at_unix_ms`/`finished_at_unix_ms` and aliases `start_unix_ms`/`end_unix_ms`.
-- In this phase, normalized shape uses **literal dotted keys** inside `fields` (for example `"tt.kind"` and `"tt.request_id"`), not nested objects that require flattening.
-- Importer reads `tt.*` fields from `fields`, `span.fields`, or top-level `tt.*` keys when present.
-- Scalars can be strings, bools, numbers, or null.
-- Empty lines are ignored.
-- Malformed JSON line input is an import error in both strict and non-strict mode.
-
-## tracing-subscriber JSON caveat
-
-Direct `tracing-subscriber` JSON output can vary by formatter configuration. In
-this phase, the importer supports:
-
-- normalized completed-span JSONL (shape above), and
-- close-event-like records only when they include explicit start/end unix-ms timestamps.
-
-It does not guess missing timing from line receive time and does not claim broad
-automatic parsing for every tracing JSON variant.
-
-## Intended field shape
-
-Typical span fields are expected to follow this shape:
-
-- request: `tt.kind`, `tt.request_id`, `tt.route`
-- stage: `tt.kind`, `tt.request_id`, `tt.stage`
-- queue: `tt.kind`, `tt.request_id`, `tt.queue`, `tt.depth_at_start`
-
+- normalized shape uses literal dotted keys (`"tt.kind"`), not nested key flattening
+- aliases `start_unix_ms`/`end_unix_ms` are accepted for start/end timing
+- empty lines are ignored
+- malformed JSON lines are import errors
 
 ## Live tracing recorder
 
+Use `TracingRecorder` for in-memory recording of completed `tt.*` spans:
+
 ```rust
-use tracing_subscriber::prelude::*;
 use tailtriage_tracing::TracingRecorder;
+use tracing_subscriber::prelude::*;
 
-let recorder = TracingRecorder::builder("checkout-service")
-    .service_version("1.2.3")
-    .run_id("run-42")
-    .strict(false)
-    .build();
-
+let recorder = TracingRecorder::builder("checkout-service").build();
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
+
 tracing::subscriber::with_default(subscriber, || {
-    {
-        let request = tracing::info_span!(
-            "http.request",
-            tt.kind = "request",
-            tt.request_id = "req-42",
-            tt.route = "/checkout",
-            tt.outcome = tracing::field::Empty
-        );
-        let _entered = request.enter();
-        request.record("tt.outcome", "ok");
-    }
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-1",
+        tt.route = "/checkout"
+    );
+    let _entered = request.enter();
 });
 
 let imported = recorder.shutdown()?;
 let run = imported.run();
-assert_eq!(run.requests.len(), 1);
+# let _ = run;
 # Ok::<(), tailtriage_tracing::ImportError>(())
 ```
 
-Use `#[tracing::instrument(fields(...))]` or `.instrument(...)` so span fields attach to async work correctly.
-Do not hold a manual entered-span guard across `.await`; async spans may enter/exit many times, and this recorder finalizes completed work on `on_close` (drop), not enter/exit transitions.
+## Async-span guidance
 
-Tracing span capture for request/stage/queue evidence works outside Tokio runtimes. Runtime-pressure evidence still requires tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans cannot infer executor or blocking-pool pressure by themselves.
+Prefer `#[tracing::instrument(fields(...))]` or `.instrument(...)` for async work so fields remain attached correctly.
 
+Do not hold a manual entered-span guard across `.await`; async spans can enter/exit repeatedly, and this recorder finalizes completed spans on close (`on_close`), not enter/exit transitions.
+
+## Runtime-pressure limitation
+
+Tracing-only runs can still provide request/stage/queue evidence.
+
+Runtime-pressure evidence remains Tokio-specific. Without runtime snapshots from tailtriage Tokio sampling, executor-pressure and blocking-pool suspects are usually weaker or absent.
 
 ## Examples
 
-- `examples/live_recorder.rs`: records one request span, one queue span, and one stage span with `TracingRecorder`, imports a run, and renders analyzer suspects and next checks.
-- `examples/tracing_spans.jsonl`: normalized completed-span JSONL fixture importable via `import_jsonl_path` or CLI `tailtriage import tracing-json`.
+- `examples/live_recorder.rs`
+- `examples/tracing_spans.jsonl`

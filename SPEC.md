@@ -44,6 +44,7 @@ Current workspace members include:
 - `tailtriage-axum`
 - `tailtriage-analyzer`
 - `tailtriage-cli`
+- `tailtriage-tracing`
 - demos crates under `demos/`
 
 Supporting repository areas:
@@ -164,6 +165,15 @@ Primary command:
 ```text
 tailtriage analyze <run.json>
 ```
+
+### 5.10 Optional tracing intake (`tailtriage-tracing`)
+
+`tailtriage-tracing` is an optional adoption surface for users who already have Rust `tracing` spans.
+
+- converts tracing-shaped request/stage/queue evidence into standard `Run` values
+- supports offline JSONL import and a live in-memory `TracingRecorder`
+- reuses the same analyzer semantics and report workflow
+- does not provide OpenTelemetry/OTLP or a tracing backend
 
 ## 6. Run artifact, analyzer, and CLI contracts
 
