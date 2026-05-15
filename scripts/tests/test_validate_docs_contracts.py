@@ -226,6 +226,39 @@ Normal CI does not publish durable diagnostic scorecards.
     def test_capture_readmes_analyzer_cli_wording_contract(self) -> None:
         validate_docs_contracts.validate_capture_readmes_analyzer_cli_wording_contract()
 
+    def test_analyzer_config_example_contract(self) -> None:
+        validate_docs_contracts.validate_analyzer_config_example_contract()
+
+    def test_analyzer_config_example_contract_fails_without_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "analyzer-config.toml"
+            config_path.write_text(
+                """[analyzer]
+[analyzer.queueing]
+[analyzer.blocking]
+[analyzer.executor]
+[analyzer.downstream]
+[analyzer.confidence]
+[analyzer.evidence]
+[analyzer.route]
+[analyzer.temporal]
+""",
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                validate_docs_contracts, "ANALYZER_CONFIG_EXAMPLE_PATH", config_path
+            ):
+                with self.assertRaisesRegex(ValueError, r"schema_version = 1"):
+                    validate_docs_contracts.validate_analyzer_config_example_contract()
+
+    def test_extract_analyzer_override_paths_filters_prefixes(self) -> None:
+        text = """
+Use `queueing.trigger_permille` and ignore `foo.bar`.
+`docs/operations.md` should not match as an analyzer override path.
+"""
+        extracted = validate_docs_contracts._extract_analyzer_override_paths(text)
+        self.assertEqual(extracted, {"queueing.trigger_permille"})
+
     def test_capture_readme_wording_rejects_cli_only_stale_phrase(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
