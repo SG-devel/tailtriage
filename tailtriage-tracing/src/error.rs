@@ -30,6 +30,8 @@ pub enum ImportError {
     },
     /// Import strictness rejected records that would otherwise be warnings.
     StrictViolation(String),
+    /// Service name was empty or whitespace-only.
+    EmptyServiceName,
 }
 
 impl fmt::Display for ImportError {
@@ -48,6 +50,7 @@ impl fmt::Display for ImportError {
                 write!(f, "invalid field `{field}`: {reason}")
             }
             Self::StrictViolation(message) => write!(f, "strict import violation: {message}"),
+            Self::EmptyServiceName => write!(f, "service name must not be empty"),
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tracing::field::{Field, Visit};
 use tracing::{Id, Subscriber};
@@ -15,24 +16,44 @@ use crate::{
 pub struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
+    limits: RecorderLimits,
 }
 
 /// Builder for [`TracingRecorder`].
 #[derive(Debug, Clone)]
 pub struct TracingRecorderBuilder {
     options: ImportOptions,
+    limits: RecorderLimits,
 }
 
 /// `tracing_subscriber` layer that feeds completed spans into a [`TracingRecorder`].
 #[derive(Debug, Clone)]
 pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
+    limits: RecorderLimits,
+}
+pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
+pub const DEFAULT_MAX_COMPLETED_SPANS: usize = 10_000;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecorderLimits {
+    pub max_open_spans: usize,
+    pub max_completed_spans: usize,
+}
+impl Default for RecorderLimits {
+    fn default() -> Self {
+        Self {
+            max_open_spans: DEFAULT_MAX_OPEN_SPANS,
+            max_completed_spans: DEFAULT_MAX_COMPLETED_SPANS,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct RecorderState {
     open: BTreeMap<String, OpenSpan>,
     completed: Vec<SpanRecord>,
+    dropped_open_spans: u64,
+    dropped_completed_spans: u64,
 }
 
 #[derive(Debug)]
@@ -42,6 +63,7 @@ struct OpenSpan {
     name: String,
     fields: BTreeMap<String, FieldValue>,
     started_at_unix_ms: u64,
+    started_instant: Instant,
 }
 
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
@@ -56,6 +78,7 @@ impl TracingRecorder {
     pub fn builder(service_name: impl Into<String>) -> TracingRecorderBuilder {
         TracingRecorderBuilder {
             options: ImportOptions::new(service_name),
+            limits: RecorderLimits::default(),
         }
     }
 
@@ -64,6 +87,7 @@ impl TracingRecorder {
     pub fn layer(&self) -> TailtriageLayer {
         TailtriageLayer {
             state: Arc::clone(&self.state),
+            limits: self.limits,
         }
     }
 
@@ -73,11 +97,20 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
-        let spans = {
+        let (spans, dropped_open_spans, dropped_completed_spans) = {
             let state = lock_state(&self.state);
-            state.completed.clone()
+            (
+                state.completed.clone(),
+                state.dropped_open_spans,
+                state.dropped_completed_spans,
+            )
         };
-        run_from_span_records(spans, self.options.clone())
+        imported_with_drop_warnings(
+            spans,
+            self.options.clone(),
+            dropped_open_spans,
+            dropped_completed_spans,
+        )
     }
 
     /// Converts currently completed spans into an imported run.
@@ -120,7 +153,26 @@ impl TracingRecorderBuilder {
         TracingRecorder {
             state: Arc::new(Mutex::new(RecorderState::default())),
             options: self.options,
+            limits: self.limits,
         }
+    }
+    /// Sets both open/completed in-memory span retention limits.
+    #[must_use]
+    pub fn limits(mut self, limits: RecorderLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+    /// Sets maximum number of concurrently tracked candidate open spans.
+    #[must_use]
+    pub fn max_open_spans(mut self, max_open_spans: usize) -> Self {
+        self.limits.max_open_spans = max_open_spans;
+        self
+    }
+    /// Sets maximum number of retained completed candidate spans.
+    #[must_use]
+    pub fn max_completed_spans(mut self, max_completed_spans: usize) -> Self {
+        self.limits.max_completed_spans = max_completed_spans;
+        self
     }
 }
 
@@ -139,14 +191,24 @@ where
                     .id()
                     .map(|pid| pid.into_u64().to_string())
             });
+        let metadata_candidate = metadata_has_tailtriage_field(attrs.metadata());
+        let initial_candidate = fields_have_tailtriage_key(&visitor.fields);
+        if !(metadata_candidate || initial_candidate) {
+            return;
+        }
+        let mut state = lock_state(&self.state);
+        if state.open.len() >= self.limits.max_open_spans {
+            state.dropped_open_spans = state.dropped_open_spans.saturating_add(1);
+            return;
+        }
         let open_span = OpenSpan {
             id: Some(id.into_u64().to_string()),
             parent_id,
             name: attrs.metadata().name().to_owned(),
             fields: visitor.fields,
             started_at_unix_ms: tailtriage_core::unix_time_ms(),
+            started_instant: Instant::now(),
         };
-        let mut state = lock_state(&self.state);
         state.open.insert(id.into_u64().to_string(), open_span);
     }
 
@@ -172,6 +234,9 @@ where
                 open.started_at_unix_ms,
                 tailtriage_core::unix_time_ms(),
             );
+            let duration_us =
+                u64::try_from(open.started_instant.elapsed().as_micros()).unwrap_or(u64::MAX);
+            record = record.duration_us(duration_us);
             if let Some(span_id) = open.id {
                 record = record.id(span_id);
             }
@@ -181,9 +246,47 @@ where
             for (k, v) in open.fields {
                 record = record.field(k, v);
             }
+            if state.completed.len() >= self.limits.max_completed_spans {
+                state.dropped_completed_spans = state.dropped_completed_spans.saturating_add(1);
+                return;
+            }
             state.completed.push(record);
         }
     }
+}
+fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
+    metadata
+        .fields()
+        .iter()
+        .any(|f| f.name().starts_with("tt."))
+}
+fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
+    fields.keys().any(|k| k.starts_with("tt."))
+}
+
+fn imported_with_drop_warnings(
+    spans: Vec<SpanRecord>,
+    options: ImportOptions,
+    dropped_open_spans: u64,
+    dropped_completed_spans: u64,
+) -> Result<ImportedRun, ImportError> {
+    let imported = run_from_span_records(spans, options)?;
+    if dropped_open_spans == 0 && dropped_completed_spans == 0 {
+        return Ok(imported);
+    }
+    let (mut run, mut warnings) = imported.into_parts();
+    if dropped_open_spans > 0 {
+        let msg = format!("live recorder dropped {dropped_open_spans} candidate spans because max_open_spans was reached");
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
+    if dropped_completed_spans > 0 {
+        let msg = format!("live recorder dropped {dropped_completed_spans} completed spans because max_completed_spans was reached");
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
+    run.truncation.limits_hit = true;
+    Ok(ImportedRun::new(run, warnings))
 }
 
 #[derive(Default)]

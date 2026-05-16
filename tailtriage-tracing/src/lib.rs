@@ -63,6 +63,7 @@ pub fn run_from_span_records<I>(
 where
     I: IntoIterator<Item = SpanRecord>,
 {
+    validate_service_name(options.service_name())?;
     let mut warnings = Vec::new();
     let mut requests = Vec::new();
     let mut stages = Vec::new();
@@ -114,7 +115,9 @@ where
                         kind: None,
                         started_at_unix_ms: span.started_at_unix_ms(),
                         finished_at_unix_ms: span.finished_at_unix_ms(),
-                        latency_us: (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                        latency_us: span.duration_us_ref().unwrap_or(
+                            (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                        ),
                         outcome,
                     });
                     update_min_max(&mut min_start, &mut max_finish, &span);
@@ -136,7 +139,9 @@ where
                         stage,
                         started_at_unix_ms: span.started_at_unix_ms(),
                         finished_at_unix_ms: span.finished_at_unix_ms(),
-                        latency_us: (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                        latency_us: span.duration_us_ref().unwrap_or(
+                            (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                        ),
                         success,
                     });
                     update_min_max(&mut min_start, &mut max_finish, &span);
@@ -158,7 +163,9 @@ where
                         queue,
                         waited_from_unix_ms: span.started_at_unix_ms(),
                         waited_until_unix_ms: span.finished_at_unix_ms(),
-                        wait_us: (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                        wait_us: span.duration_us_ref().unwrap_or(
+                            (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                        ),
                         depth_at_start,
                     });
                     update_min_max(&mut min_start, &mut max_finish, &span);
@@ -220,6 +227,13 @@ where
     };
 
     Ok(ImportedRun::new(run, warnings))
+}
+
+fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
+    if service_name.trim().is_empty() {
+        return Err(ImportError::EmptyServiceName);
+    }
+    Ok(())
 }
 
 fn update_min_max(min_start: &mut Option<u64>, max_finish: &mut Option<u64>, span: &SpanRecord) {

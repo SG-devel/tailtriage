@@ -97,6 +97,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 for warning in imported.warnings() {
                     eprintln!("warning: {}", warning.message());
                 }
+                if imported.run().requests.is_empty() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "tracing import produced zero request events; tailtriage analyze requires at least one request event",
+                    )
+                    .into());
+                }
 
                 let file = std::fs::File::create(&output)?;
                 serde_json::to_writer_pretty(file, imported.run())?;

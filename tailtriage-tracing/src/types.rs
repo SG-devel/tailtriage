@@ -77,6 +77,8 @@ pub struct SpanRecord {
     fields: BTreeMap<String, FieldValue>,
     started_at_unix_ms: u64,
     finished_at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    duration_us: Option<u64>,
 }
 
 impl SpanRecord {
@@ -89,6 +91,7 @@ impl SpanRecord {
             fields: BTreeMap::new(),
             started_at_unix_ms,
             finished_at_unix_ms,
+            duration_us: None,
         }
     }
 
@@ -110,6 +113,12 @@ impl SpanRecord {
     #[must_use]
     pub fn field(mut self, key: impl Into<String>, value: impl Into<FieldValue>) -> Self {
         self.fields.insert(key.into(), value.into());
+        self
+    }
+    /// Sets explicit span duration in microseconds.
+    #[must_use]
+    pub fn duration_us(mut self, duration_us: u64) -> Self {
+        self.duration_us = Some(duration_us);
         self
     }
 
@@ -142,6 +151,11 @@ impl SpanRecord {
     #[must_use]
     pub fn finished_at_unix_ms(&self) -> u64 {
         self.finished_at_unix_ms
+    }
+    /// Returns explicit span duration in microseconds when present.
+    #[must_use]
+    pub fn duration_us_ref(&self) -> Option<u64> {
+        self.duration_us
     }
 }
 
