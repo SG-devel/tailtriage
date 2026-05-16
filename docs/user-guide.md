@@ -107,6 +107,16 @@ Read output in this order:
 
 Then run one targeted check, change one thing, and re-run under comparable load.
 
+### Optional tracing JSONL bridge
+
+If you already have completed tracing span JSONL in the documented `tt.*` shape, import it into a Run artifact first:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+```
+
+`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON). `--strict` fails import on malformed/incomplete `tt.*` spans; non-strict mode keeps import running and prints understandable `warning: ...` messages for skipped malformed `tt.*` spans. Tracing-only imports can carry request/stage/queue evidence outside Tokio runtimes, but runtime-pressure evidence remains Tokio-specific and runtime snapshots stay empty unless captured by the Tokio sampler path.
+
 
 ## 3) In-process analysis (embedded Rust)
 

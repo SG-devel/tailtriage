@@ -230,6 +230,7 @@ impl Visit for FieldVisitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
     use tracing_subscriber::prelude::*;
 
     fn with_recorder<T>(f: impl FnOnce(&TracingRecorder) -> T) -> T {
@@ -380,6 +381,42 @@ mod tests {
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().requests.len(), 1);
             assert_eq!(run.run().requests[0].route, "/late-kind");
+        });
+    }
+
+    #[test]
+    fn shutdown_output_is_analyzable_and_has_no_runtime_snapshots() {
+        with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            let queue = tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "db-pool"
+            );
+            let stage = tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db.query"
+            );
+            drop(request);
+            drop(queue);
+            drop(stage);
+
+            let imported = recorder.shutdown().unwrap();
+            let run = imported.run();
+            assert_eq!(run.requests.len(), 1);
+            assert_eq!(run.queues.len(), 1);
+            assert_eq!(run.stages.len(), 1);
+            assert!(run.runtime_snapshots.is_empty());
+            let report = analyze_run(run, AnalyzeOptions::default());
+            assert_eq!(report.request_count, 1);
         });
     }
 }
