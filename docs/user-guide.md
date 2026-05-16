@@ -88,6 +88,7 @@ let json = render_json_pretty(&report)?;
 ```
 
 Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI output. Typed `Report` is the in-process analyzer result.
+Tracing JSONL import and live tracing-layer recording also produce Run artifacts (not Report JSON). Those tracing-only runs preserve empty `runtime_snapshots`; they still support request/stage/queue triage outside Tokio, while runtime-pressure evidence remains Tokio-specific.
 
 Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
 

@@ -382,4 +382,38 @@ mod tests {
             assert_eq!(run.run().requests[0].route, "/late-kind");
         });
     }
+
+    #[test]
+    fn imported_run_from_live_recorder_is_analyzable_and_has_no_runtime_snapshots() {
+        with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r-live",
+                tt.route = "/live"
+            );
+            drop(request);
+
+            let queue = tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r-live",
+                tt.queue = "permits"
+            );
+            drop(queue);
+
+            let imported = recorder.shutdown().expect("shutdown should import");
+            let run = imported.run();
+            assert!(
+                run.runtime_snapshots.is_empty(),
+                "tracing-only import must not fabricate runtime snapshots"
+            );
+
+            let report = tailtriage_analyzer::analyze_run(
+                run,
+                tailtriage_analyzer::AnalyzeOptions::default(),
+            );
+            assert_eq!(report.request_count, 1);
+        });
+    }
 }
