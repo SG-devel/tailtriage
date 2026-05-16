@@ -32,6 +32,45 @@ cargo add tailtriage --features axum
 
 The `controller` and `tokio` namespaces are available with default features; `axum` remains opt-in.
 
+### Using existing tracing spans
+
+If you already instrument request/stage/queue work with Rust `tracing`, use `tailtriage-tracing` as an intake path into the same triage workflow.
+
+Offline JSONL import:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
+```
+
+Use the documented completed-span JSONL shape from `tailtriage-tracing` (normalized literal dotted `tt.*` keys). Analysis stays a separate step after import.
+
+Live in-memory recorder:
+
+```rust
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+use tailtriage_tracing::TracingRecorder;
+use tracing_subscriber::prelude::*;
+
+let recorder = TracingRecorder::builder("checkout-service").build();
+let subscriber = tracing_subscriber::registry().with(recorder.layer());
+
+tracing::subscriber::with_default(subscriber, || {
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-1",
+        tt.route = "/checkout"
+    );
+    let _entered = request.enter();
+});
+
+let imported = recorder.shutdown()?;
+let report = analyze_run(imported.run(), AnalyzeOptions::default());
+```
+
+This live path supports in-process diagnosis without writing an intermediate Run file.
+
 ## 2) Core workflow: capture -> analyze -> next check -> re-run
 
 ### Capture

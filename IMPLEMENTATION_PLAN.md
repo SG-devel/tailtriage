@@ -104,6 +104,17 @@ Near-term tasks:
 - keep validation docs present-tense and stable, not PR-history oriented
 - update docs contract tests when public docs structure intentionally changes
 
+### 6) Tracing-intake adoption friction reduction
+
+Keep the optional tracing intake path clear for teams already using Rust `tracing`.
+
+Near-term tasks:
+
+- document offline JSONL import and live in-memory recorder usage in public docs
+- keep positioning explicit: tracing intake converts tracing-shaped evidence into standard Runs for the existing analyzer
+- preserve bounded claims: no tracing backend semantics, no OTel/OTLP, no observability-platform expansion
+- keep runtime-pressure guidance explicit: tracing-only imports usually lack runtime snapshots, so Tokio sampling remains the path for runtime-pressure evidence
+
 ## Near-term sequencing
 
 Before the next public promotion or release:
