@@ -3,24 +3,24 @@
 
 //! Tracing intake bridge types for tailtriage triage workflows.
 //!
-//! This crate provides semantic keys and typed records for importing
-//! tracing-shaped span data into [`tailtriage_core::Run`].
-//! It intentionally does not provide a `tracing` layer,
-//! OpenTelemetry integration, or analyzer behavior changes.
+//! This crate provides semantic `tt.*` keys, typed [`SpanRecord`] intake,
+//! conversion to [`tailtriage_core::Run`] via [`run_from_span_records`],
+//! JSONL import via [`import_jsonl_reader`] and [`import_jsonl_path`], and
+//! live in-memory recording via [`TracingRecorder`] and [`TailtriageLayer`].
+//! It does not implement OpenTelemetry/OTLP and does not change analyzer behavior.
 //!
 //! # Example
 //!
 //! ```
 //! use tailtriage_tracing::{
-//!     ImportOptions, SpanRecord, TT_DEPTH_AT_START, TT_KIND, TT_REQUEST_ID, TT_ROUTE, TT_SUCCESS,
+//!     ImportOptions, SpanRecord, TT_KIND, TT_OUTCOME, TT_REQUEST_ID, TT_ROUTE,
 //! };
 //!
 //! let record = SpanRecord::new("http.request", 1_700_000_000_000, 1_700_000_000_120)
 //!     .field(TT_KIND, "request")
 //!     .field(TT_REQUEST_ID, "req-42")
 //!     .field(TT_ROUTE, "/checkout")
-//!     .field(TT_SUCCESS, true)
-//!     .field(TT_DEPTH_AT_START, 7_u64);
+//!     .field(TT_OUTCOME, "ok");
 //!
 //! let options = ImportOptions::new("checkout-service").strict(false);
 //! assert_eq!(record.name(), "http.request");
