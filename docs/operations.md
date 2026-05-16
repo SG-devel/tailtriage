@@ -156,6 +156,18 @@ Start conservatively.
 
 Prefer moderate intervals and bounded runs before increasing density.
 
+## Operating with tracing-based runs
+
+Tracing-based imports can still provide useful request, stage, and queue evidence for triage.
+
+Important limits for production interpretation:
+
+* tracing-only imports usually do not include runtime snapshots
+* without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
+* use tailtriage Tokio runtime sampling when runtime-pressure evidence is required
+
+Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
+
 ## Artifact sizing and retention expectations
 
 Artifact size depends on:
