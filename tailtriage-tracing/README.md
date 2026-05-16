@@ -13,6 +13,8 @@ This crate is intentionally narrow:
 - It does **not** implement OpenTelemetry or OTLP.
 - It does **not** change `tailtriage-analyzer`.
 
+Both JSONL import and live recorder intake produce standard `tailtriage_core::Run` values for the same analyzer/report workflow.
+
 ## JSONL import support in this phase
 
 Public APIs:
@@ -48,6 +50,13 @@ Notes:
 - Empty lines are ignored.
 - Malformed JSON line input is an import error in both strict and non-strict mode.
 
+CLI import for the same shape:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
+```
+
 ## tracing-subscriber JSON caveat
 
 Direct `tracing-subscriber` JSON output can vary by formatter configuration. In
@@ -56,8 +65,7 @@ this phase, the importer supports:
 - normalized completed-span JSONL (shape above), and
 - close-event-like records only when they include explicit start/end unix-ms timestamps.
 
-It does not guess missing timing from line receive time and does not claim broad
-automatic parsing for every tracing JSON variant.
+It supports close-event-like records only when explicit unix-ms timestamps are present. It does not guess timing from line receive time and does not claim broad automatic parsing for every tracing JSON variant.
 
 ## Intended field shape
 
