@@ -64,10 +64,14 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
     let imported = import_jsonl_path(&fixture, ImportOptions::new("checkout-service"))
         .expect("fixture import should succeed");
 
+    let run = imported.run();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.stages.len(), 1);
     assert!(
-        imported.run().runtime_snapshots.is_empty(),
+        run.runtime_snapshots.is_empty(),
         "tracing-only import must not fabricate runtime snapshots"
     );
-    let report = analyze_run(imported.run(), AnalyzeOptions::default());
+    let report = analyze_run(run, AnalyzeOptions::default());
     assert_eq!(report.request_count, 1);
 }

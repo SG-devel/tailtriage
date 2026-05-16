@@ -387,17 +387,35 @@ mod tests {
     #[test]
     fn shutdown_output_is_analyzable_and_has_no_runtime_snapshots() {
         with_recorder(|recorder| {
-            let span = tracing::info_span!(
+            let request = tracing::info_span!(
                 "request",
                 tt.kind = "request",
                 tt.request_id = "r1",
                 tt.route = "/checkout"
             );
-            drop(span);
+            let queue = tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "db-pool"
+            );
+            let stage = tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db.query"
+            );
+            drop(request);
+            drop(queue);
+            drop(stage);
 
             let imported = recorder.shutdown().unwrap();
-            assert!(imported.run().runtime_snapshots.is_empty());
-            let report = analyze_run(imported.run(), AnalyzeOptions::default());
+            let run = imported.run();
+            assert_eq!(run.requests.len(), 1);
+            assert_eq!(run.queues.len(), 1);
+            assert_eq!(run.stages.len(), 1);
+            assert!(run.runtime_snapshots.is_empty());
+            let report = analyze_run(run, AnalyzeOptions::default());
             assert_eq!(report.request_count, 1);
         });
     }
