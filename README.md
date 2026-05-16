@@ -77,7 +77,7 @@ If your service already emits `tracing` spans, use `tailtriage-tracing` as a nar
   ```
 - Live in-memory import: `tailtriage_tracing::TracingRecorder`
 
-Both paths convert tracing-shaped evidence into standard `tailtriage_core::Run` data and feed the same analyzer/report workflow. Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
+Both paths convert tracing-shaped evidence into standard `tailtriage_core::Run` data and feed the same analyzer/report workflow (evidence-ranked suspects and next checks). Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
 
 ## Why not just tokio-console or tokio-metrics?
 
