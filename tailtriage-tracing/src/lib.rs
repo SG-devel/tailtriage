@@ -43,7 +43,10 @@ pub use convention::{
 };
 pub use error::ImportError;
 pub use jsonl::{import_jsonl_path, import_jsonl_reader};
-pub use recorder::{TailtriageLayer, TracingRecorder, TracingRecorderBuilder};
+pub use recorder::{
+    RecorderLimits, TailtriageLayer, TracingRecorder, TracingRecorderBuilder,
+    DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
+};
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
@@ -519,6 +522,34 @@ mod tests {
             imported.run().metadata.finished_at_unix_ms,
             imported.run().metadata.started_at_unix_ms
         );
+    }
+
+    #[test]
+    fn explicit_duration_us_is_used_for_stage_and_request() {
+        let spans = vec![
+            SpanRecord::new("stage", 100, 100)
+                .duration_us(123)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("request", 200, 200)
+                .duration_us(456)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+        ];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.stages[0].latency_us, 123);
+        assert_eq!(run.requests[0].latency_us, 456);
+    }
+
+    #[test]
+    fn empty_service_name_errors() {
+        let err = run_from_span_records(Vec::new(), ImportOptions::new(" ")).unwrap_err();
+        assert!(matches!(err, ImportError::EmptyServiceName));
     }
 
     #[test]
