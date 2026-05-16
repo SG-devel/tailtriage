@@ -54,3 +54,66 @@ fn jsonl_fixture_reader_and_path_import_parity_on_counts() {
     assert_eq!(run_path.queues.len(), run_reader.queues.len());
     assert_eq!(run_path.stages.len(), run_reader.stages.len());
 }
+
+#[test]
+fn imported_jsonl_run_is_analyzable_and_has_no_runtime_snapshots() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("tracing_spans.jsonl");
+
+    let imported = import_jsonl_path(
+        &fixture,
+        ImportOptions::new("checkout-service").strict(true),
+    )
+    .expect("fixture should import");
+
+    let run = imported.run();
+    assert!(run.runtime_snapshots.is_empty());
+
+    let report =
+        tailtriage_analyzer::analyze_run(run, tailtriage_analyzer::AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}
+
+#[test]
+fn live_recorder_output_is_analyzable_and_has_no_runtime_snapshots() {
+    use tailtriage_tracing::TracingRecorder;
+    use tracing_subscriber::prelude::*;
+
+    let recorder = TracingRecorder::builder("checkout-service")
+        .strict(true)
+        .build();
+    let subscriber = tracing_subscriber::registry().with(recorder.layer());
+
+    tracing::subscriber::with_default(subscriber, || {
+        {
+            let request = tracing::info_span!(
+                "http.request",
+                tt.kind = "request",
+                tt.request_id = "req-live",
+                tt.route = "/live",
+                tt.success = tracing::field::Empty
+            );
+            let _entered = request.enter();
+            request.record("tt.success", true);
+        }
+
+        let queue = tracing::info_span!(
+            "queue.wait",
+            tt.kind = "queue",
+            tt.request_id = "req-live",
+            tt.queue = "db",
+            tt.depth_at_start = 2_u64
+        );
+        drop(queue);
+    });
+
+    let imported = recorder.shutdown().expect("shutdown should convert spans");
+    let run = imported.run();
+    assert!(run.runtime_snapshots.is_empty());
+    assert_eq!(run.requests.len(), 1);
+
+    let report =
+        tailtriage_analyzer::analyze_run(run, tailtriage_analyzer::AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}

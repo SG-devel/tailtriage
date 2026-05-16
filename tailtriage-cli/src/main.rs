@@ -95,7 +95,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
                 let imported = import_jsonl_path(spans_jsonl, options)?;
                 for warning in imported.warnings() {
-                    eprintln!("warning: {}", warning.message());
+                    eprintln!("warning: tracing import: {}", warning.message());
                 }
 
                 let file = std::fs::File::create(&output)?;

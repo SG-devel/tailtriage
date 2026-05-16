@@ -304,7 +304,7 @@ fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("warning: tracing import:"));
     assert!(run_path.exists(), "run output should be written");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
