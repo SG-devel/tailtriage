@@ -25,6 +25,8 @@ pub fn import_jsonl_reader<R: Read>(
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
     let mut spans = Vec::new();
+    let mut warnings = Vec::new();
+    let strict = options.strict_mode();
     let reader = BufReader::new(reader);
 
     for (line_no, line_result) in reader.lines().enumerate() {
@@ -44,12 +46,15 @@ pub fn import_jsonl_reader<R: Read>(
                 reason: err.to_string(),
             })?;
 
-        if let Some(span) = parse_record(&value)? {
+        if let Some(span) = parse_record(&value, strict, &mut warnings)? {
             spans.push(span);
         }
     }
 
-    run_from_span_records(spans, options)
+    let imported = run_from_span_records(spans, options)?;
+    let (run, mut conversion_warnings) = imported.into_parts();
+    conversion_warnings.extend(warnings);
+    Ok(ImportedRun::new(run, conversion_warnings))
 }
 
 /// Imports newline-delimited JSON records from a filesystem path.
@@ -73,7 +78,11 @@ pub fn import_jsonl_path(
     import_jsonl_reader(file, options)
 }
 
-fn parse_record(value: &Value) -> Result<Option<SpanRecord>, ImportError> {
+fn parse_record(
+    value: &Value,
+    strict: bool,
+    warnings: &mut Vec<crate::ImportWarning>,
+) -> Result<Option<SpanRecord>, ImportError> {
     if let Some(span_obj) = value.get("span").and_then(Value::as_object) {
         let has_tt_kind = span_obj
             .get("fields")
@@ -85,10 +94,12 @@ fn parse_record(value: &Value) -> Result<Option<SpanRecord>, ImportError> {
         let has_finish =
             span_obj.contains_key("finished_at_unix_ms") || span_obj.contains_key("end_unix_ms");
         if has_tt_kind && !(has_name && has_start && has_finish) && !indicates_close_event(value) {
-            return Err(ImportError::InvalidField {
-                field: "span",
-                reason: "tailtriage span with fields.tt.kind must include name, started_at_unix_ms/start_unix_ms, and finished_at_unix_ms/end_unix_ms".to_owned(),
-            });
+            let message = "tailtriage span with fields.tt.kind must include name, started_at_unix_ms/start_unix_ms, and finished_at_unix_ms/end_unix_ms";
+            if strict {
+                return Err(ImportError::StrictViolation(message.to_owned()));
+            }
+            warnings.push(crate::ImportWarning::new(message));
+            return Ok(None);
         }
         if has_name && has_start && has_finish {
             return parse_normalized_span(span_obj).map(Some);
@@ -426,20 +437,18 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_normalized_tt_kind_span_errors_in_strict_and_non_strict_modes() {
+    fn incomplete_normalized_tt_kind_span_warns_non_strict_and_errors_strict() {
         let input = r#"{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
-        assert!(matches!(
-            err,
-            ImportError::InvalidField { field: "span", .. }
-        ));
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0]
+            .message()
+            .contains("tailtriage span with fields.tt.kind must include"));
 
         let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
             .unwrap_err();
-        assert!(matches!(
-            err,
-            ImportError::InvalidField { field: "span", .. }
-        ));
+        assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
