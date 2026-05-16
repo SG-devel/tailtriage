@@ -32,11 +32,16 @@ pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
     limits: RecorderLimits,
 }
+/// Default maximum number of concurrently tracked open candidate spans.
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
+/// Default maximum number of retained completed candidate spans.
 pub const DEFAULT_MAX_COMPLETED_SPANS: usize = 10_000;
+/// Configurable in-memory limits for live tracing recorder retention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecorderLimits {
+    /// Maximum number of concurrently tracked open candidate spans.
     pub max_open_spans: usize,
+    /// Maximum number of retained completed candidate spans.
     pub max_completed_spans: usize,
 }
 impl Default for RecorderLimits {
@@ -521,5 +526,104 @@ mod tests {
             let report = analyze_run(run, AnalyzeOptions::default());
             assert_eq!(report.request_count, 1);
         });
+    }
+
+    #[test]
+    fn completed_span_saturation_emits_warning_and_sets_limits_hit() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_spans(1)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span1 = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span1);
+            let span2 = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            );
+            drop(span2);
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped 1 completed spans")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("dropped 1 completed spans")));
+        assert!(imported.run().truncation.limits_hit);
+    }
+
+    #[test]
+    fn open_span_saturation_emits_warning_and_sets_limits_hit() {
+        let recorder = TracingRecorder::builder("svc").max_open_spans(1).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span1 = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            let span2 = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            );
+            drop(span1);
+            drop(span2);
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped 1 candidate spans")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("dropped 1 candidate spans")));
+        assert!(imported.run().truncation.limits_hit);
+    }
+
+    #[test]
+    fn unrelated_spans_do_not_consume_open_limit() {
+        let recorder = TracingRecorder::builder("svc").max_open_spans(1).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let unrelated = tracing::info_span!("ordinary", foo = 1_u64);
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(request);
+            drop(unrelated);
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported.warnings().is_empty());
+    }
+
+    #[test]
+    fn empty_service_name_builder_errors_on_snapshot() {
+        let recorder = TracingRecorder::builder(" ").build();
+        let err = recorder.snapshot_run().unwrap_err();
+        assert!(matches!(err, ImportError::EmptyServiceName));
     }
 }
