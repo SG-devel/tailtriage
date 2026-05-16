@@ -32,4 +32,5 @@ workspace = true
 
 [dev-dependencies]
 tailtriage-analyzer.workspace = true
+tokio = { version = "1", features = ["macros", "rt", "time"] }
 tempfile = "3"
