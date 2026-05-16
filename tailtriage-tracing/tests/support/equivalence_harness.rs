@@ -77,37 +77,50 @@ fn tracing_run() -> (Run, Vec<String>) {
                     tt.route = "/checkout"
                 );
                 {
-                    let queue = tracing::info_span!(
-                        "queue",
-                        tt.kind = "queue",
-                        tt.request_id = id,
-                        tt.queue = "permits",
-                        tt.depth_at_start = 3_u64
-                    );
-                    thread::sleep(Duration::from_millis(if slow { 4 } else { 1 }));
-                    drop(queue);
-                }
-                {
-                    let stage = tracing::info_span!(
-                        "stage",
-                        tt.kind = "stage",
-                        tt.request_id = id,
-                        tt.stage = "db",
-                        tt.success = true
-                    );
-                    thread::sleep(Duration::from_millis(if slow { 6 } else { 2 }));
-                    drop(stage);
-                }
-                {
-                    let stage = tracing::info_span!(
-                        "stage",
-                        tt.kind = "stage",
-                        tt.request_id = id,
-                        tt.stage = "cache",
-                        tt.success = true
-                    );
-                    thread::sleep(Duration::from_millis(1));
-                    drop(stage);
+                    let _request_guard = request.enter();
+
+                    {
+                        let queue = tracing::info_span!(
+                            "queue",
+                            tt.kind = "queue",
+                            tt.request_id = id,
+                            tt.queue = "permits",
+                            tt.depth_at_start = 3_u64
+                        );
+                        {
+                            let _queue_guard = queue.enter();
+                            thread::sleep(Duration::from_millis(if slow { 4 } else { 1 }));
+                        }
+                        drop(queue);
+                    }
+                    {
+                        let stage = tracing::info_span!(
+                            "stage",
+                            tt.kind = "stage",
+                            tt.request_id = id,
+                            tt.stage = "db",
+                            tt.success = true
+                        );
+                        {
+                            let _stage_guard = stage.enter();
+                            thread::sleep(Duration::from_millis(if slow { 6 } else { 2 }));
+                        }
+                        drop(stage);
+                    }
+                    {
+                        let stage = tracing::info_span!(
+                            "stage",
+                            tt.kind = "stage",
+                            tt.request_id = id,
+                            tt.stage = "cache",
+                            tt.success = true
+                        );
+                        {
+                            let _stage_guard = stage.enter();
+                            thread::sleep(Duration::from_millis(1));
+                        }
+                        drop(stage);
+                    }
                 }
                 drop(request);
             }
@@ -126,7 +139,7 @@ fn tracing_run() -> (Run, Vec<String>) {
 fn compare_runs(native_run: &Run, tracing_run: &Run) -> ArtifactEquivalenceReport {
     let mut mismatches = Vec::new();
     if native_run.runtime_snapshots != tracing_run.runtime_snapshots {
-        mismatches.push("runtime_snapshots differ".to_owned());
+        mismatches.push("runtime snapshots mismatch".to_owned());
     }
     if native_run.truncation.limits_hit || tracing_run.truncation.limits_hit {
         mismatches.push("truncation.limits_hit must be false for both runs".to_owned());
@@ -153,7 +166,7 @@ fn compare_runs(native_run: &Run, tracing_run: &Run) -> ArtifactEquivalenceRepor
         })
         .collect();
     if nreq.keys().collect::<BTreeSet<_>>() != treq.keys().collect::<BTreeSet<_>>() {
-        mismatches.push("request id sets differ".to_owned());
+        mismatches.push("request id set mismatch".to_owned());
     }
     for (id, (route, outcome, lat)) in &nreq {
         if *lat == 0 {
@@ -184,7 +197,7 @@ fn compare_runs(native_run: &Run, tracing_run: &Run) -> ArtifactEquivalenceRepor
         .max_by_key(|(_, (_, _, lat))| *lat)
         .map(|(id, _)| id.clone());
     if slow_native != slow_tracing {
-        mismatches.push("slowest request id differs".to_owned());
+        mismatches.push("slowest request mismatch".to_owned());
     }
 
     let nstage: BTreeSet<_> = native_run
