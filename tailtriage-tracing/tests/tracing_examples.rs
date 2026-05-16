@@ -1,5 +1,6 @@
 use std::{fs::File, path::PathBuf};
 
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_tracing::{import_jsonl_path, import_jsonl_reader, ImportOptions};
 
 #[test]
@@ -53,4 +54,20 @@ fn jsonl_fixture_reader_and_path_import_parity_on_counts() {
     assert_eq!(run_path.requests.len(), run_reader.requests.len());
     assert_eq!(run_path.queues.len(), run_reader.queues.len());
     assert_eq!(run_path.stages.len(), run_reader.stages.len());
+}
+
+#[test]
+fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("tracing_spans.jsonl");
+    let imported = import_jsonl_path(&fixture, ImportOptions::new("checkout-service"))
+        .expect("fixture import should succeed");
+
+    assert!(
+        imported.run().runtime_snapshots.is_empty(),
+        "tracing-only import must not fabricate runtime snapshots"
+    );
+    let report = analyze_run(imported.run(), AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
 }

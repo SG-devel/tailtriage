@@ -230,6 +230,7 @@ impl Visit for FieldVisitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
     use tracing_subscriber::prelude::*;
 
     fn with_recorder<T>(f: impl FnOnce(&TracingRecorder) -> T) -> T {
@@ -380,6 +381,24 @@ mod tests {
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().requests.len(), 1);
             assert_eq!(run.run().requests[0].route, "/late-kind");
+        });
+    }
+
+    #[test]
+    fn shutdown_output_is_analyzable_and_has_no_runtime_snapshots() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+
+            let imported = recorder.shutdown().unwrap();
+            assert!(imported.run().runtime_snapshots.is_empty());
+            let report = analyze_run(imported.run(), AnalyzeOptions::default());
+            assert_eq!(report.request_count, 1);
         });
     }
 }
