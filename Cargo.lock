@@ -882,6 +882,7 @@ dependencies = [
 name = "tailtriage-tracing"
 version = "0.2.0"
 dependencies = [
+ "futures-executor",
  "serde",
  "serde_json",
  "tailtriage-analyzer",
