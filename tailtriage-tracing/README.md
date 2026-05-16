@@ -49,6 +49,8 @@ Notes:
 - Scalars can be strings, bools, numbers, or null.
 - Empty lines are ignored.
 - Malformed JSON line input is an import error in both strict and non-strict mode.
+- In non-strict mode, syntactically valid but malformed/incomplete `tt.*` records are skipped with warnings. Strict mode fails on the first malformed/incomplete `tt.*` record.
+- Service name must not be empty or whitespace-only.
 
 CLI import for the same shape:
 
@@ -119,3 +121,6 @@ Tracing span capture for request/stage/queue evidence works outside Tokio runtim
 
 - `examples/live_recorder.rs`: records one request span, one queue span, and one stage span with `TracingRecorder`, imports a run, and renders analyzer suspects and next checks.
 - `examples/tracing_spans.jsonl`: normalized completed-span JSONL fixture importable via `import_jsonl_path` or CLI `tailtriage import tracing-json`.
+
+
+Live recorder limits are bounded by default and configurable via `TracingRecorder::builder(...).max_open_spans(...)` and `.max_completed_spans(...)` (or `.limits(RecorderLimits { ... })`). Live span timing uses monotonic elapsed duration for microsecond precision in captured request/stage/queue latency and wait values.

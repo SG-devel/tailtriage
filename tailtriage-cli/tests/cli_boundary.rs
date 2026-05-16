@@ -371,6 +371,75 @@ fn import_tracing_json_accepts_paths_with_spaces() {
         .expect("imported run should load in cli loader");
 }
 
+#[test]
+fn import_tracing_json_fails_for_empty_service_name() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, one_valid_request_span_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg(" ")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("service name must not be empty"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_fails_when_only_unrelated_lines() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, r#"{"message":"ordinary"}"#).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("zero request events"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_non_strict_fails_when_all_malformed_tt_spans_skipped() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    let malformed = r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+    std::fs::write(&spans_path, malformed).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("zero request events"));
+    assert!(!run_path.exists());
+}
 fn valid_cli_artifact_with_requests() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }

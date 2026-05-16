@@ -43,7 +43,10 @@ pub use convention::{
 };
 pub use error::ImportError;
 pub use jsonl::{import_jsonl_path, import_jsonl_reader};
-pub use recorder::{TailtriageLayer, TracingRecorder, TracingRecorderBuilder};
+pub use recorder::{
+    RecorderLimits, TailtriageLayer, TracingRecorder, TracingRecorderBuilder,
+    DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
+};
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
@@ -694,5 +697,33 @@ mod tests {
             .clone();
         assert!(!run.stages[0].success);
         assert_eq!(run.queues[0].depth_at_start, Some(9));
+    }
+
+    #[test]
+    fn duration_us_overrides_stage_latency_precision() {
+        let spans = vec![SpanRecord::new("stage", 100, 100)
+            .duration_us(123)
+            .field(TT_KIND, "stage")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_STAGE, "db")];
+        let run = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(run.run().stages[0].latency_us, 123);
+    }
+
+    #[test]
+    fn duration_us_overrides_queue_wait_precision() {
+        let spans = vec![SpanRecord::new("queue", 200, 200)
+            .duration_us(456)
+            .field(TT_KIND, "queue")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_QUEUE, "permits")];
+        let run = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(run.run().queues[0].wait_us, 456);
+    }
+
+    #[test]
+    fn empty_service_name_rejected_for_span_conversion() {
+        let err = run_from_span_records(Vec::new(), ImportOptions::new(" ")).unwrap_err();
+        assert!(matches!(err, ImportError::EmptyServiceName));
     }
 }

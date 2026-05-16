@@ -57,14 +57,12 @@ pub fn import_jsonl_reader<R: Read>(
     Ok(ImportedRun::new(run, parse_warnings))
 }
 
-/// Imports newline-delimited JSON records from a filesystem path.
+/// Imports newline-delimited JSON records from a file path into a converted run.
 ///
 /// # Errors
 ///
-/// Returns [`ImportError::Io`] when path open or line reads fail,
-/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
-/// and existing field/conversion errors for malformed tailtriage-tagged records
-/// or strict conversion violations.
+/// Returns [`ImportError::Io`] if the file cannot be opened/read, plus the same
+/// parsing/conversion errors as [`import_jsonl_reader`].
 pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
@@ -91,7 +89,19 @@ fn parse_record(
             && (span_obj.contains_key("finished_at_unix_ms")
                 || span_obj.contains_key("end_unix_ms"))
         {
-            return parse_normalized_span(span_obj).map(Some);
+            return match parse_normalized_span(span_obj) {
+                Ok(span) => Ok(Some(span)),
+                Err(err) if value_has_tailtriage_field(value) => {
+                    let message = format!("line {line_no}: {err}");
+                    if strict {
+                        Err(ImportError::StrictViolation(message))
+                    } else {
+                        warnings.push(crate::ImportWarning::new(message));
+                        Ok(None)
+                    }
+                }
+                Err(err) => Err(err),
+            };
         }
         if value_has_tailtriage_field(value) && !indicates_close_event(value) {
             let message = format!(
@@ -482,5 +492,45 @@ mod tests {
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
+    }
+
+    #[test]
+    fn empty_service_name_rejected_for_jsonl_import() {
+        let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();
+        assert!(matches!(err, ImportError::EmptyServiceName));
+    }
+
+    #[test]
+    fn non_strict_normalized_tt_invalid_timestamp_warns_and_skips() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0].message().contains("line 1"));
+    }
+
+    #[test]
+    fn strict_normalized_tt_invalid_timestamp_errors() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn non_strict_close_event_like_missing_timestamps_warns_and_skips() {
+        let input = r#"{"event":"close","span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0].message().contains("line 1"));
+    }
+
+    #[test]
+    fn strict_close_event_like_missing_timestamps_errors() {
+        let input = r#"{"event":"close","span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 }

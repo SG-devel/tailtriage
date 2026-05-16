@@ -62,6 +62,8 @@ tailtriage import tracing-json "fixtures/tracing spans.jsonl" --service checkout
 
 The command imports completed tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
 
+The import command fails when service name is empty/whitespace-only. It also fails when import would produce zero request events, because `tailtriage analyze` requires at least one request event in CLI-loaded run artifacts.
+
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
 
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
