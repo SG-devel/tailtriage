@@ -49,6 +49,8 @@ Notes:
 - Scalars can be strings, bools, numbers, or null.
 - Empty lines are ignored.
 - Malformed JSON line input is an import error in both strict and non-strict mode.
+- In non-strict mode, syntactically valid but malformed/incomplete `tt.*` records are skipped with warnings.
+- In strict mode, malformed/incomplete `tt.*` records are errors.
 
 CLI import for the same shape:
 
@@ -86,6 +88,8 @@ let recorder = TracingRecorder::builder("checkout-service")
     .service_version("1.2.3")
     .run_id("run-42")
     .strict(false)
+    .max_open_spans(8_192)
+    .max_completed_spans(10_000)
     .build();
 
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
@@ -113,6 +117,7 @@ Use `#[tracing::instrument(fields(...))]` or `.instrument(...)` so span fields a
 Do not hold a manual entered-span guard across `.await`; async spans may enter/exit many times, and this recorder finalizes completed work on `on_close` (drop), not enter/exit transitions.
 
 Tracing span capture for request/stage/queue evidence works outside Tokio runtimes. Runtime-pressure evidence still requires tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans cannot infer executor or blocking-pool pressure by themselves.
+The live recorder is bounded by default and emits lifecycle warnings when limits are hit. Span latency/wait conversion for live capture uses monotonic elapsed time for microsecond precision (`duration_us`) and keeps wall-clock unix-ms for correlation.
 
 
 ## Examples

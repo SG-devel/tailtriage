@@ -60,7 +60,8 @@ When paths include spaces, quote them in shell usage:
 tailtriage import tracing-json "fixtures/tracing spans.jsonl" --service checkout --output "runs/imported run.json"
 ```
 
-The command imports completed tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
+The command imports completed tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Syntactically valid but malformed/incomplete `tt.*` records are skipped with warnings in non-strict mode and fail in strict mode. Malformed JSON is always fatal. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
+CLI import fails when it would write zero request events (`tailtriage analyze` requires at least one request in CLI artifacts), and service names must not be empty or whitespace.
 
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
 
