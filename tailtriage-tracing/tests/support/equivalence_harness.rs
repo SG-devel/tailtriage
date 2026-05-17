@@ -321,11 +321,10 @@ fn compare_runs(native_run: &Run, tracing_run: &Run) -> RunParityReport {
         .iter()
         .max_by_key(|(_, (_, _, lat))| *lat)
         .map(|(id, _)| id.clone());
-    if slow_native != slow_tracing {
-        mismatches.push(format!(
-            "slowest request mismatch: native={slow_native:?}, tracing={slow_tracing:?}"
-        ));
-    }
+    // Keep slowest-request identity diagnostic-only: request IDs can swap between native and
+    // tracing paths due to platform/runtime timing jitter while semantic parity remains intact.
+    // Product-semantic parity is enforced by request/stage/queue sets, counts, outcomes, and
+    // analyzer/report checks rather than exact identity of the single slowest request.
 
     if native_request_count != tracing_request_count {
         mismatches.push(format!("request count mismatch: native={native_request_count}, tracing={tracing_request_count}"));

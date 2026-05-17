@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use tailtriage_core::Tailtriage;
-use tailtriage_tracing::TracingRecorder;
+use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
 use tokio::sync::Barrier;
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
@@ -149,6 +149,20 @@ pub struct DemoInstrumentation {
     backend: DemoInstrumentationBackend,
 }
 
+/// Demo instrumentation helper for runtime-sensitive scenarios (`blocking` and `executor`).
+///
+/// This helper supports `native` and `tracing` modes while keeping one request API surface.
+/// Use [`Self::record_runtime_snapshot`] to attach deterministic runtime-pressure evidence
+/// captured during workload execution for parity validation.
+pub struct RuntimeDemoInstrumentation {
+    backend: RuntimeDemoBackend,
+}
+
+enum RuntimeDemoBackend {
+    Native(Arc<Tailtriage>),
+    Tracing(TracingTokioSession),
+}
+
 enum DemoInstrumentationBackend {
     Native(Arc<Tailtriage>),
     Tracing(TracingState),
@@ -261,6 +275,110 @@ impl DemoInstrumentation {
             }
             DemoInstrumentationBackend::Tracing(state) => {
                 let imported = state.recorder.shutdown()?;
+                let mut file = std::fs::File::create(output_path)?;
+                serde_json::to_writer_pretty(&mut file, imported.run())?;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl RuntimeDemoInstrumentation {
+    /// Build runtime-sensitive demo instrumentation for native or tracing capture.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when backend initialization or tracing subscriber setup fails.
+    pub fn new(
+        service_name: &str,
+        output_path: &Path,
+        mode: InstrumentationMode,
+    ) -> anyhow::Result<Self> {
+        match mode {
+            InstrumentationMode::Native => Ok(Self {
+                backend: RuntimeDemoBackend::Native(init_collector(service_name, output_path)?),
+            }),
+            InstrumentationMode::Tracing => {
+                let session = TracingTokioSession::builder(service_name)
+                    .strict(false)
+                    .start()?;
+                let subscriber = tracing_subscriber::registry().with(session.layer());
+                // Demo binaries run one instrumentation backend per process, so installing a
+                // global subscriber is acceptable here. Do not reuse this helper in libraries
+                // or tests that need multiple subscribers in one process.
+                tracing::subscriber::set_global_default(subscriber)
+                    .map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
+                Ok(Self {
+                    backend: RuntimeDemoBackend::Tracing(session),
+                })
+            }
+        }
+    }
+
+    /// Run one request lifecycle with request-level instrumentation.
+    pub async fn run_request<F, Fut>(
+        &self,
+        route: &str,
+        request_id: String,
+        outcome: tailtriage_core::Outcome,
+        body: F,
+    ) where
+        F: FnOnce(DemoRequest) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        match &self.backend {
+            RuntimeDemoBackend::Native(tailtriage) => {
+                let started = tailtriage.begin_request_with_owned(
+                    route,
+                    tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
+                );
+                body(DemoRequest {
+                    inner: DemoRequestInner::Native(started.handle.clone()),
+                })
+                .await;
+                started.completion.finish(outcome);
+            }
+            RuntimeDemoBackend::Tracing(_) => {
+                let request_span = tracing::info_span!(
+                    "tt.request",
+                    tt.kind = "request",
+                    tt.request_id = request_id.as_str(),
+                    tt.route = route,
+                    tt.outcome = outcome.as_str()
+                );
+                body(DemoRequest {
+                    inner: DemoRequestInner::Tracing(TracingRequest { request_id }),
+                })
+                .instrument(request_span)
+                .await;
+            }
+        }
+    }
+
+    /// Record a deterministic Tokio runtime snapshot during workload execution.
+    ///
+    /// Runtime-sensitive tracing parity uses this to inject runtime-pressure evidence because
+    /// tracing request/stage/queue spans alone do not infer runtime-pressure signals.
+    pub fn record_runtime_snapshot(&self, snapshot: tailtriage_core::RuntimeSnapshot) {
+        match &self.backend {
+            RuntimeDemoBackend::Native(tailtriage) => tailtriage.record_runtime_snapshot(snapshot),
+            RuntimeDemoBackend::Tracing(session) => session.record_runtime_snapshot(snapshot),
+        }
+    }
+
+    /// Flush instrumentation and write the final run artifact.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when shutting down instrumentation or writing output fails.
+    pub async fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
+        match self.backend {
+            RuntimeDemoBackend::Native(t) => {
+                t.shutdown()?;
+                Ok(())
+            }
+            RuntimeDemoBackend::Tracing(s) => {
+                let imported = s.shutdown().await?;
                 let mut file = std::fs::File::create(output_path)?;
                 serde_json::to_writer_pretty(&mut file, imported.run())?;
                 Ok(())
