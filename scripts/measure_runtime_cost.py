@@ -20,11 +20,15 @@ MODES = (
     "core_investigation_tokio_sampler",
     "core_light_drop_path",
     "core_investigation_drop_path",
+    "tracing_light",
+    "tracing_light_tokio_sampler",
+    "tracing_light_drop_path",
 )
-UNSATURATED_CORE_MODES = ("core_light", "core_investigation")
-SATURATED_DROP_PATH_MODES = ("core_light_drop_path", "core_investigation_drop_path")
-TOKIO_SAMPLER_MODES = ("core_light_tokio_sampler", "core_investigation_tokio_sampler")
-METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms")
+UNSATURATED_CORE_MODES = ("core_light", "core_investigation", "tracing_light")
+SATURATED_DROP_PATH_MODES = ("core_light_drop_path", "core_investigation_drop_path", "tracing_light_drop_path")
+TOKIO_SAMPLER_MODES = ("core_light_tokio_sampler", "core_investigation_tokio_sampler", "tracing_light_tokio_sampler")
+METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "artifact_finalize_ms", "analyze_ms", "report_render_ms", "run_requests", "run_stages", "run_queues", "runtime_snapshots", "lifecycle_warning_count")
+EXTRA_COPY_KEYS = ("instrumentation", "uses_runtime_sampler", "uses_drop_path_limits", "effective_tokio_sampler_config_present", "inflight_supported", "drop_path_signal_present", "artifact_path")
 DEFAULT_REQUESTS = 6000
 DEFAULT_CONCURRENCY = 64
 DEFAULT_WORK_MS = 3
@@ -39,6 +43,7 @@ MIN_ROUNDS_FOR_STABLE = 4
 DELTA_VS_BASELINE_MODE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Baked-in overhead", ("baked_in_no_request_context",)),
     ("Core mode overhead", UNSATURATED_CORE_MODES),
+    ("Tracing-vs-native overhead", ("tracing_light",)),
     ("Tokio mode overhead", TOKIO_SAMPLER_MODES),
     ("Post-limit / drop-path overhead", SATURATED_DROP_PATH_MODES),
 )
@@ -128,6 +133,8 @@ def summarize_mode_metrics(by_mode: dict[str, list[dict]], mode: str) -> dict:
     metrics = {key: [row[key] for row in by_mode[mode]] for key in METRIC_KEYS}
     truncations = [row.get("truncation") for row in by_mode[mode] if row.get("truncation") is not None]
     summary = {metric: summarize_values(values) for metric, values in metrics.items()}
+    for key in EXTRA_COPY_KEYS:
+        summary[key] = by_mode[mode][0].get(key)
     if truncations:
         summary["truncation"] = {
             "dropped_requests": summarize_values([entry["dropped_requests"] for entry in truncations]),
@@ -193,6 +200,20 @@ def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, lis
     return QUALITY_STABLE, ["Measured rounds are within configured variance thresholds."]
 
 
+
+
+def safe_ratio(comparison: float, reference: float) -> float | None:
+    if reference == 0:
+        return None
+    ratio = comparison / reference
+    if ratio != ratio or ratio in (float("inf"), float("-inf")):
+        return None
+    return ratio
+
+
+def median_metric(by_mode: dict[str, list[dict]], mode: str, metric: str) -> float:
+    return statistics.median([row[metric] for row in by_mode[mode]])
+
 def summarize(raw_path: Path, summary_path: Path) -> dict:
     rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     measured = [row for row in rows if not row["is_warmup"]]
@@ -215,6 +236,7 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         measured_rounds.append(round_rows)
 
     summary = {
+        "required_checks": {},
         "requests": by_mode["baseline"][0]["requests"],
         "concurrency": by_mode["baseline"][0]["concurrency"],
         "work_ms": by_mode["baseline"][0]["work_ms"],
@@ -262,6 +284,22 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
             )
             for metric in METRIC_KEYS
         },
+    }
+
+    summary["relative_ratios"] = {
+        "core_light_vs_baseline_latency_p95": safe_ratio(median_metric(by_mode, "core_light", "latency_p95_ms"), median_metric(by_mode, "baseline", "latency_p95_ms")),
+        "tracing_light_vs_baseline_latency_p95": safe_ratio(median_metric(by_mode, "tracing_light", "latency_p95_ms"), median_metric(by_mode, "baseline", "latency_p95_ms")),
+        "tracing_light_vs_core_light_latency_p95": safe_ratio(median_metric(by_mode, "tracing_light", "latency_p95_ms"), median_metric(by_mode, "core_light", "latency_p95_ms")),
+        "core_light_tokio_sampler_vs_core_light_latency_p95": safe_ratio(median_metric(by_mode, "core_light_tokio_sampler", "latency_p95_ms"), median_metric(by_mode, "core_light", "latency_p95_ms")),
+        "tracing_light_tokio_sampler_vs_tracing_light_latency_p95": safe_ratio(median_metric(by_mode, "tracing_light_tokio_sampler", "latency_p95_ms"), median_metric(by_mode, "tracing_light", "latency_p95_ms")),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": safe_ratio(median_metric(by_mode, "tracing_light_tokio_sampler", "latency_p95_ms"), median_metric(by_mode, "core_light_tokio_sampler", "latency_p95_ms")),
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": safe_ratio(median_metric(by_mode, "tracing_light_drop_path", "latency_p95_ms"), median_metric(by_mode, "core_light_drop_path", "latency_p95_ms")),
+        "tracing_light_vs_core_light_throughput": safe_ratio(median_metric(by_mode, "tracing_light", "throughput_rps"), median_metric(by_mode, "core_light", "throughput_rps")),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": safe_ratio(median_metric(by_mode, "tracing_light_tokio_sampler", "throughput_rps"), median_metric(by_mode, "core_light_tokio_sampler", "throughput_rps")),
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput": safe_ratio(median_metric(by_mode, "tracing_light_drop_path", "throughput_rps"), median_metric(by_mode, "core_light_drop_path", "throughput_rps")),
+        "tracing_finalize_vs_native_finalize": safe_ratio(median_metric(by_mode, "tracing_light", "artifact_finalize_ms"), median_metric(by_mode, "core_light", "artifact_finalize_ms")),
+        "tracing_analyze_vs_native_analyze": safe_ratio(median_metric(by_mode, "tracing_light", "analyze_ms"), median_metric(by_mode, "core_light", "analyze_ms")),
+        "tracing_render_vs_native_render": safe_ratio(median_metric(by_mode, "tracing_light", "report_render_ms"), median_metric(by_mode, "core_light", "report_render_ms")),
     }
 
     quality, reasons = assess_quality(summary, measured_rounds)

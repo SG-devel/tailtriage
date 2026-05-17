@@ -11,3 +11,6 @@ Runtime-cost numbers are machine/workload/profile scoped for local triage valida
 
 
 Unified orchestration: `scripts/validate_all.py` invokes runtime-cost operational validation in `full` and `publish` profiles while preserving direct domain-runner usage.
+
+
+Tracing modes measure tailtriage semantic tracing spans (not OTel/OTLP export), and numbers are directional, machine/workload/profile scoped checks for catastrophic regressions only.
