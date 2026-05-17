@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from pathlib import Path
 from typing import Callable
@@ -16,7 +17,6 @@ from _demo_runner import (
     variant_paths,
     write_before_after_comparison,
 )
-import json
 
 EXPECTED_QUEUE_KIND = {"application_queue_saturation"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure"}
@@ -858,19 +858,29 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
             if len(run.get("queues", [])) == 0:
                 raise SystemExit(f"expected non-zero queues in {label} run artifact")
 
-        if not any(q.get("queue") == "worker_permit" for q in before_tracing_run.get("queues", [])):
-            raise SystemExit("expected queue tracing artifact to include queue 'worker_permit'")
-        if not any(q.get("depth_at_start") is not None for q in before_tracing_run.get("queues", [])):
-            raise SystemExit(
-                "expected queue tracing queue events to include non-null depth_at_start"
-            )
-    if scenario == "downstream":
-        tracing_stage_names = {s.get("stage") for s in before_tracing_run.get("stages", [])}
-        for stage in ("app_precheck", "downstream_call"):
-            if stage not in tracing_stage_names:
+        for run_name, run in (
+            ("before-tracing-run.json", before_tracing_run),
+            ("after-tracing-run.json", after_tracing_run),
+        ):
+            if not any(q.get("queue") == "worker_permit" for q in run.get("queues", [])):
                 raise SystemExit(
-                    f"expected downstream tracing run to include stage '{stage}'"
+                    f"expected queue tracing artifact {run_name} to include queue 'worker_permit'"
                 )
+            if not any(q.get("depth_at_start") is not None for q in run.get("queues", [])):
+                raise SystemExit(
+                    f"expected queue tracing queue events in {run_name} to include non-null depth_at_start"
+                )
+    if scenario == "downstream":
+        for run_name, run in (
+            ("before-tracing-run.json", before_tracing_run),
+            ("after-tracing-run.json", after_tracing_run),
+        ):
+            tracing_stage_names = {s.get("stage") for s in run.get("stages", [])}
+            for stage in ("app_precheck", "downstream_call"):
+                if stage not in tracing_stage_names:
+                    raise SystemExit(
+                        f"expected downstream tracing run {run_name} to include stage '{stage}'"
+                    )
 
     for label, run in (("before-native", before_native_run), ("after-native", after_native_run)):
         if "inflight" in run and len(run.get("inflight") or []) == 0:

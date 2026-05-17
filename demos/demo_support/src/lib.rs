@@ -231,14 +231,7 @@ impl DemoInstrumentation {
                 started.completion.finish(outcome);
             }
             DemoInstrumentationBackend::Tracing(_) => {
-                let outcome_label = match outcome {
-                    tailtriage_core::Outcome::Ok => "ok",
-                    tailtriage_core::Outcome::Error => "error",
-                    tailtriage_core::Outcome::Timeout => "timeout",
-                    tailtriage_core::Outcome::Cancelled => "cancelled",
-                    tailtriage_core::Outcome::Rejected => "rejected",
-                    tailtriage_core::Outcome::Other(_) => "other",
-                };
+                let outcome_label = outcome.as_str();
                 let request_span = tracing::info_span!(
                     "tt.request",
                     tt.kind = "request",
@@ -385,6 +378,7 @@ pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
 #[cfg(test)]
 mod tests {
     use super::{parse_demo_args_from, DemoMode, InstrumentationMode};
+    use tailtriage_core::Outcome;
 
     #[test]
     fn demo_args_default_instrumentation_is_native() {
@@ -446,5 +440,11 @@ mod tests {
             parse_demo_args_from(&["out.json".to_string(), "after".to_string()], "ignored")
                 .expect("parse after alias");
         assert_eq!(after_args.mode, DemoMode::Mitigated);
+    }
+
+    #[test]
+    fn outcome_other_preserves_custom_label() {
+        let outcome = Outcome::Other("custom".to_string());
+        assert_eq!(outcome.as_str(), "custom");
     }
 }
