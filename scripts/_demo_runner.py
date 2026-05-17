@@ -30,7 +30,7 @@ def profile_flags(profile: str) -> list[str]:
     raise ValueError(f"unsupported profile: {profile}")
 
 
-def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str, profile: str = "dev") -> None:
+def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str, extra_demo_flags: list[str] | None = None, profile: str = "dev") -> None:
     """Run a demo binary via ``cargo run --manifest-path ...``."""
     subprocess.run(
         [
@@ -43,6 +43,7 @@ def run_demo_binary(manifest_path: Path, artifact_path: Path, *demo_args: str, p
             "--",
             str(artifact_path),
             *demo_args,
+            *(extra_demo_flags or []),
         ],
         check=True,
     )
@@ -82,11 +83,12 @@ def run_and_analyze(
     artifact_path: Path,
     analysis_path: Path,
     *demo_args: str,
+    extra_demo_flags: list[str] | None = None,
     profile: str = "dev",
 ) -> None:
     """Run demo and analyze the resulting artifact into ``analysis_path``."""
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    run_demo_binary(demo_manifest_path, artifact_path, *demo_args, profile=profile)
+    run_demo_binary(demo_manifest_path, artifact_path, *demo_args, extra_demo_flags=extra_demo_flags, profile=profile)
     run_cli_analysis_json(cli_manifest_path, artifact_path, analysis_path, profile=profile)
 
 

@@ -760,6 +760,42 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
+
+
+def _validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    if scenario not in {"queue", "downstream"}:
+        raise SystemExit("validate-tracing-parity currently supports only queue or downstream")
+    demo_manifest = root_dir / f"demos/{'queue_service' if scenario == 'queue' else 'downstream_service'}/Cargo.toml"
+    artifact_dir = root_dir / f"demos/{'queue_service' if scenario == 'queue' else 'downstream_service'}/artifacts"
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+
+    def run_variant(tag: str, mode_arg: str, instr: str) -> dict:
+        run_path = artifact_dir / f"{tag}-{instr}-run.json"
+        analysis_path = artifact_dir / f"{tag}-{instr}-analysis.json"
+        run_and_analyze(demo_manifest, cli_manifest, run_path, analysis_path, mode_arg, extra_demo_flags=["--instrumentation", instr], profile=profile)
+        return load_report_json(analysis_path)
+
+    before_native = run_variant("before", "baseline", "native")
+    before_tracing = run_variant("before", "baseline", "tracing")
+    after_native = run_variant("after", "mitigated", "native")
+    after_tracing = run_variant("after", "mitigated", "tracing")
+
+    expected = "application_queue_saturation" if scenario == "queue" else "downstream_stage_dominates"
+    for label, report in [("before-native", before_native), ("before-tracing", before_tracing), ("after-native", after_native), ("after-tracing", after_tracing)]:
+        if report.get("request_count", 0) <= 0 or report.get("p95_latency_us", 0) <= 0:
+            raise SystemExit(f"{label} invalid report metrics")
+    if before_native["primary_suspect"]["kind"] != expected or before_tracing["primary_suspect"]["kind"] != expected:
+        raise SystemExit(f"baseline primary suspect mismatch native={before_native['primary_suspect']['kind']} tracing={before_tracing['primary_suspect']['kind']} expected={expected}")
+    if after_tracing["p95_latency_us"] > before_tracing["p95_latency_us"]:
+        raise SystemExit(f"expected tracing mitigated p95 non-worse, got {before_tracing['p95_latency_us']} -> {after_tracing['p95_latency_us']}")
+    if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
+        raise SystemExit(
+            "mitigated primary suspect mismatch: "
+            f"native kind={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
+            f"tracing kind={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}"
+        )
+    print(f"tracing parity passed for {scenario}")
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -808,6 +844,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="profile",
         help="Shortcut for --profile release.",
     )
+
+    parity_parser = subparsers.add_parser("validate-tracing-parity", help="Validate native vs tracing semantic parity for selected demo scenarios")
+    parity_parser.add_argument("scenario", choices=["queue", "downstream"])
+    parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    parity_parser.add_argument("--release", action="store_const", const="release", dest="profile")
 
     matrix_parser = subparsers.add_parser(
         "diagnosis-matrix",
@@ -880,6 +921,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "run":
         _run_scenario(root_dir, args.scenario, args.mode, profile=args.profile)
+        return
+
+    if args.command == "validate-tracing-parity":
+        _validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
         return
 
     if args.scenario == "queue":

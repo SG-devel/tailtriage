@@ -3,14 +3,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
+use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode};
 use tokio::sync::Semaphore;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/queue_service/artifacts/queue-run.json")?;
-
-    let tailtriage = init_collector("queue_service_demo", &args.output_path)?;
+    let instrumentation = DemoInstrumentation::new(
+        "queue_service_demo",
+        &args.output_path,
+        args.instrumentation,
+    )?;
 
     let (
         service_capacity,
@@ -37,42 +40,35 @@ async fn main() -> anyhow::Result<()> {
 
     let semaphore = Arc::new(Semaphore::new(service_capacity));
     let waiting_depth = Arc::new(AtomicU64::new(0));
-
-    let capacity = usize::try_from(offered_requests)?;
-    let mut tasks = Vec::with_capacity(capacity);
+    let mut tasks = Vec::with_capacity(usize::try_from(offered_requests)?);
 
     for request_number in 0..offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
         let semaphore = Arc::clone(&semaphore);
         let waiting_depth = Arc::clone(&waiting_depth);
+        let mode = instrumentation.clone_for_task();
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
+            mode.run_request(
                 "/queue-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
-
-            {
-                let _inflight = request.inflight("queue_service_inflight");
-
-                let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                let permit = request
-                    .queue("worker_permit")
-                    .with_depth_at_start(depth)
-                    .await_on(semaphore.acquire())
-                    .await
-                    .expect("semaphore should remain open");
-                waiting_depth.fetch_sub(1, Ordering::SeqCst);
-
-                let _permit = permit;
-                request
-                    .stage("simulated_work")
-                    .await_value(tokio::time::sleep(work_duration))
-                    .await;
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+                request_id,
+                tailtriage_core::Outcome::Ok,
+                |request| async move {
+                    let _inflight = request.inflight("queue_service_inflight");
+                    let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
+                    let permit = request
+                        .queue_wait("worker_permit", depth, semaphore.acquire())
+                        .await?
+                        .expect("semaphore should remain open");
+                    waiting_depth.fetch_sub(1, Ordering::SeqCst);
+                    let _permit = permit;
+                    request
+                        .stage("simulated_work", tokio::time::sleep(work_duration))
+                        .await?;
+                    Ok(())
+                },
+            )
+            .await
         }));
 
         if request_number % inter_arrival_pause_every == 0 {
@@ -81,11 +77,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     for task in tasks {
-        task.await.context("request task panicked")?;
+        task.await.context("request task panicked")??;
     }
-
-    tailtriage.shutdown()?;
+    instrumentation.shutdown()?;
     println!("wrote {}", args.output_path.display());
-
     Ok(())
 }
