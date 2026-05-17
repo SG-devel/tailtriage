@@ -146,6 +146,21 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "retry-storm")
 
+    def test_parse_args_accepts_validate_tracing_parity_blocking(self) -> None:
+        args = parse_args(["validate-tracing-parity", "blocking", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "blocking")
+
+    def test_parse_args_accepts_validate_tracing_parity_executor(self) -> None:
+        args = parse_args(["validate-tracing-parity", "executor", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "executor")
+
+    def test_parse_args_accepts_validate_tracing_parity_all(self) -> None:
+        args = parse_args(["validate-tracing-parity", "all", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "all")
+
     def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},

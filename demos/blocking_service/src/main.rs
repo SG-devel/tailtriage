@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
+use demo_support::{parse_demo_args, DemoMode, RuntimeDemoInstrumentation};
 use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
 struct ModeSettings {
@@ -47,16 +47,24 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("failed to build Tokio runtime")?;
 
-    runtime.block_on(run_demo(args.output_path, settings))
+    runtime.block_on(run_demo(args.output_path, settings, args.instrumentation))
 }
 
-async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
-    let tailtriage = init_collector("blocking_service_demo", &output_path)?;
+async fn run_demo(
+    output_path: PathBuf,
+    settings: ModeSettings,
+    instrumentation: demo_support::InstrumentationMode,
+) -> anyhow::Result<()> {
+    let runtime_inst = Arc::new(RuntimeDemoInstrumentation::new(
+        "blocking_service_demo",
+        &output_path,
+        instrumentation,
+    )?);
 
     let pending_blocking = Arc::new(AtomicU64::new(0));
 
     let sampler = {
-        let tailtriage = Arc::clone(&tailtriage);
+        let inst = Arc::clone(&runtime_inst);
         let pending_blocking = Arc::clone(&pending_blocking);
 
         tokio::spawn(async move {
@@ -64,7 +72,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
             for _ in 0..200 {
                 ticker.tick().await;
                 let pending = pending_blocking.load(Ordering::SeqCst);
-                tailtriage.record_runtime_snapshot(RuntimeSnapshot {
+                inst.record_runtime_snapshot(RuntimeSnapshot {
                     at_unix_ms: unix_time_ms(),
                     alive_tasks: None,
                     global_queue_depth: Some(0),
@@ -80,41 +88,40 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
     let mut tasks = Vec::with_capacity(capacity);
 
     for request_number in 0..settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let inst = Arc::clone(&runtime_inst);
         let pending_blocking = Arc::clone(&pending_blocking);
         let blocking_work = settings.blocking_work;
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
+            inst.run_request(
                 "/blocking-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
-
-            {
-                let _inflight = request.inflight("blocking_service_inflight");
-                let _wait = request
-                    .queue("dispatch_overhead")
-                    .await_on(tokio::time::sleep(Duration::from_micros(10)))
-                    .await;
-
-                pending_blocking.fetch_add(1, Ordering::SeqCst);
-                let handle = tokio::task::spawn_blocking(move || {
-                    std::thread::sleep(blocking_work);
-                });
-
-                request
-                    .stage("spawn_blocking_path")
-                    .await_value(async {
-                        handle
-                            .await
-                            .expect("spawn_blocking workload should complete");
-                    })
-                    .await;
-                pending_blocking.fetch_sub(1, Ordering::SeqCst);
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+                request_id.clone(),
+                tailtriage_core::Outcome::Ok,
+                |request| async move {
+                    let _inflight = request.inflight("blocking_service_inflight");
+                    request
+                        .queue_wait(
+                            "dispatch_overhead",
+                            1,
+                            tokio::time::sleep(Duration::from_micros(10)),
+                        )
+                        .await;
+                    pending_blocking.fetch_add(1, Ordering::SeqCst);
+                    let handle = tokio::task::spawn_blocking(move || {
+                        std::thread::sleep(blocking_work);
+                    });
+                    request
+                        .stage("spawn_blocking_path", async {
+                            handle
+                                .await
+                                .expect("spawn_blocking workload should complete");
+                        })
+                        .await;
+                    pending_blocking.fetch_sub(1, Ordering::SeqCst);
+                },
+            )
+            .await;
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
@@ -128,7 +135,10 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
     sampler.await.context("sampler task panicked")?;
 
-    tailtriage.shutdown()?;
+    Arc::into_inner(runtime_inst)
+        .expect("single owner")
+        .shutdown(&output_path)
+        .await?;
     println!("wrote {}", output_path.display());
 
     Ok(())

@@ -86,6 +86,13 @@ impl TracingTokioSession {
         Ok(merge_runtime_data(imported, &runtime))
     }
 
+    /// Records a deterministic runtime snapshot into the runtime collector.
+    ///
+    /// This supplements live runtime sampling and is merged into imported run output.
+    pub fn record_runtime_snapshot(&self, snapshot: tailtriage_core::RuntimeSnapshot) {
+        self.runtime_collector.record_runtime_snapshot(snapshot);
+    }
+
     /// Stops runtime sampling and returns one merged imported run.
     ///
     /// # Errors
@@ -233,6 +240,9 @@ mod tests {
     use super::merge_runtime_data;
     use crate::ImportedRun;
     use tailtriage_core::{MemorySink, Tailtriage};
+    use tracing_subscriber::prelude::*;
+
+    use crate::tokio::TracingTokioSession;
 
     fn empty_run(service_name: &str) -> tailtriage_core::Run {
         Tailtriage::builder(service_name)
@@ -314,5 +324,60 @@ mod tests {
             vec!["trace-warning", "shared", "non-runtime"]
         );
         assert_eq!(run.requests.len(), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn record_runtime_snapshot_appears_in_snapshot_and_shutdown() {
+        let session = TracingTokioSession::builder("svc")
+            .sampler_interval(std::time::Duration::from_millis(5))
+            .start()
+            .expect("start session");
+        let _guard =
+            tracing::subscriber::set_default(tracing_subscriber::registry().with(session.layer()));
+
+        tracing::info_span!(
+            "tt.request",
+            tt.kind = "request",
+            tt.request_id = "r1",
+            tt.route = "/r1",
+            tt.outcome = "ok"
+        )
+        .in_scope(|| {
+            tracing::info_span!(
+                "tt.stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "work",
+                tt.success = true
+            )
+            .in_scope(|| {});
+            tracing::info_span!(
+                "tt.queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "q",
+                tt.depth_at_start = 1_u64
+            )
+            .in_scope(|| {});
+        });
+
+        session.record_runtime_snapshot(tailtriage_core::RuntimeSnapshot {
+            at_unix_ms: 42,
+            alive_tasks: None,
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: Some(3),
+            remote_schedule_count: None,
+        });
+        let snap = session.snapshot_run().expect("snapshot run");
+        assert_eq!(snap.run().runtime_snapshots.len(), 1);
+        assert_eq!(
+            snap.run().runtime_snapshots[0].blocking_queue_depth,
+            Some(3)
+        );
+        assert_eq!(snap.run().stages.len(), 1);
+        assert_eq!(snap.run().queues.len(), 1);
+        let shut = session.shutdown().await.expect("shutdown");
+        assert!(!shut.run().runtime_snapshots.is_empty());
     }
 }

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{
-    init_collector, parse_demo_args, run_warmup_then_measured, CohortStart, DemoMode,
+    parse_demo_args, run_warmup_then_measured, CohortStart, DemoMode, RuntimeDemoInstrumentation,
 };
 use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
@@ -53,11 +53,19 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("failed to build Tokio runtime")?;
 
-    runtime.block_on(run_demo(args.output_path, settings))
+    runtime.block_on(run_demo(args.output_path, settings, args.instrumentation))
 }
 
-async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
-    let tailtriage = init_collector("executor_pressure_demo", &output_path)?;
+async fn run_demo(
+    output_path: PathBuf,
+    settings: ModeSettings,
+    instrumentation: demo_support::InstrumentationMode,
+) -> anyhow::Result<()> {
+    let runtime_inst = Arc::new(RuntimeDemoInstrumentation::new(
+        "executor_pressure_demo",
+        &output_path,
+        instrumentation,
+    )?);
     let measured_requests = settings.offered_requests;
 
     let runnable_backlog = Arc::new(AtomicU64::new(0));
@@ -85,7 +93,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
             }
         },
         || {
-            let tailtriage = Arc::clone(&tailtriage);
+            let tailtriage = Arc::clone(&runtime_inst);
             let runnable_backlog = Arc::clone(&runnable_backlog);
             let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
             async move {
@@ -105,7 +113,10 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
     )
     .await;
 
-    tailtriage.shutdown()?;
+    Arc::into_inner(runtime_inst)
+        .expect("single owner")
+        .shutdown(&output_path)
+        .await?;
     println!("wrote {}", output_path.display());
     Ok(())
 }
@@ -117,7 +128,7 @@ async fn run_request_cohort(
     snapshot_depth_scale: u64,
     runnable_backlog: Arc<AtomicU64>,
     hot_slice_local_depth: Arc<AtomicU64>,
-    collector: Option<Arc<tailtriage_core::Tailtriage>>,
+    collector: Option<Arc<RuntimeDemoInstrumentation>>,
 ) -> anyhow::Result<()> {
     if request_count == 0 {
         return Ok(());
@@ -165,21 +176,24 @@ async fn run_request_cohort(
             start_gate.wait().await;
             if let Some(collector) = collector {
                 let request_id = format!("request-{request_number}");
-                let started = collector.begin_request_with(
-                    "/executor-pressure",
-                    tailtriage_core::RequestOptions::new().request_id(request_id),
-                );
-                let request = started.handle.clone();
-                let inflight_guard = request.inflight("executor_pressure_inflight");
-                execute_request_work(
-                    fanout_tasks,
-                    cpu_turns,
-                    Arc::clone(&runnable_backlog),
-                    Arc::clone(&hot_slice_local_depth),
-                )
-                .await;
-                drop(inflight_guard);
-                started.completion.finish(tailtriage_core::Outcome::Ok);
+                collector
+                    .run_request(
+                        "/executor-pressure",
+                        request_id,
+                        tailtriage_core::Outcome::Ok,
+                        |request| async move {
+                            let inflight_guard = request.inflight("executor_pressure_inflight");
+                            execute_request_work(
+                                fanout_tasks,
+                                cpu_turns,
+                                Arc::clone(&runnable_backlog),
+                                Arc::clone(&hot_slice_local_depth),
+                            )
+                            .await;
+                            drop(inflight_guard);
+                        },
+                    )
+                    .await;
             } else {
                 execute_request_work(
                     fanout_tasks,

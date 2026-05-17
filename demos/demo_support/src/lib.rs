@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use tailtriage_core::Tailtriage;
+use tailtriage_tracing::tokio::TracingTokioSession;
 use tailtriage_tracing::TracingRecorder;
 use tokio::sync::Barrier;
 use tracing::Instrument;
@@ -156,6 +157,19 @@ enum DemoInstrumentationBackend {
 
 pub struct DemoRequest {
     inner: DemoRequestInner,
+}
+
+pub struct RuntimeDemoInstrumentation {
+    backend: RuntimeDemoBackend,
+}
+
+enum RuntimeDemoBackend {
+    Native(Arc<Tailtriage>),
+    Tracing(TracingTokioSession),
+}
+
+pub struct RuntimeDemoRequest {
+    inner: DemoRequest,
 }
 
 enum DemoRequestInner {
@@ -325,6 +339,121 @@ impl DemoRequest {
                 future.instrument(span).await
             }
         }
+    }
+}
+
+impl RuntimeDemoInstrumentation {
+    pub fn new(
+        service_name: &str,
+        output_path: &Path,
+        mode: InstrumentationMode,
+    ) -> anyhow::Result<Self> {
+        match mode {
+            InstrumentationMode::Native => Ok(Self {
+                backend: RuntimeDemoBackend::Native(init_collector(service_name, output_path)?),
+            }),
+            InstrumentationMode::Tracing => {
+                let session = TracingTokioSession::builder(service_name)
+                    .strict(false)
+                    .start()?;
+                let subscriber = tracing_subscriber::registry().with(session.layer());
+                tracing::subscriber::set_global_default(subscriber)
+                    .map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
+                Ok(Self {
+                    backend: RuntimeDemoBackend::Tracing(session),
+                })
+            }
+        }
+    }
+
+    pub async fn run_request<F, Fut>(
+        &self,
+        route: &str,
+        request_id: String,
+        outcome: tailtriage_core::Outcome,
+        body: F,
+    ) where
+        F: FnOnce(RuntimeDemoRequest) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        match &self.backend {
+            RuntimeDemoBackend::Native(tailtriage) => {
+                let started = tailtriage.begin_request_with_owned(
+                    route,
+                    tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
+                );
+                let request = RuntimeDemoRequest {
+                    inner: DemoRequest {
+                        inner: DemoRequestInner::Native(started.handle.clone()),
+                    },
+                };
+                body(request).await;
+                started.completion.finish(outcome);
+            }
+            RuntimeDemoBackend::Tracing(_) => {
+                let outcome_label = outcome.as_str();
+                let request_span = tracing::info_span!(
+                    "tt.request",
+                    tt.kind = "request",
+                    tt.request_id = request_id.as_str(),
+                    tt.route = route,
+                    tt.outcome = outcome_label
+                );
+                body(RuntimeDemoRequest {
+                    inner: DemoRequest {
+                        inner: DemoRequestInner::Tracing(TracingRequest { request_id }),
+                    },
+                })
+                .instrument(request_span)
+                .await;
+            }
+        }
+    }
+
+    pub fn record_runtime_snapshot(&self, snapshot: tailtriage_core::RuntimeSnapshot) {
+        match &self.backend {
+            RuntimeDemoBackend::Native(t) => t.record_runtime_snapshot(snapshot),
+            RuntimeDemoBackend::Tracing(s) => s.record_runtime_snapshot(snapshot),
+        }
+    }
+
+    pub async fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
+        match self.backend {
+            RuntimeDemoBackend::Native(tailtriage) => {
+                tailtriage.shutdown()?;
+                Ok(())
+            }
+            RuntimeDemoBackend::Tracing(session) => {
+                let imported = session.shutdown().await?;
+                let mut file = std::fs::File::create(output_path)?;
+                serde_json::to_writer_pretty(&mut file, imported.run())?;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl RuntimeDemoRequest {
+    #[must_use]
+    pub fn inflight(&self, label: &str) -> Option<tailtriage_core::InflightGuard<'_>> {
+        self.inner.inflight(label)
+    }
+    pub async fn queue_wait<Fut>(
+        &self,
+        queue: &str,
+        depth_at_start: u64,
+        future: Fut,
+    ) -> Fut::Output
+    where
+        Fut: Future,
+    {
+        self.inner.queue_wait(queue, depth_at_start, future).await
+    }
+    pub async fn stage<Fut>(&self, stage: &str, future: Fut) -> Fut::Output
+    where
+        Fut: Future,
+    {
+        self.inner.stage(stage, future).await
     }
 }
 
