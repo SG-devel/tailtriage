@@ -781,7 +781,7 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "route": "/queue-demo",
             "expected_kind": "application_queue_saturation",
             "queues": {"worker_permit"},
-            "stages": set(),
+            "stages": {"simulated_work"},
             "require_p95_improvement": True,
         },
         "downstream": {
@@ -836,6 +836,9 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "expected_kind": "downstream_stage_dominates",
             "queues": set(),
             "stages": {"app_precheck", "downstream_total"},
+            # Retry-heavy downstream behavior can make p95 movement less stable between
+            # native/tracing mitigated runs, so parity relies on strict artifact checks plus
+            # expected suspect-family presence instead of strict p95 non-worsening.
             "require_p95_improvement": False,
         },
     }
@@ -971,11 +974,9 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
         )
 
     if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
-        expected_present = (
-            has_suspect_kind(after_native, {expected_kind})
-            or has_suspect_kind(after_tracing, {expected_kind})
-        )
-        if expected_present:
+        expected_in_native = has_suspect_kind(after_native, {expected_kind})
+        expected_in_tracing = has_suspect_kind(after_tracing, {expected_kind})
+        if expected_in_native and expected_in_tracing:
             print(
                 f"info: mitigated parity primary suspect diverged for {scenario} but expected family is still present "
                 f"(native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
@@ -985,7 +986,9 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
             raise SystemExit(
                 "mitigated native/tracing primary suspect mismatch: "
                 f"native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
-                f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}"
+                f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}, "
+                f"expected_kind_present_native={expected_in_native}, "
+                f"expected_kind_present_tracing={expected_in_tracing}"
             )
 
     print(
