@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
+use demo_support::{init_recorder, parse_demo_args, DemoMode};
 
 #[derive(Clone, Copy)]
 struct DownstreamSettings {
@@ -28,40 +28,40 @@ impl DownstreamSettings {
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/downstream_service/artifacts/downstream-run.json")?;
-    let output_path = args.output_path;
+
     let settings = DownstreamSettings::for_mode(args.mode);
 
-    let tailtriage = init_collector("downstream_service_demo", &output_path)?;
+    let recorder = init_recorder(
+        "downstream_service_demo",
+        &args.output_path,
+        args.instrumentation,
+    )?;
 
     let offered_requests = 80_u64;
     let task_capacity = usize::try_from(offered_requests)?;
     let mut tasks = Vec::with_capacity(task_capacity);
 
     for request_number in 0..offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let recorder = Arc::clone(&recorder);
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
-                "/downstream-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
+            let request = recorder.begin_request("/downstream-demo", request_id.clone());
 
-            {
-                let _inflight = request.inflight("downstream_service_inflight");
+            request
+                .record_stage(
+                    "app_precheck",
+                    tokio::time::sleep(settings.app_precheck_delay),
+                )
+                .await;
 
-                request
-                    .stage("app_precheck")
-                    .await_value(tokio::time::sleep(settings.app_precheck_delay))
-                    .await;
-
-                request
-                    .stage("downstream_call")
-                    .await_value(tokio::time::sleep(settings.downstream_delay))
-                    .await;
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+            request
+                .record_stage(
+                    "downstream_call",
+                    tokio::time::sleep(settings.downstream_delay),
+                )
+                .await;
+            request.finish(tailtriage_core::Outcome::Ok);
         }));
 
         if request_number.is_multiple_of(8) {
@@ -73,8 +73,8 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.shutdown()?;
-    println!("wrote {}", output_path.display());
+    recorder.shutdown(&args.output_path)?;
+    println!("wrote {}", args.output_path.display());
 
     Ok(())
 }

@@ -760,6 +760,32 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
+
+
+def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    if scenario not in {"queue", "downstream"}:
+        raise SystemExit("validate-tracing-parity currently supports only queue and downstream")
+    demo_manifest = root_dir / f"demos/{'queue_service' if scenario=='queue' else 'downstream_service'}/Cargo.toml"
+    artifact_dir = root_dir / f"demos/{'queue_service' if scenario=='queue' else 'downstream_service'}/artifacts"
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+
+    variants = [("before", "baseline")]
+    if scenario in {"queue", "downstream"}:
+        variants.append(("after", "mitigated"))
+
+    expected = EXPECTED_QUEUE_KIND if scenario == "queue" else EXPECTED_DOWNSTREAM_KIND
+    for prefix, mode_arg in variants:
+        for instr in ("native", "tracing"):
+            run_path = artifact_dir / f"{prefix}-{instr}-run.json"
+            analysis_path = artifact_dir / f"{prefix}-{instr}-analysis.json"
+            run_and_analyze(demo_manifest, cli_manifest, run_path, analysis_path, mode_arg, "--instrumentation", instr, profile=profile)
+
+        native = load_report_json(artifact_dir / f"{prefix}-native-analysis.json")
+        tracing = load_report_json(artifact_dir / f"{prefix}-tracing-analysis.json")
+        if native["primary_suspect"]["kind"] != tracing["primary_suspect"]["kind"]:
+            if native["primary_suspect"]["kind"] not in expected or tracing["primary_suspect"]["kind"] not in expected:
+                raise SystemExit(f"expected stable primary suspect family for {scenario}/{prefix}, got native={native['primary_suspect']['kind']} tracing={tracing['primary_suspect']['kind']}")
+    print(f"tracing parity passed for {scenario}")
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -791,6 +817,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     validate_parser = subparsers.add_parser("validate", help="Run scenario validation contract checks")
+
+    parity_parser = subparsers.add_parser("validate-tracing-parity", help="Run native vs tracing parity checks for converted demos")
+    parity_parser.add_argument("scenario", choices=["queue", "downstream"])
+    parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    parity_parser.add_argument("--release", action="store_const", const="release", dest="profile")
     validate_parser.add_argument(
         "scenario",
         choices=SCENARIOS,
@@ -876,6 +907,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "diagnosis-matrix":
         run_diagnosis_matrix(root_dir, scenarios=args.scenario)
+        return
+
+    if args.command == "validate-tracing-parity":
+        validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
         return
 
     if args.command == "run":
