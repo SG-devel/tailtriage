@@ -269,12 +269,6 @@ impl ImportedRun {
         &self.run
     }
 
-    /// Returns mutable converted run artifact.
-    #[must_use]
-    pub fn run_mut(&mut self) -> &mut tailtriage_core::Run {
-        &mut self.run
-    }
-
     /// Returns non-fatal warnings emitted during conversion.
     #[must_use]
     pub fn warnings(&self) -> &[ImportWarning] {

@@ -81,10 +81,9 @@ impl TracingTokioSession {
     ///
     /// Returns [`crate::ImportError`] when strict span import fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, crate::ImportError> {
-        let mut imported = self.recorder.snapshot_run()?;
+        let imported = self.recorder.snapshot_run()?;
         let runtime = self.runtime_collector.snapshot();
-        merge_runtime_data(imported.run_mut(), &runtime);
-        Ok(imported)
+        Ok(merge_runtime_data(imported, &runtime))
     }
 
     /// Stops runtime sampling and returns one merged imported run.
@@ -94,13 +93,12 @@ impl TracingTokioSession {
     /// Returns [`TracingTokioSessionShutdownError::Import`] when strict span import fails.
     pub async fn shutdown(self) -> Result<ImportedRun, TracingTokioSessionShutdownError> {
         self.sampler.shutdown().await;
-        let mut imported = self
+        let imported = self
             .recorder
             .snapshot_run()
             .map_err(TracingTokioSessionShutdownError::Import)?;
         let runtime = self.runtime_collector.snapshot();
-        merge_runtime_data(imported.run_mut(), &runtime);
-        Ok(imported)
+        Ok(merge_runtime_data(imported, &runtime))
     }
 }
 
@@ -208,7 +206,8 @@ impl TracingTokioSessionBuilder {
     }
 }
 
-fn merge_runtime_data(tracing_run: &mut Run, runtime_run: &Run) {
+fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
+    let (mut tracing_run, warnings) = imported.into_parts();
     tracing_run
         .runtime_snapshots
         .clone_from(&runtime_run.runtime_snapshots);
@@ -218,13 +217,102 @@ fn merge_runtime_data(tracing_run: &mut Run, runtime_run: &Run) {
         runtime_run.truncation.dropped_runtime_snapshots;
     tracing_run.truncation.limits_hit =
         tracing_run.truncation.limits_hit || runtime_run.truncation.limits_hit;
-    let existing = tracing_run.metadata.lifecycle_warnings.clone();
-    tracing_run.metadata.lifecycle_warnings.extend(
+    for warning in &runtime_run.metadata.lifecycle_warnings {
+        if !tracing_run.metadata.lifecycle_warnings.contains(warning) {
+            tracing_run
+                .metadata
+                .lifecycle_warnings
+                .push(warning.clone());
+        }
+    }
+    ImportedRun::new(tracing_run, warnings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_runtime_data;
+    use crate::ImportedRun;
+    use tailtriage_core::{MemorySink, Tailtriage};
+
+    fn empty_run(service_name: &str) -> tailtriage_core::Run {
+        Tailtriage::builder(service_name)
+            .sink(MemorySink::new())
+            .build()
+            .expect("build collector")
+            .snapshot()
+    }
+
+    #[test]
+    fn merge_runtime_data_preserves_tracing_events_and_merges_runtime_fields() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/r1".into(),
+            kind: Some("http".into()),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 1_000,
+            outcome: "ok".into(),
+        });
+        tracing_run.stages.push(tailtriage_core::StageEvent {
+            request_id: "r1".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 1_000,
+            success: true,
+        });
+        tracing_run.queues.push(tailtriage_core::QueueEvent {
+            request_id: "r1".into(),
+            queue: "global".into(),
+            waited_from_unix_ms: 1,
+            waited_until_unix_ms: 2,
+            wait_us: 1_000,
+            depth_at_start: Some(2),
+        });
+        tracing_run.metadata.lifecycle_warnings = vec!["trace-warning".into(), "shared".into()];
+        tracing_run.truncation.limits_hit = false;
+
+        let mut runtime_run = empty_run("runtime");
         runtime_run
-            .metadata
-            .lifecycle_warnings
-            .iter()
-            .filter(|warning| warning.contains("runtime") && !existing.contains(*warning))
-            .cloned(),
-    );
+            .runtime_snapshots
+            .push(tailtriage_core::RuntimeSnapshot {
+                at_unix_ms: 10,
+                alive_tasks: Some(3),
+                global_queue_depth: Some(4),
+                local_queue_depth: Some(5),
+                blocking_queue_depth: Some(6),
+                remote_schedule_count: Some(7),
+            });
+        runtime_run.metadata.effective_tokio_sampler_config =
+            Some(tailtriage_core::EffectiveTokioSamplerConfig {
+                inherited_mode: tailtriage_core::CaptureMode::Light,
+                explicit_mode_override: None,
+                resolved_mode: tailtriage_core::CaptureMode::Light,
+                resolved_sampler_cadence_ms: 25,
+                resolved_runtime_snapshot_retention: 10,
+            });
+        runtime_run.truncation.dropped_runtime_snapshots = 7;
+        runtime_run.truncation.limits_hit = true;
+        runtime_run.metadata.lifecycle_warnings = vec!["shared".into(), "non-runtime".into()];
+
+        let merged =
+            merge_runtime_data(ImportedRun::new(tracing_run.clone(), vec![]), &runtime_run);
+        let run = merged.run();
+        assert_eq!(run.requests, tracing_run.requests);
+        assert_eq!(run.stages, tracing_run.stages);
+        assert_eq!(run.queues, tracing_run.queues);
+        assert_eq!(run.runtime_snapshots, runtime_run.runtime_snapshots);
+        assert_eq!(
+            run.metadata.effective_tokio_sampler_config,
+            runtime_run.metadata.effective_tokio_sampler_config
+        );
+        assert_eq!(run.truncation.dropped_runtime_snapshots, 7);
+        assert!(run.truncation.limits_hit);
+        assert_eq!(
+            run.metadata.lifecycle_warnings,
+            vec!["trace-warning", "shared", "non-runtime"]
+        );
+        assert_eq!(run.requests.len(), 1);
+    }
 }
