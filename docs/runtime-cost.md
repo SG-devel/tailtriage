@@ -19,6 +19,9 @@ Measured categories:
 - `core_investigation_tokio_sampler`
 - `core_light_drop_path` (intentionally saturated limits)
 - `core_investigation_drop_path` (intentionally saturated limits)
+- `tracing_light`
+- `tracing_light_tokio_sampler`
+- `tracing_light_drop_path`
 
 Derived attribution sections in summary output:
 
@@ -27,6 +30,7 @@ Derived attribution sections in summary output:
 - Tokio mode overhead
 - Incremental runtime sampler overhead
 - Post-limit / drop-path overhead
+- tracing-vs-native ratio summaries
 
 ## What this path does not measure
 
@@ -45,6 +49,7 @@ python3 scripts/measure_runtime_cost.py
 ```
 
 The script builds `demos/runtime_cost` in release mode and runs warmup + measured rounds.
+Each mode is executed as a separate process; this keeps process-global tracing subscriber installation valid for tracing modes.
 
 ## Inputs and knobs
 
@@ -63,6 +68,8 @@ Path: `demos/runtime_cost/artifacts/`
 - `runtime-cost-raw.jsonl` (per-sample raw records)
 - `runtime-cost-summary.json` (aggregates + overhead attribution + quality labels)
 
+Per-mode records now include instrumentation family (`baseline` / `native` / `tracing`), runtime sampler/drop-path flags, run evidence counts, runtime snapshot counts, artifact finalization/analyze/render timings, sampler-metadata presence, inflight support, lifecycle warning count, and artifact path.
+
 ## Interpreting results
 
 - Use **Baked-in overhead** to isolate collector-present cost when request instrumentation is skipped.
@@ -71,10 +78,13 @@ Path: `demos/runtime_cost/artifacts/`
 - Use **Post-limit / drop-path overhead** only for intentionally saturated-limit behavior.
 
 If `measurement_quality` reports noisy/unstable, rerun on a quieter machine state before drawing stronger conclusions.
+Numbers are directional and machine/workload/profile scoped; broad thresholds are intended only to catch catastrophic regressions.
 
 ## Semantics reminder
 
 - `CaptureMode` changes retention defaults; it does not auto-start the runtime sampler.
+- Tracing modes measure tailtriage semantic `tt.*` tracing spans (not OTel/OTLP export).
+- Tracing spans alone do not imply runtime-pressure evidence; runtime-pressure evidence requires Tokio-session runtime snapshots.
 - Post-limit overhead improvements come from cheaper drop-path handling after limits are hit, while preserving drop counters and truncation visibility.
 
 ## Operational validation runner

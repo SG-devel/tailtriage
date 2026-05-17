@@ -42,8 +42,15 @@ class RuntimeCostSummaryTests(unittest.TestCase):
                 "core_investigation_tokio_sampler",
                 "core_light_drop_path",
                 "core_investigation_drop_path",
+                "tracing_light",
+                "tracing_light_tokio_sampler",
+                "tracing_light_drop_path",
             ),
         )
+
+    def test_safe_ratio_handles_zero_denominator(self) -> None:
+        self.assertIsNone(measure_runtime_cost.safe_ratio(10.0, 0.0))
+        self.assertEqual(measure_runtime_cost.safe_ratio(10.0, 2.0), 5.0)
 
     def test_summary_includes_required_overhead_headings_and_drop_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -62,6 +69,18 @@ class RuntimeCostSummaryTests(unittest.TestCase):
                         "latency_p50_ms": 1.0,
                         "latency_p95_ms": 2.0,
                         "latency_p99_ms": 3.0,
+                        "artifact_finalize_ms": 0.5,
+                        "analyze_ms": 0.5,
+                        "report_render_ms": 0.5,
+                        "run_requests": 100,
+                        "run_stages": 100,
+                        "run_queues": 100,
+                        "runtime_snapshots": 10 if mode == "tracing_light_tokio_sampler" else 0,
+                        "effective_tokio_sampler_config_present": mode == "tracing_light_tokio_sampler",
+                        "inflight_supported": mode.startswith("core_") or mode == "baked_in_no_request_context",
+                        "drop_path_signal_present": mode.endswith("drop_path"),
+                        "lifecycle_warning_count": 0,
+                        "artifact_path": None,
                         "round": round_idx,
                         "phase": "measured",
                         "is_warmup": False,
