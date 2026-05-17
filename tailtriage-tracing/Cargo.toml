@@ -17,12 +17,18 @@ include = [
   "examples/**",
 ]
 
+[features]
+default = []
+tokio = ["dep:tailtriage-tokio", "dep:tokio"]
+
 [dependencies]
 tailtriage-core.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+tailtriage-tokio = { workspace = true, optional = true }
+tokio = { version = "1", features = ["rt", "time"], optional = true }
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]

@@ -120,6 +120,45 @@ Live recorder latency/wait precision uses monotonic elapsed duration (`duration_
 Tracing span capture for request/stage/queue evidence works outside Tokio runtimes. Runtime-pressure evidence still requires tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans cannot infer executor or blocking-pool pressure by themselves.
 
 
+
+## Optional Tokio runtime sampler coupling
+
+Enable feature `tokio` to couple tracing request/stage/queue intake with Tokio runtime-pressure sampling in one standard run.
+
+- Tracing-only instrumentation works with or without Tokio and records request/stage/queue evidence.
+- Tracing + Tokio sampler records runtime snapshots and sampler metadata for runtime-pressure evidence.
+- Tracing spans alone do not infer executor or blocking-pool pressure.
+- This crate is not an OpenTelemetry/OTLP implementation and not a tracing backend.
+
+```rust
+# #[cfg(feature = "tokio")]
+# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+use std::time::Duration;
+use tracing_subscriber::prelude::*;
+use tailtriage_tracing::TracingTokioSession;
+
+let session = TracingTokioSession::builder("checkout-service")
+    .sampler_interval(Duration::from_millis(50))
+    .max_runtime_snapshots(256)
+    .start()?;
+
+let subscriber = tracing_subscriber::registry().with(session.layer());
+tracing::subscriber::with_default(subscriber, || {
+    let span = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-1",
+        tt.route = "/checkout"
+    );
+    let _entered = span.enter();
+});
+
+let run = session.shutdown().await?;
+assert!(run.run().metadata.effective_tokio_sampler_config.is_some());
+# Ok(())
+# }
+```
+
 ## Examples
 
 - `examples/live_recorder.rs`: records one request span, one queue span, and one stage span with `TracingRecorder`, imports a run, and renders analyzer suspects and next checks.
