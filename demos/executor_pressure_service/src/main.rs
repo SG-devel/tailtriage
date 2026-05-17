@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{
-    init_collector, parse_demo_args, run_warmup_then_measured, CohortStart, DemoMode,
+    parse_demo_args, run_warmup_then_measured, CohortStart, DemoMode, InstrumentationMode,
+    RuntimeDemoInstrumentation,
 };
 use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
@@ -53,11 +54,19 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("failed to build Tokio runtime")?;
 
-    runtime.block_on(run_demo(args.output_path, settings))
+    runtime.block_on(run_demo(args.output_path, settings, args.instrumentation))
 }
 
-async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
-    let tailtriage = init_collector("executor_pressure_demo", &output_path)?;
+async fn run_demo(
+    output_path: PathBuf,
+    settings: ModeSettings,
+    mode: InstrumentationMode,
+) -> anyhow::Result<()> {
+    let demo = Arc::new(RuntimeDemoInstrumentation::new(
+        "executor_pressure_demo",
+        &output_path,
+        mode,
+    )?);
     let measured_requests = settings.offered_requests;
 
     let runnable_backlog = Arc::new(AtomicU64::new(0));
@@ -85,7 +94,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
             }
         },
         || {
-            let tailtriage = Arc::clone(&tailtriage);
+            let demo = Arc::clone(&demo);
             let runnable_backlog = Arc::clone(&runnable_backlog);
             let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
             async move {
@@ -96,7 +105,7 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
                     settings.snapshot_depth_scale,
                     Arc::clone(&runnable_backlog),
                     Arc::clone(&hot_slice_local_depth),
-                    Some(Arc::clone(&tailtriage)),
+                    Some(Arc::clone(&demo)),
                 )
                 .await
                 .expect("measured request cohort should finish");
@@ -105,7 +114,10 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
     )
     .await;
 
-    tailtriage.shutdown()?;
+    Arc::into_inner(demo)
+        .expect("single owner")
+        .shutdown(&output_path)
+        .await?;
     println!("wrote {}", output_path.display());
     Ok(())
 }
@@ -117,15 +129,15 @@ async fn run_request_cohort(
     snapshot_depth_scale: u64,
     runnable_backlog: Arc<AtomicU64>,
     hot_slice_local_depth: Arc<AtomicU64>,
-    collector: Option<Arc<tailtriage_core::Tailtriage>>,
+    collector: Option<Arc<RuntimeDemoInstrumentation>>,
 ) -> anyhow::Result<()> {
     if request_count == 0 {
         return Ok(());
     }
 
     let capture_done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let sampler = if let Some(tailtriage) = collector.as_ref() {
-        let tailtriage = Arc::clone(tailtriage);
+    let sampler = if let Some(demo) = collector.as_ref() {
+        let demo = Arc::clone(demo);
         let runnable_backlog = Arc::clone(&runnable_backlog);
         let hot_slice_local_depth = Arc::clone(&hot_slice_local_depth);
         let capture_done = Arc::clone(&capture_done);
@@ -140,7 +152,7 @@ async fn run_request_cohort(
                 let local_depth = hot_slice_local_depth.load(Ordering::SeqCst);
                 let amplified_global_depth = global_depth.saturating_mul(snapshot_depth_scale);
                 let amplified_local_depth = local_depth.saturating_mul(snapshot_depth_scale);
-                tailtriage.record_runtime_snapshot(RuntimeSnapshot {
+                demo.record_runtime_snapshot(RuntimeSnapshot {
                     at_unix_ms: unix_time_ms(),
                     alive_tasks: Some(amplified_global_depth),
                     global_queue_depth: Some(amplified_global_depth),
@@ -163,23 +175,24 @@ async fn run_request_cohort(
         let start_gate = start_gate.clone();
         requests.push(tokio::spawn(async move {
             start_gate.wait().await;
-            if let Some(collector) = collector {
+            if let Some(demo) = collector {
                 let request_id = format!("request-{request_number}");
-                let started = collector.begin_request_with(
+                demo.run_request(
                     "/executor-pressure",
-                    tailtriage_core::RequestOptions::new().request_id(request_id),
-                );
-                let request = started.handle.clone();
-                let inflight_guard = request.inflight("executor_pressure_inflight");
-                execute_request_work(
-                    fanout_tasks,
-                    cpu_turns,
-                    Arc::clone(&runnable_backlog),
-                    Arc::clone(&hot_slice_local_depth),
+                    request_id,
+                    tailtriage_core::Outcome::Ok,
+                    move |request| async move {
+                        let _inflight_guard = request.inflight("executor_pressure_inflight");
+                        execute_request_work(
+                            fanout_tasks,
+                            cpu_turns,
+                            Arc::clone(&runnable_backlog),
+                            Arc::clone(&hot_slice_local_depth),
+                        )
+                        .await;
+                    },
                 )
                 .await;
-                drop(inflight_guard);
-                started.completion.finish(tailtriage_core::Outcome::Ok);
             } else {
                 execute_request_work(
                     fanout_tasks,

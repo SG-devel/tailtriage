@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
+use demo_support::{parse_demo_args, DemoMode, InstrumentationMode, RuntimeDemoInstrumentation};
+use tailtriage_core::{unix_time_ms, Outcome, RuntimeSnapshot};
 
 struct ModeSettings {
     offered_requests: u64,
@@ -14,7 +14,6 @@ struct ModeSettings {
     inter_arrival_delay: Duration,
     max_blocking_threads: usize,
 }
-
 impl ModeSettings {
     fn for_mode(mode: DemoMode) -> Self {
         match mode {
@@ -39,97 +38,91 @@ impl ModeSettings {
 fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/blocking_service/artifacts/blocking-run.json")?;
     let settings = ModeSettings::for_mode(args.mode);
-
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(settings.max_blocking_threads)
         .enable_time()
         .build()
         .context("failed to build Tokio runtime")?;
-
-    runtime.block_on(run_demo(args.output_path, settings))
+    rt.block_on(run_demo(args.output_path, settings, args.instrumentation))
 }
 
-async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
-    let tailtriage = init_collector("blocking_service_demo", &output_path)?;
-
+async fn run_demo(
+    output_path: PathBuf,
+    settings: ModeSettings,
+    mode: InstrumentationMode,
+) -> anyhow::Result<()> {
+    let demo = Arc::new(RuntimeDemoInstrumentation::new(
+        "blocking_service_demo",
+        &output_path,
+        mode,
+    )?);
     let pending_blocking = Arc::new(AtomicU64::new(0));
-
     let sampler = {
-        let tailtriage = Arc::clone(&tailtriage);
+        let demo = Arc::clone(&demo);
         let pending_blocking = Arc::clone(&pending_blocking);
-
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(5));
             for _ in 0..200 {
                 ticker.tick().await;
-                let pending = pending_blocking.load(Ordering::SeqCst);
-                tailtriage.record_runtime_snapshot(RuntimeSnapshot {
+                demo.record_runtime_snapshot(RuntimeSnapshot {
                     at_unix_ms: unix_time_ms(),
                     alive_tasks: None,
                     global_queue_depth: Some(0),
                     local_queue_depth: None,
-                    blocking_queue_depth: Some(pending),
+                    blocking_queue_depth: Some(pending_blocking.load(Ordering::SeqCst)),
                     remote_schedule_count: None,
                 });
             }
         })
     };
-
-    let capacity = usize::try_from(settings.offered_requests)?;
-    let mut tasks = Vec::with_capacity(capacity);
-
+    let mut tasks = Vec::with_capacity(usize::try_from(settings.offered_requests)?);
     for request_number in 0..settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let demo = Arc::clone(&demo);
         let pending_blocking = Arc::clone(&pending_blocking);
         let blocking_work = settings.blocking_work;
-
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
+            demo.run_request(
                 "/blocking-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
-
-            {
-                let _inflight = request.inflight("blocking_service_inflight");
-                let _wait = request
-                    .queue("dispatch_overhead")
-                    .await_on(tokio::time::sleep(Duration::from_micros(10)))
-                    .await;
-
-                pending_blocking.fetch_add(1, Ordering::SeqCst);
-                let handle = tokio::task::spawn_blocking(move || {
-                    std::thread::sleep(blocking_work);
-                });
-
-                request
-                    .stage("spawn_blocking_path")
-                    .await_value(async {
-                        handle
-                            .await
-                            .expect("spawn_blocking workload should complete");
-                    })
-                    .await;
-                pending_blocking.fetch_sub(1, Ordering::SeqCst);
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+                request_id,
+                Outcome::Ok,
+                move |request| async move {
+                    let _inflight = request.inflight("blocking_service_inflight");
+                    request
+                        .queue_wait(
+                            "dispatch_overhead",
+                            pending_blocking.load(Ordering::SeqCst),
+                            tokio::time::sleep(Duration::from_micros(10)),
+                        )
+                        .await;
+                    pending_blocking.fetch_add(1, Ordering::SeqCst);
+                    let handle =
+                        tokio::task::spawn_blocking(move || std::thread::sleep(blocking_work));
+                    request
+                        .stage("spawn_blocking_path", async {
+                            handle
+                                .await
+                                .expect("spawn_blocking workload should complete");
+                        })
+                        .await;
+                    pending_blocking.fetch_sub(1, Ordering::SeqCst);
+                },
+            )
+            .await;
         }));
-
         if request_number % settings.inter_arrival_pause_every == 0 {
             tokio::time::sleep(settings.inter_arrival_delay).await;
         }
     }
-
     for task in tasks {
         task.await.context("request task panicked")?;
     }
-
     sampler.await.context("sampler task panicked")?;
-
-    tailtriage.shutdown()?;
+    Arc::into_inner(demo)
+        .expect("single owner")
+        .shutdown(&output_path)
+        .await?;
     println!("wrote {}", output_path.display());
-
     Ok(())
 }

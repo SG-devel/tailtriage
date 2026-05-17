@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 use tailtriage_tokio::SamplerStartError;
 use tailtriage_tracing::tokio::{TracingTokioSession, TracingTokioSessionStartError};
 use tracing_subscriber::prelude::*;
@@ -134,4 +135,49 @@ async fn shutdown_preserves_tracing_spans() {
     let imported = session.shutdown().await.expect("shutdown");
     assert_eq!(imported.run().requests.len(), 1);
     assert_eq!(imported.run().requests[0].request_id, "r-shutdown");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn record_runtime_snapshot_is_visible_in_snapshot_run_and_preserves_tracing() {
+    let session = TracingTokioSession::builder("svc")
+        .start()
+        .expect("start session");
+    let subscriber = tracing_subscriber::registry().with(session.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info_span!(
+            "req",
+            tt.kind = "request",
+            tt.request_id = "r1",
+            tt.route = "/x"
+        )
+        .in_scope(|| {});
+    });
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: unix_time_ms(),
+        alive_tasks: Some(1),
+        global_queue_depth: Some(2),
+        local_queue_depth: Some(3),
+        blocking_queue_depth: Some(4),
+        remote_schedule_count: Some(5),
+    });
+    let imported = session.snapshot_run().expect("snapshot");
+    assert_eq!(imported.run().requests.len(), 1);
+    assert!(!imported.run().runtime_snapshots.is_empty());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn record_runtime_snapshot_is_visible_in_shutdown_output() {
+    let session = TracingTokioSession::builder("svc")
+        .start()
+        .expect("start session");
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: unix_time_ms(),
+        alive_tasks: None,
+        global_queue_depth: Some(1),
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+    let imported = session.shutdown().await.expect("shutdown");
+    assert!(!imported.run().runtime_snapshots.is_empty());
 }

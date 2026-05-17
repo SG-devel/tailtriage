@@ -762,7 +762,7 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
     )
 
 
-PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm"]
+PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm", "blocking", "executor", "all"]
 
 def _artifact_prefix(mode: str, instrumentation: str) -> str:
     return f"{mode}-{instrumentation}"

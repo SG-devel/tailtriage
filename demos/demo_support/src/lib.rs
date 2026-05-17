@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::Tailtriage;
-use tailtriage_tracing::TracingRecorder;
+use tailtriage_core::{RuntimeSnapshot, Tailtriage};
+use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
 use tokio::sync::Barrier;
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
@@ -154,6 +154,15 @@ enum DemoInstrumentationBackend {
     Tracing(TracingState),
 }
 
+pub struct RuntimeDemoInstrumentation {
+    backend: RuntimeDemoBackend,
+}
+
+enum RuntimeDemoBackend {
+    Native(Arc<Tailtriage>),
+    Tracing(TracingTokioSession),
+}
+
 pub struct DemoRequest {
     inner: DemoRequestInner,
 }
@@ -261,6 +270,91 @@ impl DemoInstrumentation {
             }
             DemoInstrumentationBackend::Tracing(state) => {
                 let imported = state.recorder.shutdown()?;
+                let mut file = std::fs::File::create(output_path)?;
+                serde_json::to_writer_pretty(&mut file, imported.run())?;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl RuntimeDemoInstrumentation {
+    pub fn new(
+        service_name: &str,
+        output_path: &Path,
+        mode: InstrumentationMode,
+    ) -> anyhow::Result<Self> {
+        let backend = match mode {
+            InstrumentationMode::Native => {
+                RuntimeDemoBackend::Native(init_collector(service_name, output_path)?)
+            }
+            InstrumentationMode::Tracing => {
+                let session = TracingTokioSession::builder(service_name)
+                    .strict(false)
+                    .start()?;
+                let subscriber = tracing_subscriber::registry().with(session.layer());
+                tracing::subscriber::set_global_default(subscriber)
+                    .map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
+                RuntimeDemoBackend::Tracing(session)
+            }
+        };
+        Ok(Self { backend })
+    }
+
+    pub async fn run_request<F, Fut>(
+        &self,
+        route: &str,
+        request_id: String,
+        outcome: tailtriage_core::Outcome,
+        body: F,
+    ) where
+        F: FnOnce(DemoRequest) -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        match &self.backend {
+            RuntimeDemoBackend::Native(c) => {
+                let started = c.begin_request_with_owned(
+                    route,
+                    tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
+                );
+                body(DemoRequest {
+                    inner: DemoRequestInner::Native(started.handle.clone()),
+                })
+                .await;
+                started.completion.finish(outcome);
+            }
+            RuntimeDemoBackend::Tracing(_) => {
+                let request_span = tracing::info_span!(
+                    "tt.request",
+                    tt.kind = "request",
+                    tt.request_id = request_id.as_str(),
+                    tt.route = route,
+                    tt.outcome = outcome.as_str()
+                );
+                body(DemoRequest {
+                    inner: DemoRequestInner::Tracing(TracingRequest { request_id }),
+                })
+                .instrument(request_span)
+                .await;
+            }
+        }
+    }
+
+    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+        match &self.backend {
+            RuntimeDemoBackend::Native(c) => c.record_runtime_snapshot(snapshot),
+            RuntimeDemoBackend::Tracing(s) => s.record_runtime_snapshot(snapshot),
+        }
+    }
+
+    pub async fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
+        match self.backend {
+            RuntimeDemoBackend::Native(c) => {
+                c.shutdown()?;
+                Ok(())
+            }
+            RuntimeDemoBackend::Tracing(s) => {
+                let imported = s.shutdown().await?;
                 let mut file = std::fs::File::create(output_path)?;
                 serde_json::to_writer_pretty(&mut file, imported.run())?;
                 Ok(())
