@@ -452,17 +452,39 @@ fn normalize_rendered_report(input: &str) -> String {
     input
         .lines()
         .map(|line| {
-            line.replace("Run ID:", "Run ID: <normalized>")
-                .replace("at_unix_ms", "<normalized_timestamp>")
-                .replace(" us", " <normalized_us>")
-        })
-        .map(|line| {
-            line.chars()
+            if let Some(normalized) = normalize_unstable_line(line) {
+                return normalized;
+            }
+
+            line.replace(" us", " <normalized_us>")
+                .chars()
                 .map(|ch| if ch.is_ascii_digit() { '#' } else { ch })
                 .collect::<String>()
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn normalize_unstable_line(line: &str) -> Option<String> {
+    for prefix in ["Run ID:", "Run:", "Generated:", "Captured:", "Finalized:"] {
+        if line.trim_start().starts_with(prefix) {
+            return Some(format!("{prefix} <normalized>"));
+        }
+    }
+
+    let unstable_fields = [
+        "started_at_unix_ms",
+        "finished_at_unix_ms",
+        "finalized_at_unix_ms",
+        "captured_at_unix_ms",
+        "generated_at_unix_ms",
+        "at_unix_ms",
+    ];
+    if unstable_fields.iter().any(|field| line.contains(field)) {
+        return Some("<normalized unstable timestamp field>".to_owned());
+    }
+
+    None
 }
 
 fn report_sections(rendered: &str) -> BTreeSet<String> {
@@ -520,13 +542,75 @@ fn parity_report_detects_queue_name_mismatch() {
 }
 
 #[test]
-fn normalization_removes_unstable_values_but_preserves_semantic_differences() {
-    let a = "## Summary\nRun ID: abc123\nLatency 123 us\n## Diagnosis\nPrimary suspect: queue saturation";
-    let b = "## Summary\nRun ID: def999\nLatency 987 us\n## Diagnosis\nPrimary suspect: downstream stage dominates";
+fn normalization_replaces_unstable_id_and_timestamp_lines() {
+    let run_id_a = normalize_rendered_report("Run ID: abc123");
+    let run_id_b = normalize_rendered_report("Run ID: def999");
+    assert_eq!(run_id_a, run_id_b);
+
+    let run_a = normalize_rendered_report("Run: abc123");
+    let run_b = normalize_rendered_report("Run: def999");
+    assert_eq!(run_a, run_b);
+
+    let generated_a = normalize_rendered_report("Generated: 2026-05-17T12:00:00Z");
+    let generated_b = normalize_rendered_report("Generated: 2026-05-18T13:01:59Z");
+    assert_eq!(generated_a, generated_b);
+}
+
+#[test]
+fn normalization_replaces_unstable_timestamp_field_lines() {
+    let cases = [
+        "started_at_unix_ms: 1712345678901",
+        "finished_at_unix_ms: 1712345678902",
+        "finalized_at_unix_ms: 1712345678903",
+        "captured_at_unix_ms: 1712345678904",
+        "generated_at_unix_ms: 1712345678905",
+        "at_unix_ms: 1712345678906",
+    ];
+
+    let normalized: BTreeSet<_> = cases
+        .iter()
+        .map(|line| normalize_rendered_report(line))
+        .collect();
+
+    assert_eq!(
+        normalized.len(),
+        1,
+        "all unstable timestamp lines should normalize the same"
+    );
+}
+
+#[test]
+fn normalization_preserves_semantic_content() {
+    let a = "## Summary
+Run ID: abc123
+Latency (us): p50 100, p95 200, p99 300
+## Diagnosis
+Primary suspect: application_queue_saturation (high confidence, score 87)
+Evidence:
+- queue permits depth spikes on /checkout
+Next checks:
+- inspect db and cache stage latency";
+    let b = "## Summary
+Run ID: def999
+Latency (us): p50 987, p95 654, p99 321
+## Diagnosis
+Primary suspect: downstream_stage_slow (high confidence, score 42)
+Evidence:
+- queue permits depth spikes on /checkout
+Next checks:
+- inspect db and cache stage latency";
     let normalized_a = normalize_rendered_report(a);
     let normalized_b = normalize_rendered_report(b);
 
-    assert!(normalized_a.contains("Run ID: <normalized>"));
+    assert!(normalized_a.contains("Primary suspect: application_queue_saturation"));
+    assert!(normalized_a.contains("high confidence"));
+    assert!(normalized_a.contains("Evidence:"));
+    assert!(normalized_a.contains("Next checks:"));
+    assert!(normalized_a.contains("/checkout"));
+    assert!(normalized_a.contains("db"));
+    assert!(normalized_a.contains("cache"));
+    assert!(normalized_a.contains("permits"));
+
     assert_ne!(
         normalized_a, normalized_b,
         "normalization must not hide semantic differences"
