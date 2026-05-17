@@ -19,6 +19,9 @@ Measured categories:
 - `core_investigation_tokio_sampler`
 - `core_light_drop_path` (intentionally saturated limits)
 - `core_investigation_drop_path` (intentionally saturated limits)
+- `tracing_light` (semantic tracing spans via `tailtriage-tracing`)
+- `tracing_light_tokio_sampler` (`TracingTokioSession` + Tokio sampler snapshots)
+- `tracing_light_drop_path` (tracing retention-limited drop-path signal)
 
 Derived attribution sections in summary output:
 
@@ -61,7 +64,7 @@ CLI options (with equivalent env vars):
 Path: `demos/runtime_cost/artifacts/`
 
 - `runtime-cost-raw.jsonl` (per-sample raw records)
-- `runtime-cost-summary.json` (aggregates + overhead attribution + quality labels)
+- `runtime-cost-summary.json` (aggregates + overhead attribution + quality labels, including tracing-vs-native ratios)
 
 ## Interpreting results
 
@@ -80,3 +83,12 @@ If `measurement_quality` reports noisy/unstable, rerun on a quieter machine stat
 ## Operational validation runner
 
 Use `python3 scripts/run_operational_validation.py --domain runtime-cost` for manual/local runtime-cost validation that emits JSONL records, stable summary JSON, and an optional scorecard. Results are machine/workload/profile scoped and should be treated as measurements, not universal guarantees. Missing metrics are emitted as `null` rather than guessed.
+
+
+## Tracing notes
+
+- Tracing modes measure tailtriage semantic spans (`tt.request`, `tt.queue`, `tt.stage`) only; they do not enable OTel/OTLP export.
+- `tracing_light` and `tracing_light_drop_path` intentionally record zero runtime snapshots.
+- `tracing_light_tokio_sampler` runs in a separate process mode and should emit runtime snapshots plus `effective_tokio_sampler_config`.
+- Span-only tracing does not by itself prove runtime-pressure evidence; use sampler-enabled mode when runtime-pressure evidence is required.
+- CI wiring is intentionally not added in this step; future CI should keep broad catastrophic-regression thresholds only.

@@ -11,3 +11,5 @@ Runtime-cost numbers are machine/workload/profile scoped for local triage valida
 
 
 Unified orchestration: `scripts/validate_all.py` invokes runtime-cost operational validation in `full` and `publish` profiles while preserving direct domain-runner usage.
+
+Tracing runtime-cost modes are included in the same release-binary measurement path (`tracing_light`, `tracing_light_tokio_sampler`, `tracing_light_drop_path`) and are directional machine/workload/profile-scoped checks.

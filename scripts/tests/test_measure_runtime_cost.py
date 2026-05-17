@@ -21,15 +21,15 @@ class RuntimeCostSummaryTests(unittest.TestCase):
     def test_mode_matrix_preserves_unsaturated_saturated_and_sampler_scenarios(self) -> None:
         self.assertEqual(
             measure_runtime_cost.UNSATURATED_CORE_MODES,
-            ("core_light", "core_investigation"),
+            ("core_light", "core_investigation", "tracing_light"),
         )
         self.assertEqual(
             measure_runtime_cost.SATURATED_DROP_PATH_MODES,
-            ("core_light_drop_path", "core_investigation_drop_path"),
+            ("core_light_drop_path", "core_investigation_drop_path", "tracing_light_drop_path"),
         )
         self.assertEqual(
             measure_runtime_cost.TOKIO_SAMPLER_MODES,
-            ("core_light_tokio_sampler", "core_investigation_tokio_sampler"),
+            ("core_light_tokio_sampler", "core_investigation_tokio_sampler", "tracing_light_tokio_sampler"),
         )
         self.assertEqual(
             measure_runtime_cost.MODES,
@@ -42,6 +42,9 @@ class RuntimeCostSummaryTests(unittest.TestCase):
                 "core_investigation_tokio_sampler",
                 "core_light_drop_path",
                 "core_investigation_drop_path",
+                "tracing_light",
+                "tracing_light_tokio_sampler",
+                "tracing_light_drop_path",
             ),
         )
 
@@ -62,6 +65,18 @@ class RuntimeCostSummaryTests(unittest.TestCase):
                         "latency_p50_ms": 1.0,
                         "latency_p95_ms": 2.0,
                         "latency_p99_ms": 3.0,
+                        "artifact_finalize_ms": 1.0,
+                        "analyze_ms": 1.0,
+                        "report_render_ms": 1.0,
+                        "run_requests": 100,
+                        "run_stages": 100,
+                        "run_queues": 100,
+                        "runtime_snapshots": 0,
+                        "lifecycle_warning_count": 0,
+                        "effective_tokio_sampler_config_present": mode.endswith("tokio_sampler"),
+                        "inflight_supported": not mode.startswith("tracing"),
+                        "drop_path_signal_present": mode.endswith("drop_path"),
+                        "artifact_path": None,
                         "round": round_idx,
                         "phase": "measured",
                         "is_warmup": False,
@@ -117,3 +132,14 @@ class RuntimeCostSummaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RuntimeCostHelperTests(unittest.TestCase):
+    def test_safe_ratio_zero_denominator(self) -> None:
+        self.assertIsNone(measure_runtime_cost.safe_ratio(1.0, 0.0))
+
+    def test_median_even_odd(self) -> None:
+        by_mode = {"m": [{"x": 1.0}, {"x": 3.0}], "n": [{"x": 1.0}, {"x": 2.0}, {"x": 3.0}]}
+        self.assertEqual(measure_runtime_cost.median_metric(by_mode, "m", "x"), 2.0)
+        self.assertEqual(measure_runtime_cost.median_metric(by_mode, "n", "x"), 2.0)
+
