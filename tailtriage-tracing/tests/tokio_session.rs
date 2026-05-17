@@ -6,6 +6,22 @@ use tailtriage_tokio::SamplerStartError;
 use tailtriage_tracing::tokio::{TracingTokioSession, TracingTokioSessionStartError};
 use tracing_subscriber::prelude::*;
 
+async fn wait_for_runtime_snapshot(session: &TracingTokioSession) {
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+    loop {
+        let imported = session.snapshot_run().expect("snapshot run");
+        if !imported.run().runtime_snapshots.is_empty() {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "runtime sampler did not produce a snapshot before timeout"
+        );
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn session_merges_tracing_and_runtime() {
     let session = TracingTokioSession::builder("svc")
@@ -41,7 +57,7 @@ async fn session_merges_tracing_and_runtime() {
         });
     });
 
-    tokio::time::sleep(Duration::from_millis(5)).await;
+    wait_for_runtime_snapshot(&session).await;
     let imported = session.shutdown().await.expect("shutdown session");
     let run = imported.run();
     assert!(!run.requests.is_empty());
