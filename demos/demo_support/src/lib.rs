@@ -1,33 +1,24 @@
+#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
+
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{LocalJsonSink, Outcome, RequestOptions, RunSink, Tailtriage};
+use tailtriage_tracing::TracingRecorder;
 use tokio::sync::Barrier;
+use tracing::Instrument;
+use tracing_subscriber::prelude::*;
 
-/// Demo profile selector used by before/after style demo binaries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DemoMode {
-    /// Run the baseline or "before" profile.
     Baseline,
-    /// Run the mitigated or "after" profile.
     Mitigated,
 }
 
 impl DemoMode {
-    /// Parse a mode argument.
-    ///
-    /// Accepted values:
-    /// - `baseline` or `before`
-    /// - `mitigated` or `after`
-    ///
-    /// If omitted, defaults to `baseline`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `value` is present but is not one of:
-    /// `baseline`, `before`, `mitigated`, or `after`.
     pub fn from_arg(value: Option<&String>) -> anyhow::Result<Self> {
         match value.map(String::as_str) {
             None | Some("baseline" | "before") => Ok(Self::Baseline),
@@ -39,47 +30,66 @@ impl DemoMode {
     }
 }
 
-/// Parsed common demo CLI arguments.
-pub struct DemoArgs {
-    /// Output path for the generated demo artifact.
-    pub output_path: PathBuf,
-    /// Selected demo mode.
-    pub mode: DemoMode,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstrumentationMode {
+    Native,
+    Tracing,
 }
 
-/// Parse common `<output_path> [mode]` demo arguments.
-///
-/// The first positional argument, if present, is parsed as the output path.
-/// Otherwise, `default_output_path` is used.
-///
-/// The second positional argument, if present, is parsed as the demo mode.
-/// Accepted values are `baseline`/`before` and `mitigated`/`after`.
-/// If omitted, the mode defaults to `baseline`.
-///
-/// # Errors
-///
-/// Returns an error if the mode argument is unsupported, or if preparing the
-/// parent directory for the output path fails.
+impl InstrumentationMode {
+    pub fn parse(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "native" => Ok(Self::Native),
+            "tracing" => Ok(Self::Tracing),
+            other => {
+                anyhow::bail!("unsupported instrumentation '{other}', expected: native|tracing")
+            }
+        }
+    }
+}
+
+pub struct DemoArgs {
+    pub output_path: PathBuf,
+    pub mode: DemoMode,
+    pub instrumentation: InstrumentationMode,
+}
+
 pub fn parse_demo_args(default_output_path: &str) -> anyhow::Result<DemoArgs> {
     let mut args = std::env::args().skip(1);
-    let output_path = args
-        .next()
-        .map_or_else(|| PathBuf::from(default_output_path), PathBuf::from);
-    let mode = DemoMode::from_arg(args.next().as_ref())?;
+    let mut output_path: Option<PathBuf> = None;
+    let mut mode_arg: Option<String> = None;
+    let mut instrumentation = InstrumentationMode::Native;
+
+    while let Some(arg) = args.next() {
+        if arg == "--instrumentation" {
+            let value = args
+                .next()
+                .context("missing value for --instrumentation; expected native|tracing")?;
+            instrumentation = InstrumentationMode::parse(&value)?;
+            continue;
+        }
+        if output_path.is_none() {
+            output_path = Some(PathBuf::from(arg));
+            continue;
+        }
+        if mode_arg.is_none() {
+            mode_arg = Some(arg);
+            continue;
+        }
+        anyhow::bail!("unexpected argument '{arg}'")
+    }
+
+    let output_path = output_path.unwrap_or_else(|| PathBuf::from(default_output_path));
+    let mode = DemoMode::from_arg(mode_arg.as_ref())?;
     ensure_parent_dir(&output_path)?;
 
-    Ok(DemoArgs { output_path, mode })
+    Ok(DemoArgs {
+        output_path,
+        mode,
+        instrumentation,
+    })
 }
 
-/// Parse a common `<output_path>` demo argument.
-///
-/// The first positional argument, if present, is used as the output path.
-/// Otherwise, `default_output_path` is used.
-///
-/// # Errors
-///
-/// Returns an error if preparing the parent directory for the resolved output
-/// path fails.
 pub fn parse_output_arg(default_output_path: &str) -> anyhow::Result<PathBuf> {
     let output_path = std::env::args()
         .nth(1)
@@ -96,49 +106,155 @@ fn ensure_parent_dir(output_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Initialize a shared `Tailtriage` collector for the given service and output path.
-///
-/// The collector is configured with `service_name` and writes its output to
-/// `output_path`.
-///
-/// # Errors
-///
-/// Returns an error if building the `Tailtriage` collector fails.
-pub fn init_collector(service_name: &str, output_path: &Path) -> anyhow::Result<Arc<Tailtriage>> {
-    let collector = Tailtriage::builder(service_name)
-        .output(output_path)
-        .build()?;
-    Ok(Arc::new(collector))
+pub enum DemoRecorder {
+    Native(Arc<Tailtriage>),
+    Tracing(TracingRecorder),
 }
 
-/// Shared synchronized start gate for a request cohort.
-///
-/// This helps demos avoid ad-hoc burst pacing and start measured work at
-/// roughly the same time across request tasks.
+impl DemoRecorder {
+    pub fn start_request(&self, route: &str, request_id: &str) -> DemoRequest {
+        match self {
+            Self::Native(collector) => {
+                let started = collector.begin_request_with_owned(
+                    route,
+                    RequestOptions::new().request_id(request_id.to_string()),
+                );
+                DemoRequest::Native(started)
+            }
+            Self::Tracing(_) => DemoRequest::Tracing {
+                route: route.to_string(),
+                request_id: request_id.to_string(),
+            },
+        }
+    }
+
+    pub fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
+        match self {
+            Self::Native(collector) => collector.shutdown()?,
+            Self::Tracing(recorder) => {
+                let imported = recorder.shutdown()?;
+                LocalJsonSink::new(output_path).write(imported.run())?;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub enum DemoRequest {
+    Native(tailtriage_core::OwnedStartedRequest),
+    Tracing { route: String, request_id: String },
+}
+
+impl DemoRequest {
+    pub async fn record_queue<T, F>(
+        &self,
+        queue_name: &'static str,
+        depth_at_start: u64,
+        future: F,
+    ) -> T
+    where
+        F: Future<Output = T>,
+    {
+        match self {
+            Self::Native(started) => {
+                started
+                    .handle
+                    .queue(queue_name)
+                    .with_depth_at_start(depth_at_start)
+                    .await_on(future)
+                    .await
+            }
+            Self::Tracing { request_id, .. } => {
+                let queue_span = tracing::info_span!(
+                    "demo.queue",
+                    tt.kind = "queue",
+                    tt.request_id = %request_id,
+                    tt.queue = queue_name,
+                    tt.depth_at_start = depth_at_start,
+                );
+                future.instrument(queue_span).await
+            }
+        }
+    }
+
+    pub async fn record_stage<T, F>(&self, stage_name: &'static str, success: bool, future: F) -> T
+    where
+        F: Future<Output = T>,
+    {
+        match self {
+            Self::Native(started) => started.handle.stage(stage_name).await_value(future).await,
+            Self::Tracing { request_id, .. } => {
+                let stage_span = tracing::info_span!(
+                    "demo.stage",
+                    tt.kind = "stage",
+                    tt.request_id = %request_id,
+                    tt.stage = stage_name,
+                    tt.success = success,
+                );
+                future.instrument(stage_span).await
+            }
+        }
+    }
+
+    pub fn finish(self, outcome: Outcome) {
+        match self {
+            Self::Native(started) => started.completion.finish(outcome),
+            Self::Tracing { route, request_id } => {
+                let outcome_value = outcome.as_str();
+                tracing::info_span!(
+                    "demo.request",
+                    tt.kind = "request",
+                    tt.request_id = %request_id,
+                    tt.route = %route,
+                    tt.outcome = outcome_value,
+                )
+                .in_scope(|| {});
+            }
+        }
+    }
+}
+
+pub fn init_demo_recorder(
+    service_name: &str,
+    mode: InstrumentationMode,
+    _output_path: &Path,
+) -> anyhow::Result<DemoRecorder> {
+    match mode {
+        InstrumentationMode::Native => Ok(DemoRecorder::Native(Arc::new(
+            Tailtriage::builder(service_name).build()?,
+        ))),
+        InstrumentationMode::Tracing => {
+            let recorder = TracingRecorder::builder(service_name).strict(false).build();
+            let subscriber = tracing_subscriber::registry().with(recorder.layer());
+            tracing::subscriber::set_global_default(subscriber)?;
+            Ok(DemoRecorder::Tracing(recorder))
+        }
+    }
+}
+
+pub fn init_collector(service_name: &str, output_path: &Path) -> anyhow::Result<Arc<Tailtriage>> {
+    Ok(Arc::new(
+        Tailtriage::builder(service_name)
+            .output(output_path)
+            .build()?,
+    ))
+}
+
 #[derive(Clone)]
 pub struct CohortStart {
     barrier: Arc<Barrier>,
 }
-
 impl CohortStart {
-    /// Create a cohort barrier for `participant_count` async tasks.
-    #[must_use]
     pub fn new(participant_count: usize) -> Self {
         Self {
             barrier: Arc::new(Barrier::new(participant_count)),
         }
     }
-
-    /// Wait for all participants before entering measured work.
     pub async fn wait(&self) {
         self.barrier.wait().await;
     }
 }
 
-/// Run a warmup phase followed by a measured phase.
-///
-/// This utility keeps demo shaping consistent when services need runtime
-/// warmup before collecting artifact-relevant measured requests.
 pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
     warmup_requests: usize,
     warmup_phase: Warmup,
@@ -154,4 +270,30 @@ pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
     measured_phase().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InstrumentationMode;
+
+    #[test]
+    fn instrumentation_mode_parses_native() {
+        assert_eq!(
+            InstrumentationMode::parse("native").expect("native should parse"),
+            InstrumentationMode::Native
+        );
+    }
+
+    #[test]
+    fn instrumentation_mode_parses_tracing() {
+        assert_eq!(
+            InstrumentationMode::parse("tracing").expect("tracing should parse"),
+            InstrumentationMode::Tracing
+        );
+    }
+
+    #[test]
+    fn instrumentation_mode_rejects_invalid_value() {
+        assert!(InstrumentationMode::parse("otlp").is_err());
+    }
 }

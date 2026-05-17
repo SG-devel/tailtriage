@@ -13,6 +13,8 @@ from _demo_runner import (
     load_report_json,
     repo_root,
     run_and_analyze,
+    run_demo_binary,
+    run_cli_analysis_json,
     variant_paths,
     write_before_after_comparison,
 )
@@ -170,6 +172,63 @@ def run_scenario_downstream(root_dir: Path, mode: str, *, profile: str = "dev") 
         snapshot_downstream,
         profile=profile,
     )
+
+def _run_and_analyze_with_instrumentation(
+    root_dir: Path,
+    demo_manifest: Path,
+    artifact_dir: Path,
+    variant: str,
+    instrumentation: str,
+    *,
+    profile: str,
+) -> tuple[Path, Path]:
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+    run_path = artifact_dir / f"{variant}-{instrumentation}-run.json"
+    analysis_path = artifact_dir / f"{variant}-{instrumentation}-analysis.json"
+    mode_arg = "baseline" if variant == "before" else "mitigated"
+    run_demo_binary(
+        demo_manifest,
+        run_path,
+        mode_arg,
+        "--instrumentation",
+        instrumentation,
+        profile=profile,
+    )
+    run_cli_analysis_json(cli_manifest, run_path, analysis_path, profile=profile)
+    return run_path, analysis_path
+
+def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    if scenario == "queue":
+        demo_manifest = root_dir / "demos/queue_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/queue_service/artifacts"
+        expected = EXPECTED_QUEUE_KIND
+    elif scenario == "downstream":
+        demo_manifest = root_dir / "demos/downstream_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/downstream_service/artifacts"
+        expected = EXPECTED_DOWNSTREAM_KIND
+    else:
+        raise SystemExit(f"unsupported tracing parity scenario: {scenario}")
+
+    variants = ["before", "after"]
+    for variant in variants:
+        native_run, native_analysis = _run_and_analyze_with_instrumentation(
+            root_dir, demo_manifest, artifact_dir, variant, "native", profile=profile
+        )
+        tracing_run, tracing_analysis = _run_and_analyze_with_instrumentation(
+            root_dir, demo_manifest, artifact_dir, variant, "tracing", profile=profile
+        )
+        native_report = load_report_json(native_analysis)
+        tracing_report = load_report_json(tracing_analysis)
+        native_kind = native_report["primary_suspect"]["kind"]
+        tracing_kind = tracing_report["primary_suspect"]["kind"]
+        if native_kind != tracing_kind:
+            if native_kind not in expected or tracing_kind not in expected:
+                raise SystemExit(
+                    f"expected matching suspect family in {sorted(expected)} for {scenario}/{variant}, "
+                    f"got native={native_kind} tracing={tracing_kind}"
+                )
+        print(f"{scenario}/{variant}: native={native_run.name} tracing={tracing_run.name}")
+        print(f"{scenario}/{variant}: native={native_analysis.name} tracing={tracing_analysis.name}")
 
 def run_scenario_mixed(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
@@ -808,6 +867,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="profile",
         help="Shortcut for --profile release.",
     )
+    parity_parser = subparsers.add_parser(
+        "validate-tracing-parity",
+        help="Run native+tracing demo parity checks for converted scenarios.",
+    )
+    parity_parser.add_argument("scenario", choices=["queue", "downstream"])
+    parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    parity_parser.add_argument("--release", action="store_const", const="release", dest="profile")
 
     matrix_parser = subparsers.add_parser(
         "diagnosis-matrix",
@@ -880,6 +946,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "run":
         _run_scenario(root_dir, args.scenario, args.mode, profile=args.profile)
+        return
+    if args.command == "validate-tracing-parity":
+        validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
         return
 
     if args.scenario == "queue":

@@ -67,6 +67,11 @@ class DemoWrapperTests(unittest.TestCase):
         args = parse_args(["validate", "queue", "--release"])
         self.assertEqual(args.profile, "release")
 
+    def test_parse_args_accepts_validate_tracing_parity(self) -> None:
+        args = parse_args(["validate-tracing-parity", "queue", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "queue")
+
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
             "secondary_suspects": [{"kind": "downstream_stage_dominates"}],
