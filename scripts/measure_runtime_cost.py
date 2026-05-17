@@ -20,11 +20,27 @@ MODES = (
     "core_investigation_tokio_sampler",
     "core_light_drop_path",
     "core_investigation_drop_path",
+    "tracing_light",
+    "tracing_light_tokio_sampler",
+    "tracing_light_drop_path",
 )
 UNSATURATED_CORE_MODES = ("core_light", "core_investigation")
 SATURATED_DROP_PATH_MODES = ("core_light_drop_path", "core_investigation_drop_path")
 TOKIO_SAMPLER_MODES = ("core_light_tokio_sampler", "core_investigation_tokio_sampler")
-METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms")
+METRIC_KEYS = (
+    "throughput_rps",
+    "latency_p50_ms",
+    "latency_p95_ms",
+    "latency_p99_ms",
+    "artifact_finalize_ms",
+    "analyze_ms",
+    "report_render_ms",
+    "run_requests",
+    "run_stages",
+    "run_queues",
+    "runtime_snapshots",
+    "lifecycle_warning_count",
+)
 DEFAULT_REQUESTS = 6000
 DEFAULT_CONCURRENCY = 64
 DEFAULT_WORK_MS = 3
@@ -81,6 +97,15 @@ def summarize_values(values: list[float]) -> dict[str, float]:
         "stdev": stdev,
         "cv": stdev / abs(mean) if mean else 0.0,
     }
+
+
+def safe_ratio(comparison: float, reference: float) -> float | None:
+    if reference <= 0:
+        return None
+    ratio = comparison / reference
+    if ratio != ratio or ratio in (float("inf"), float("-inf")):
+        return None
+    return ratio
 
 
 def paired_delta_rows(measured_rounds: list[dict], mode: str, metric: str) -> list[float]:
@@ -141,6 +166,14 @@ def summarize_mode_metrics(by_mode: dict[str, list[dict]], mode: str) -> dict:
             ),
             "limit_reached_rounds": sum(1 for entry in truncations if entry["limits_reached"]),
         }
+    summary["effective_tokio_sampler_config_present_rounds"] = sum(
+        1 for row in by_mode[mode] if row.get("effective_tokio_sampler_config_present")
+    )
+    summary["inflight_supported"] = bool(by_mode[mode][0].get("inflight_supported"))
+    summary["drop_path_signal_present_rounds"] = sum(
+        1 for row in by_mode[mode] if row.get("drop_path_signal_present")
+    )
+    summary["artifact_path_last"] = by_mode[mode][-1].get("artifact_path")
     return summary
 
 
@@ -229,6 +262,7 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "incremental_runtime_sampler_overhead_pct": {
             "Incremental runtime sampler overhead": {},
         },
+        "tracing_vs_native_ratios": {},
     }
 
     for mode in MODES:
@@ -263,13 +297,110 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
             for metric in METRIC_KEYS
         },
     }
+    abs_m = summary["absolute_metrics"]
+    summary["tracing_vs_native_ratios"] = {
+        "core_light_vs_baseline_latency_p95": safe_ratio(
+            abs_m["core_light"]["latency_p95_ms"]["median"], abs_m["baseline"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_vs_baseline_latency_p95": safe_ratio(
+            abs_m["tracing_light"]["latency_p95_ms"]["median"], abs_m["baseline"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_vs_core_light_latency_p95": safe_ratio(
+            abs_m["tracing_light"]["latency_p95_ms"]["median"], abs_m["core_light"]["latency_p95_ms"]["median"]
+        ),
+        "core_light_tokio_sampler_vs_core_light_latency_p95": safe_ratio(
+            abs_m["core_light_tokio_sampler"]["latency_p95_ms"]["median"], abs_m["core_light"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_tokio_sampler_vs_tracing_light_latency_p95": safe_ratio(
+            abs_m["tracing_light_tokio_sampler"]["latency_p95_ms"]["median"], abs_m["tracing_light"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": safe_ratio(
+            abs_m["tracing_light_tokio_sampler"]["latency_p95_ms"]["median"], abs_m["core_light_tokio_sampler"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": safe_ratio(
+            abs_m["tracing_light_drop_path"]["latency_p95_ms"]["median"], abs_m["core_light_drop_path"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_vs_core_light_throughput": safe_ratio(
+            abs_m["tracing_light"]["throughput_rps"]["median"], abs_m["core_light"]["throughput_rps"]["median"]
+        ),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": safe_ratio(
+            abs_m["tracing_light_tokio_sampler"]["throughput_rps"]["median"], abs_m["core_light_tokio_sampler"]["throughput_rps"]["median"]
+        ),
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput": safe_ratio(
+            abs_m["tracing_light_drop_path"]["throughput_rps"]["median"], abs_m["core_light_drop_path"]["throughput_rps"]["median"]
+        ),
+        "tracing_finalize_vs_native_finalize": safe_ratio(
+            abs_m["tracing_light"]["artifact_finalize_ms"]["median"], abs_m["core_light"]["artifact_finalize_ms"]["median"]
+        ),
+        "tracing_analyze_vs_native_analyze": safe_ratio(
+            abs_m["tracing_light"]["analyze_ms"]["median"], abs_m["core_light"]["analyze_ms"]["median"]
+        ),
+        "tracing_render_vs_native_render": safe_ratio(
+            abs_m["tracing_light"]["report_render_ms"]["median"], abs_m["core_light"]["report_render_ms"]["median"]
+        ),
+    }
 
     quality, reasons = assess_quality(summary, measured_rounds)
     summary["measurement_quality"] = quality
     summary["stability_warning"] = None if quality == QUALITY_STABLE else reasons
+    _validate_sanity(summary)
 
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return summary
+
+
+def _validate_sanity(summary: dict) -> None:
+    abs_m = summary["absolute_metrics"]
+    required = ("core_light", "tracing_light", "tracing_light_tokio_sampler")
+    for mode in MODES:
+        if abs_m[mode]["throughput_rps"]["median"] <= 0:
+            raise SystemExit(f"{mode} throughput must be > 0")
+        if abs_m[mode]["latency_p95_ms"]["median"] <= 0:
+            raise SystemExit(f"{mode} p95 must be > 0")
+    for mode in required:
+        if abs_m[mode]["run_requests"]["median"] <= 0 or abs_m[mode]["run_stages"]["median"] <= 0 or abs_m[mode]["run_queues"]["median"] <= 0:
+            raise SystemExit(f"{mode} must record request/stage/queue evidence")
+    if abs_m["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] <= 0:
+        raise SystemExit("tracing_light_tokio_sampler must have runtime snapshots")
+    if abs_m["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] <= 0:
+        raise SystemExit("tracing_light_tokio_sampler must include sampler metadata")
+    if abs_m["tracing_light_drop_path"]["drop_path_signal_present_rounds"] <= 0:
+        raise SystemExit("tracing_light_drop_path must include drop-path signal")
+    ratios = summary["tracing_vs_native_ratios"]
+    required_ratio_keys = (
+        "tracing_light_vs_core_light_latency_p95",
+        "tracing_light_vs_core_light_throughput",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput",
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95",
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput",
+    )
+    for key in required_ratio_keys:
+        value = ratios.get(key)
+        if value is None:
+            raise SystemExit(f"{key} is required and cannot be null (likely zero/missing denominator)")
+        if value != value or value in (float("inf"), float("-inf")):
+            raise SystemExit(f"{key} must be finite (not NaN or infinity)")
+    if ratios["tracing_light_vs_core_light_latency_p95"] > 20:
+        raise SystemExit("tracing_light_vs_core_light_latency_p95 exceeds catastrophic threshold (>20x)")
+    if ratios["tracing_light_vs_core_light_throughput"] < 0.05:
+        raise SystemExit("tracing_light_vs_core_light_throughput is below catastrophic threshold (<0.05x)")
+    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95"] > 20:
+        raise SystemExit(
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95 exceeds catastrophic threshold (>20x)"
+        )
+    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput"] < 0.05:
+        raise SystemExit(
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput is below catastrophic threshold (<0.05x)"
+        )
+    if ratios["tracing_light_drop_path_vs_core_light_drop_path_latency_p95"] > 20:
+        raise SystemExit(
+            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95 exceeds catastrophic threshold (>20x)"
+        )
+    if ratios["tracing_light_drop_path_vs_core_light_drop_path_throughput"] < 0.05:
+        raise SystemExit(
+            "tracing_light_drop_path_vs_core_light_drop_path_throughput is below catastrophic threshold (<0.05x)"
+        )
 
 
 def build_release_binary(root_dir: Path) -> Path:

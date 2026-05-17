@@ -1,12 +1,18 @@
+use std::hint::black_box;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use serde::Serialize;
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Tailtriage};
+use tailtriage_analyzer::{render_json_pretty, try_analyze_run, AnalyzeOptions};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Run, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
+use tailtriage_tracing::tokio::TracingTokioSession;
+use tailtriage_tracing::TracingRecorder;
 use tokio::sync::{Mutex, Semaphore};
+use tracing::Instrument;
+use tracing_subscriber::layer::SubscriberExt;
 
 const DEFAULT_REQUESTS: usize = 800;
 const DEFAULT_CONCURRENCY: usize = 32;
@@ -23,52 +29,85 @@ enum Mode {
     CoreInvestigationTokioSampler,
     CoreLightDropPath,
     CoreInvestigationDropPath,
+    TracingLight,
+    TracingLightTokioSampler,
+    TracingLightDropPath,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum InstrumentationKind {
+    Baseline,
+    Native,
+    Tracing,
 }
 
 impl Mode {
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "baseline" => Some(Self::Baseline),
-            "baked_in_no_request_context" => Some(Self::BakedInNoRequestContext),
-            "core_light" => Some(Self::CoreLight),
-            "core_investigation" => Some(Self::CoreInvestigation),
-            "core_light_tokio_sampler" => Some(Self::CoreLightTokioSampler),
-            "core_investigation_tokio_sampler" => Some(Self::CoreInvestigationTokioSampler),
-            "core_light_drop_path" => Some(Self::CoreLightDropPath),
-            "core_investigation_drop_path" => Some(Self::CoreInvestigationDropPath),
-            _ => None,
-        }
+    fn parse(v: &str) -> Option<Self> {
+        Some(match v {
+            "baseline" => Self::Baseline,
+            "baked_in_no_request_context" => Self::BakedInNoRequestContext,
+            "core_light" => Self::CoreLight,
+            "core_investigation" => Self::CoreInvestigation,
+            "core_light_tokio_sampler" => Self::CoreLightTokioSampler,
+            "core_investigation_tokio_sampler" => Self::CoreInvestigationTokioSampler,
+            "core_light_drop_path" => Self::CoreLightDropPath,
+            "core_investigation_drop_path" => Self::CoreInvestigationDropPath,
+            "tracing_light" => Self::TracingLight,
+            "tracing_light_tokio_sampler" => Self::TracingLightTokioSampler,
+            "tracing_light_drop_path" => Self::TracingLightDropPath,
+            _ => return None,
+        })
     }
-
     fn core_mode(self) -> Option<CaptureMode> {
         match self {
-            Self::Baseline => None,
-            Self::BakedInNoRequestContext
-            | Self::CoreLight
+            Self::CoreLight
             | Self::CoreLightTokioSampler
-            | Self::CoreLightDropPath => Some(CaptureMode::Light),
+            | Self::CoreLightDropPath
+            | Self::BakedInNoRequestContext => Some(CaptureMode::Light),
             Self::CoreInvestigation
             | Self::CoreInvestigationTokioSampler
             | Self::CoreInvestigationDropPath => Some(CaptureMode::Investigation),
+            _ => None,
         }
     }
-
-    fn uses_tokio_sampler(self) -> bool {
+    fn instrumentation(self) -> InstrumentationKind {
+        match self {
+            Self::Baseline => InstrumentationKind::Baseline,
+            Self::TracingLight | Self::TracingLightTokioSampler | Self::TracingLightDropPath => {
+                InstrumentationKind::Tracing
+            }
+            _ => InstrumentationKind::Native,
+        }
+    }
+    fn uses_runtime_sampler(self) -> bool {
         matches!(
             self,
-            Self::CoreLightTokioSampler | Self::CoreInvestigationTokioSampler
+            Self::CoreLightTokioSampler
+                | Self::CoreInvestigationTokioSampler
+                | Self::TracingLightTokioSampler
         )
     }
-
     fn uses_drop_path_limits(self) -> bool {
         matches!(
             self,
-            Self::CoreLightDropPath | Self::CoreInvestigationDropPath
+            Self::CoreLightDropPath | Self::CoreInvestigationDropPath | Self::TracingLightDropPath
         )
     }
-
-    fn omits_request_context(self) -> bool {
-        matches!(self, Self::BakedInNoRequestContext)
+    fn artifact_file_name(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Baseline => return None,
+            Self::BakedInNoRequestContext => "run-baked_in_no_request_context.json",
+            Self::CoreLight => "run-core_light.json",
+            Self::CoreInvestigation => "run-core_investigation.json",
+            Self::CoreLightTokioSampler => "run-core_light_tokio_sampler.json",
+            Self::CoreInvestigationTokioSampler => "run-core_investigation_tokio_sampler.json",
+            Self::CoreLightDropPath => "run-core_light_drop_path.json",
+            Self::CoreInvestigationDropPath => "run-core_investigation_drop_path.json",
+            Self::TracingLight => "run-tracing_light.json",
+            Self::TracingLightTokioSampler => "run-tracing_light_tokio_sampler.json",
+            Self::TracingLightDropPath => "run-tracing_light_drop_path.json",
+        })
     }
 }
 
@@ -80,10 +119,14 @@ struct Cli {
     work_ms: u64,
     output_dir: PathBuf,
 }
-
 #[derive(Debug, Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 struct Measurement {
     mode: Mode,
+    instrumentation: InstrumentationKind,
+    uses_runtime_sampler: bool,
+    uses_drop_path_limits: bool,
+    inflight_supported: bool,
     requests: usize,
     concurrency: usize,
     work_ms: u64,
@@ -91,9 +134,19 @@ struct Measurement {
     latency_p50_ms: f64,
     latency_p95_ms: f64,
     latency_p99_ms: f64,
+    run_requests: u64,
+    run_stages: u64,
+    run_queues: u64,
+    runtime_snapshots: u64,
+    artifact_finalize_ms: f64,
+    analyze_ms: f64,
+    report_render_ms: f64,
+    effective_tokio_sampler_config_present: bool,
+    drop_path_signal_present: bool,
+    lifecycle_warning_count: u64,
+    artifact_path: Option<String>,
     truncation: Option<TruncationMeasurement>,
 }
-
 #[derive(Debug, Serialize)]
 struct TruncationMeasurement {
     dropped_requests: u64,
@@ -104,47 +157,72 @@ struct TruncationMeasurement {
     limits_reached: bool,
 }
 
-struct Instrumentation {
-    tailtriage: Option<Arc<Tailtriage>>,
-    sampler: Option<RuntimeSampler>,
+enum Backend {
+    None,
+    Native {
+        tailtriage: Arc<Tailtriage>,
+        sampler: Option<RuntimeSampler>,
+    },
+    TracingRecorder {
+        rec: TracingRecorder,
+    },
+    TracingTokio {
+        session: TracingTokioSession,
+    },
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> anyhow::Result<()> {
     let cli = parse_cli()?;
-    std::fs::create_dir_all(&cli.output_dir)
-        .with_context(|| format!("failed to create {}", cli.output_dir.display()))?;
-
-    let instrumentation = build_instrumentation(&cli)?;
-    let (mut latencies, elapsed) = run_requests(&cli, instrumentation.tailtriage.as_ref()).await?;
-
-    if let Some(sampler) = instrumentation.sampler {
-        sampler.shutdown().await;
-    }
-
-    let truncation = if let Some(tailtriage) = instrumentation.tailtriage.as_ref() {
-        let snapshot = tailtriage.snapshot();
-        let truncation = snapshot.truncation;
-        Some(TruncationMeasurement {
-            dropped_requests: truncation.dropped_requests,
-            dropped_stages: truncation.dropped_stages,
-            dropped_queues: truncation.dropped_queues,
-            dropped_inflight_snapshots: truncation.dropped_inflight_snapshots,
-            dropped_runtime_snapshots: truncation.dropped_runtime_snapshots,
-            limits_reached: truncation.limits_hit,
-        })
+    std::fs::create_dir_all(&cli.output_dir)?;
+    let mut backend = build_backend(&cli)?;
+    let (mut latencies, elapsed) = run_requests(&cli, &backend).await?;
+    let finalize_start = Instant::now();
+    let (run, artifact_path) = finalize_backend_and_write_artifact(&cli, &mut backend).await?;
+    let artifact_finalize_ms = finalize_start.elapsed().as_secs_f64() * 1000.0;
+    let analyze_start = Instant::now();
+    let (analyze_ms, report_render_ms) = if let Some(ref run_value) = run {
+        let report = try_analyze_run(run_value, AnalyzeOptions::default())?;
+        let analyze_ms = analyze_start.elapsed().as_secs_f64() * 1000.0;
+        let render_start = Instant::now();
+        black_box(render_json_pretty(&report)?);
+        (analyze_ms, render_start.elapsed().as_secs_f64() * 1000.0)
     } else {
-        None
+        (0.0, 0.0)
     };
-
-    if let Some(tailtriage) = instrumentation.tailtriage {
-        tailtriage.shutdown()?;
-    }
-
     latencies.sort_unstable();
-
-    let measurement = Measurement {
+    let truncation = run.as_ref().map(|r| TruncationMeasurement {
+        dropped_requests: r.truncation.dropped_requests,
+        dropped_stages: r.truncation.dropped_stages,
+        dropped_queues: r.truncation.dropped_queues,
+        dropped_inflight_snapshots: r.truncation.dropped_inflight_snapshots,
+        dropped_runtime_snapshots: r.truncation.dropped_runtime_snapshots,
+        limits_reached: r.truncation.limits_hit,
+    });
+    let run_requests = run.as_ref().map_or(0, |r| r.requests.len() as u64);
+    let run_stages = run.as_ref().map_or(0, |r| r.stages.len() as u64);
+    let run_queues = run.as_ref().map_or(0, |r| r.queues.len() as u64);
+    let runtime_snapshots = run.as_ref().map_or(0, |r| r.runtime_snapshots.len() as u64);
+    let effective_tokio_sampler_config_present = run
+        .as_ref()
+        .is_some_and(|r| r.metadata.effective_tokio_sampler_config.is_some());
+    let lifecycle_warning_count = run
+        .as_ref()
+        .map_or(0, |r| r.metadata.lifecycle_warnings.len() as u64);
+    let drop_path_signal_present = truncation.as_ref().is_some_and(|t| {
+        t.limits_reached
+            || t.dropped_requests > 0
+            || t.dropped_stages > 0
+            || t.dropped_queues > 0
+            || t.dropped_inflight_snapshots > 0
+            || t.dropped_runtime_snapshots > 0
+    }) || lifecycle_warning_count > 0;
+    let m = Measurement {
         mode: cli.mode,
+        instrumentation: cli.mode.instrumentation(),
+        uses_runtime_sampler: cli.mode.uses_runtime_sampler(),
+        uses_drop_path_limits: cli.mode.uses_drop_path_limits(),
+        inflight_supported: matches!(cli.mode.instrumentation(), InstrumentationKind::Native),
         requests: cli.requests,
         concurrency: cli.concurrency,
         work_ms: cli.work_ms,
@@ -152,129 +230,229 @@ async fn main() -> anyhow::Result<()> {
         latency_p50_ms: percentile_ms(&latencies, 50, 100)?,
         latency_p95_ms: percentile_ms(&latencies, 95, 100)?,
         latency_p99_ms: percentile_ms(&latencies, 99, 100)?,
+        run_requests,
+        run_stages,
+        run_queues,
+        runtime_snapshots,
+        artifact_finalize_ms,
+        analyze_ms,
+        report_render_ms,
+        effective_tokio_sampler_config_present,
+        drop_path_signal_present,
+        lifecycle_warning_count,
+        artifact_path,
         truncation,
     };
-
-    println!("{}", serde_json::to_string(&measurement)?);
-
+    println!("{}", serde_json::to_string(&m)?);
     Ok(())
 }
 
-fn build_instrumentation(cli: &Cli) -> anyhow::Result<Instrumentation> {
-    let Some(capture_mode) = cli.mode.core_mode() else {
-        return Ok(Instrumentation {
-            tailtriage: None,
-            sampler: None,
-        });
-    };
-
-    let mut builder = Tailtriage::builder("runtime_cost_demo").output(
-        cli.output_dir
-            .join(format!("run-{:?}.json", cli.mode).to_lowercase()),
-    );
-    builder = match capture_mode {
-        CaptureMode::Light => builder.light(),
-        CaptureMode::Investigation => builder.investigation(),
-    };
-
-    if cli.mode.uses_drop_path_limits() {
-        builder = builder.capture_limits_override(CaptureLimitsOverride {
-            max_requests: Some(64),
-            max_stages: Some(64),
-            max_queues: Some(64),
-            max_inflight_snapshots: Some(64),
-            max_runtime_snapshots: Some(64),
-        });
+fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
+    match cli.mode.instrumentation() {
+        InstrumentationKind::Baseline => Ok(Backend::None),
+        InstrumentationKind::Native => {
+            let mode = cli
+                .mode
+                .core_mode()
+                .ok_or_else(|| anyhow!("missing capture mode"))?;
+            let mut b = Tailtriage::builder("runtime_cost_demo").output(
+                cli.output_dir.join(
+                    cli.mode
+                        .artifact_file_name()
+                        .context("missing artifact filename")?,
+                ),
+            );
+            b = match mode {
+                CaptureMode::Light => b.light(),
+                CaptureMode::Investigation => b.investigation(),
+            };
+            if cli.mode.uses_drop_path_limits() {
+                b = b.capture_limits_override(CaptureLimitsOverride {
+                    max_requests: Some(64),
+                    max_stages: Some(64),
+                    max_queues: Some(64),
+                    max_inflight_snapshots: Some(64),
+                    max_runtime_snapshots: Some(64),
+                });
+            }
+            let tt = Arc::new(b.build()?);
+            let sampler = if cli.mode.uses_runtime_sampler() {
+                Some(RuntimeSampler::builder(Arc::clone(&tt)).start()?)
+            } else {
+                None
+            };
+            Ok(Backend::Native {
+                tailtriage: tt,
+                sampler,
+            })
+        }
+        InstrumentationKind::Tracing => {
+            if cli.mode.uses_runtime_sampler() {
+                let session = TracingTokioSession::builder("runtime_cost_demo")
+                    .strict(false)
+                    .start()?;
+                // One mode runs per process in this demo, so process-global subscriber init is acceptable.
+                tracing::subscriber::set_global_default(
+                    tracing_subscriber::registry().with(session.layer()),
+                )
+                .map_err(|e| anyhow!("failed installing tracing Tokio session subscriber: {e}"))?;
+                Ok(Backend::TracingTokio { session })
+            } else {
+                let mut b = TracingRecorder::builder("runtime_cost_demo").strict(false);
+                if cli.mode.uses_drop_path_limits() {
+                    b = b.max_open_spans(64).max_completed_spans(64);
+                }
+                let rec = b.build();
+                // One mode runs per process in this demo, so process-global subscriber init is acceptable.
+                tracing::subscriber::set_global_default(
+                    tracing_subscriber::registry().with(rec.layer()),
+                )
+                .map_err(|e| anyhow!("failed installing tracing recorder subscriber: {e}"))?;
+                Ok(Backend::TracingRecorder { rec })
+            }
+        }
     }
-
-    let tailtriage = Arc::new(builder.build()?);
-    let sampler = if cli.mode.uses_tokio_sampler() {
-        Some(RuntimeSampler::builder(Arc::clone(&tailtriage)).start()?)
-    } else {
-        None
-    };
-
-    Ok(Instrumentation {
-        tailtriage: Some(tailtriage),
-        sampler,
-    })
 }
 
-async fn run_requests(
+async fn finalize_backend_and_write_artifact(
     cli: &Cli,
-    tailtriage: Option<&Arc<Tailtriage>>,
-) -> anyhow::Result<(Vec<u64>, Duration)> {
-    let latencies_us = Arc::new(Mutex::new(Vec::<u64>::with_capacity(cli.requests)));
-    let semaphore = Arc::new(Semaphore::new(cli.concurrency));
+    b: &mut Backend,
+) -> anyhow::Result<(Option<Run>, Option<String>)> {
+    let run = match std::mem::replace(b, Backend::None) {
+        Backend::None => None,
+        Backend::Native {
+            tailtriage,
+            sampler,
+        } => {
+            if let Some(s) = sampler {
+                s.shutdown().await;
+            }
+            let run = tailtriage.snapshot();
+            tailtriage.shutdown()?;
+            Some(run)
+        }
+        Backend::TracingRecorder { rec } => Some(rec.shutdown()?.into_parts().0),
+        Backend::TracingTokio { session } => Some(session.shutdown().await?.into_parts().0),
+    };
+    let artifact_path = write_run_artifact(cli, run.as_ref())?;
+    Ok((run, artifact_path))
+}
+fn write_run_artifact(cli: &Cli, run: Option<&Run>) -> anyhow::Result<Option<String>> {
+    let Some(run) = run else { return Ok(None) };
+    let path = cli.output_dir.join(
+        cli.mode
+            .artifact_file_name()
+            .context("missing artifact file name")?,
+    );
+    let file = std::fs::File::create(&path)?;
+    serde_json::to_writer_pretty(file, run)?;
+    Ok(Some(path.display().to_string()))
+}
 
-    let wall_start = Instant::now();
+async fn run_requests(cli: &Cli, b: &Backend) -> anyhow::Result<(Vec<u64>, Duration)> {
+    let native_tailtriage = match b {
+        Backend::Native { tailtriage, .. } => Some(Arc::clone(tailtriage)),
+        _ => None,
+    };
+    let latencies = Arc::new(Mutex::new(Vec::<u64>::with_capacity(cli.requests)));
+    let sem = Arc::new(Semaphore::new(cli.concurrency));
+    let wall = Instant::now();
     let mut tasks = Vec::with_capacity(cli.requests);
-
     for idx in 0..cli.requests {
-        let sem = Arc::clone(&semaphore);
-        let latencies = Arc::clone(&latencies_us);
+        let sem = Arc::clone(&sem);
+        let lat = Arc::clone(&latencies);
+        let work = Duration::from_millis(cli.work_ms);
         let mode = cli.mode;
-        let work_duration = Duration::from_millis(cli.work_ms);
-        let tailtriage = tailtriage.map(Arc::clone);
-
+        let native_tailtriage_for_task = native_tailtriage.clone();
         tasks.push(tokio::spawn(async move {
             let start = Instant::now();
-
-            match (mode, tailtriage) {
-                (Mode::Baseline, _) => {
-                    let permit = sem.acquire().await.expect("semaphore closed");
-                    tokio::time::sleep(work_duration).await;
-                    drop(permit);
-                }
-                (mode, Some(_)) if mode.omits_request_context() => {
-                    let permit = sem.acquire().await.expect("semaphore closed");
-                    tokio::time::sleep(work_duration).await;
-                    drop(permit);
-                }
-                (_, Some(ts)) => {
-                    let request_id = format!("request-{idx}");
-                    let started = ts.begin_request_with(
-                        "/runtime-cost",
-                        tailtriage_core::RequestOptions::new().request_id(request_id),
-                    );
-                    let request = started.handle.clone();
-
-                    {
-                        let _inflight = request.inflight("runtime_cost_requests");
-                        let permit = request
-                            .queue("worker_semaphore")
-                            .await_on(sem.acquire())
-                            .await
-                            .expect("semaphore closed");
-
-                        request
-                            .stage("simulated_work")
-                            .await_value(tokio::time::sleep(work_duration))
-                            .await;
-
-                        drop(permit);
-                    }
-
-                    started.completion.finish(tailtriage_core::Outcome::Ok);
-                }
-                (_, None) => unreachable!("instrumented modes require a collector"),
+            if matches!(mode, Mode::Baseline | Mode::BakedInNoRequestContext) {
+                let permit = sem.acquire().await.expect("semaphore closed");
+                tokio::time::sleep(work).await;
+                drop(permit);
+            } else if matches!(mode.instrumentation(), InstrumentationKind::Native) {
+                native_request(sem, work, idx, native_tailtriage_for_task).await;
+            } else {
+                tracing_request(sem, work, idx).await;
             }
-
-            let elapsed_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
-            latencies.lock().await.push(elapsed_us);
+            lat.lock()
+                .await
+                .push(u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX));
         }));
     }
-
-    for task in tasks {
-        task.await.context("request task panicked")?;
+    for t in tasks {
+        t.await.context("request task panicked")?;
     }
+    Ok((
+        Arc::into_inner(latencies)
+            .expect("all refs dropped")
+            .into_inner(),
+        wall.elapsed(),
+    ))
+}
 
-    let elapsed = wall_start.elapsed();
-    let latencies = Arc::into_inner(latencies_us)
-        .expect("all task refs dropped")
-        .into_inner();
-
-    Ok((latencies, elapsed))
+async fn native_request(
+    sem: Arc<Semaphore>,
+    work: Duration,
+    idx: usize,
+    tailtriage: Option<Arc<Tailtriage>>,
+) {
+    let Some(tailtriage) = tailtriage else {
+        return;
+    };
+    let request_id = format!("request-{idx}");
+    let started = tailtriage.begin_request_with(
+        "/runtime-cost",
+        tailtriage_core::RequestOptions::new().request_id(request_id),
+    );
+    let request = started.handle.clone();
+    let _inflight = request.inflight("runtime_cost_requests");
+    let permit = request
+        .queue("worker_semaphore")
+        .await_on(sem.acquire())
+        .await
+        .expect("semaphore closed");
+    request
+        .stage("simulated_work")
+        .await_value(tokio::time::sleep(work))
+        .await;
+    drop(permit);
+    started.completion.finish(tailtriage_core::Outcome::Ok);
+}
+async fn tracing_request(sem: Arc<Semaphore>, work: Duration, idx: usize) {
+    let request_id = format!("request-{idx}");
+    let request_id_for_request = request_id.clone();
+    async move {
+        let queue_span = tracing::info_span!(
+            "runtime.queue",
+            tt.kind = "queue",
+            tt.request_id = %request_id,
+            tt.queue = "worker_semaphore",
+            tt.depth_at_start = 0_u64
+        );
+        let permit = sem
+            .acquire()
+            .instrument(queue_span)
+            .await
+            .expect("semaphore closed");
+        let stage_span = tracing::info_span!(
+            "runtime.stage",
+            tt.kind = "stage",
+            tt.request_id = %request_id,
+            tt.stage = "simulated_work",
+            tt.success = true
+        );
+        tokio::time::sleep(work).instrument(stage_span).await;
+        drop(permit);
+    }
+    .instrument(tracing::info_span!(
+        "runtime.request",
+        tt.kind = "request",
+        tt.request_id = %request_id_for_request,
+        tt.route = "/runtime-cost",
+        tt.outcome = "ok"
+    ))
+    .await;
 }
 
 fn parse_cli() -> anyhow::Result<Cli> {
@@ -283,17 +461,14 @@ fn parse_cli() -> anyhow::Result<Cli> {
     let mut concurrency = DEFAULT_CONCURRENCY;
     let mut work_ms = DEFAULT_WORK_MS;
     let mut output_dir = PathBuf::from("demos/runtime_cost/artifacts");
-
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--mode" => {
-                let value = args.next().context("missing value for --mode")?;
-                mode = Mode::parse(&value);
+                let v = args.next().context("missing value for --mode")?;
+                mode = Mode::parse(&v);
                 if mode.is_none() {
-                    bail!(
-                        "invalid --mode {value}; expected baseline|baked_in_no_request_context|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path|core_investigation_drop_path"
-                    );
+                    bail!("invalid --mode {v}; expected baseline|baked_in_no_request_context|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path|core_investigation_drop_path|tracing_light|tracing_light_tokio_sampler|tracing_light_drop_path");
                 }
             }
             "--requests" => {
@@ -327,13 +502,10 @@ fn parse_cli() -> anyhow::Result<Cli> {
             _ => bail!("unknown arg: {arg}"),
         }
     }
-
     let mode = mode.context("--mode is required")?;
-
     if requests == 0 || concurrency == 0 || work_ms == 0 {
-        bail!("--requests, --concurrency, and --work-ms must be > 0");
+        bail!("--requests, --concurrency, and --work-ms must be > 0")
     }
-
     Ok(Cli {
         mode,
         requests,
@@ -342,44 +514,51 @@ fn parse_cli() -> anyhow::Result<Cli> {
         output_dir,
     })
 }
-
 fn print_help() {
-    eprintln!(
-        "runtime_cost --mode <baseline|baked_in_no_request_context|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path|core_investigation_drop_path> [--requests N] [--concurrency N] [--work-ms N] [--output-dir DIR]"
-    );
-    eprintln!(
-        "mode semantics: baked_in_no_request_context starts tailtriage but skips request-context instrumentation; core_* adds request-context instrumentation; *_tokio_sampler additionally starts RuntimeSampler; *_drop_path intentionally hits capture limits."
-    );
+    eprintln!("runtime_cost --mode <baseline|baked_in_no_request_context|core_light|core_investigation|core_light_tokio_sampler|core_investigation_tokio_sampler|core_light_drop_path|core_investigation_drop_path|tracing_light|tracing_light_tokio_sampler|tracing_light_drop_path> [--requests N] [--concurrency N] [--work-ms N] [--output-dir DIR]");
 }
-
-fn requests_per_second(request_count: usize, elapsed: Duration) -> anyhow::Result<f64> {
-    let total_requests = u64::try_from(request_count)?;
-    let request_rate_input = total_requests.to_string().parse::<f64>()?;
-    Ok(request_rate_input / elapsed.as_secs_f64())
+fn requests_per_second(n: usize, e: Duration) -> anyhow::Result<f64> {
+    Ok(u64::try_from(n)?.to_string().parse::<f64>()? / e.as_secs_f64())
 }
-
-fn percentile_ms(sorted_us: &[u64], numerator: u64, denominator: u64) -> anyhow::Result<f64> {
+fn percentile_ms(sorted_us: &[u64], num: u64, den: u64) -> anyhow::Result<f64> {
     if sorted_us.is_empty() {
         return Ok(0.0);
     }
-
-    anyhow::ensure!(denominator != 0, "percentile denominator must be non-zero");
-    anyhow::ensure!(
-        numerator <= denominator,
-        "percentile numerator must be <= denominator"
-    );
-
-    let max_index = sorted_us.len() - 1;
-    let max_index_u64 = u64::try_from(max_index)?;
-    let scaled = u128::from(max_index_u64) * u128::from(numerator);
-    let rounded = scaled + (u128::from(denominator) / 2);
-    let index_u128 = rounded / u128::from(denominator);
-    let index = usize::try_from(index_u128)?;
-
-    micros_to_millis_f64(sorted_us[index])
+    anyhow::ensure!(den != 0, "percentile denominator must be non-zero");
+    anyhow::ensure!(num <= den, "percentile numerator must be <= denominator");
+    let max = sorted_us.len() - 1;
+    let scaled = u128::from(u64::try_from(max)?) * u128::from(num);
+    let idx = usize::try_from((scaled + (u128::from(den) / 2)) / u128::from(den))?;
+    micros_to_millis_f64(sorted_us[idx])
+}
+fn micros_to_millis_f64(m: u64) -> anyhow::Result<f64> {
+    Ok(m.to_string().parse::<f64>()? / 1_000.0)
 }
 
-fn micros_to_millis_f64(micros: u64) -> anyhow::Result<f64> {
-    let micros_value = micros.to_string().parse::<f64>()?;
-    Ok(micros_value / 1_000.0)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn mode_parse_accepts_tracing_modes() {
+        assert_eq!(Mode::parse("tracing_light"), Some(Mode::TracingLight));
+        assert_eq!(
+            Mode::parse("tracing_light_tokio_sampler"),
+            Some(Mode::TracingLightTokioSampler)
+        );
+        assert_eq!(
+            Mode::parse("tracing_light_drop_path"),
+            Some(Mode::TracingLightDropPath)
+        );
+    }
+    #[test]
+    fn mode_parse_rejects_unknown() {
+        assert_eq!(Mode::parse("wat"), None);
+    }
+    #[test]
+    fn mode_classification_works() {
+        let m = Mode::TracingLightTokioSampler;
+        assert_eq!(m.instrumentation(), InstrumentationKind::Tracing);
+        assert!(m.uses_runtime_sampler());
+        assert!(!m.uses_drop_path_limits());
+    }
 }
