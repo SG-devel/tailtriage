@@ -149,6 +149,11 @@ pub struct DemoInstrumentation {
     backend: DemoInstrumentationBackend,
 }
 
+/// Demo instrumentation helper for runtime-sensitive scenarios (`blocking` and `executor`).
+///
+/// This helper supports `native` and `tracing` modes while keeping one request API surface.
+/// Use [`Self::record_runtime_snapshot`] to attach deterministic runtime-pressure evidence
+/// captured during workload execution for parity validation.
 pub struct RuntimeDemoInstrumentation {
     backend: RuntimeDemoBackend,
 }
@@ -298,6 +303,9 @@ impl RuntimeDemoInstrumentation {
                     .strict(false)
                     .start()?;
                 let subscriber = tracing_subscriber::registry().with(session.layer());
+                // Demo binaries run one instrumentation backend per process, so installing a
+                // global subscriber is acceptable here. Do not reuse this helper in libraries
+                // or tests that need multiple subscribers in one process.
                 tracing::subscriber::set_global_default(subscriber)
                     .map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
                 Ok(Self {
@@ -307,6 +315,7 @@ impl RuntimeDemoInstrumentation {
         }
     }
 
+    /// Run one request lifecycle with request-level instrumentation.
     pub async fn run_request<F, Fut>(
         &self,
         route: &str,
@@ -346,18 +355,14 @@ impl RuntimeDemoInstrumentation {
         }
     }
 
+    /// Record a deterministic Tokio runtime snapshot during workload execution.
+    ///
+    /// Runtime-sensitive tracing parity uses this to inject runtime-pressure evidence because
+    /// tracing request/stage/queue spans alone do not infer runtime-pressure signals.
     pub fn record_runtime_snapshot(&self, snapshot: tailtriage_core::RuntimeSnapshot) {
         match &self.backend {
             RuntimeDemoBackend::Native(tailtriage) => tailtriage.record_runtime_snapshot(snapshot),
             RuntimeDemoBackend::Tracing(session) => session.record_runtime_snapshot(snapshot),
-        }
-    }
-
-    #[must_use]
-    pub fn collector(&self) -> Option<Arc<Tailtriage>> {
-        match &self.backend {
-            RuntimeDemoBackend::Native(t) => Some(Arc::clone(t)),
-            RuntimeDemoBackend::Tracing(_) => None,
         }
     }
 
