@@ -3,29 +3,92 @@ use std::thread;
 use std::time::Duration;
 
 use futures_executor::block_on;
-use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions, DiagnosisKind, Report};
 use tailtriage_core::{MemorySink, Run, Tailtriage};
 use tailtriage_tracing::TracingRecorder;
 use tracing_subscriber::prelude::*;
 
-pub fn assert_native_and_tracing_semantic_parity() {
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct RunParityReport {
+    pub mismatches: Vec<String>,
+    pub native_request_count: usize,
+    pub tracing_request_count: usize,
+    pub native_stage_count: usize,
+    pub tracing_stage_count: usize,
+    pub native_queue_count: usize,
+    pub tracing_queue_count: usize,
+    pub native_slowest_request_id: Option<String>,
+    pub tracing_slowest_request_id: Option<String>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct AnalyzerParityReport {
+    pub mismatches: Vec<String>,
+    pub native_request_count: usize,
+    pub tracing_request_count: usize,
+    pub native_primary_suspect: Option<DiagnosisKind>,
+    pub tracing_primary_suspect: Option<DiagnosisKind>,
+    pub native_primary_score: Option<u8>,
+    pub tracing_primary_score: Option<u8>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct RenderedReportParityReport {
+    pub mismatches: Vec<String>,
+    pub native_sections: BTreeSet<String>,
+    pub tracing_sections: BTreeSet<String>,
+    pub native_primary_suspect_line: Option<String>,
+    pub tracing_primary_suspect_line: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct ParityReport {
+    pub mismatches: Vec<String>,
+    pub run: RunParityReport,
+    pub analyzer: AnalyzerParityReport,
+    pub rendered: RenderedReportParityReport,
+}
+
+pub fn assert_native_and_tracing_full_parity() {
     let native_run = native_run();
     let (tracing_run, warnings) = tracing_run();
+    let report = build_parity_report(&native_run, &tracing_run);
 
-    let report = compare_runs(&native_run, &tracing_run);
-    assert!(
-        report.mismatches.is_empty(),
-        "semantic parity mismatches: {}",
-        report.mismatches.join("; ")
-    );
     assert!(
         warnings.is_empty(),
         "unexpected tracing warnings: {warnings:?}"
     );
+    assert!(
+        report.mismatches.is_empty(),
+        "native/tracing full parity failed\nrun: {:?}\nanalyzer: {:?}\nrendered: {:?}\nall mismatches: {}",
+        report.run,
+        report.analyzer,
+        report.rendered,
+        report.mismatches.join("; ")
+    );
 }
 
-struct ArtifactEquivalenceReport {
-    mismatches: Vec<String>,
+pub fn build_parity_report(native_run: &Run, tracing_run: &Run) -> ParityReport {
+    let run = compare_runs(native_run, tracing_run);
+    let native_analysis = analyze_run(native_run, AnalyzeOptions::default());
+    let tracing_analysis = analyze_run(tracing_run, AnalyzeOptions::default());
+    let analyzer = compare_analyzer_reports(&native_analysis, &tracing_analysis);
+    let rendered = compare_rendered_reports(&native_analysis, &tracing_analysis);
+
+    let mut mismatches = Vec::new();
+    mismatches.extend(run.mismatches.iter().map(|m| format!("run: {m}")));
+    mismatches.extend(analyzer.mismatches.iter().map(|m| format!("analyzer: {m}")));
+    mismatches.extend(rendered.mismatches.iter().map(|m| format!("rendered: {m}")));
+
+    ParityReport {
+        mismatches,
+        run,
+        analyzer,
+        rendered,
+    }
 }
 
 fn native_run() -> Run {
@@ -65,6 +128,10 @@ fn native_run() -> Run {
 }
 
 fn tracing_run() -> (Run, Vec<String>) {
+    tracing_run_with_queue("permits")
+}
+
+fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
     let recorder = TracingRecorder::builder("svc").build();
     let subscriber = tracing_subscriber::registry().with(recorder.layer());
     tracing::subscriber::with_default(subscriber, || {
@@ -78,49 +145,44 @@ fn tracing_run() -> (Run, Vec<String>) {
                 );
                 {
                     let _request_guard = request.enter();
+                    let queue = tracing::info_span!(
+                        "queue",
+                        tt.kind = "queue",
+                        tt.request_id = id,
+                        tt.queue = queue_name,
+                        tt.depth_at_start = 3_u64
+                    );
+                    {
+                        let _queue_guard = queue.enter();
+                        thread::sleep(Duration::from_millis(if slow { 4 } else { 1 }));
+                    }
+                    drop(queue);
 
+                    let db_stage = tracing::info_span!(
+                        "stage",
+                        tt.kind = "stage",
+                        tt.request_id = id,
+                        tt.stage = "db",
+                        tt.success = true
+                    );
                     {
-                        let queue = tracing::info_span!(
-                            "queue",
-                            tt.kind = "queue",
-                            tt.request_id = id,
-                            tt.queue = "permits",
-                            tt.depth_at_start = 3_u64
-                        );
-                        {
-                            let _queue_guard = queue.enter();
-                            thread::sleep(Duration::from_millis(if slow { 4 } else { 1 }));
-                        }
-                        drop(queue);
+                        let _db_stage_guard = db_stage.enter();
+                        thread::sleep(Duration::from_millis(if slow { 6 } else { 2 }));
                     }
+                    drop(db_stage);
+
+                    let cache_stage = tracing::info_span!(
+                        "stage",
+                        tt.kind = "stage",
+                        tt.request_id = id,
+                        tt.stage = "cache",
+                        tt.success = true
+                    );
                     {
-                        let stage = tracing::info_span!(
-                            "stage",
-                            tt.kind = "stage",
-                            tt.request_id = id,
-                            tt.stage = "db",
-                            tt.success = true
-                        );
-                        {
-                            let _stage_guard = stage.enter();
-                            thread::sleep(Duration::from_millis(if slow { 6 } else { 2 }));
-                        }
-                        drop(stage);
+                        let _cache_stage_guard = cache_stage.enter();
+                        thread::sleep(Duration::from_millis(1));
                     }
-                    {
-                        let stage = tracing::info_span!(
-                            "stage",
-                            tt.kind = "stage",
-                            tt.request_id = id,
-                            tt.stage = "cache",
-                            tt.success = true
-                        );
-                        {
-                            let _stage_guard = stage.enter();
-                            thread::sleep(Duration::from_millis(1));
-                        }
-                        drop(stage);
-                    }
+                    drop(cache_stage);
                 }
                 drop(request);
             }
@@ -136,13 +198,20 @@ fn tracing_run() -> (Run, Vec<String>) {
 }
 
 #[allow(clippy::too_many_lines)]
-fn compare_runs(native_run: &Run, tracing_run: &Run) -> ArtifactEquivalenceReport {
+fn compare_runs(native_run: &Run, tracing_run: &Run) -> RunParityReport {
     let mut mismatches = Vec::new();
-    if native_run.runtime_snapshots != tracing_run.runtime_snapshots {
-        mismatches.push("runtime snapshots mismatch".to_owned());
-    }
+    let native_request_count = native_run.requests.len();
+    let tracing_request_count = tracing_run.requests.len();
+    let native_stage_count = native_run.stages.len();
+    let tracing_stage_count = tracing_run.stages.len();
+    let native_queue_count = native_run.queues.len();
+    let tracing_queue_count = tracing_run.queues.len();
+
     if native_run.truncation.limits_hit || tracing_run.truncation.limits_hit {
         mismatches.push("truncation.limits_hit must be false for both runs".to_owned());
+    }
+    if !native_run.runtime_snapshots.is_empty() || !tracing_run.runtime_snapshots.is_empty() {
+        mismatches.push("runtime_snapshots must be empty for both runs".to_owned());
     }
 
     let nreq: BTreeMap<_, _> = native_run
@@ -165,39 +234,32 @@ fn compare_runs(native_run: &Run, tracing_run: &Run) -> ArtifactEquivalenceRepor
             )
         })
         .collect();
+
     if nreq.keys().collect::<BTreeSet<_>>() != treq.keys().collect::<BTreeSet<_>>() {
         mismatches.push("request id set mismatch".to_owned());
     }
     for (id, (route, outcome, lat)) in &nreq {
         if *lat == 0 {
-            mismatches.push(format!("native request {id} latency not positive"));
+            mismatches.push(format!("native request {id} latency must be positive"));
         }
         match treq.get(id) {
             Some((tr, to, tl)) => {
                 if route != tr {
-                    mismatches.push(format!("route mismatch for {id}"));
+                    mismatches.push(format!(
+                        "route mismatch for request {id}: native={route}, tracing={tr}"
+                    ));
                 }
                 if outcome != to {
-                    mismatches.push(format!("outcome mismatch for {id}"));
+                    mismatches.push(format!(
+                        "outcome mismatch for request {id}: native={outcome:?}, tracing={to:?}"
+                    ));
                 }
                 if *tl == 0 {
-                    mismatches.push(format!("tracing request {id} latency not positive"));
+                    mismatches.push(format!("tracing request {id} latency must be positive"));
                 }
             }
-            None => mismatches.push(format!("missing tracing request {id}")),
+            None => mismatches.push(format!("tracing run missing request {id}")),
         }
-    }
-
-    let slow_native = nreq
-        .iter()
-        .max_by_key(|(_, (_, _, lat))| *lat)
-        .map(|(id, _)| id.clone());
-    let slow_tracing = treq
-        .iter()
-        .max_by_key(|(_, (_, _, lat))| *lat)
-        .map(|(id, _)| id.clone());
-    if slow_native != slow_tracing {
-        mismatches.push("slowest request mismatch".to_owned());
     }
 
     let nstage: BTreeSet<_> = native_run
@@ -211,12 +273,14 @@ fn compare_runs(native_run: &Run, tracing_run: &Run) -> ArtifactEquivalenceRepor
         .map(|s| (s.request_id.clone(), s.stage.clone(), s.success))
         .collect();
     if nstage != tstage {
-        mismatches.push("stage correlation shape differs".to_owned());
+        mismatches.push(format!(
+            "stage set mismatch: native={nstage:?}, tracing={tstage:?}"
+        ));
     }
     if native_run.stages.iter().any(|s| s.latency_us == 0)
         || tracing_run.stages.iter().any(|s| s.latency_us == 0)
     {
-        mismatches.push("stage latencies must be positive".to_owned());
+        mismatches.push("all stage latencies must be positive".to_owned());
     }
 
     let nqueue: BTreeSet<_> = native_run
@@ -230,18 +294,208 @@ fn compare_runs(native_run: &Run, tracing_run: &Run) -> ArtifactEquivalenceRepor
         .map(|q| (q.request_id.clone(), q.queue.clone(), q.depth_at_start))
         .collect();
     if nqueue != tqueue {
-        mismatches.push("queue correlation shape differs".to_owned());
+        mismatches.push(format!(
+            "queue set mismatch: native={nqueue:?}, tracing={tqueue:?}"
+        ));
     }
     if native_run.queues.iter().any(|q| q.wait_us == 0)
         || tracing_run.queues.iter().any(|q| q.wait_us == 0)
     {
-        mismatches.push("queue latencies must be positive".to_owned());
+        mismatches.push("all queue waits must be positive".to_owned());
     }
 
-    if analyze_run(native_run, AnalyzeOptions::default()).request_count != 3
-        || analyze_run(tracing_run, AnalyzeOptions::default()).request_count != 3
-    {
-        mismatches.push("analyzer request_count must equal 3 for both runs".to_owned());
+    let slow_native = nreq
+        .iter()
+        .max_by_key(|(_, (_, _, lat))| *lat)
+        .map(|(id, _)| id.clone());
+    let slow_tracing = treq
+        .iter()
+        .max_by_key(|(_, (_, _, lat))| *lat)
+        .map(|(id, _)| id.clone());
+    if slow_native != slow_tracing {
+        mismatches.push(format!(
+            "slowest request mismatch: native={slow_native:?}, tracing={slow_tracing:?}"
+        ));
     }
-    ArtifactEquivalenceReport { mismatches }
+
+    if native_request_count != tracing_request_count {
+        mismatches.push(format!("request count mismatch: native={native_request_count}, tracing={tracing_request_count}"));
+    }
+    if native_stage_count != tracing_stage_count {
+        mismatches.push(format!(
+            "stage count mismatch: native={native_stage_count}, tracing={tracing_stage_count}"
+        ));
+    }
+    if native_queue_count != tracing_queue_count {
+        mismatches.push(format!(
+            "queue count mismatch: native={native_queue_count}, tracing={tracing_queue_count}"
+        ));
+    }
+
+    RunParityReport {
+        mismatches,
+        native_request_count,
+        tracing_request_count,
+        native_stage_count,
+        tracing_stage_count,
+        native_queue_count,
+        tracing_queue_count,
+        native_slowest_request_id: slow_native,
+        tracing_slowest_request_id: slow_tracing,
+    }
+}
+
+fn compare_analyzer_reports(native: &Report, tracing: &Report) -> AnalyzerParityReport {
+    let mut mismatches = Vec::new();
+    if native.request_count != tracing.request_count {
+        mismatches.push(format!(
+            "request_count mismatch: native={}, tracing={}",
+            native.request_count, tracing.request_count
+        ));
+    }
+
+    let n_primary = Some(native.primary_suspect.kind.clone());
+    let t_primary = Some(tracing.primary_suspect.kind.clone());
+    if n_primary != t_primary {
+        mismatches.push(format!(
+            "primary suspect mismatch: native={n_primary:?}, tracing={t_primary:?}"
+        ));
+    }
+
+    if native.p95_latency_us.is_none_or(|v| v == 0) || tracing.p95_latency_us.is_none_or(|v| v == 0)
+    {
+        mismatches.push("p95_latency_us must be non-zero for both runs".to_owned());
+    }
+    if native.p99_latency_us.is_none_or(|v| v == 0) || tracing.p99_latency_us.is_none_or(|v| v == 0)
+    {
+        mismatches.push("p99_latency_us must be non-zero for both runs".to_owned());
+    }
+
+    for label in ["/checkout", "db", "cache", "permits"] {
+        let native_has = report_contains_label(native, label);
+        let tracing_has = report_contains_label(tracing, label);
+        if native_has != tracing_has {
+            mismatches.push(format!(
+                "label presence mismatch for '{label}': native={native_has}, tracing={tracing_has}"
+            ));
+        }
+    }
+
+    AnalyzerParityReport {
+        mismatches,
+        native_request_count: native.request_count,
+        tracing_request_count: tracing.request_count,
+        native_primary_suspect: n_primary,
+        tracing_primary_suspect: t_primary,
+        native_primary_score: Some(native.primary_suspect.score),
+        tracing_primary_score: Some(tracing.primary_suspect.score),
+    }
+}
+
+fn compare_rendered_reports(native: &Report, tracing: &Report) -> RenderedReportParityReport {
+    let native_render = normalize_rendered_report(&render_text(native));
+    let tracing_render = normalize_rendered_report(&render_text(tracing));
+    let mut mismatches = Vec::new();
+
+    let native_sections = report_sections(&native_render);
+    let tracing_sections = report_sections(&tracing_render);
+    if native_sections != tracing_sections {
+        mismatches.push(format!(
+            "report section mismatch: native={native_sections:?}, tracing={tracing_sections:?}"
+        ));
+    }
+
+    let n_suspect_line = find_primary_suspect_line(&native_render);
+    let t_suspect_line = find_primary_suspect_line(&tracing_render);
+    if n_suspect_line != t_suspect_line {
+        mismatches.push(format!(
+            "primary suspect line mismatch: native={n_suspect_line:?}, tracing={t_suspect_line:?}"
+        ));
+    }
+
+    RenderedReportParityReport {
+        mismatches,
+        native_sections,
+        tracing_sections,
+        native_primary_suspect_line: n_suspect_line,
+        tracing_primary_suspect_line: t_suspect_line,
+    }
+}
+
+fn report_contains_label(report: &Report, label: &str) -> bool {
+    report
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains(label))
+        || report
+            .primary_suspect
+            .next_checks
+            .iter()
+            .any(|n| n.contains(label))
+        || report.secondary_suspects.iter().any(|s| {
+            s.evidence.iter().any(|e| e.contains(label))
+                || s.next_checks.iter().any(|n| n.contains(label))
+        })
+}
+
+fn normalize_rendered_report(input: &str) -> String {
+    input
+        .lines()
+        .map(|line| {
+            line.replace("Run ID:", "Run ID: <normalized>")
+                .replace("at_unix_ms", "<normalized_timestamp>")
+                .replace(" us", " <normalized_us>")
+        })
+        .map(|line| {
+            line.chars()
+                .map(|ch| if ch.is_ascii_digit() { '#' } else { ch })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn report_sections(rendered: &str) -> BTreeSet<String> {
+    rendered
+        .lines()
+        .filter(|line| line.starts_with("## "))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn find_primary_suspect_line(rendered: &str) -> Option<String> {
+    rendered
+        .lines()
+        .find(|line| line.contains("Primary suspect") || line.contains("primary suspect"))
+        .map(ToOwned::to_owned)
+}
+
+#[test]
+fn parity_report_detects_queue_name_mismatch() {
+    let native = native_run();
+    let (tracing, _) = tracing_run_with_queue("permits_changed");
+    let report = build_parity_report(&native, &tracing);
+    assert!(
+        report
+            .mismatches
+            .iter()
+            .any(|m| m.contains("queue set mismatch")),
+        "expected queue mismatch, got {:?}",
+        report.mismatches
+    );
+}
+
+#[test]
+fn normalization_removes_unstable_values_but_preserves_semantic_differences() {
+    let a = "## Summary\nRun ID: abc123\nLatency 123 us\n## Diagnosis\nPrimary suspect: queue saturation";
+    let b = "## Summary\nRun ID: def999\nLatency 987 us\n## Diagnosis\nPrimary suspect: downstream stage dominates";
+    let normalized_a = normalize_rendered_report(a);
+    let normalized_b = normalize_rendered_report(b);
+
+    assert!(normalized_a.contains("Run ID: <normalized>"));
+    assert_ne!(
+        normalized_a, normalized_b,
+        "normalization must not hide semantic differences"
+    );
 }
