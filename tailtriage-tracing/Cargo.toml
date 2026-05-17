@@ -19,10 +19,15 @@ include = [
 
 [dependencies]
 tailtriage-core.workspace = true
+tailtriage-tokio = { workspace = true, optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+
+[features]
+default = []
+tokio = ["dep:tailtriage-tokio"]
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
@@ -34,3 +39,4 @@ workspace = true
 tailtriage-analyzer.workspace = true
 futures-executor = "0.3"
 tempfile = "3"
+tokio = { version = "1", features = ["rt", "time", "macros"] }

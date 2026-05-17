@@ -31,6 +31,9 @@ mod convention;
 mod error;
 mod jsonl;
 mod recorder;
+/// Optional Tokio runtime sampler coupling for tracing intake sessions.
+#[cfg(feature = "tokio")]
+pub mod tokio;
 mod types;
 
 use tailtriage_core::{
@@ -38,6 +41,11 @@ use tailtriage_core::{
     TruncationSummary, UnfinishedRequests, SCHEMA_VERSION,
 };
 
+#[cfg(feature = "tokio")]
+pub use crate::tokio::{
+    TracingTokioSession, TracingTokioSessionBuilder, TracingTokioSessionShutdownError,
+    TracingTokioSessionStartError,
+};
 pub use convention::{
     TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
 };
