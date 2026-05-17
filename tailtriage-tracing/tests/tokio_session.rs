@@ -34,7 +34,7 @@ async fn session_merges_tracing_and_runtime() {
                     tt.kind = "queue",
                     tt.request_id = "r1",
                     tt.queue = "global",
-                    tt.queue_depth = 2_u64
+                    tt.depth_at_start = 2_u64
                 )
                 .in_scope(|| {});
             });
@@ -47,6 +47,7 @@ async fn session_merges_tracing_and_runtime() {
     assert!(!run.requests.is_empty());
     assert!(!run.stages.is_empty());
     assert!(!run.queues.is_empty());
+    assert_eq!(run.queues[0].depth_at_start, Some(2));
     assert!(!run.runtime_snapshots.is_empty());
     assert!(run.metadata.effective_tokio_sampler_config.is_some());
 }
