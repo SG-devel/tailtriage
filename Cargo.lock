@@ -229,8 +229,12 @@ name = "demo-support"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "tailtriage-core",
+ "tailtriage-tracing",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

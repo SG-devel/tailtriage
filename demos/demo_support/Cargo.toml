@@ -9,7 +9,11 @@ publish = false
 [dependencies]
 anyhow = "1"
 tailtriage-core.workspace = true
+tailtriage-tracing.workspace = true
 tokio = { version = "1", features = ["sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+serde_json = "1"
 
 [lints]
 workspace = true

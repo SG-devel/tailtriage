@@ -27,6 +27,7 @@ EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_RETRY_STORM_PRIMARY_KINDS = EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
+TRACING_PARITY_SCENARIOS = ["queue", "downstream"]
 SCENARIOS = [
     "queue",
     "blocking",
@@ -809,6 +810,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Shortcut for --profile release.",
     )
 
+
+    parity_parser = subparsers.add_parser("validate-tracing-parity", help="Validate native/tracing parity for selected demo scenario")
+    parity_parser.add_argument("scenario", choices=TRACING_PARITY_SCENARIOS)
+    parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    parity_parser.add_argument("--release", action="store_const", const="release", dest="profile")
+
     matrix_parser = subparsers.add_parser(
         "diagnosis-matrix",
         help="Run baseline/mitigated demo variants in dev and release and print a compact diagnosis table.",
@@ -855,6 +862,52 @@ def _run_scenario(root_dir: Path, scenario: str, mode: str, *, profile: str) -> 
     else:
         run_scenario_mixed(root_dir, mode, profile=profile)
 
+
+def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    if scenario == "queue":
+        expected = EXPECTED_QUEUE_KIND
+        manifest = root_dir / "demos/queue_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/queue_service/artifacts"
+    else:
+        expected = EXPECTED_DOWNSTREAM_KIND
+        manifest = root_dir / "demos/downstream_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/downstream_service/artifacts"
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+    variants = [
+        ("before", "baseline", "native"),
+        ("before", "baseline", "tracing"),
+        ("after", "mitigated", "native"),
+        ("after", "mitigated", "tracing"),
+    ]
+    for phase, mode, instr in variants:
+        run_path = artifact_dir / f"{phase}-{instr}-run.json"
+        analysis_path = artifact_dir / f"{phase}-{instr}-analysis.json"
+        run_and_analyze(manifest, cli_manifest, run_path, analysis_path, mode, "--instrumentation", instr, profile=profile)
+    before_native = load_report_json(artifact_dir / "before-native-analysis.json")
+    before_tracing = load_report_json(artifact_dir / "before-tracing-analysis.json")
+    after_tracing = load_report_json(artifact_dir / "after-tracing-analysis.json")
+    for label, report in (("before-native", before_native), ("before-tracing", before_tracing), ("after-tracing", after_tracing)):
+        if report.get("request_count", 0) <= 0 or report.get("p95_latency_us", 0) <= 0:
+            raise SystemExit(f"expected non-zero request_count and p95 for {label}")
+    if before_native["primary_suspect"]["kind"] not in expected:
+        raise SystemExit(f"native baseline primary suspect unexpected: {before_native['primary_suspect']['kind']}")
+    if before_tracing["primary_suspect"]["kind"] not in expected:
+        raise SystemExit(f"tracing baseline primary suspect unexpected: {before_tracing['primary_suspect']['kind']}")
+    before_tp95 = before_tracing["p95_latency_us"]
+    after_tp95 = after_tracing["p95_latency_us"]
+    if after_tp95 > before_tp95:
+        raise SystemExit(f"expected tracing mitigated p95 non-worse than tracing baseline, got {before_tp95}->{after_tp95}")
+    after_native = load_report_json(artifact_dir / "after-native-analysis.json")
+    if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
+        raise SystemExit(
+            "mitigated primary suspect differs: native={} ({}), tracing={} ({})".format(
+                after_native["primary_suspect"]["kind"],
+                after_native["primary_suspect"]["score"],
+                after_tracing["primary_suspect"]["kind"],
+                after_tracing["primary_suspect"]["score"],
+            )
+        )
+
 def run_diagnosis_matrix(root_dir: Path, scenarios: list[str] | None = None) -> None:
     selected = scenarios or SCENARIOS
     print("scenario profile mode primary score p95_us secondary evidence")
@@ -876,6 +929,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "diagnosis-matrix":
         run_diagnosis_matrix(root_dir, scenarios=args.scenario)
+        return
+
+    if args.command == "validate-tracing-parity":
+        validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
         return
 
     if args.command == "run":
