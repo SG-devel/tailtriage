@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from pathlib import Path
 from typing import Callable
@@ -760,9 +761,163 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
 
+
+PARITY_SCENARIOS = ["queue", "downstream"]
+
+def _artifact_prefix(mode: str, instrumentation: str) -> str:
+    return f"{mode}-{instrumentation}"
+
+
+def _load_run(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    if scenario == "queue":
+        demo_manifest = root_dir / "demos/queue_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/queue_service/artifacts"
+        expected_kind = "application_queue_saturation"
+    elif scenario == "downstream":
+        demo_manifest = root_dir / "demos/downstream_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/downstream_service/artifacts"
+        expected_kind = "downstream_stage_dominates"
+    else:
+        raise SystemExit(f"unsupported tracing parity scenario: {scenario}")
+
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+
+    for mode in ("before", "after"):
+        mode_arg = "baseline" if mode == "before" else "mitigated"
+        for instrumentation in ("native", "tracing"):
+            prefix = _artifact_prefix(mode, instrumentation)
+            run_path = artifact_dir / f"{prefix}-run.json"
+            analysis_path = artifact_dir / f"{prefix}-analysis.json"
+            run_and_analyze(
+                demo_manifest,
+                cli_manifest,
+                run_path,
+                analysis_path,
+                mode_arg,
+                profile=profile,
+                extra_demo_args=["--instrumentation", instrumentation],
+            )
+
+    expected_files = [
+        "before-native-run.json",
+        "before-tracing-run.json",
+        "before-native-analysis.json",
+        "before-tracing-analysis.json",
+        "after-native-run.json",
+        "after-tracing-run.json",
+        "after-native-analysis.json",
+        "after-tracing-analysis.json",
+    ]
+    missing = [name for name in expected_files if not (artifact_dir / name).exists()]
+    if missing:
+        raise SystemExit(f"missing parity artifacts: {', '.join(missing)}")
+
+    before_native_run = _load_run(artifact_dir / "before-native-run.json")
+    before_tracing_run = _load_run(artifact_dir / "before-tracing-run.json")
+    after_native_run = _load_run(artifact_dir / "after-native-run.json")
+    after_tracing_run = _load_run(artifact_dir / "after-tracing-run.json")
+
+    before_native = load_report_json(artifact_dir / "before-native-analysis.json")
+    before_tracing = load_report_json(artifact_dir / "before-tracing-analysis.json")
+    after_native = load_report_json(artifact_dir / "after-native-analysis.json")
+    after_tracing = load_report_json(artifact_dir / "after-tracing-analysis.json")
+
+    for label, report in (
+        ("before-native", before_native),
+        ("before-tracing", before_tracing),
+        ("after-native", after_native),
+        ("after-tracing", after_tracing),
+    ):
+        if report["request_count"] <= 0:
+            raise SystemExit(f"expected non-zero request count in {label}")
+        if report["p95_latency_us"] <= 0:
+            raise SystemExit(f"expected non-zero p95 latency in {label}")
+
+    for label, run in (
+        ("before-native", before_native_run),
+        ("before-tracing", before_tracing_run),
+        ("after-native", after_native_run),
+        ("after-tracing", after_tracing_run),
+    ):
+        if len(run.get("requests", [])) == 0:
+            raise SystemExit(f"expected non-zero requests in {label} run artifact")
+        if len(run.get("stages", [])) == 0:
+            raise SystemExit(f"expected non-zero stages in {label} run artifact")
+
+    if scenario == "queue":
+        for label, run in (
+            ("before-native", before_native_run),
+            ("before-tracing", before_tracing_run),
+            ("after-native", after_native_run),
+            ("after-tracing", after_tracing_run),
+        ):
+            if len(run.get("queues", [])) == 0:
+                raise SystemExit(f"expected non-zero queues in {label} run artifact")
+
+        for run_name, run in (
+            ("before-tracing-run.json", before_tracing_run),
+            ("after-tracing-run.json", after_tracing_run),
+        ):
+            if not any(q.get("queue") == "worker_permit" for q in run.get("queues", [])):
+                raise SystemExit(
+                    f"expected queue tracing artifact {run_name} to include queue 'worker_permit'"
+                )
+            if not any(q.get("depth_at_start") is not None for q in run.get("queues", [])):
+                raise SystemExit(
+                    f"expected queue tracing queue events in {run_name} to include non-null depth_at_start"
+                )
+    if scenario == "downstream":
+        for run_name, run in (
+            ("before-tracing-run.json", before_tracing_run),
+            ("after-tracing-run.json", after_tracing_run),
+        ):
+            tracing_stage_names = {s.get("stage") for s in run.get("stages", [])}
+            for stage in ("app_precheck", "downstream_call"):
+                if stage not in tracing_stage_names:
+                    raise SystemExit(
+                        f"expected downstream tracing run {run_name} to include stage '{stage}'"
+                    )
+
+    for label, run in (("before-native", before_native_run), ("after-native", after_native_run)):
+        if "inflight" in run and len(run.get("inflight") or []) == 0:
+            raise SystemExit(
+                f"expected native inflight snapshots in {label}; tracing inflight is out of scope for prompt 3"
+            )
+
+    if before_native["primary_suspect"]["kind"] != expected_kind:
+        raise SystemExit(
+            f"expected baseline native primary suspect {expected_kind}, got {before_native['primary_suspect']['kind']}"
+        )
+    if before_tracing["primary_suspect"]["kind"] != expected_kind:
+        raise SystemExit(
+            f"expected baseline tracing primary suspect {expected_kind}, got {before_tracing['primary_suspect']['kind']}"
+        )
+
+    if after_tracing["p95_latency_us"] > before_tracing["p95_latency_us"]:
+        raise SystemExit(
+            "expected tracing mitigated p95 to be non-worse than tracing baseline, "
+            f"got {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
+        )
+
+    if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
+        raise SystemExit(
+            "mitigated native/tracing primary suspect mismatch: "
+            f"native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
+            f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}"
+        )
+
+    print(
+        f"tracing parity validation passed for {scenario}: "
+        f"baseline kind={expected_kind}, tracing p95 {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
+    )
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
 
     run_parser = subparsers.add_parser("run", help="Run demo scenario and produce analysis artifacts")
     run_parser.add_argument(
@@ -819,6 +974,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=SCENARIOS,
         help="Optional scenario filter; can be provided multiple times.",
     )
+
+    parity_parser = subparsers.add_parser(
+        "validate-tracing-parity",
+        help="Run native/tracing parity checks for queue/downstream demos.",
+    )
+    parity_parser.add_argument("scenario", choices=PARITY_SCENARIOS)
+    parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    parity_parser.add_argument("--release", action="store_const", const="release", dest="profile")
 
     return parser.parse_args(argv)
 
@@ -880,6 +1043,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "run":
         _run_scenario(root_dir, args.scenario, args.mode, profile=args.profile)
+        return
+
+    if args.command == "validate-tracing-parity":
+        validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
         return
 
     if args.scenario == "queue":

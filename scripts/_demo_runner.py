@@ -83,10 +83,12 @@ def run_and_analyze(
     analysis_path: Path,
     *demo_args: str,
     profile: str = "dev",
+    extra_demo_args: list[str] | None = None,
 ) -> None:
     """Run demo and analyze the resulting artifact into ``analysis_path``."""
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
-    run_demo_binary(demo_manifest_path, artifact_path, *demo_args, profile=profile)
+    trailing_args = extra_demo_args or []
+    run_demo_binary(demo_manifest_path, artifact_path, *demo_args, *trailing_args, profile=profile)
     run_cli_analysis_json(cli_manifest_path, artifact_path, analysis_path, profile=profile)
 
 

@@ -8,6 +8,13 @@ The demos are educational scenario artifacts. They teach triage situations, whil
 
 Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
 
+## Instrumentation mode note (queue/downstream only)
+
+- `queue_service` and `downstream_service` accept `--instrumentation native|tracing` (default `native`).
+- This validates instrumentation parity for request/stage evidence (and queue evidence for `queue_service`) while still producing standard Run JSON for CLI analysis.
+- This tracing demo mode is not OTel/OTLP and not an observability backend.
+- Suspects in parity runs remain triage leads, not proof of root cause.
+
 ## Strongest public demonstration scenarios
 
 ### `queue_service`
