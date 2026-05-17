@@ -124,3 +124,45 @@ Tracing span capture for request/stage/queue evidence works outside Tokio runtim
 
 - `examples/live_recorder.rs`: records one request span, one queue span, and one stage span with `TracingRecorder`, imports a run, and renders analyzer suspects and next checks.
 - `examples/tracing_spans.jsonl`: normalized completed-span JSONL fixture importable via `import_jsonl_path` or CLI `tailtriage import tracing-json`.
+
+
+## Optional Tokio runtime sampler session
+
+Enable the `tokio` feature when you want one standard `Run` that combines:
+
+- tracing request/stage/queue evidence, and
+- Tokio runtime-pressure evidence from periodic runtime snapshots.
+
+`TracingTokioSession` does not turn this crate into a tracing backend, and it does not implement OTel/OTLP.
+Tracing spans alone still do not infer executor or blocking-pool pressure.
+
+```rust
+#[cfg(feature = "tokio")]
+# async fn demo() -> Result<(), Box<dyn std::error::Error>> {
+use std::time::Duration;
+use tracing_subscriber::prelude::*;
+use tailtriage_tracing::TracingTokioSession;
+
+let session = TracingTokioSession::builder("checkout-service")
+    .service_version("1.2.3")
+    .sampler_interval(Duration::from_millis(100))
+    .max_runtime_snapshots(1_000)
+    .start()?;
+
+let subscriber = tracing_subscriber::registry().with(session.layer());
+tracing::subscriber::with_default(subscriber, || {
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-42",
+        tt.route = "/checkout"
+    );
+    drop(request);
+});
+
+let imported = session.shutdown().await?;
+assert_eq!(imported.run().requests.len(), 1);
+assert!(imported.run().metadata.effective_tokio_sampler_config.is_some());
+# Ok(())
+# }
+```

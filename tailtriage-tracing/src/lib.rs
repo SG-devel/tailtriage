@@ -31,6 +31,9 @@ mod convention;
 mod error;
 mod jsonl;
 mod recorder;
+#[cfg(feature = "tokio")]
+/// Optional Tokio-coupled session API that merges runtime sampler evidence into tracing-derived runs.
+pub mod tokio;
 mod types;
 
 use tailtriage_core::{
@@ -46,6 +49,11 @@ pub use jsonl::{import_jsonl_path, import_jsonl_reader};
 pub use recorder::{
     RecorderLimits, TailtriageLayer, TracingRecorder, TracingRecorderBuilder,
     DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
+};
+#[cfg(feature = "tokio")]
+pub use tokio::{
+    TracingTokioSession, TracingTokioSessionBuilder, TracingTokioSessionShutdownError,
+    TracingTokioSessionStartError,
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
