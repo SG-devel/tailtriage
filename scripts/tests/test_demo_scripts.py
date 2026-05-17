@@ -135,6 +135,11 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "diagnosis-matrix")
         self.assertEqual(args.scenario, ["queue", "executor"])
 
+    def test_parse_args_accepts_validate_tracing_parity(self) -> None:
+        args = parse_args(["validate-tracing-parity", "queue", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "queue")
+
     def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},

@@ -16,6 +16,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 
 - Requests compete for a limited semaphore (`worker_permit`).
 - Baseline has tighter capacity and slower work; mitigated raises capacity and shortens work.
+- Supports `--instrumentation native|tracing` (default `native`) for parity checks.
 
 **What it shows well**
 
@@ -47,6 +48,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 
 - Request flow with a tiny local precheck and a consistently slower downstream stage.
 - No intentional queue bottleneck.
+- Supports `--instrumentation native|tracing` (default `native`) for parity checks.
 
 **What it shows well**
 

@@ -38,6 +38,7 @@ SCENARIOS = [
     "shared-lock",
     "retry-storm",
 ]
+TRACING_PARITY_SCENARIOS = ["queue", "downstream"]
 
 
 def _suspects(report: dict) -> list[dict]:
@@ -98,6 +99,7 @@ def run_before_after_scenario(
     snapshot_fn: Callable[[dict], dict[str, int | str | None]],
     *,
     profile: str = "dev",
+    instrumentation: str = "native",
 ) -> None:
     cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
 
@@ -110,6 +112,8 @@ def run_before_after_scenario(
             run_path,
             analysis_path,
             mode_arg,
+            "--instrumentation",
+            instrumentation,
             profile=profile,
         )
         print(f"run artifact ({variant}): {run_path}")
@@ -139,6 +143,7 @@ def run_scenario_queue(root_dir: Path, mode: str, *, profile: str = "dev") -> No
         mode,
         snapshot_queue,
         profile=profile,
+        instrumentation="native",
     )
 
 def run_scenario_blocking(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
@@ -169,6 +174,7 @@ def run_scenario_downstream(root_dir: Path, mode: str, *, profile: str = "dev") 
         mode,
         snapshot_downstream,
         profile=profile,
+        instrumentation="native",
     )
 
 def run_scenario_mixed(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
@@ -448,6 +454,47 @@ def validate_downstream(root_dir: Path, *, profile: str = "dev") -> None:
         "validated analysis files: "
         f"{artifact_dir / 'before-analysis.json'}, {artifact_dir / 'after-analysis.json'}"
     )
+
+def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    if scenario == "queue":
+        manifest = root_dir / "demos/queue_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/queue_service/artifacts"
+        expected = EXPECTED_QUEUE_KIND
+    else:
+        manifest = root_dir / "demos/downstream_service/Cargo.toml"
+        artifact_dir = root_dir / "demos/downstream_service/artifacts"
+        expected = EXPECTED_DOWNSTREAM_KIND
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+
+    for variant in ("before", "after"):
+        mode_arg = "baseline" if variant == "before" else "mitigated"
+        for instrumentation in ("native", "tracing"):
+            run_path = artifact_dir / f"{variant}-{instrumentation}-run.json"
+            analysis_path = artifact_dir / f"{variant}-{instrumentation}-analysis.json"
+            run_and_analyze(
+                manifest,
+                cli_manifest,
+                run_path,
+                analysis_path,
+                mode_arg,
+                "--instrumentation",
+                instrumentation,
+                profile=profile,
+            )
+    for variant in ("before", "after"):
+        native = load_report_json(artifact_dir / f"{variant}-native-analysis.json")
+        tracing = load_report_json(artifact_dir / f"{variant}-tracing-analysis.json")
+        if native["primary_suspect"]["kind"] != tracing["primary_suspect"]["kind"]:
+            raise SystemExit(
+                f"expected {scenario} {variant} primary suspect parity, got "
+                f"{native['primary_suspect']['kind']} vs {tracing['primary_suspect']['kind']}"
+            )
+        if variant == "before" and native["primary_suspect"]["kind"] not in expected:
+            raise SystemExit(
+                f"expected {scenario} {variant} primary suspect in {sorted(expected)}, got "
+                f"{native['primary_suspect']['kind']}"
+            )
+    print(f"tracing parity passed for {scenario} ({profile})")
 
 def validate_mixed(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_mixed(root_dir, "both", profile=profile)
@@ -819,6 +866,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=SCENARIOS,
         help="Optional scenario filter; can be provided multiple times.",
     )
+    tracing_parser = subparsers.add_parser(
+        "validate-tracing-parity",
+        help="Run native/tracing parity checks for converted demo scenarios.",
+    )
+    tracing_parser.add_argument("scenario", choices=TRACING_PARITY_SCENARIOS)
+    tracing_parser.add_argument(
+        "--profile",
+        choices=PROFILE_CHOICES,
+        default="dev",
+        help="Cargo profile for demo run and CLI analysis (default: dev).",
+    )
 
     return parser.parse_args(argv)
 
@@ -876,6 +934,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "diagnosis-matrix":
         run_diagnosis_matrix(root_dir, scenarios=args.scenario)
+        return
+    if args.command == "validate-tracing-parity":
+        validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
         return
 
     if args.command == "run":
