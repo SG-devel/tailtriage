@@ -762,7 +762,7 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
     )
 
 
-PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm"]
+PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm", "blocking", "executor", "all"]
 
 def _artifact_prefix(mode: str, instrumentation: str) -> str:
     return f"{mode}-{instrumentation}"
@@ -841,12 +841,34 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             # expected suspect-family presence instead of strict p95 non-worsening.
             "require_p95_improvement": False,
         },
+        "blocking": {
+            "demo_manifest": root_dir / "demos/blocking_service/Cargo.toml",
+            "artifact_dir": root_dir / "demos/blocking_service/artifacts",
+            "route": "/blocking-demo",
+            "expected_kind": "blocking_pool_pressure",
+            "queues": {"dispatch_overhead"},
+            "stages": {"spawn_blocking_path"},
+            "require_p95_improvement": True,
+        },
+        "executor": {
+            "demo_manifest": root_dir / "demos/executor_pressure_service/Cargo.toml",
+            "artifact_dir": root_dir / "demos/executor_pressure_service/artifacts",
+            "route": "/executor-pressure",
+            "expected_kind": "executor_pressure_suspected",
+            "queues": set(),
+            "stages": set(),
+            "require_p95_improvement": True,
+        },
     }
     if scenario not in configs:
         raise SystemExit(f"unsupported tracing parity scenario: {scenario}")
     return configs[scenario]
 
 def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
+    if scenario == "all":
+        for s in [x for x in PARITY_SCENARIOS if x != "all"]:
+            validate_tracing_parity(root_dir, s, profile=profile)
+        return
     config = _tracing_parity_config(root_dir, scenario)
     demo_manifest = config["demo_manifest"]
     artifact_dir = config["artifact_dir"]
@@ -913,7 +935,7 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
     ):
         if len(run.get("requests", [])) == 0:
             raise SystemExit(f"expected non-zero requests in {label} run artifact")
-        if len(run.get("stages", [])) == 0:
+        if scenario != "executor" and len(run.get("stages", [])) == 0:
             raise SystemExit(f"expected non-zero stages in {label} run artifact")
         routes = {r.get("route") for r in run.get("requests", [])}
         if config["route"] not in routes:
@@ -951,6 +973,17 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
         if scenario == "retry-storm":
             if not any(name and name.startswith("downstream_attempt_") for name in tracing_stage_names):
                 raise SystemExit(f"expected tracing run {run_name} to include at least one downstream_attempt_* stage")
+        if scenario in {"blocking", "executor"}:
+            if not run.get("runtime_snapshots"):
+                raise SystemExit(f"expected runtime snapshots in tracing run {run_name}")
+            if run.get("metadata", {}).get("effective_tokio_sampler_config") is None:
+                raise SystemExit(f"expected effective_tokio_sampler_config in tracing run {run_name}")
+        if scenario == "blocking":
+            if not any(s.get("blocking_queue_depth") is not None for s in run.get("runtime_snapshots", [])):
+                raise SystemExit(f"expected blocking_queue_depth runtime evidence in {run_name}")
+        if scenario == "executor":
+            if not any((s.get("global_queue_depth") is not None) or (s.get("local_queue_depth") is not None) for s in run.get("runtime_snapshots", [])):
+                raise SystemExit(f"expected global/local queue runtime evidence in {run_name}")
 
     for label, run in (("before-native", before_native_run), ("after-native", after_native_run)):
         if "inflight" in run and len(run.get("inflight") or []) == 0:
@@ -958,11 +991,11 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
                 f"expected native inflight snapshots in {label}; tracing inflight is out of scope for prompt 3"
             )
 
-    if before_native["primary_suspect"]["kind"] != expected_kind:
+    if not has_suspect_kind(before_native, {expected_kind}):
         raise SystemExit(
             f"expected baseline native primary suspect {expected_kind}, got {before_native['primary_suspect']['kind']}"
         )
-    if before_tracing["primary_suspect"]["kind"] != expected_kind:
+    if not has_suspect_kind(before_tracing, {expected_kind}):
         raise SystemExit(
             f"expected baseline tracing primary suspect {expected_kind}, got {before_tracing['primary_suspect']['kind']}"
         )
