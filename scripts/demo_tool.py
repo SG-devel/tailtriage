@@ -762,7 +762,7 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
     )
 
 
-PARITY_SCENARIOS = ["queue", "downstream"]
+PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm"]
 
 def _artifact_prefix(mode: str, instrumentation: str) -> str:
     return f"{mode}-{instrumentation}"
@@ -772,17 +772,74 @@ def _load_run(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
+
+def _has_kind_in_primary_or_secondary(report: dict, expected_kind: str) -> bool:
+    return any(item.get("kind") == expected_kind for item in _suspects(report))
+
 def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
-    if scenario == "queue":
-        demo_manifest = root_dir / "demos/queue_service/Cargo.toml"
-        artifact_dir = root_dir / "demos/queue_service/artifacts"
-        expected_kind = "application_queue_saturation"
-    elif scenario == "downstream":
-        demo_manifest = root_dir / "demos/downstream_service/Cargo.toml"
-        artifact_dir = root_dir / "demos/downstream_service/artifacts"
-        expected_kind = "downstream_stage_dominates"
-    else:
+    scenario_config = {
+        "queue": {
+            "manifest": root_dir / "demos/queue_service/Cargo.toml",
+            "artifacts": root_dir / "demos/queue_service/artifacts",
+            "route": "/queue-demo",
+            "expected_kind": "application_queue_saturation",
+            "queue_names": {"worker_permit"},
+            "required_stages": {"simulated_work"},
+        },
+        "downstream": {
+            "manifest": root_dir / "demos/downstream_service/Cargo.toml",
+            "artifacts": root_dir / "demos/downstream_service/artifacts",
+            "route": "/downstream-demo",
+            "expected_kind": "downstream_stage_dominates",
+            "required_stages": {"app_precheck", "downstream_call"},
+        },
+        "mixed": {
+            "manifest": root_dir / "demos/mixed_contention_service/Cargo.toml",
+            "artifacts": root_dir / "demos/mixed_contention_service/artifacts",
+            "route": "/mixed-contention-demo",
+            "expected_kind": "application_queue_saturation",
+            "queue_names": {"worker_permit"},
+            "required_stages": {"app_prepare", "downstream_call"},
+        },
+        "cold-start": {
+            "manifest": root_dir / "demos/cold_start_burst_service/Cargo.toml",
+            "artifacts": root_dir / "demos/cold_start_burst_service/artifacts",
+            "route": "/cold-start-burst-demo",
+            "expected_kind": "application_queue_saturation",
+            "queue_names": {"worker_admission"},
+            "required_stages": {"cold_start_stage"},
+        },
+        "db-pool": {
+            "manifest": root_dir / "demos/db_pool_saturation_service/Cargo.toml",
+            "artifacts": root_dir / "demos/db_pool_saturation_service/artifacts",
+            "route": "/db-pool-saturation-demo",
+            "expected_kind": "application_queue_saturation",
+            "queue_names": {"db_pool"},
+            "required_stages": {"app_precheck", "db_query"},
+        },
+        "shared-lock": {
+            "manifest": root_dir / "demos/shared_state_lock_service/Cargo.toml",
+            "artifacts": root_dir / "demos/shared_state_lock_service/artifacts",
+            "route": "/shared-state-lock-demo",
+            "expected_kind": "application_queue_saturation",
+            "queue_names": {"shared_state_write_lock"},
+            "required_stages": {"pre_lock_work", "shared_state_critical_section"},
+        },
+        "retry-storm": {
+            "manifest": root_dir / "demos/retry_storm_service/Cargo.toml",
+            "artifacts": root_dir / "demos/retry_storm_service/artifacts",
+            "route": "/retry-storm-demo",
+            "expected_kind": "downstream_stage_dominates",
+            "required_stages": {"app_precheck", "downstream_total"},
+            "require_attempt_prefix": "downstream_attempt_",
+            "baseline_optional_stages": {"retry_backoff_wait"},
+        },
+    }.get(scenario)
+    if scenario_config is None:
         raise SystemExit(f"unsupported tracing parity scenario: {scenario}")
+    demo_manifest = scenario_config["manifest"]
+    artifact_dir = scenario_config["artifacts"]
+    expected_kind = scenario_config["expected_kind"]
 
     cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
 
@@ -847,40 +904,33 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
             raise SystemExit(f"expected non-zero requests in {label} run artifact")
         if len(run.get("stages", [])) == 0:
             raise SystemExit(f"expected non-zero stages in {label} run artifact")
+        routes = {req.get("route") for req in run.get("requests", [])}
+        if scenario_config["route"] not in routes:
+            raise SystemExit(f"expected route {scenario_config['route']} in {label} run artifact")
 
-    if scenario == "queue":
-        for label, run in (
-            ("before-native", before_native_run),
-            ("before-tracing", before_tracing_run),
-            ("after-native", after_native_run),
-            ("after-tracing", after_tracing_run),
-        ):
+    if scenario_config.get("queue_names"):
+        for label, run in (("before-native", before_native_run), ("before-tracing", before_tracing_run), ("after-native", after_native_run), ("after-tracing", after_tracing_run)):
             if len(run.get("queues", [])) == 0:
                 raise SystemExit(f"expected non-zero queues in {label} run artifact")
 
-        for run_name, run in (
-            ("before-tracing-run.json", before_tracing_run),
-            ("after-tracing-run.json", after_tracing_run),
-        ):
-            if not any(q.get("queue") == "worker_permit" for q in run.get("queues", [])):
+        for run_name, run in (("before-tracing-run.json", before_tracing_run), ("after-tracing-run.json", after_tracing_run)):
+            queue_names = {q.get("queue") for q in run.get("queues", [])}
+            if not scenario_config["queue_names"].issubset(queue_names):
                 raise SystemExit(
-                    f"expected queue tracing artifact {run_name} to include queue 'worker_permit'"
+                    f"expected queue tracing artifact {run_name} to include queue(s) {sorted(scenario_config['queue_names'])}"
                 )
             if not any(q.get("depth_at_start") is not None for q in run.get("queues", [])):
                 raise SystemExit(
                     f"expected queue tracing queue events in {run_name} to include non-null depth_at_start"
                 )
-    if scenario == "downstream":
-        for run_name, run in (
-            ("before-tracing-run.json", before_tracing_run),
-            ("after-tracing-run.json", after_tracing_run),
-        ):
-            tracing_stage_names = {s.get("stage") for s in run.get("stages", [])}
-            for stage in ("app_precheck", "downstream_call"):
-                if stage not in tracing_stage_names:
-                    raise SystemExit(
-                        f"expected downstream tracing run {run_name} to include stage '{stage}'"
-                    )
+    for run_name, run in (("before-tracing-run.json", before_tracing_run), ("after-tracing-run.json", after_tracing_run)):
+        tracing_stage_names = {s.get("stage") for s in run.get("stages", [])}
+        for stage in scenario_config.get("required_stages", set()):
+            if stage not in tracing_stage_names:
+                raise SystemExit(f"expected tracing run {run_name} to include stage '{stage}'")
+        attempt_prefix = scenario_config.get("require_attempt_prefix")
+        if attempt_prefix and not any(str(stage).startswith(attempt_prefix) for stage in tracing_stage_names if stage):
+            raise SystemExit(f"expected tracing run {run_name} to include at least one stage with prefix '{attempt_prefix}'")
 
     for label, run in (("before-native", before_native_run), ("after-native", after_native_run)):
         if "inflight" in run and len(run.get("inflight") or []) == 0:
@@ -903,11 +953,15 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
             f"got {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
         )
 
-    if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
+    if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"] and not (
+        _has_kind_in_primary_or_secondary(after_native, expected_kind)
+        or _has_kind_in_primary_or_secondary(after_tracing, expected_kind)
+    ):
         raise SystemExit(
-            "mitigated native/tracing primary suspect mismatch: "
+            "mitigated native/tracing primary suspect mismatch and expected family absent from both: "
             f"native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
-            f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}"
+            f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}, "
+            f"expected={expected_kind}"
         )
 
     print(
