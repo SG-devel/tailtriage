@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 use tailtriage_tokio::SamplerStartError;
 use tailtriage_tracing::tokio::{TracingTokioSession, TracingTokioSessionStartError};
 use tracing_subscriber::prelude::*;
@@ -134,4 +135,59 @@ async fn shutdown_preserves_tracing_spans() {
     let imported = session.shutdown().await.expect("shutdown");
     assert_eq!(imported.run().requests.len(), 1);
     assert_eq!(imported.run().requests[0].request_id, "r-shutdown");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn record_runtime_snapshot_appears_in_snapshot_run() {
+    let session = TracingTokioSession::builder("svc")
+        .start()
+        .expect("start session");
+    let at = unix_time_ms();
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: at,
+        alive_tasks: Some(1),
+        global_queue_depth: Some(2),
+        local_queue_depth: Some(3),
+        blocking_queue_depth: Some(4),
+        remote_schedule_count: None,
+    });
+    let imported = session.snapshot_run().expect("snapshot run");
+    assert!(imported
+        .run()
+        .runtime_snapshots
+        .iter()
+        .any(|s| s.at_unix_ms == at && s.blocking_queue_depth == Some(4)));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn record_runtime_snapshot_appears_in_shutdown_and_preserves_events() {
+    let session = TracingTokioSession::builder("svc")
+        .start()
+        .expect("start session");
+    let subscriber = tracing_subscriber::registry().with(session.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info_span!(
+            "req",
+            tt.kind = "request",
+            tt.request_id = "r2",
+            tt.route = "/r2"
+        )
+        .in_scope(|| {});
+    });
+    let at = unix_time_ms();
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: at,
+        alive_tasks: None,
+        global_queue_depth: None,
+        local_queue_depth: None,
+        blocking_queue_depth: Some(7),
+        remote_schedule_count: None,
+    });
+    let imported = session.shutdown().await.expect("shutdown");
+    assert_eq!(imported.run().requests.len(), 1);
+    assert!(imported
+        .run()
+        .runtime_snapshots
+        .iter()
+        .any(|s| s.at_unix_ms == at));
 }

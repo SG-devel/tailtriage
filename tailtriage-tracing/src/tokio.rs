@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tailtriage_core::{BuildError, CaptureLimitsOverride, MemorySink, Run, Tailtriage};
+use tailtriage_core::{
+    BuildError, CaptureLimitsOverride, MemorySink, Run, RuntimeSnapshot, Tailtriage,
+};
 use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
 use crate::{ImportError, ImportedRun, RecorderLimits, TailtriageLayer, TracingRecorder};
@@ -84,6 +86,11 @@ impl TracingTokioSession {
         let imported = self.recorder.snapshot_run()?;
         let runtime = self.runtime_collector.snapshot();
         Ok(merge_runtime_data(imported, &runtime))
+    }
+
+    /// Records a runtime snapshot into the runtime collector used by this session.
+    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+        self.runtime_collector.record_runtime_snapshot(snapshot);
     }
 
     /// Stops runtime sampling and returns one merged imported run.
