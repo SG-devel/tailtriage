@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
+use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode};
 use tokio::sync::Semaphore;
 
 struct ModeSettings {
@@ -44,7 +44,11 @@ async fn main() -> anyhow::Result<()> {
         parse_demo_args("demos/db_pool_saturation_service/artifacts/db-pool-saturation-run.json")?;
     let settings = ModeSettings::for_mode(args.mode);
 
-    let tailtriage = init_collector("db_pool_saturation_service_demo", &args.output_path)?;
+    let instrumentation = Arc::new(DemoInstrumentation::new(
+        "db_pool_saturation_service_demo",
+        &args.output_path,
+        args.instrumentation,
+    )?);
 
     let db_pool = Arc::new(Semaphore::new(settings.db_pool_size));
     let waiting_depth = Arc::new(AtomicU64::new(0));
@@ -53,43 +57,42 @@ async fn main() -> anyhow::Result<()> {
     let mut tasks = Vec::with_capacity(task_capacity);
 
     for request_number in 0..settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let instrumentation = Arc::clone(&instrumentation);
         let db_pool = Arc::clone(&db_pool);
         let waiting_depth = Arc::clone(&waiting_depth);
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
-                "/db-pool-saturation-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
+            instrumentation
+                .run_request(
+                    "/db-pool-saturation-demo",
+                    request_id,
+                    tailtriage_core::Outcome::Ok,
+                    |request| async move {
+                        let _inflight = request.inflight("db_pool_saturation_inflight");
 
-            {
-                let _inflight = request.inflight("db_pool_saturation_inflight");
+                        request
+                            .stage(
+                                "app_precheck",
+                                tokio::time::sleep(settings.app_precheck_delay),
+                            )
+                            .await;
 
-                request
-                    .stage("app_precheck")
-                    .await_value(tokio::time::sleep(settings.app_precheck_delay))
-                    .await;
+                        let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
+                        let permit = request
+                            .queue_wait("db_pool", depth, db_pool.acquire())
+                            .await
+                            .expect("db pool semaphore should remain open");
+                        waiting_depth.fetch_sub(1, Ordering::SeqCst);
 
-                let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                let permit = request
-                    .queue("db_pool")
-                    .with_depth_at_start(depth)
-                    .await_on(db_pool.acquire())
-                    .await
-                    .expect("db pool semaphore should remain open");
-                waiting_depth.fetch_sub(1, Ordering::SeqCst);
+                        let _permit = permit;
 
-                let _permit = permit;
-
-                request
-                    .stage("db_query")
-                    .await_value(tokio::time::sleep(settings.db_query_delay))
-                    .await;
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+                        request
+                            .stage("db_query", tokio::time::sleep(settings.db_query_delay))
+                            .await;
+                    },
+                )
+                .await;
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
@@ -101,7 +104,9 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.shutdown()?;
+    Arc::into_inner(instrumentation)
+        .expect("instrumentation still referenced")
+        .shutdown(&args.output_path)?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())
