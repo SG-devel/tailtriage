@@ -2,8 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestHandle;
+use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode, DemoRequest};
 
 #[derive(Clone, Copy)]
 struct ModeSettings {
@@ -83,7 +82,7 @@ fn downstream_outcome(request_number: u64, attempt: u8) -> (Duration, Downstream
 }
 
 async fn run_downstream_with_retries(
-    request: &RequestHandle<'_>,
+    request: &DemoRequest,
     request_number: u64,
     settings: ModeSettings,
 ) {
@@ -94,8 +93,7 @@ async fn run_downstream_with_retries(
         let (latency, outcome) = downstream_outcome(request_number, attempt);
 
         let succeeded = request
-            .stage(stage)
-            .await_value(async {
+            .stage(&stage, async {
                 tokio::time::sleep(latency).await;
                 matches!(outcome, DownstreamResult::Ok)
             })
@@ -112,8 +110,10 @@ async fn run_downstream_with_retries(
 
         if consecutive_failures >= settings.breaker_fail_threshold {
             request
-                .stage("retry_circuit_open")
-                .await_value(tokio::time::sleep(settings.breaker_cooldown))
+                .stage(
+                    "retry_circuit_open",
+                    tokio::time::sleep(settings.breaker_cooldown),
+                )
                 .await;
             return;
         }
@@ -124,8 +124,7 @@ async fn run_downstream_with_retries(
             + deterministic_jitter(request_number, attempt, settings.jitter_divisor);
 
         request
-            .stage("retry_backoff_wait")
-            .await_value(tokio::time::sleep(backoff))
+            .stage("retry_backoff_wait", tokio::time::sleep(backoff))
             .await;
     }
 }
@@ -135,41 +134,45 @@ async fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/retry_storm_service/artifacts/retry-storm-run.json")?;
     let mode_settings = ModeSettings::for_mode(args.mode);
 
-    let tailtriage = init_collector("retry_storm_service_demo", &args.output_path)?;
+    let instrumentation = Arc::new(DemoInstrumentation::new(
+        "retry_storm_service_demo",
+        &args.output_path,
+        args.instrumentation,
+    )?);
 
     let capacity = usize::try_from(mode_settings.offered_requests)?;
     let mut tasks = Vec::with_capacity(capacity);
 
     for request_number in 0..mode_settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let instrumentation = Arc::clone(&instrumentation);
         let settings = mode_settings;
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
-                "/retry-storm-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id),
-            );
-            let request = started.handle.clone();
+            instrumentation
+                .run_request(
+                    "/retry-storm-demo",
+                    request_id,
+                    tailtriage_core::Outcome::Ok,
+                    move |request| async move {
+                        let _inflight = request.inflight("retry_storm_inflight");
 
-            {
-                let _inflight = request.inflight("retry_storm_inflight");
+                        request
+                            .stage(
+                                "app_precheck",
+                                tokio::time::sleep(settings.app_precheck_delay),
+                            )
+                            .await;
 
-                request
-                    .stage("app_precheck")
-                    .await_value(tokio::time::sleep(settings.app_precheck_delay))
-                    .await;
-
-                request
-                    .stage("downstream_total")
-                    .await_value(run_downstream_with_retries(
-                        &request,
-                        request_number,
-                        settings,
-                    ))
-                    .await;
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+                        request
+                            .stage(
+                                "downstream_total",
+                                run_downstream_with_retries(&request, request_number, settings),
+                            )
+                            .await;
+                    },
+                )
+                .await;
         }));
 
         if request_number % mode_settings.inter_arrival_pause_every == 0 {
@@ -181,7 +184,9 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.shutdown()?;
+    Arc::into_inner(instrumentation)
+        .expect("demo instrumentation should have no outstanding references")
+        .shutdown(&args.output_path)?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())
