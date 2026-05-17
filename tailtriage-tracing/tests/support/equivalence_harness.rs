@@ -63,11 +63,20 @@ pub fn assert_native_and_tracing_full_parity() {
     );
     assert!(
         report.mismatches.is_empty(),
-        "native/tracing full parity failed\nrun: {:?}\nanalyzer: {:?}\nrendered: {:?}\nall mismatches: {}",
-        report.run,
-        report.analyzer,
-        report.rendered,
-        report.mismatches.join("; ")
+        "native/tracing full parity failed\n\nRun parity mismatches:\n{}\n\nAnalyzer parity mismatches:\n{}\n\nRendered report parity mismatches:\n{}\n\nNative/tracing counts:\n- requests: {}/{}\n- stages: {}/{}\n- queues: {}/{}\n\nNative/tracing primary suspect:\n- kind: {:?}/{:?}\n- score: {:?}/{:?}",
+        format_mismatches(&report.run.mismatches),
+        format_mismatches(&report.analyzer.mismatches),
+        format_mismatches(&report.rendered.mismatches),
+        report.run.native_request_count,
+        report.run.tracing_request_count,
+        report.run.native_stage_count,
+        report.run.tracing_stage_count,
+        report.run.native_queue_count,
+        report.run.tracing_queue_count,
+        report.analyzer.native_primary_suspect,
+        report.analyzer.tracing_primary_suspect,
+        report.analyzer.native_primary_score,
+        report.analyzer.tracing_primary_score
     );
 }
 
@@ -457,11 +466,23 @@ fn normalize_rendered_report(input: &str) -> String {
 }
 
 fn report_sections(rendered: &str) -> BTreeSet<String> {
-    rendered
+    let mut sections: BTreeSet<String> = rendered
         .lines()
         .filter(|line| line.starts_with("## "))
         .map(ToOwned::to_owned)
-        .collect()
+        .collect();
+
+    let lowered = rendered.to_lowercase();
+    if lowered.contains("primary suspect") || lowered.contains("diagnosis") {
+        sections.insert("semantic: primary suspect / diagnosis".to_owned());
+    }
+    if lowered.contains("evidence") {
+        sections.insert("semantic: evidence".to_owned());
+    }
+    if lowered.contains("next checks") {
+        sections.insert("semantic: next checks".to_owned());
+    }
+    sections
 }
 
 fn find_primary_suspect_line(rendered: &str) -> Option<String> {
@@ -469,6 +490,18 @@ fn find_primary_suspect_line(rendered: &str) -> Option<String> {
         .lines()
         .find(|line| line.contains("Primary suspect") || line.contains("primary suspect"))
         .map(ToOwned::to_owned)
+}
+
+fn format_mismatches(mismatches: &[String]) -> String {
+    if mismatches.is_empty() {
+        "  - none".to_owned()
+    } else {
+        mismatches
+            .iter()
+            .map(|m| format!("  - {m}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 #[test]
@@ -497,5 +530,28 @@ fn normalization_removes_unstable_values_but_preserves_semantic_differences() {
     assert_ne!(
         normalized_a, normalized_b,
         "normalization must not hide semantic differences"
+    );
+}
+
+#[test]
+fn parity_report_detects_request_outcome_mismatch() {
+    let native = native_run();
+    let (mut tracing, _) = tracing_run();
+    let request = tracing
+        .requests
+        .iter_mut()
+        .find(|request| request.request_id == "r2")
+        .expect("expected canonical request r2");
+    request.outcome = "error".to_owned();
+
+    let report = build_parity_report(&native, &tracing);
+    assert!(
+        report
+            .run
+            .mismatches
+            .iter()
+            .any(|mismatch| mismatch.contains("outcome mismatch for request r2")),
+        "expected outcome mismatch, got {:?}",
+        report.run.mismatches
     );
 }
