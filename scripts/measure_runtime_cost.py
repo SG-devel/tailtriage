@@ -366,6 +366,41 @@ def _validate_sanity(summary: dict) -> None:
         raise SystemExit("tracing_light_tokio_sampler must include sampler metadata")
     if abs_m["tracing_light_drop_path"]["drop_path_signal_present_rounds"] <= 0:
         raise SystemExit("tracing_light_drop_path must include drop-path signal")
+    ratios = summary["tracing_vs_native_ratios"]
+    required_ratio_keys = (
+        "tracing_light_vs_core_light_latency_p95",
+        "tracing_light_vs_core_light_throughput",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput",
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95",
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput",
+    )
+    for key in required_ratio_keys:
+        value = ratios.get(key)
+        if value is None:
+            raise SystemExit(f"{key} is required and cannot be null (likely zero/missing denominator)")
+        if value != value or value in (float("inf"), float("-inf")):
+            raise SystemExit(f"{key} must be finite (not NaN or infinity)")
+    if ratios["tracing_light_vs_core_light_latency_p95"] > 20:
+        raise SystemExit("tracing_light_vs_core_light_latency_p95 exceeds catastrophic threshold (>20x)")
+    if ratios["tracing_light_vs_core_light_throughput"] < 0.05:
+        raise SystemExit("tracing_light_vs_core_light_throughput is below catastrophic threshold (<0.05x)")
+    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95"] > 20:
+        raise SystemExit(
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95 exceeds catastrophic threshold (>20x)"
+        )
+    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput"] < 0.05:
+        raise SystemExit(
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput is below catastrophic threshold (<0.05x)"
+        )
+    if ratios["tracing_light_drop_path_vs_core_light_drop_path_latency_p95"] > 20:
+        raise SystemExit(
+            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95 exceeds catastrophic threshold (>20x)"
+        )
+    if ratios["tracing_light_drop_path_vs_core_light_drop_path_throughput"] < 0.05:
+        raise SystemExit(
+            "tracing_light_drop_path_vs_core_light_drop_path_throughput is below catastrophic threshold (<0.05x)"
+        )
 
 
 def build_release_binary(root_dir: Path) -> Path:

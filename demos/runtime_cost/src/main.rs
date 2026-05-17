@@ -12,7 +12,7 @@ use tailtriage_tracing::tokio::TracingTokioSession;
 use tailtriage_tracing::TracingRecorder;
 use tokio::sync::{Mutex, Semaphore};
 use tracing::Instrument;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::layer::SubscriberExt;
 
 const DEFAULT_REQUESTS: usize = 800;
 const DEFAULT_CONCURRENCY: usize = 32;
@@ -178,9 +178,8 @@ async fn main() -> anyhow::Result<()> {
     let mut backend = build_backend(&cli)?;
     let (mut latencies, elapsed) = run_requests(&cli, &backend).await?;
     let finalize_start = Instant::now();
-    let run = finalize_backend(&mut backend).await?;
+    let (run, artifact_path) = finalize_backend_and_write_artifact(&cli, &mut backend).await?;
     let artifact_finalize_ms = finalize_start.elapsed().as_secs_f64() * 1000.0;
-    let artifact_path = write_run_artifact(&cli, run.as_ref())?;
     let analyze_start = Instant::now();
     let (analyze_ms, report_render_ms) = if let Some(ref run_value) = run {
         let report = try_analyze_run(run_value, AnalyzeOptions::default())?;
@@ -291,11 +290,12 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
             if cli.mode.uses_runtime_sampler() {
                 let session = TracingTokioSession::builder("runtime_cost_demo")
                     .strict(false)
-                    .max_open_spans(64)
-                    .max_completed_spans(64)
                     .start()?;
                 // One mode runs per process in this demo, so process-global subscriber init is acceptable.
-                tracing_subscriber::registry().with(session.layer()).init();
+                tracing::subscriber::set_global_default(
+                    tracing_subscriber::registry().with(session.layer()),
+                )
+                .map_err(|e| anyhow!("failed installing tracing Tokio session subscriber: {e}"))?;
                 Ok(Backend::TracingTokio { session })
             } else {
                 let mut b = TracingRecorder::builder("runtime_cost_demo").strict(false);
@@ -304,16 +304,22 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
                 }
                 let rec = b.build();
                 // One mode runs per process in this demo, so process-global subscriber init is acceptable.
-                tracing_subscriber::registry().with(rec.layer()).init();
+                tracing::subscriber::set_global_default(
+                    tracing_subscriber::registry().with(rec.layer()),
+                )
+                .map_err(|e| anyhow!("failed installing tracing recorder subscriber: {e}"))?;
                 Ok(Backend::TracingRecorder { rec })
             }
         }
     }
 }
 
-async fn finalize_backend(b: &mut Backend) -> anyhow::Result<Option<Run>> {
-    match std::mem::replace(b, Backend::None) {
-        Backend::None => Ok(None),
+async fn finalize_backend_and_write_artifact(
+    cli: &Cli,
+    b: &mut Backend,
+) -> anyhow::Result<(Option<Run>, Option<String>)> {
+    let run = match std::mem::replace(b, Backend::None) {
+        Backend::None => None,
         Backend::Native {
             tailtriage,
             sampler,
@@ -323,11 +329,13 @@ async fn finalize_backend(b: &mut Backend) -> anyhow::Result<Option<Run>> {
             }
             let run = tailtriage.snapshot();
             tailtriage.shutdown()?;
-            Ok(Some(run))
+            Some(run)
         }
-        Backend::TracingRecorder { rec } => Ok(Some(rec.shutdown()?.into_parts().0)),
-        Backend::TracingTokio { session } => Ok(Some(session.shutdown().await?.into_parts().0)),
-    }
+        Backend::TracingRecorder { rec } => Some(rec.shutdown()?.into_parts().0),
+        Backend::TracingTokio { session } => Some(session.shutdown().await?.into_parts().0),
+    };
+    let artifact_path = write_run_artifact(cli, run.as_ref())?;
+    Ok((run, artifact_path))
 }
 fn write_run_artifact(cli: &Cli, run: Option<&Run>) -> anyhow::Result<Option<String>> {
     let Some(run) = run else { return Ok(None) };
