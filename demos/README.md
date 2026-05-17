@@ -8,10 +8,10 @@ The demos are educational scenario artifacts. They teach triage situations, whil
 
 Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
 
-## Instrumentation mode note (queue/downstream only)
+## Instrumentation mode note (current tracing parity scope)
 
-- `queue_service` and `downstream_service` accept `--instrumentation native|tracing` (default `native`).
-- This validates instrumentation parity for request/stage evidence (and queue evidence for `queue_service`) while still producing standard Run JSON for CLI analysis.
+- `queue_service`, `downstream_service`, `mixed_contention_service`, `cold_start_burst_service`, `db_pool_saturation_service`, `shared_state_lock_service`, and `retry_storm_service` accept `--instrumentation native|tracing` (default `native`).
+- This validates instrumentation parity for request/stage/queue evidence where applicable while still producing standard Run JSON for CLI analysis.
 - This tracing demo mode is not OTel/OTLP and not an observability backend.
 - Suspects in parity runs remain triage leads, not proof of root cause.
 
@@ -325,3 +325,6 @@ These remain useful and should stay documented, but docs should treat them as mo
 - executor-pressure suspect evidence
 - runnable queue-depth signals
 - contrast with blocking-depth evidence
+
+- Tracing inflight snapshots are out of scope for this phase; native inflight behavior remains unchanged.
+- Runtime-sensitive tracing parity for blocking/executor demos is handled separately with Tokio runtime sampler coupling.

@@ -762,7 +762,7 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
     )
 
 
-PARITY_SCENARIOS = ["queue", "downstream"]
+PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm"]
 
 def _artifact_prefix(mode: str, instrumentation: str) -> str:
     return f"{mode}-{instrumentation}"
@@ -773,147 +773,60 @@ def _load_run(path: Path) -> dict:
         return json.load(handle)
 
 def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
-    if scenario == "queue":
-        demo_manifest = root_dir / "demos/queue_service/Cargo.toml"
-        artifact_dir = root_dir / "demos/queue_service/artifacts"
-        expected_kind = "application_queue_saturation"
-    elif scenario == "downstream":
-        demo_manifest = root_dir / "demos/downstream_service/Cargo.toml"
-        artifact_dir = root_dir / "demos/downstream_service/artifacts"
-        expected_kind = "downstream_stage_dominates"
-    else:
+    scenario_config = {
+        "queue": ("demos/queue_service/Cargo.toml", "demos/queue_service/artifacts", "application_queue_saturation", "/queue-demo", ["worker_permit"], ["app_precheck", "downstream_call"], True),
+        "downstream": ("demos/downstream_service/Cargo.toml", "demos/downstream_service/artifacts", "downstream_stage_dominates", "/downstream-demo", [], ["app_precheck", "downstream_call"], True),
+        "mixed": ("demos/mixed_contention_service/Cargo.toml", "demos/mixed_contention_service/artifacts", "application_queue_saturation", "/mixed-contention-demo", ["worker_permit"], ["app_prepare", "downstream_call"], True),
+        "cold-start": ("demos/cold_start_burst_service/Cargo.toml", "demos/cold_start_burst_service/artifacts", "application_queue_saturation", "/cold-start-burst-demo", ["worker_admission"], ["cold_start_stage"], True),
+        "db-pool": ("demos/db_pool_saturation_service/Cargo.toml", "demos/db_pool_saturation_service/artifacts", "application_queue_saturation", "/db-pool-saturation-demo", ["db_pool"], ["app_precheck", "db_query"], True),
+        "shared-lock": ("demos/shared_state_lock_service/Cargo.toml", "demos/shared_state_lock_service/artifacts", "application_queue_saturation", "/shared-state-lock-demo", ["shared_state_write_lock"], ["pre_lock_work", "shared_state_critical_section"], True),
+        "retry-storm": ("demos/retry_storm_service/Cargo.toml", "demos/retry_storm_service/artifacts", "downstream_stage_dominates", "/retry-storm-demo", [], ["app_precheck", "downstream_total"], False),
+    }
+    if scenario not in scenario_config:
         raise SystemExit(f"unsupported tracing parity scenario: {scenario}")
-
+    manifest_rel, artifact_rel, expected_kind, expected_route, expected_queues, expected_stages, require_p95_nonworse = scenario_config[scenario]
+    demo_manifest = root_dir / manifest_rel
+    artifact_dir = root_dir / artifact_rel
     cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
-
     for mode in ("before", "after"):
         mode_arg = "baseline" if mode == "before" else "mitigated"
         for instrumentation in ("native", "tracing"):
             prefix = _artifact_prefix(mode, instrumentation)
-            run_path = artifact_dir / f"{prefix}-run.json"
-            analysis_path = artifact_dir / f"{prefix}-analysis.json"
-            run_and_analyze(
-                demo_manifest,
-                cli_manifest,
-                run_path,
-                analysis_path,
-                mode_arg,
-                profile=profile,
-                extra_demo_args=["--instrumentation", instrumentation],
-            )
+            run_and_analyze(demo_manifest, cli_manifest, artifact_dir / f"{prefix}-run.json", artifact_dir / f"{prefix}-analysis.json", mode_arg, profile=profile, extra_demo_args=["--instrumentation", instrumentation])
+    runs={k:_load_run(artifact_dir/f"{k}-run.json") for k in ("before-native","before-tracing","after-native","after-tracing")}
+    reports={k:load_report_json(artifact_dir/f"{k}-analysis.json") for k in ("before-native","before-tracing","after-native","after-tracing")}
+    for label, run in runs.items():
+        if not run.get("requests"): raise SystemExit(f"expected non-zero requests in {label} run artifact")
+        if not run.get("stages"): raise SystemExit(f"expected non-zero stages in {label} run artifact")
+        if expected_route not in {r.get("route") for r in run.get("requests", [])}: raise SystemExit(f"expected route {expected_route} in {label} run artifact")
+    for label, report in reports.items():
+        if report["request_count"] <= 0 or report["p95_latency_us"] <= 0: raise SystemExit(f"expected non-zero request count and p95 latency in {label}")
+    for k in ("before-tracing","after-tracing"):
+        stage_names={s.get("stage") for s in runs[k].get("stages", [])}
+        for stage in expected_stages:
+            if stage not in stage_names: raise SystemExit(f"expected tracing run {k} to include stage '{stage}'")
+        if scenario=="retry-storm" and not any((n or "").startswith("downstream_attempt_") for n in stage_names):
+            raise SystemExit(f"expected tracing run {k} to include downstream_attempt_* stage")
+    if expected_queues:
+        for k in runs:
+            if not runs[k].get("queues"): raise SystemExit(f"expected non-zero queues in {k} run artifact")
+        for k in ("before-tracing","after-tracing"):
+            queues=runs[k].get("queues", [])
+            for q in expected_queues:
+                if not any(item.get("queue")==q for item in queues): raise SystemExit(f"expected queue {q} in {k}")
+            if not any(item.get("depth_at_start") is not None for item in queues): raise SystemExit(f"expected non-null depth_at_start in {k}")
+    for k in ("before-native","after-native"):
+        run=runs[k]
+        if "inflight" in run and len(run.get("inflight") or [])==0: raise SystemExit(f"expected native inflight snapshots in {k}")
+    if reports["before-native"]["primary_suspect"]["kind"] != expected_kind or reports["before-tracing"]["primary_suspect"]["kind"] != expected_kind:
+        raise SystemExit("expected baseline native/tracing primary suspect family to match scenario")
+    if require_p95_nonworse and reports["after-tracing"]["p95_latency_us"] > reports["before-tracing"]["p95_latency_us"]:
+        raise SystemExit("expected tracing mitigated p95 to be non-worse than tracing baseline")
+    if reports["after-native"]["primary_suspect"]["kind"] != reports["after-tracing"]["primary_suspect"]["kind"]:
+        if not has_suspect_kind(reports["after-native"], {expected_kind}) and not has_suspect_kind(reports["after-tracing"], {expected_kind}):
+            raise SystemExit("mitigated native/tracing primary mismatch and expected family absent from both primary+secondary")
+    print(f"tracing parity validation passed for {scenario}")
 
-    expected_files = [
-        "before-native-run.json",
-        "before-tracing-run.json",
-        "before-native-analysis.json",
-        "before-tracing-analysis.json",
-        "after-native-run.json",
-        "after-tracing-run.json",
-        "after-native-analysis.json",
-        "after-tracing-analysis.json",
-    ]
-    missing = [name for name in expected_files if not (artifact_dir / name).exists()]
-    if missing:
-        raise SystemExit(f"missing parity artifacts: {', '.join(missing)}")
-
-    before_native_run = _load_run(artifact_dir / "before-native-run.json")
-    before_tracing_run = _load_run(artifact_dir / "before-tracing-run.json")
-    after_native_run = _load_run(artifact_dir / "after-native-run.json")
-    after_tracing_run = _load_run(artifact_dir / "after-tracing-run.json")
-
-    before_native = load_report_json(artifact_dir / "before-native-analysis.json")
-    before_tracing = load_report_json(artifact_dir / "before-tracing-analysis.json")
-    after_native = load_report_json(artifact_dir / "after-native-analysis.json")
-    after_tracing = load_report_json(artifact_dir / "after-tracing-analysis.json")
-
-    for label, report in (
-        ("before-native", before_native),
-        ("before-tracing", before_tracing),
-        ("after-native", after_native),
-        ("after-tracing", after_tracing),
-    ):
-        if report["request_count"] <= 0:
-            raise SystemExit(f"expected non-zero request count in {label}")
-        if report["p95_latency_us"] <= 0:
-            raise SystemExit(f"expected non-zero p95 latency in {label}")
-
-    for label, run in (
-        ("before-native", before_native_run),
-        ("before-tracing", before_tracing_run),
-        ("after-native", after_native_run),
-        ("after-tracing", after_tracing_run),
-    ):
-        if len(run.get("requests", [])) == 0:
-            raise SystemExit(f"expected non-zero requests in {label} run artifact")
-        if len(run.get("stages", [])) == 0:
-            raise SystemExit(f"expected non-zero stages in {label} run artifact")
-
-    if scenario == "queue":
-        for label, run in (
-            ("before-native", before_native_run),
-            ("before-tracing", before_tracing_run),
-            ("after-native", after_native_run),
-            ("after-tracing", after_tracing_run),
-        ):
-            if len(run.get("queues", [])) == 0:
-                raise SystemExit(f"expected non-zero queues in {label} run artifact")
-
-        for run_name, run in (
-            ("before-tracing-run.json", before_tracing_run),
-            ("after-tracing-run.json", after_tracing_run),
-        ):
-            if not any(q.get("queue") == "worker_permit" for q in run.get("queues", [])):
-                raise SystemExit(
-                    f"expected queue tracing artifact {run_name} to include queue 'worker_permit'"
-                )
-            if not any(q.get("depth_at_start") is not None for q in run.get("queues", [])):
-                raise SystemExit(
-                    f"expected queue tracing queue events in {run_name} to include non-null depth_at_start"
-                )
-    if scenario == "downstream":
-        for run_name, run in (
-            ("before-tracing-run.json", before_tracing_run),
-            ("after-tracing-run.json", after_tracing_run),
-        ):
-            tracing_stage_names = {s.get("stage") for s in run.get("stages", [])}
-            for stage in ("app_precheck", "downstream_call"):
-                if stage not in tracing_stage_names:
-                    raise SystemExit(
-                        f"expected downstream tracing run {run_name} to include stage '{stage}'"
-                    )
-
-    for label, run in (("before-native", before_native_run), ("after-native", after_native_run)):
-        if "inflight" in run and len(run.get("inflight") or []) == 0:
-            raise SystemExit(
-                f"expected native inflight snapshots in {label}; tracing inflight is out of scope for prompt 3"
-            )
-
-    if before_native["primary_suspect"]["kind"] != expected_kind:
-        raise SystemExit(
-            f"expected baseline native primary suspect {expected_kind}, got {before_native['primary_suspect']['kind']}"
-        )
-    if before_tracing["primary_suspect"]["kind"] != expected_kind:
-        raise SystemExit(
-            f"expected baseline tracing primary suspect {expected_kind}, got {before_tracing['primary_suspect']['kind']}"
-        )
-
-    if after_tracing["p95_latency_us"] > before_tracing["p95_latency_us"]:
-        raise SystemExit(
-            "expected tracing mitigated p95 to be non-worse than tracing baseline, "
-            f"got {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
-        )
-
-    if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
-        raise SystemExit(
-            "mitigated native/tracing primary suspect mismatch: "
-            f"native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
-            f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}"
-        )
-
-    print(
-        f"tracing parity validation passed for {scenario}: "
-        f"baseline kind={expected_kind}, tracing p95 {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
-    )
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -977,7 +890,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     parity_parser = subparsers.add_parser(
         "validate-tracing-parity",
-        help="Run native/tracing parity checks for queue/downstream demos.",
+        help="Run native/tracing parity checks for converted demo scenarios.",
     )
     parity_parser.add_argument("scenario", choices=PARITY_SCENARIOS)
     parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")

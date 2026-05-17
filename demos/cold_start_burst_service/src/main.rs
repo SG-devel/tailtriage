@@ -1,11 +1,9 @@
+use anyhow::Context;
+use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-
-use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
 use tokio::sync::Semaphore;
-
 struct ModeSettings {
     service_capacity: usize,
     offered_requests: u64,
@@ -15,7 +13,6 @@ struct ModeSettings {
     inter_arrival_pause_every: u64,
     inter_arrival_delay: Duration,
 }
-
 impl ModeSettings {
     fn for_mode(mode: DemoMode) -> Self {
         match mode {
@@ -39,7 +36,6 @@ impl ModeSettings {
             },
         }
     }
-
     fn stage_delay_for(&self, request_number: u64) -> Duration {
         if request_number < self.cold_start_cohort {
             self.steady_stage_delay + self.warmup_extra_delay
@@ -48,68 +44,57 @@ impl ModeSettings {
         }
     }
 }
-
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
     let args =
         parse_demo_args("demos/cold_start_burst_service/artifacts/cold-start-burst-run.json")?;
     let settings = ModeSettings::for_mode(args.mode);
-
-    let tailtriage = init_collector("cold_start_burst_service_demo", &args.output_path)?;
-
+    let instrumentation = Arc::new(DemoInstrumentation::new(
+        "cold_start_burst_service_demo",
+        &args.output_path,
+        args.instrumentation,
+    )?);
     let semaphore = Arc::new(Semaphore::new(settings.service_capacity));
     let waiting_depth = Arc::new(AtomicU64::new(0));
-
-    let task_capacity = usize::try_from(settings.offered_requests)?;
-    let mut tasks = Vec::with_capacity(task_capacity);
-
+    let mut tasks = Vec::with_capacity(usize::try_from(settings.offered_requests)?);
     for request_number in 0..settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let instrumentation = Arc::clone(&instrumentation);
         let semaphore = Arc::clone(&semaphore);
         let waiting_depth = Arc::clone(&waiting_depth);
         let stage_delay = settings.stage_delay_for(request_number);
-
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
-                "/cold-start-burst-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
-
-            {
-                let _inflight = request.inflight("cold_start_burst_inflight");
-
-                let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                let permit = request
-                    .queue("worker_admission")
-                    .with_depth_at_start(depth)
-                    .await_on(semaphore.acquire())
-                    .await
-                    .expect("semaphore should remain open");
-                waiting_depth.fetch_sub(1, Ordering::SeqCst);
-
-                let _permit = permit;
-
-                request
-                    .stage("cold_start_stage")
-                    .await_value(tokio::time::sleep(stage_delay))
-                    .await;
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+            instrumentation
+                .run_request(
+                    "/cold-start-burst-demo",
+                    request_id,
+                    tailtriage_core::Outcome::Ok,
+                    |request| async move {
+                        let _inflight = request.inflight("cold_start_burst_inflight");
+                        let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
+                        let permit = request
+                            .queue_wait("worker_admission", depth, semaphore.acquire())
+                            .await
+                            .expect("semaphore should remain open");
+                        waiting_depth.fetch_sub(1, Ordering::SeqCst);
+                        let _permit = permit;
+                        request
+                            .stage("cold_start_stage", tokio::time::sleep(stage_delay))
+                            .await;
+                    },
+                )
+                .await;
         }));
-
         if request_number % settings.inter_arrival_pause_every == 0 {
             tokio::time::sleep(settings.inter_arrival_delay).await;
         }
     }
-
     for task in tasks {
         task.await.context("request task panicked")?;
     }
-
-    tailtriage.shutdown()?;
+    Arc::into_inner(instrumentation)
+        .expect("single owner at shutdown")
+        .shutdown(&args.output_path)?;
     println!("wrote {}", args.output_path.display());
-
     Ok(())
 }

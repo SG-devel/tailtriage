@@ -2,8 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
-use tailtriage_core::RequestHandle;
+use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode, DemoRequest};
 
 #[derive(Clone, Copy)]
 struct ModeSettings {
@@ -52,80 +51,65 @@ enum DownstreamResult {
     Ok,
     Err,
 }
-
 fn attempt_stage_name(attempt: u8) -> String {
     format!("downstream_attempt_{}", attempt + 1)
 }
-
 fn deterministic_jitter(request_number: u64, attempt: u8, divisor: u64) -> Duration {
     if divisor == 0 {
         return Duration::ZERO;
     }
-
-    let bucket = (request_number + u64::from(attempt)) % divisor;
-    Duration::from_millis(bucket)
+    Duration::from_millis((request_number + u64::from(attempt)) % divisor)
 }
-
 fn downstream_outcome(request_number: u64, attempt: u8) -> (Duration, DownstreamResult) {
     if request_number.is_multiple_of(5) && attempt < 2 {
         return (Duration::from_millis(12), DownstreamResult::Err);
     }
-
     if request_number.is_multiple_of(7) && attempt == 0 {
         return (Duration::from_millis(26), DownstreamResult::Ok);
     }
-
     if request_number.is_multiple_of(11) && attempt == 0 {
         return (Duration::from_millis(16), DownstreamResult::Err);
     }
-
     (Duration::from_millis(6), DownstreamResult::Ok)
 }
 
 async fn run_downstream_with_retries(
-    request: &RequestHandle<'_>,
+    request: &DemoRequest,
     request_number: u64,
     settings: ModeSettings,
 ) {
     let mut consecutive_failures = 0_u8;
-
     for attempt in 0..=settings.max_retries {
         let stage = attempt_stage_name(attempt);
         let (latency, outcome) = downstream_outcome(request_number, attempt);
-
         let succeeded = request
-            .stage(stage)
-            .await_value(async {
+            .stage(&stage, async {
                 tokio::time::sleep(latency).await;
                 matches!(outcome, DownstreamResult::Ok)
             })
             .await;
-
         if succeeded {
             return;
         }
-
         consecutive_failures = consecutive_failures.saturating_add(1);
         if attempt == settings.max_retries {
             return;
         }
-
         if consecutive_failures >= settings.breaker_fail_threshold {
             request
-                .stage("retry_circuit_open")
-                .await_value(tokio::time::sleep(settings.breaker_cooldown))
+                .stage(
+                    "retry_circuit_open",
+                    tokio::time::sleep(settings.breaker_cooldown),
+                )
                 .await;
             return;
         }
-
         let backoff = settings
             .retry_backoff_base
             .saturating_mul(u32::from(attempt) + 1)
             + deterministic_jitter(request_number, attempt, settings.jitter_divisor);
-
         request
-            .stage("retry_backoff_wait")
-            .await_value(tokio::time::sleep(backoff))
+            .stage("retry_backoff_wait", tokio::time::sleep(backoff))
             .await;
     }
 }
@@ -134,55 +118,51 @@ async fn run_downstream_with_retries(
 async fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/retry_storm_service/artifacts/retry-storm-run.json")?;
     let mode_settings = ModeSettings::for_mode(args.mode);
-
-    let tailtriage = init_collector("retry_storm_service_demo", &args.output_path)?;
-
+    let instrumentation = Arc::new(DemoInstrumentation::new(
+        "retry_storm_service_demo",
+        &args.output_path,
+        args.instrumentation,
+    )?);
     let capacity = usize::try_from(mode_settings.offered_requests)?;
     let mut tasks = Vec::with_capacity(capacity);
-
     for request_number in 0..mode_settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let instrumentation = Arc::clone(&instrumentation);
         let settings = mode_settings;
-
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
-                "/retry-storm-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id),
-            );
-            let request = started.handle.clone();
-
-            {
-                let _inflight = request.inflight("retry_storm_inflight");
-
-                request
-                    .stage("app_precheck")
-                    .await_value(tokio::time::sleep(settings.app_precheck_delay))
-                    .await;
-
-                request
-                    .stage("downstream_total")
-                    .await_value(run_downstream_with_retries(
-                        &request,
-                        request_number,
-                        settings,
-                    ))
-                    .await;
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+            instrumentation
+                .run_request(
+                    "/retry-storm-demo",
+                    request_id,
+                    tailtriage_core::Outcome::Ok,
+                    |request| async move {
+                        let _inflight = request.inflight("retry_storm_inflight");
+                        request
+                            .stage(
+                                "app_precheck",
+                                tokio::time::sleep(settings.app_precheck_delay),
+                            )
+                            .await;
+                        request
+                            .stage(
+                                "downstream_total",
+                                run_downstream_with_retries(&request, request_number, settings),
+                            )
+                            .await;
+                    },
+                )
+                .await;
         }));
-
         if request_number % mode_settings.inter_arrival_pause_every == 0 {
             tokio::time::sleep(mode_settings.inter_arrival_delay).await;
         }
     }
-
     for task in tasks {
         task.await.context("request task panicked")?;
     }
-
-    tailtriage.shutdown()?;
+    Arc::into_inner(instrumentation)
+        .expect("single owner at shutdown")
+        .shutdown(&args.output_path)?;
     println!("wrote {}", args.output_path.display());
-
     Ok(())
 }
