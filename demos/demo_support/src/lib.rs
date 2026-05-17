@@ -1,4 +1,3 @@
-#![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,6 +20,13 @@ pub enum DemoMode {
 }
 
 impl DemoMode {
+    /// Parse a positional mode argument into a demo mode.
+    ///
+    /// Accepts legacy aliases so existing demo commands continue to work.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the provided mode string is not supported.
     pub fn from_arg(value: Option<&String>) -> anyhow::Result<Self> {
         match value.map(String::as_str) {
             None | Some("baseline" | "before") => Ok(Self::Baseline),
@@ -39,6 +45,7 @@ pub enum InstrumentationMode {
 }
 
 impl InstrumentationMode {
+    /// Parse the `--instrumentation` mode argument.
     fn from_arg(value: Option<&str>) -> anyhow::Result<Self> {
         match value {
             None | Some("native") => Ok(Self::Native),
@@ -57,6 +64,11 @@ pub struct DemoArgs {
     pub instrumentation: InstrumentationMode,
 }
 
+/// Parse demo CLI args for output path, mode, and instrumentation backend.
+///
+/// # Errors
+///
+/// Returns an error for unsupported arguments or when output directory creation fails.
 pub fn parse_demo_args(default_output_path: &str) -> anyhow::Result<DemoArgs> {
     {
         let args: Vec<String> = std::env::args().skip(1).collect();
@@ -112,6 +124,11 @@ fn parse_demo_args_from(
     })
 }
 
+/// Parse demo output path from argv, preserving legacy positional behavior.
+///
+/// # Errors
+///
+/// Returns an error when creating the output artifact parent directory fails.
 pub fn parse_output_arg(default_output_path: &str) -> anyhow::Result<PathBuf> {
     let output_path = std::env::args()
         .nth(1)
@@ -155,6 +172,14 @@ struct TracingRequest {
 }
 
 impl DemoInstrumentation {
+    /// Build demo instrumentation for either native or tracing capture.
+    ///
+    /// Native mode writes through `tailtriage-core`. Tracing mode records spans
+    /// and converts them to a run artifact at shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when backend initialization fails.
     pub fn new(
         service_name: &str,
         output_path: &Path,
@@ -170,6 +195,9 @@ impl DemoInstrumentation {
             InstrumentationMode::Tracing => {
                 let recorder = TracingRecorder::builder(service_name).strict(false).build();
                 let subscriber = tracing_subscriber::registry().with(recorder.layer());
+                // Demo binaries run one instrumentation backend per process, so installing a
+                // global subscriber is acceptable here. Do not reuse this helper in libraries
+                // or tests that need multiple subscribers in one process.
                 tracing::subscriber::set_global_default(subscriber)
                     .map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
                 Ok(Self {
@@ -179,8 +207,14 @@ impl DemoInstrumentation {
         }
     }
 
-    pub async fn run_request<F, Fut>(&self, route: &str, request_id: String, outcome: &str, body: F)
-    where
+    /// Run one request lifecycle with request-level instrumentation.
+    pub async fn run_request<F, Fut>(
+        &self,
+        route: &str,
+        request_id: String,
+        outcome: tailtriage_core::Outcome,
+        body: F,
+    ) where
         F: FnOnce(DemoRequest) -> Fut,
         Fut: Future<Output = ()>,
     {
@@ -194,20 +228,23 @@ impl DemoInstrumentation {
                     inner: DemoRequestInner::Native(started.handle.clone()),
                 };
                 body(request).await;
-                let native_outcome = if outcome == "ok" {
-                    tailtriage_core::Outcome::Ok
-                } else {
-                    tailtriage_core::Outcome::Error
-                };
-                started.completion.finish(native_outcome);
+                started.completion.finish(outcome);
             }
             DemoInstrumentationBackend::Tracing(_) => {
+                let outcome_label = match outcome {
+                    tailtriage_core::Outcome::Ok => "ok",
+                    tailtriage_core::Outcome::Error => "error",
+                    tailtriage_core::Outcome::Timeout => "timeout",
+                    tailtriage_core::Outcome::Cancelled => "cancelled",
+                    tailtriage_core::Outcome::Rejected => "rejected",
+                    tailtriage_core::Outcome::Other(_) => "other",
+                };
                 let request_span = tracing::info_span!(
                     "tt.request",
                     tt.kind = "request",
                     tt.request_id = request_id.as_str(),
                     tt.route = route,
-                    tt.outcome = outcome
+                    tt.outcome = outcome_label
                 );
                 body(DemoRequest {
                     inner: DemoRequestInner::Tracing(TracingRequest { request_id }),
@@ -218,6 +255,11 @@ impl DemoInstrumentation {
         }
     }
 
+    /// Flush instrumentation and write the final run artifact.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when shutting down instrumentation or writing output fails.
     pub fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
         match &self.backend {
             DemoInstrumentationBackend::Native(tailtriage) => {
@@ -235,6 +277,7 @@ impl DemoInstrumentation {
 }
 
 impl DemoRequest {
+    #[must_use]
     pub fn inflight(&self, label: &str) -> Option<tailtriage_core::InflightGuard<'_>> {
         match &self.inner {
             DemoRequestInner::Native(request) => Some(request.inflight(label)),
@@ -272,14 +315,12 @@ impl DemoRequest {
         }
     }
 
-    pub async fn stage<Fut>(&self, stage: &str, future: Fut)
+    pub async fn stage<Fut>(&self, stage: &str, future: Fut) -> Fut::Output
     where
         Fut: Future,
     {
         match &self.inner {
-            DemoRequestInner::Native(request) => {
-                request.stage(stage).await_value(future).await;
-            }
+            DemoRequestInner::Native(request) => request.stage(stage).await_value(future).await,
             DemoRequestInner::Tracing(tracing_request) => {
                 let span = tracing::info_span!(
                     "tt.stage",
@@ -288,12 +329,17 @@ impl DemoRequest {
                     tt.stage = stage,
                     tt.success = true
                 );
-                future.instrument(span).await;
+                future.instrument(span).await
             }
         }
     }
 }
 
+/// Initialize a native tailtriage collector for demos.
+///
+/// # Errors
+///
+/// Returns an error when collector initialization fails.
 pub fn init_collector(service_name: &str, output_path: &Path) -> anyhow::Result<Arc<Tailtriage>> {
     let collector = Tailtriage::builder(service_name)
         .output(output_path)

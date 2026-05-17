@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode};
+use tailtriage_core::Outcome;
 use tokio::sync::Semaphore;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -53,20 +54,25 @@ async fn main() -> anyhow::Result<()> {
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
             instrumentation
-                .run_request("/queue-demo", request_id, "ok", |request| async move {
-                    let _inflight = request.inflight("queue_service_inflight");
-                    let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
-                    let permit = request
-                        .queue_wait("worker_permit", depth, semaphore.acquire())
-                        .await
-                        .expect("semaphore should remain open");
-                    waiting_depth.fetch_sub(1, Ordering::SeqCst);
+                .run_request(
+                    "/queue-demo",
+                    request_id,
+                    Outcome::Ok,
+                    |request| async move {
+                        let _inflight = request.inflight("queue_service_inflight");
+                        let depth = waiting_depth.fetch_add(1, Ordering::SeqCst) + 1;
+                        let permit = request
+                            .queue_wait("worker_permit", depth, semaphore.acquire())
+                            .await
+                            .expect("semaphore should remain open");
+                        waiting_depth.fetch_sub(1, Ordering::SeqCst);
 
-                    let _permit = permit;
-                    request
-                        .stage("simulated_work", tokio::time::sleep(work_duration))
-                        .await;
-                })
+                        let _permit = permit;
+                        request
+                            .stage("simulated_work", tokio::time::sleep(work_duration))
+                            .await;
+                    },
+                )
                 .await;
         }));
 

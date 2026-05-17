@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode};
+use tailtriage_core::Outcome;
 
 #[derive(Clone, Copy)]
 struct DownstreamSettings {
@@ -47,21 +48,26 @@ async fn main() -> anyhow::Result<()> {
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
             instrumentation
-                .run_request("/downstream-demo", request_id, "ok", |request| async move {
-                    let _inflight = request.inflight("downstream_service_inflight");
-                    request
-                        .stage(
-                            "app_precheck",
-                            tokio::time::sleep(settings.app_precheck_delay),
-                        )
-                        .await;
-                    request
-                        .stage(
-                            "downstream_call",
-                            tokio::time::sleep(settings.downstream_delay),
-                        )
-                        .await;
-                })
+                .run_request(
+                    "/downstream-demo",
+                    request_id,
+                    Outcome::Ok,
+                    |request| async move {
+                        let _inflight = request.inflight("downstream_service_inflight");
+                        request
+                            .stage(
+                                "app_precheck",
+                                tokio::time::sleep(settings.app_precheck_delay),
+                            )
+                            .await;
+                        request
+                            .stage(
+                                "downstream_call",
+                                tokio::time::sleep(settings.downstream_delay),
+                            )
+                            .await;
+                    },
+                )
                 .await;
         }));
 

@@ -16,6 +16,7 @@ from _demo_runner import (
     variant_paths,
     write_before_after_comparison,
 )
+import json
 
 EXPECTED_QUEUE_KIND = {"application_queue_saturation"}
 EXPECTED_BLOCKING_KIND = {"blocking_pool_pressure"}
@@ -766,6 +767,11 @@ PARITY_SCENARIOS = ["queue", "downstream"]
 def _artifact_prefix(mode: str, instrumentation: str) -> str:
     return f"{mode}-{instrumentation}"
 
+
+def _load_run(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
 def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "dev") -> None:
     if scenario == "queue":
         demo_manifest = root_dir / "demos/queue_service/Cargo.toml"
@@ -796,6 +802,25 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
                 extra_demo_args=["--instrumentation", instrumentation],
             )
 
+    expected_files = [
+        "before-native-run.json",
+        "before-tracing-run.json",
+        "before-native-analysis.json",
+        "before-tracing-analysis.json",
+        "after-native-run.json",
+        "after-tracing-run.json",
+        "after-native-analysis.json",
+        "after-tracing-analysis.json",
+    ]
+    missing = [name for name in expected_files if not (artifact_dir / name).exists()]
+    if missing:
+        raise SystemExit(f"missing parity artifacts: {', '.join(missing)}")
+
+    before_native_run = _load_run(artifact_dir / "before-native-run.json")
+    before_tracing_run = _load_run(artifact_dir / "before-tracing-run.json")
+    after_native_run = _load_run(artifact_dir / "after-native-run.json")
+    after_tracing_run = _load_run(artifact_dir / "after-tracing-run.json")
+
     before_native = load_report_json(artifact_dir / "before-native-analysis.json")
     before_tracing = load_report_json(artifact_dir / "before-tracing-analysis.json")
     after_native = load_report_json(artifact_dir / "after-native-analysis.json")
@@ -811,6 +836,47 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
             raise SystemExit(f"expected non-zero request count in {label}")
         if report["p95_latency_us"] <= 0:
             raise SystemExit(f"expected non-zero p95 latency in {label}")
+
+    for label, run in (
+        ("before-native", before_native_run),
+        ("before-tracing", before_tracing_run),
+        ("after-native", after_native_run),
+        ("after-tracing", after_tracing_run),
+    ):
+        if len(run.get("requests", [])) == 0:
+            raise SystemExit(f"expected non-zero requests in {label} run artifact")
+        if len(run.get("stages", [])) == 0:
+            raise SystemExit(f"expected non-zero stages in {label} run artifact")
+
+    if scenario == "queue":
+        for label, run in (
+            ("before-native", before_native_run),
+            ("before-tracing", before_tracing_run),
+            ("after-native", after_native_run),
+            ("after-tracing", after_tracing_run),
+        ):
+            if len(run.get("queues", [])) == 0:
+                raise SystemExit(f"expected non-zero queues in {label} run artifact")
+
+        if not any(q.get("queue") == "worker_permit" for q in before_tracing_run.get("queues", [])):
+            raise SystemExit("expected queue tracing artifact to include queue 'worker_permit'")
+        if not any(q.get("depth_at_start") is not None for q in before_tracing_run.get("queues", [])):
+            raise SystemExit(
+                "expected queue tracing queue events to include non-null depth_at_start"
+            )
+    if scenario == "downstream":
+        tracing_stage_names = {s.get("stage") for s in before_tracing_run.get("stages", [])}
+        for stage in ("app_precheck", "downstream_call"):
+            if stage not in tracing_stage_names:
+                raise SystemExit(
+                    f"expected downstream tracing run to include stage '{stage}'"
+                )
+
+    for label, run in (("before-native", before_native_run), ("after-native", after_native_run)):
+        if "inflight" in run and len(run.get("inflight") or []) == 0:
+            raise SystemExit(
+                f"expected native inflight snapshots in {label}; tracing inflight is out of scope for prompt 3"
+            )
 
     if before_native["primary_suspect"]["kind"] != expected_kind:
         raise SystemExit(

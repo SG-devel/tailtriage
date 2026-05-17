@@ -117,11 +117,11 @@ fn native_run() -> Run {
                 .queue("permits")
                 .with_depth_at_start(3)
                 .await_on(async {
-                    thread::sleep(Duration::from_millis(if slow { 4 } else { 1 }));
+                    thread::sleep(Duration::from_millis(if slow { 12 } else { 6 }));
                 }),
         );
         block_on(started.handle.stage("db").await_on(async {
-            thread::sleep(Duration::from_millis(if slow { 6 } else { 2 }));
+            thread::sleep(Duration::from_millis(if slow { 3 } else { 1 }));
             Ok::<(), std::io::Error>(())
         }))
         .unwrap();
@@ -163,7 +163,7 @@ fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
                     );
                     {
                         let _queue_guard = queue.enter();
-                        thread::sleep(Duration::from_millis(if slow { 4 } else { 1 }));
+                        thread::sleep(Duration::from_millis(if slow { 12 } else { 6 }));
                     }
                     drop(queue);
 
@@ -176,7 +176,7 @@ fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
                     );
                     {
                         let _db_stage_guard = db_stage.enter();
-                        thread::sleep(Duration::from_millis(if slow { 6 } else { 2 }));
+                        thread::sleep(Duration::from_millis(if slow { 3 } else { 1 }));
                     }
                     drop(db_stage);
 
