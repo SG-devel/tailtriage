@@ -20,11 +20,14 @@ MODES = (
     "core_investigation_tokio_sampler",
     "core_light_drop_path",
     "core_investigation_drop_path",
+    "tracing_light",
+    "tracing_light_tokio_sampler",
+    "tracing_light_drop_path",
 )
 UNSATURATED_CORE_MODES = ("core_light", "core_investigation")
 SATURATED_DROP_PATH_MODES = ("core_light_drop_path", "core_investigation_drop_path")
 TOKIO_SAMPLER_MODES = ("core_light_tokio_sampler", "core_investigation_tokio_sampler")
-METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms")
+METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "artifact_finalize_ms", "analyze_ms", "report_render_ms", "run_requests", "run_stages", "run_queues", "runtime_snapshots", "lifecycle_warning_count")
 DEFAULT_REQUESTS = 6000
 DEFAULT_CONCURRENCY = 64
 DEFAULT_WORK_MS = 3
@@ -41,6 +44,7 @@ DELTA_VS_BASELINE_MODE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Core mode overhead", UNSATURATED_CORE_MODES),
     ("Tokio mode overhead", TOKIO_SAMPLER_MODES),
     ("Post-limit / drop-path overhead", SATURATED_DROP_PATH_MODES),
+    ("Tracing mode overhead", ("tracing_light", "tracing_light_tokio_sampler", "tracing_light_drop_path")),
 )
 
 
@@ -193,6 +197,20 @@ def assess_quality(summary: dict, measured_rounds: list[dict]) -> tuple[str, lis
     return QUALITY_STABLE, ["Measured rounds are within configured variance thresholds."]
 
 
+
+
+def safe_ratio(comparison: float, reference: float) -> float | None:
+    if reference <= 0:
+        return None
+    value = comparison / reference
+    if value != value or value in (float("inf"), float("-inf")):
+        return None
+    return value
+
+
+def median_metric(by_mode: dict[str, list[dict]], mode: str, metric: str) -> float:
+    return statistics.median([float(r[metric]) for r in by_mode[mode]])
+
 def summarize(raw_path: Path, summary_path: Path) -> dict:
     rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     measured = [row for row in rows if not row["is_warmup"]]
@@ -233,6 +251,22 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
 
     for mode in MODES:
         summary["absolute_metrics"][mode] = summarize_mode_metrics(by_mode, mode)
+
+    summary["relative_tracing_vs_native"] = {
+        "core_light_vs_baseline_latency_p95": safe_ratio(median_metric(by_mode,"core_light","latency_p95_ms"), median_metric(by_mode,"baseline","latency_p95_ms")),
+        "tracing_light_vs_baseline_latency_p95": safe_ratio(median_metric(by_mode,"tracing_light","latency_p95_ms"), median_metric(by_mode,"baseline","latency_p95_ms")),
+        "tracing_light_vs_core_light_latency_p95": safe_ratio(median_metric(by_mode,"tracing_light","latency_p95_ms"), median_metric(by_mode,"core_light","latency_p95_ms")),
+        "core_light_tokio_sampler_vs_core_light_latency_p95": safe_ratio(median_metric(by_mode,"core_light_tokio_sampler","latency_p95_ms"), median_metric(by_mode,"core_light","latency_p95_ms")),
+        "tracing_light_tokio_sampler_vs_tracing_light_latency_p95": safe_ratio(median_metric(by_mode,"tracing_light_tokio_sampler","latency_p95_ms"), median_metric(by_mode,"tracing_light","latency_p95_ms")),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": safe_ratio(median_metric(by_mode,"tracing_light_tokio_sampler","latency_p95_ms"), median_metric(by_mode,"core_light_tokio_sampler","latency_p95_ms")),
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": safe_ratio(median_metric(by_mode,"tracing_light_drop_path","latency_p95_ms"), median_metric(by_mode,"core_light_drop_path","latency_p95_ms")),
+        "tracing_light_vs_core_light_throughput": safe_ratio(median_metric(by_mode,"tracing_light","throughput_rps"), median_metric(by_mode,"core_light","throughput_rps")),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": safe_ratio(median_metric(by_mode,"tracing_light_tokio_sampler","throughput_rps"), median_metric(by_mode,"core_light_tokio_sampler","throughput_rps")),
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput": safe_ratio(median_metric(by_mode,"tracing_light_drop_path","throughput_rps"), median_metric(by_mode,"core_light_drop_path","throughput_rps")),
+        "tracing_finalize_vs_native_finalize": safe_ratio(median_metric(by_mode,"tracing_light","artifact_finalize_ms"), median_metric(by_mode,"core_light","artifact_finalize_ms")),
+        "tracing_analyze_vs_native_analyze": safe_ratio(median_metric(by_mode,"tracing_light","analyze_ms"), median_metric(by_mode,"core_light","analyze_ms")),
+        "tracing_render_vs_native_render": safe_ratio(median_metric(by_mode,"tracing_light","report_render_ms"), median_metric(by_mode,"core_light","report_render_ms")),
+    }
 
     def baseline_delta(mode: str) -> dict:
         return {
@@ -364,6 +398,19 @@ def main() -> None:
                 raw_file.write(json.dumps(measurement) + "\n")
 
     summary = summarize(raw_path, summary_path)
+
+    for mode in MODES:
+        m = summary["absolute_metrics"][mode]
+        if m["throughput_rps"]["median"] <= 0 or m["latency_p95_ms"]["median"] <= 0:
+            raise SystemExit(f"invalid median throughput/latency for mode: {mode}")
+
+    abs_metrics = summary["absolute_metrics"]
+    for required in ("core_light", "tracing_light", "tracing_light_tokio_sampler"):
+        if abs_metrics[required]["run_requests"]["median"] <= 0 or abs_metrics[required]["run_stages"]["median"] <= 0 or abs_metrics[required]["run_queues"]["median"] <= 0:
+            raise SystemExit(f"required mode has zero run counts: {required}")
+    if abs_metrics["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] <= 0:
+        raise SystemExit("tracing_light_tokio_sampler runtime snapshots must be > 0")
+
     if summary["measurement_quality"] != QUALITY_STABLE:
         print(
             f"WARNING: measurement quality is {summary['measurement_quality']}; rerun on a quieter machine for stronger conclusions.",
