@@ -887,7 +887,9 @@ dependencies = [
  "serde_json",
  "tailtriage-analyzer",
  "tailtriage-core",
+ "tailtriage-tokio",
  "tempfile",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]

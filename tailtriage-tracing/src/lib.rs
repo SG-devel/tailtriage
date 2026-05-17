@@ -31,6 +31,9 @@ mod convention;
 mod error;
 mod jsonl;
 mod recorder;
+#[cfg(feature = "tokio")]
+/// Optional Tokio runtime sampler coupling for tracing sessions.
+pub mod tokio;
 mod types;
 
 use tailtriage_core::{
