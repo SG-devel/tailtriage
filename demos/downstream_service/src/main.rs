@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
+use demo_support::{parse_demo_args, DemoInstrumentation, DemoMode};
 
 #[derive(Clone, Copy)]
 struct DownstreamSettings {
@@ -31,37 +31,38 @@ async fn main() -> anyhow::Result<()> {
     let output_path = args.output_path;
     let settings = DownstreamSettings::for_mode(args.mode);
 
-    let tailtriage = init_collector("downstream_service_demo", &output_path)?;
+    let instrumentation = Arc::new(DemoInstrumentation::new(
+        "downstream_service_demo",
+        &output_path,
+        args.instrumentation,
+    )?);
 
     let offered_requests = 80_u64;
     let task_capacity = usize::try_from(offered_requests)?;
     let mut tasks = Vec::with_capacity(task_capacity);
 
     for request_number in 0..offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let instrumentation = Arc::clone(&instrumentation);
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
-                "/downstream-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
-
-            {
-                let _inflight = request.inflight("downstream_service_inflight");
-
-                request
-                    .stage("app_precheck")
-                    .await_value(tokio::time::sleep(settings.app_precheck_delay))
-                    .await;
-
-                request
-                    .stage("downstream_call")
-                    .await_value(tokio::time::sleep(settings.downstream_delay))
-                    .await;
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+            instrumentation
+                .run_request("/downstream-demo", request_id, "ok", |request| async move {
+                    let _inflight = request.inflight("downstream_service_inflight");
+                    request
+                        .stage(
+                            "app_precheck",
+                            tokio::time::sleep(settings.app_precheck_delay),
+                        )
+                        .await;
+                    request
+                        .stage(
+                            "downstream_call",
+                            tokio::time::sleep(settings.downstream_delay),
+                        )
+                        .await;
+                })
+                .await;
         }));
 
         if request_number.is_multiple_of(8) {
@@ -73,7 +74,9 @@ async fn main() -> anyhow::Result<()> {
         task.await.context("request task panicked")?;
     }
 
-    tailtriage.shutdown()?;
+    Arc::into_inner(instrumentation)
+        .expect("no outstanding instrumentation references")
+        .shutdown(&output_path)?;
     println!("wrote {}", output_path.display());
 
     Ok(())
