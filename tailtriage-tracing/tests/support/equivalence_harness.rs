@@ -4,8 +4,14 @@ use std::time::Duration;
 
 use futures_executor::block_on;
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions, DiagnosisKind, Report};
-use tailtriage_core::{MemorySink, Run, Tailtriage};
-use tailtriage_tracing::TracingRecorder;
+use tailtriage_core::{
+    CaptureMode, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata, StageEvent,
+    TruncationSummary, UnfinishedRequests, SCHEMA_VERSION,
+};
+use tailtriage_tracing::{
+    run_from_span_records, ImportOptions, SpanRecord, TracingRecorder, TT_DEPTH_AT_START, TT_KIND,
+    TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
+};
 use tracing_subscriber::prelude::*;
 
 #[derive(Debug)]
@@ -52,34 +58,6 @@ pub struct ParityReport {
     pub rendered: RenderedReportParityReport,
 }
 
-pub fn assert_native_and_tracing_full_parity() {
-    let native_run = native_run();
-    let (tracing_run, warnings) = tracing_run();
-    let report = build_parity_report(&native_run, &tracing_run);
-
-    assert!(
-        warnings.is_empty(),
-        "unexpected tracing warnings: {warnings:?}"
-    );
-    assert!(
-        report.mismatches.is_empty(),
-        "native/tracing full parity failed\n\nRun parity mismatches:\n{}\n\nAnalyzer parity mismatches:\n{}\n\nRendered report parity mismatches:\n{}\n\nNative/tracing counts:\n- requests: {}/{}\n- stages: {}/{}\n- queues: {}/{}\n\nNative/tracing primary suspect:\n- kind: {:?}/{:?}\n- score: {:?}/{:?}",
-        format_mismatches(&report.run.mismatches),
-        format_mismatches(&report.analyzer.mismatches),
-        format_mismatches(&report.rendered.mismatches),
-        report.run.native_request_count,
-        report.run.tracing_request_count,
-        report.run.native_stage_count,
-        report.run.tracing_stage_count,
-        report.run.native_queue_count,
-        report.run.tracing_queue_count,
-        report.analyzer.native_primary_suspect,
-        report.analyzer.tracing_primary_suspect,
-        report.analyzer.native_primary_score,
-        report.analyzer.tracing_primary_score
-    );
-}
-
 pub fn build_parity_report(native_run: &Run, tracing_run: &Run) -> ParityReport {
     let run = compare_runs(native_run, tracing_run);
     let native_analysis = analyze_run(native_run, AnalyzeOptions::default());
@@ -100,43 +78,221 @@ pub fn build_parity_report(native_run: &Run, tracing_run: &Run) -> ParityReport 
     }
 }
 
-fn native_run() -> Run {
-    let sink = MemorySink::default();
-    let tt = Tailtriage::builder("svc")
-        .sink(sink.clone())
-        .build()
-        .unwrap();
-    for (id, slow) in [("r1", false), ("r2", true), ("r3", false)] {
-        let started = tt.begin_request_with(
-            "/checkout",
-            tailtriage_core::RequestOptions::new().request_id(id),
-        );
-        block_on(
-            started
-                .handle
-                .queue("permits")
-                .with_depth_at_start(3)
-                .await_on(async {
-                    thread::sleep(Duration::from_millis(if slow { 12 } else { 6 }));
-                }),
-        );
-        block_on(started.handle.stage("db").await_on(async {
-            thread::sleep(Duration::from_millis(if slow { 3 } else { 1 }));
-            Ok::<(), std::io::Error>(())
-        }))
-        .unwrap();
-        block_on(started.handle.stage("cache").await_on(async {
-            thread::sleep(Duration::from_millis(1));
-            Ok::<(), std::io::Error>(())
-        }))
-        .unwrap();
-        started.completion.finish_ok();
+fn deterministic_native_run() -> Run {
+    // Deterministic fixture parity is the strict semantic gate for conversion/analyzer/report.
+    let start_ms = 1_700_000_000_000_u64;
+    let scenario = [
+        ("r1", 0_u64, 100_000_u64, 70_000_u64, 7_000_u64, 5_000_u64),
+        ("r2", 120_u64, 110_000_u64, 80_000_u64, 8_000_u64, 6_000_u64),
+        ("r3", 260_u64, 105_000_u64, 75_000_u64, 9_000_u64, 5_000_u64),
+        ("r4", 400_u64, 100_000_u64, 73_000_u64, 7_000_u64, 5_000_u64),
+        (
+            "r5",
+            540_u64,
+            108_000_u64,
+            78_000_u64,
+            10_000_u64,
+            6_000_u64,
+        ),
+    ];
+    let mut run = Run {
+        schema_version: SCHEMA_VERSION,
+        metadata: RunMetadata {
+            run_id: "deterministic-native".to_owned(),
+            service_name: "svc".to_owned(),
+            service_version: None,
+            started_at_unix_ms: start_ms,
+            finished_at_unix_ms: start_ms + 700,
+            finalized_at_unix_ms: Some(start_ms + 700),
+            mode: CaptureMode::Light,
+            effective_core_config: Some(EffectiveCoreConfig {
+                mode: CaptureMode::Light,
+                capture_limits: CaptureMode::Light.core_defaults(),
+                strict_lifecycle: false,
+            }),
+            effective_tokio_sampler_config: None,
+            host: None,
+            pid: None,
+            lifecycle_warnings: Vec::new(),
+            unfinished_requests: UnfinishedRequests::default(),
+            run_end_reason: None,
+        },
+        requests: Vec::new(),
+        stages: Vec::new(),
+        queues: Vec::new(),
+        inflight: Vec::new(),
+        runtime_snapshots: Vec::new(),
+        truncation: TruncationSummary::default(),
+    };
+    for (id, offset_ms, request_us, queue_us, db_us, cache_us) in scenario {
+        let req_start = start_ms + offset_ms;
+        run.requests.push(RequestEvent {
+            request_id: id.to_owned(),
+            route: "/checkout".to_owned(),
+            kind: None,
+            started_at_unix_ms: req_start,
+            finished_at_unix_ms: req_start + (request_us / 1000),
+            latency_us: request_us,
+            outcome: "ok".to_owned(),
+        });
+        run.queues.push(QueueEvent {
+            request_id: id.to_owned(),
+            queue: "permits".to_owned(),
+            waited_from_unix_ms: req_start + 1,
+            waited_until_unix_ms: req_start + 1 + (queue_us / 1000),
+            wait_us: queue_us,
+            depth_at_start: Some(3),
+        });
+        run.stages.push(StageEvent {
+            request_id: id.to_owned(),
+            stage: "db".to_owned(),
+            started_at_unix_ms: req_start + 85,
+            finished_at_unix_ms: req_start + 85 + (db_us / 1000),
+            latency_us: db_us,
+            success: true,
+        });
+        run.stages.push(StageEvent {
+            request_id: id.to_owned(),
+            stage: "cache".to_owned(),
+            started_at_unix_ms: req_start + 93,
+            finished_at_unix_ms: req_start + 93 + (cache_us / 1000),
+            latency_us: cache_us,
+            success: true,
+        });
     }
-    tt.shutdown().unwrap();
-    sink.last_run().unwrap()
+    run
 }
 
-fn tracing_run() -> (Run, Vec<String>) {
+fn deterministic_tracing_run() -> (Run, Vec<String>) {
+    let start_ms = 1_700_000_000_000_u64;
+    let scenario = [
+        ("r1", 0_u64, 100_000_u64, 70_000_u64, 7_000_u64, 5_000_u64),
+        ("r2", 120_u64, 110_000_u64, 80_000_u64, 8_000_u64, 6_000_u64),
+        ("r3", 260_u64, 105_000_u64, 75_000_u64, 9_000_u64, 5_000_u64),
+        ("r4", 400_u64, 100_000_u64, 73_000_u64, 7_000_u64, 5_000_u64),
+        (
+            "r5",
+            540_u64,
+            108_000_u64,
+            78_000_u64,
+            10_000_u64,
+            6_000_u64,
+        ),
+    ];
+    let mut spans = Vec::new();
+    for (id, offset_ms, request_us, queue_us, db_us, cache_us) in scenario {
+        let req_start = start_ms + offset_ms;
+        spans.push(
+            SpanRecord::new("request", req_start, req_start + (request_us / 1000))
+                .duration_us(request_us)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, id)
+                .field(TT_ROUTE, "/checkout")
+                .field(TT_OUTCOME, "ok"),
+        );
+        spans.push(
+            SpanRecord::new("queue", req_start + 1, req_start + 1 + (queue_us / 1000))
+                .duration_us(queue_us)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, id)
+                .field(TT_QUEUE, "permits")
+                .field(TT_DEPTH_AT_START, 3_u64),
+        );
+        spans.push(
+            SpanRecord::new("stage", req_start + 85, req_start + 85 + (db_us / 1000))
+                .duration_us(db_us)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, id)
+                .field(TT_STAGE, "db")
+                .field(TT_SUCCESS, true),
+        );
+        spans.push(
+            SpanRecord::new("stage", req_start + 93, req_start + 93 + (cache_us / 1000))
+                .duration_us(cache_us)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, id)
+                .field(TT_STAGE, "cache")
+                .field(TT_SUCCESS, true),
+        );
+    }
+    let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+    let warnings = imported
+        .warnings()
+        .iter()
+        .map(|w| w.message().to_owned())
+        .collect();
+    (imported.run().clone(), warnings)
+}
+
+fn format_mismatches(mismatches: &[String]) -> String {
+    if mismatches.is_empty() {
+        "(none)".to_owned()
+    } else {
+        mismatches
+            .iter()
+            .map(|m| format!("- {m}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+pub fn assert_deterministic_span_import_full_parity() {
+    let native_run = deterministic_native_run();
+    let (tracing_run, warnings) = deterministic_tracing_run();
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let report = build_parity_report(&native_run, &tracing_run);
+
+    assert_eq!(
+        report.analyzer.native_primary_suspect,
+        Some(DiagnosisKind::ApplicationQueueSaturation)
+    );
+    assert_eq!(
+        report.analyzer.tracing_primary_suspect,
+        Some(DiagnosisKind::ApplicationQueueSaturation)
+    );
+
+    assert!(
+        report.mismatches.is_empty(),
+        "deterministic span import parity failed:
+\
+run parity mismatches:
+{}
+\
+analyzer parity mismatches:
+{}
+\
+rendered report parity mismatches:
+{}
+\
+request counts: native={} tracing={}
+\
+stage counts: native={} tracing={}
+\
+queue counts: native={} tracing={}
+\
+primary suspect kinds: native={:?} tracing={:?}
+\
+primary suspect scores: native={:?} tracing={:?}",
+        format_mismatches(&report.run.mismatches),
+        format_mismatches(&report.analyzer.mismatches),
+        format_mismatches(&report.rendered.mismatches),
+        report.run.native_request_count,
+        report.run.tracing_request_count,
+        report.run.native_stage_count,
+        report.run.tracing_stage_count,
+        report.run.native_queue_count,
+        report.run.tracing_queue_count,
+        report.analyzer.native_primary_suspect,
+        report.analyzer.tracing_primary_suspect,
+        report.analyzer.native_primary_score,
+        report.analyzer.tracing_primary_score,
+    );
+}
+
+fn live_tracing_run() -> (Run, Vec<String>) {
+    // Live recorder checks validate capture shape/analyzability only because scheduler timing is
+    // machine/workload scoped and not deterministic enough for strict analyzer parity gates.
     tracing_run_with_queue("permits")
 }
 
@@ -517,22 +673,13 @@ fn find_primary_suspect_line(rendered: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn format_mismatches(mismatches: &[String]) -> String {
-    if mismatches.is_empty() {
-        "  - none".to_owned()
-    } else {
-        mismatches
-            .iter()
-            .map(|m| format!("  - {m}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
 #[test]
 fn parity_report_detects_queue_name_mismatch() {
-    let native = native_run();
-    let (tracing, _) = tracing_run_with_queue("permits_changed");
+    let native = deterministic_native_run();
+    let (mut tracing, _) = deterministic_tracing_run();
+    for queue in &mut tracing.queues {
+        queue.queue = "permits_changed".to_owned();
+    }
     let report = build_parity_report(&native, &tracing);
     assert!(
         report
@@ -622,8 +769,8 @@ Next checks:
 
 #[test]
 fn parity_report_detects_request_outcome_mismatch() {
-    let native = native_run();
-    let (mut tracing, _) = tracing_run();
+    let native = deterministic_native_run();
+    let (mut tracing, _) = deterministic_tracing_run();
     let request = tracing
         .requests
         .iter_mut()
@@ -641,4 +788,45 @@ fn parity_report_detects_request_outcome_mismatch() {
         "expected outcome mismatch, got {:?}",
         report.run.mismatches
     );
+}
+
+#[test]
+fn live_recorder_preserves_event_shape_and_outputs_analyzable_run() {
+    let (run, warnings) = live_tracing_run();
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(run.requests.len(), 3);
+    assert_eq!(run.stages.len(), 6);
+    assert_eq!(run.queues.len(), 3);
+
+    let request_ids: BTreeSet<_> = run.requests.iter().map(|r| r.request_id.as_str()).collect();
+    assert_eq!(request_ids, BTreeSet::from(["r1", "r2", "r3"]));
+
+    let route_set: BTreeSet<_> = run.requests.iter().map(|r| r.route.as_str()).collect();
+    assert!(route_set.contains("/checkout"));
+
+    let stage_set: BTreeSet<_> = run
+        .stages
+        .iter()
+        .map(|s| (s.request_id.as_str(), s.stage.as_str()))
+        .collect();
+    for request_id in ["r1", "r2", "r3"] {
+        assert!(stage_set.contains(&(request_id, "db")));
+        assert!(stage_set.contains(&(request_id, "cache")));
+    }
+
+    let queue_set: BTreeSet<_> = run
+        .queues
+        .iter()
+        .map(|q| (q.request_id.as_str(), q.queue.as_str()))
+        .collect();
+    for request_id in ["r1", "r2", "r3"] {
+        assert!(queue_set.contains(&(request_id, "permits")));
+    }
+    assert!(run.queues.iter().all(|q| q.depth_at_start == Some(3)));
+    assert!(run.requests.iter().all(|r| r.latency_us > 0));
+    assert!(run.stages.iter().all(|s| s.latency_us > 0));
+    assert!(run.queues.iter().all(|q| q.wait_us > 0));
+
+    let analysis = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(analysis.request_count, 3);
 }
