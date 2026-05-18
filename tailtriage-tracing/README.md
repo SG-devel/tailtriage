@@ -32,6 +32,7 @@ Supported stable contract (recommended for tests and integrations):
     "parent_id": "root-1",
     "started_at_unix_ms": 1700000000000,
     "finished_at_unix_ms": 1700000000120,
+    "duration_us": 120000,
     "fields": {
       "tt.kind": "request",
       "tt.request_id": "req-42",
@@ -44,6 +45,9 @@ Supported stable contract (recommended for tests and integrations):
 Notes:
 
 - Importer accepts `started_at_unix_ms`/`finished_at_unix_ms` and aliases `start_unix_ms`/`end_unix_ms`.
+- `duration_us` is optional and must be an unsigned integer in microseconds.
+- When `duration_us` is present, it overrides duration derived from start/end timestamps for request latency, stage latency, and queue wait.
+- Start/end timestamps remain required even when `duration_us` is provided.
 - In this phase, normalized shape uses **literal dotted keys** inside `fields` (for example `"tt.kind"` and `"tt.request_id"`), not nested objects that require flattening.
 - Importer reads `tt.*` fields from `fields`, `span.fields`, or top-level `tt.*` keys when present.
 - Scalars can be strings, bools, numbers, or null.
@@ -66,8 +70,6 @@ this phase, the importer supports:
 
 - normalized completed-span JSONL (shape above), and
 - close-event-like records only when they include explicit start/end unix-ms timestamps.
-
-Close-event-like records are supported only when explicit unix-ms start/end timestamps are present; timing is not guessed from line receive time, and broad compatibility with arbitrary tracing JSON is not claimed.
 
 ## Intended field shape
 
