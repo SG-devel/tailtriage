@@ -51,7 +51,6 @@ pub struct RenderedReportParityReport {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct ParityReport {
     pub mismatches: Vec<String>,
     pub run: RunParityReport,
@@ -79,7 +78,7 @@ pub fn build_parity_report(native_run: &Run, tracing_run: &Run) -> ParityReport 
     }
 }
 
-pub fn deterministic_native_run() -> Run {
+fn deterministic_native_run() -> Run {
     // Deterministic fixture parity is the strict semantic gate for conversion/analyzer/report.
     let start_ms = 1_700_000_000_000_u64;
     let scenario = [
@@ -164,7 +163,7 @@ pub fn deterministic_native_run() -> Run {
     run
 }
 
-pub fn deterministic_tracing_run() -> (Run, Vec<String>) {
+fn deterministic_tracing_run() -> (Run, Vec<String>) {
     let start_ms = 1_700_000_000_000_u64;
     let scenario = [
         ("r1", 0_u64, 100_000_u64, 70_000_u64, 7_000_u64, 5_000_u64),
@@ -223,6 +222,72 @@ pub fn deterministic_tracing_run() -> (Run, Vec<String>) {
         .map(|w| w.message().to_owned())
         .collect();
     (imported.run().clone(), warnings)
+}
+
+fn format_mismatches(mismatches: &[String]) -> String {
+    if mismatches.is_empty() {
+        "(none)".to_owned()
+    } else {
+        mismatches
+            .iter()
+            .map(|m| format!("- {m}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+pub fn assert_deterministic_span_import_full_parity() {
+    let native_run = deterministic_native_run();
+    let (tracing_run, warnings) = deterministic_tracing_run();
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let report = build_parity_report(&native_run, &tracing_run);
+
+    assert_eq!(
+        report.analyzer.native_primary_suspect,
+        Some(DiagnosisKind::ApplicationQueueSaturation)
+    );
+    assert_eq!(
+        report.analyzer.tracing_primary_suspect,
+        Some(DiagnosisKind::ApplicationQueueSaturation)
+    );
+
+    assert!(
+        report.mismatches.is_empty(),
+        "deterministic span import parity failed:
+\
+run parity mismatches:
+{}
+\
+analyzer parity mismatches:
+{}
+\
+rendered report parity mismatches:
+{}
+\
+request counts: native={} tracing={}
+\
+stage counts: native={} tracing={}
+\
+queue counts: native={} tracing={}
+\
+primary suspect kinds: native={:?} tracing={:?}
+\
+primary suspect scores: native={:?} tracing={:?}",
+        format_mismatches(&report.run.mismatches),
+        format_mismatches(&report.analyzer.mismatches),
+        format_mismatches(&report.rendered.mismatches),
+        report.run.native_request_count,
+        report.run.tracing_request_count,
+        report.run.native_stage_count,
+        report.run.tracing_stage_count,
+        report.run.native_queue_count,
+        report.run.tracing_queue_count,
+        report.analyzer.native_primary_suspect,
+        report.analyzer.tracing_primary_suspect,
+        report.analyzer.native_primary_score,
+        report.analyzer.tracing_primary_score,
+    );
 }
 
 fn live_tracing_run() -> (Run, Vec<String>) {
