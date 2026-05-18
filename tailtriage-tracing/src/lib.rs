@@ -80,7 +80,18 @@ where
     for span in spans {
         let kind = match get_string_field_state(&span, TT_KIND) {
             StringFieldState::Missing => continue,
-            StringFieldState::Value(kind) => kind,
+            StringFieldState::Value(kind) => {
+                if let Some(kind) = parse_span_kind(kind) {
+                    kind
+                } else {
+                    strict_or_warn(
+                        options.strict_mode(),
+                        &mut warnings,
+                        format!("unknown tt.kind '{kind}' in span '{}'", span.name()),
+                    )?;
+                    continue;
+                }
+            }
             StringFieldState::InvalidType => {
                 strict_or_warn(
                     options.strict_mode(),
@@ -106,7 +117,7 @@ where
         }
 
         match kind {
-            "request" => {
+            SpanKind::Request => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let route = required_string(&span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
@@ -130,7 +141,7 @@ where
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
-            "stage" => {
+            SpanKind::Stage => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let stage = required_string(&span, TT_STAGE, options.strict_mode(), &mut warnings)?;
@@ -155,7 +166,7 @@ where
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
-            "queue" => {
+            SpanKind::Queue => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let queue = required_string(&span, TT_QUEUE, options.strict_mode(), &mut warnings)?;
@@ -179,13 +190,6 @@ where
                     });
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
-            }
-            other => {
-                strict_or_warn(
-                    options.strict_mode(),
-                    &mut warnings,
-                    format!("unknown tt.kind '{other}' in span '{}'", span.name()),
-                )?;
             }
         }
     }
@@ -271,6 +275,15 @@ fn get_string_field_state<'a>(span: &'a SpanRecord, key: &str) -> StringFieldSta
         Some(FieldValue::String(value)) => StringFieldState::Value(value.as_str()),
         Some(_) => StringFieldState::InvalidType,
         None => StringFieldState::Missing,
+    }
+}
+
+fn parse_span_kind(kind: &str) -> Option<SpanKind> {
+    match kind {
+        "request" => Some(SpanKind::Request),
+        "stage" => Some(SpanKind::Stage),
+        "queue" => Some(SpanKind::Queue),
+        _ => None,
     }
 }
 
@@ -497,6 +510,22 @@ mod tests {
         let spans = vec![SpanRecord::new("x", 1, 2).field(TT_KIND, "wat")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.warnings().len(), 1);
+    }
+
+    #[test]
+    fn unknown_kind_errors_in_strict() {
+        let spans = vec![SpanRecord::new("x", 1, 2).field(TT_KIND, "wat")];
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn span_kind_parser_accepts_exact_supported_values_only() {
+        assert_eq!(parse_span_kind("request"), Some(SpanKind::Request));
+        assert_eq!(parse_span_kind("stage"), Some(SpanKind::Stage));
+        assert_eq!(parse_span_kind("queue"), Some(SpanKind::Queue));
+        assert_eq!(parse_span_kind("REQUEST"), None);
+        assert_eq!(parse_span_kind("unknown"), None);
     }
 
     #[test]

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Semantic span kind used by tailtriage tracing intake.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SpanKind {
     /// Request-level span.
     Request,
@@ -17,6 +18,7 @@ pub enum SpanKind {
 /// Supported scalar field values on imported spans.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum FieldValue {
     /// String field value.
     String(String),
@@ -161,6 +163,7 @@ impl SpanRecord {
 
 /// Import options for converting tracing-shaped spans into a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportOptions {
     service_name: String,
     service_version: Option<String>,
@@ -224,6 +227,7 @@ impl ImportOptions {
 
 /// Non-fatal warning produced while importing tracing-shaped spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportWarning {
     message: String,
 }
@@ -251,6 +255,7 @@ impl core::fmt::Display for ImportWarning {
 
 /// Result of a completed import operation.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ImportedRun {
     run: tailtriage_core::Run,
     warnings: Vec<ImportWarning>,
