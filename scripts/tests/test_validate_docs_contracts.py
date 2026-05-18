@@ -36,6 +36,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 "tailtriage-axum/src/lib.rs",
                 "tailtriage-analyzer/src/lib.rs",
                 "tailtriage-cli/src/lib.rs",
+                "tailtriage-tracing/src/lib.rs",
             )
             paths = []
             for rel in rels:

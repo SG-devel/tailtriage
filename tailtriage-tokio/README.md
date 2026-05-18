@@ -350,3 +350,4 @@ For those surfaces, use:
 - `tailtriage-axum`: Axum middleware/extractor integration
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
+- `tailtriage-tracing`: optional tracing intake bridge; runtime-pressure evidence still depends on runtime snapshots

@@ -123,3 +123,4 @@ If you do not use Axum, this crate is not the right abstraction boundary.
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
+- `tailtriage-tracing`: optional tracing intake bridge for converting tracing-shaped evidence into `tailtriage_core::Run`

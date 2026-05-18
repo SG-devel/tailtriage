@@ -23,6 +23,7 @@ ANALYZER_DOC_PATHS = (
     USER_GUIDE_PATH,
     REPO_ROOT / "tailtriage-analyzer" / "README.md",
     REPO_ROOT / "tailtriage-cli" / "README.md",
+    REPO_ROOT / "tailtriage-tracing" / "README.md",
 )
 DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -129,6 +130,7 @@ RUSTDOC_INCLUDE_CRATE_LIBS = (
     REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-tracing" / "src" / "lib.rs",
 )
 
 ANALYZER_GROUPS = (

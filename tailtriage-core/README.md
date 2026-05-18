@@ -176,4 +176,4 @@ This crate does not provide:
 - Axum middleware/extractors
 - analysis/report generation
 
-Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, `tailtriage-analyzer`, and `tailtriage-cli`.
+Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, `tailtriage-analyzer`, `tailtriage-cli`, and optional `tailtriage-tracing` intake when you already emit Rust `tracing` spans.
