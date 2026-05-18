@@ -121,5 +121,6 @@ If you do not use Axum, this crate is not the right abstraction boundary.
 - `tailtriage`: recommended default entry point
 - `tailtriage-core`: framework-agnostic instrumentation primitives
 - `tailtriage-tokio`: runtime-pressure sampling
+- `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped evidence into standard `tailtriage_core::Run` values
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts

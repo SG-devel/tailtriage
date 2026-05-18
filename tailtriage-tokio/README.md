@@ -342,11 +342,14 @@ For those surfaces, use:
 - `tailtriage-analyzer` for in-process analysis/report generation
 - `tailtriage-cli` for command-line analysis of saved artifacts
 
+When used alongside `tailtriage-tracing`, runtime-pressure evidence still depends on runtime snapshots captured by this crate (tracing spans alone do not produce runtime snapshots).
+
 ## Related crates
 
 - `tailtriage`: recommended default entry point
 - `tailtriage-core`: core request instrumentation and artifact writing
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-axum`: Axum middleware/extractor integration
+- `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped evidence into standard `tailtriage_core::Run` values
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
