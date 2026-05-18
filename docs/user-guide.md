@@ -34,7 +34,7 @@ The `controller` and `tokio` namespaces are available with default features; `ax
 
 ### Using existing tracing spans
 
-If you already instrument request/stage/queue work with Rust `tracing`, use `tailtriage-tracing` as an intake path into the same triage workflow.
+If you already instrument request/stage/queue work with Rust `tracing`, use `tailtriage-tracing` as a narrow tracing-intake bridge into the same triage workflow.
 
 Offline JSONL import:
 

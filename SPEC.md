@@ -158,7 +158,7 @@ Analyzer configuration contract:
 
 ### 5.9 Optional tracing intake (`tailtriage-tracing`)
 
-`tailtriage-tracing` is an optional integration surface for services that already emit Rust `tracing` spans.
+`tailtriage-tracing` is an optional narrow tracing-intake bridge for services that already emit Rust `tracing` spans.
 
 - converts tracing-shaped request/stage/queue evidence into standard `Run` values
 - supports offline JSONL import and a live in-memory `TracingRecorder`

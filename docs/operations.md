@@ -158,7 +158,7 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing-based imports can still provide useful request, stage, and queue evidence for triage.
+Tracing-based imports are a narrow tracing-intake bridge and can still provide useful request, stage, and queue evidence for triage.
 
 Important limits for production interpretation:
 
