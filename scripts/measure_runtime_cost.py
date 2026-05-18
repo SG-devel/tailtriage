@@ -504,6 +504,30 @@ def main() -> None:
             print(f" - {reason}", file=sys.stderr)
 
     print(json.dumps(summary, indent=2))
+    ratios = summary.get("tracing_vs_native_ratios", {})
+    rows = (
+        (
+            "tracing_light / core_light",
+            ratios.get("tracing_light_vs_core_light_latency_p95"),
+            ratios.get("tracing_light_vs_core_light_throughput"),
+        ),
+        (
+            "tracing_sampler / native_sampler",
+            ratios.get("tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95"),
+            ratios.get("tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput"),
+        ),
+        (
+            "tracing_drop_path / native_drop_path",
+            ratios.get("tracing_light_drop_path_vs_core_light_drop_path_latency_p95"),
+            ratios.get("tracing_light_drop_path_vs_core_light_drop_path_throughput"),
+        ),
+    )
+    print("| comparison | p95 ratio | throughput ratio |")
+    print("|---|---:|---:|")
+    for name, p95_ratio, throughput_ratio in rows:
+        p95_text = "n/a" if p95_ratio is None else f"{p95_ratio:.2f}x"
+        throughput_text = "n/a" if throughput_ratio is None else f"{throughput_ratio:.2f}x"
+        print(f"| {name} | {p95_text} | {throughput_text} |")
     print(f"raw results: {raw_path}")
     print(f"summary: {summary_path}")
 
