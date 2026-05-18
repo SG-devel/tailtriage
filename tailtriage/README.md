@@ -99,6 +99,7 @@ Choose a focused crate only when you need a narrower boundary:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling and Tokio primitive helper trait (`TokioRequestHandleExt`)
 - `tailtriage-axum`: Axum request-boundary wiring
+- `tailtriage-tracing`: optional narrow tracing intake bridge for teams already emitting Rust `tracing` spans; converts tracing-shaped evidence into standard `tailtriage_core::Run` values
 
 ## Feature flags
 
@@ -127,3 +128,4 @@ If you want a smaller core-only dependency surface, use `tailtriage-core` direct
 - `tailtriage-axum`: Axum request-boundary integration
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
+- `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped request/stage/queue evidence into standard `tailtriage_core::Run` values

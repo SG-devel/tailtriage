@@ -211,3 +211,4 @@ Optional table. If present, `kind` is required.
 - `tailtriage-axum`: Axum request-boundary integration
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
+- `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped evidence into standard `tailtriage_core::Run` values

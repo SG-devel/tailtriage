@@ -12,7 +12,6 @@ categories = ["asynchronous", "development-tools::debugging", "development-tools
 include = [
   "Cargo.toml",
   "README.md",
-  "LICENSE",
   "src/**",
   "examples/**",
 ]
@@ -31,6 +30,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
 
 [package.metadata.docs.rs]
+all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lints]
