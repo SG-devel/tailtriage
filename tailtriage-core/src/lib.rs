@@ -29,6 +29,7 @@
 mod collector;
 mod config;
 mod events;
+mod retention;
 mod run_builder;
 mod sink;
 mod time;

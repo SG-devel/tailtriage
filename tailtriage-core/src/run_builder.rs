@@ -121,6 +121,7 @@ impl RunBuilderOptions {
 #[derive(Debug)]
 pub struct RunBuilder {
     run: Run,
+    capture_limits: CaptureLimits,
 }
 
 impl RunBuilder {
@@ -164,28 +165,37 @@ impl RunBuilder {
                 unfinished_requests: UnfinishedRequests::default(),
                 run_end_reason: options.run_end_reason,
             }),
+            capture_limits,
         })
     }
 
     /// Appends a request event.
     pub fn push_request(&mut self, event: RequestEvent) {
-        self.run.requests.push(event);
+        let _ = crate::retention::push_request_bounded(&mut self.run, self.capture_limits, event);
     }
     /// Appends a stage event.
     pub fn push_stage(&mut self, event: StageEvent) {
-        self.run.stages.push(event);
+        let _ = crate::retention::push_stage_bounded(&mut self.run, self.capture_limits, event);
     }
     /// Appends a queue event.
     pub fn push_queue(&mut self, event: QueueEvent) {
-        self.run.queues.push(event);
+        let _ = crate::retention::push_queue_bounded(&mut self.run, self.capture_limits, event);
     }
     /// Appends an in-flight snapshot.
     pub fn push_inflight_snapshot(&mut self, snapshot: InFlightSnapshot) {
-        self.run.inflight.push(snapshot);
+        let _ = crate::retention::push_inflight_snapshot_bounded(
+            &mut self.run,
+            self.capture_limits,
+            snapshot,
+        );
     }
     /// Appends a runtime snapshot.
     pub fn push_runtime_snapshot(&mut self, snapshot: RuntimeSnapshot) {
-        self.run.runtime_snapshots.push(snapshot);
+        let _ = crate::retention::push_runtime_snapshot_bounded(
+            &mut self.run,
+            self.capture_limits,
+            snapshot,
+        );
     }
     /// Adds one lifecycle warning string.
     pub fn add_lifecycle_warning(&mut self, warning: impl Into<String>) {

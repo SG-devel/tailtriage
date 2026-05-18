@@ -1078,3 +1078,242 @@ fn run_builder_preserves_unfinished_requests() {
     assert_eq!(run.metadata.unfinished_requests.count, 2);
     assert_eq!(run.metadata.unfinished_requests.sample.len(), 1);
 }
+
+fn test_request_event(request_id: &str) -> crate::RequestEvent {
+    crate::RequestEvent {
+        request_id: request_id.to_string(),
+        route: "/test".to_string(),
+        kind: None,
+        started_at_unix_ms: 1,
+        finished_at_unix_ms: 2,
+        latency_us: 10,
+        outcome: "ok".to_string(),
+    }
+}
+
+fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
+    crate::StageEvent {
+        request_id: request_id.to_string(),
+        stage: stage.to_string(),
+        started_at_unix_ms: 3,
+        finished_at_unix_ms: 4,
+        latency_us: 11,
+        success: true,
+    }
+}
+
+fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
+    crate::QueueEvent {
+        request_id: request_id.to_string(),
+        queue: queue.to_string(),
+        waited_from_unix_ms: 5,
+        waited_until_unix_ms: 6,
+        wait_us: 12,
+        depth_at_start: Some(1),
+    }
+}
+
+#[test]
+fn run_builder_applies_request_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 1,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder.push_request(test_request_event("req-1"));
+    builder.push_request(test_request_event("req-2"));
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.requests[0].request_id, "req-1");
+    assert_eq!(run.truncation.dropped_requests, 1);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
+fn run_builder_applies_stage_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 1,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder.push_stage(test_stage_event("req-1", "stage-1"));
+    builder.push_stage(test_stage_event("req-2", "stage-2"));
+    let run = builder.finish();
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.stages[0].stage, "stage-1");
+    assert_eq!(run.truncation.dropped_stages, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
+fn run_builder_applies_queue_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 1,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder.push_queue(test_queue_event("req-1", "queue-1"));
+    builder.push_queue(test_queue_event("req-2", "queue-2"));
+    let run = builder.finish();
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.queues[0].queue, "queue-1");
+    assert_eq!(run.truncation.dropped_queues, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
+fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 1,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder.push_inflight_snapshot(crate::InFlightSnapshot {
+        gauge: "g".to_string(),
+        at_unix_ms: 7,
+        count: 1,
+    });
+    builder.push_inflight_snapshot(crate::InFlightSnapshot {
+        gauge: "g".to_string(),
+        at_unix_ms: 8,
+        count: 2,
+    });
+    let run = builder.finish();
+    assert_eq!(run.inflight.len(), 1);
+    assert_eq!(run.inflight[0].count, 1);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
+fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 1,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder.push_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: 9,
+        alive_tasks: Some(1),
+        global_queue_depth: Some(2),
+        local_queue_depth: Some(3),
+        blocking_queue_depth: Some(4),
+        remote_schedule_count: Some(5),
+    });
+    builder.push_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: 10,
+        alive_tasks: Some(2),
+        global_queue_depth: Some(3),
+        local_queue_depth: Some(4),
+        blocking_queue_depth: Some(5),
+        remote_schedule_count: Some(6),
+    });
+    let run = builder.finish();
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert_eq!(run.runtime_snapshots[0].at_unix_ms, 9);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
+fn run_builder_does_not_report_truncation_within_limits() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder.push_request(test_request_event("req-1"));
+    builder.push_stage(test_stage_event("req-1", "stage-1"));
+    builder.push_queue(test_queue_event("req-1", "queue-1"));
+    builder.push_inflight_snapshot(crate::InFlightSnapshot {
+        gauge: "g".to_string(),
+        at_unix_ms: 11,
+        count: 1,
+    });
+    builder.push_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: 12,
+        alive_tasks: Some(1),
+        global_queue_depth: Some(1),
+        local_queue_depth: Some(1),
+        blocking_queue_depth: Some(1),
+        remote_schedule_count: Some(1),
+    });
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.inflight.len(), 1);
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(!run.truncation.limits_hit);
+    assert!(!run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_uses_mode_default_limits_when_limits_not_explicit() {
+    let default_limits = CaptureMode::Light.core_defaults();
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").mode(CaptureMode::Light))
+            .expect("ok");
+    for i in 0..(default_limits.max_requests + 2) {
+        builder.push_request(test_request_event(&format!("req-{}", i + 1)));
+    }
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), default_limits.max_requests);
+    assert_eq!(run.truncation.dropped_requests, 2);
+    assert!(run.truncation.limits_hit);
+}
