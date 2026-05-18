@@ -11,7 +11,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 ## Instrumentation mode note (request/stage/queue parity phase)
 
 - `queue_service`, `downstream_service`, `mixed_contention_service`, `cold_start_burst_service`, `db_pool_saturation_service`, `shared_state_lock_service`, and `retry_storm_service` accept `--instrumentation native|tracing` (default `native`).
-- This validates native-vs-tracing parity for request/stage evidence and queue evidence where applicable while still producing standard Run JSON for CLI analysis.
+- This validates native-vs-tracing semantic parity for request/stage evidence and queue evidence where applicable while still producing standard Run JSON for CLI analysis. Exact latency values and suspect scores are not expected to be identical across instrumentation modes.
 - Tracing inflight parity is out of scope for this phase.
 - `blocking_service` and `executor_pressure_service` also support `--instrumentation native|tracing`.
 - Runtime-sensitive tracing parity uses `TracingTokioSession` plus deterministic runtime snapshots recorded during workload execution.
