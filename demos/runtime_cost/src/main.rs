@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context};
 use serde::Serialize;
 use tailtriage_analyzer::{render_json_pretty, try_analyze_run, AnalyzeOptions};
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Run, Tailtriage};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, MemorySink, Run, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 use tailtriage_tracing::tokio::TracingTokioSession;
 use tailtriage_tracing::TracingRecorder;
@@ -162,6 +162,7 @@ enum Backend {
     Native {
         tailtriage: Arc<Tailtriage>,
         sampler: Option<RuntimeSampler>,
+        sink: MemorySink,
     },
     TracingRecorder {
         rec: TracingRecorder,
@@ -255,13 +256,8 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
                 .mode
                 .core_mode()
                 .ok_or_else(|| anyhow!("missing capture mode"))?;
-            let mut b = Tailtriage::builder("runtime_cost_demo").output(
-                cli.output_dir.join(
-                    cli.mode
-                        .artifact_file_name()
-                        .context("missing artifact filename")?,
-                ),
-            );
+            let sink = MemorySink::new();
+            let mut b = Tailtriage::builder("runtime_cost_demo").sink(sink.clone());
             b = match mode {
                 CaptureMode::Light => b.light(),
                 CaptureMode::Investigation => b.investigation(),
@@ -284,6 +280,7 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
             Ok(Backend::Native {
                 tailtriage: tt,
                 sampler,
+                sink,
             })
         }
         InstrumentationKind::Tracing => {
@@ -323,12 +320,15 @@ async fn finalize_backend_and_write_artifact(
         Backend::Native {
             tailtriage,
             sampler,
+            sink,
         } => {
             if let Some(s) = sampler {
                 s.shutdown().await;
             }
-            let run = tailtriage.snapshot();
             tailtriage.shutdown()?;
+            let run = sink.last_run().ok_or_else(|| {
+                anyhow!("native runtime-cost run sink did not receive finalized run")
+            })?;
             Some(run)
         }
         Backend::TracingRecorder { rec } => Some(rec.shutdown()?.into_parts().0),
@@ -538,6 +538,7 @@ fn micros_to_millis_f64(m: u64) -> anyhow::Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
     #[test]
     fn mode_parse_accepts_tracing_modes() {
         assert_eq!(Mode::parse("tracing_light"), Some(Mode::TracingLight));
@@ -560,5 +561,43 @@ mod tests {
         assert_eq!(m.instrumentation(), InstrumentationKind::Tracing);
         assert!(m.uses_runtime_sampler());
         assert!(!m.uses_drop_path_limits());
+    }
+
+    #[test]
+    fn native_backend_uses_memory_sink() {
+        let cli = Cli {
+            mode: Mode::CoreLight,
+            requests: DEFAULT_REQUESTS,
+            concurrency: DEFAULT_CONCURRENCY,
+            work_ms: DEFAULT_WORK_MS,
+            output_dir: PathBuf::from("unused"),
+        };
+        let backend = build_backend(&cli).expect("native backend should build");
+        match backend {
+            Backend::Native { sink, .. } => assert!(sink.last_run().is_none()),
+            _ => panic!("expected native backend"),
+        }
+    }
+
+    #[test]
+    fn artifact_file_name_still_derived_from_mode() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should be after unix epoch")
+            .as_nanos();
+        let output_dir = PathBuf::from(format!("/tmp/tailtriage-runtime-cost-test-{unique}"));
+        let cli = Cli {
+            mode: Mode::CoreLight,
+            requests: DEFAULT_REQUESTS,
+            concurrency: DEFAULT_CONCURRENCY,
+            work_ms: DEFAULT_WORK_MS,
+            output_dir: output_dir.clone(),
+        };
+        let artifact_name = cli
+            .mode
+            .artifact_file_name()
+            .expect("core mode should still provide artifact filename");
+        let derived_path = cli.output_dir.join(artifact_name);
+        assert!(derived_path.ends_with("run-core_light.json"));
     }
 }
