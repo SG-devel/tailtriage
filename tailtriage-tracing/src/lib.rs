@@ -80,7 +80,17 @@ where
     for span in spans {
         let kind = match get_string_field_state(&span, TT_KIND) {
             StringFieldState::Missing => continue,
-            StringFieldState::Value(kind) => kind,
+            StringFieldState::Value(kind) => {
+                let Some(kind) = SpanKind::from_tt_kind(kind) else {
+                    strict_or_warn(
+                        options.strict_mode(),
+                        &mut warnings,
+                        format!("unknown tt.kind '{kind}' in span '{}'", span.name()),
+                    )?;
+                    continue;
+                };
+                kind
+            }
             StringFieldState::InvalidType => {
                 strict_or_warn(
                     options.strict_mode(),
@@ -106,7 +116,7 @@ where
         }
 
         match kind {
-            "request" => {
+            SpanKind::Request => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let route = required_string(&span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
@@ -130,7 +140,7 @@ where
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
-            "stage" => {
+            SpanKind::Stage => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let stage = required_string(&span, TT_STAGE, options.strict_mode(), &mut warnings)?;
@@ -155,7 +165,7 @@ where
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
-            "queue" => {
+            SpanKind::Queue => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let queue = required_string(&span, TT_QUEUE, options.strict_mode(), &mut warnings)?;
@@ -179,13 +189,6 @@ where
                     });
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
-            }
-            other => {
-                strict_or_warn(
-                    options.strict_mode(),
-                    &mut warnings,
-                    format!("unknown tt.kind '{other}' in span '{}'", span.name()),
-                )?;
             }
         }
     }

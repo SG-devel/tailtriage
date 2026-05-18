@@ -39,6 +39,7 @@ pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
 pub const DEFAULT_MAX_COMPLETED_SPANS: usize = 10_000;
 /// Configurable in-memory limits for live tracing recorder retention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RecorderLimits {
     /// Maximum number of concurrently tracked open candidate spans.
     pub max_open_spans: usize,

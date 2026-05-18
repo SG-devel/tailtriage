@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Semantic span kind used by tailtriage tracing intake.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SpanKind {
     /// Request-level span.
     Request,
@@ -14,9 +15,23 @@ pub enum SpanKind {
     Queue,
 }
 
+impl SpanKind {
+    /// Parses a `tt.kind` string into a semantic span kind.
+    #[must_use]
+    pub fn from_tt_kind(value: &str) -> Option<Self> {
+        match value {
+            "request" => Some(Self::Request),
+            "stage" => Some(Self::Stage),
+            "queue" => Some(Self::Queue),
+            _ => None,
+        }
+    }
+}
+
 /// Supported scalar field values on imported spans.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum FieldValue {
     /// String field value.
     String(String),
@@ -161,6 +176,7 @@ impl SpanRecord {
 
 /// Import options for converting tracing-shaped spans into a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportOptions {
     service_name: String,
     service_version: Option<String>,
@@ -224,6 +240,7 @@ impl ImportOptions {
 
 /// Non-fatal warning produced while importing tracing-shaped spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportWarning {
     message: String,
 }
@@ -251,6 +268,7 @@ impl core::fmt::Display for ImportWarning {
 
 /// Result of a completed import operation.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ImportedRun {
     run: tailtriage_core::Run,
     warnings: Vec<ImportWarning>,
@@ -368,5 +386,14 @@ mod tests {
         let (parts_run, parts_warnings) = imported.into_parts();
         assert_eq!(parts_run, run);
         assert_eq!(parts_warnings, warnings);
+    }
+
+    #[test]
+    fn span_kind_from_tt_kind_parses_supported_values() {
+        assert_eq!(SpanKind::from_tt_kind("request"), Some(SpanKind::Request));
+        assert_eq!(SpanKind::from_tt_kind("stage"), Some(SpanKind::Stage));
+        assert_eq!(SpanKind::from_tt_kind("queue"), Some(SpanKind::Queue));
+        assert_eq!(SpanKind::from_tt_kind("REQUEST"), None);
+        assert_eq!(SpanKind::from_tt_kind("other"), None);
     }
 }
