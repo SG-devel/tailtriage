@@ -70,6 +70,13 @@ struct OpenSpan {
     started_at_unix_ms: u64,
     started_instant: Instant,
 }
+#[derive(Debug, Clone)]
+struct OpenSpanSample {
+    name: String,
+    id: Option<String>,
+    tt_kind: Option<String>,
+    tt_request_id: Option<String>,
+}
 
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
@@ -102,19 +109,44 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
-        let (spans, dropped_open_spans, dropped_completed_spans) = {
+        let (
+            spans,
+            dropped_open_spans,
+            dropped_completed_spans,
+            open_candidate_count,
+            open_samples,
+        ) = {
             let state = lock_state(&self.state);
+            let candidates: Vec<_> = state
+                .open
+                .values()
+                .filter(|span| span.fields.keys().any(|k| k.starts_with("tt.")))
+                .collect();
             (
                 state.completed.clone(),
                 state.dropped_open_spans,
                 state.dropped_completed_spans,
+                candidates.len(),
+                candidates
+                    .into_iter()
+                    .take(3)
+                    .map(|span| OpenSpanSample {
+                        name: span.name.clone(),
+                        id: span.id.clone(),
+                        tt_kind: scalar_field_string(span.fields.get("tt.kind")),
+                        tt_request_id: scalar_field_string(span.fields.get("tt.request_id")),
+                    })
+                    .collect::<Vec<_>>(),
             )
         };
         imported_with_drop_warnings(
             spans,
             self.options.clone(),
+            self.options.strict_mode(),
             dropped_open_spans,
             dropped_completed_spans,
+            open_candidate_count,
+            &open_samples,
         )
     }
 
@@ -272,14 +304,41 @@ fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
 fn imported_with_drop_warnings(
     spans: Vec<SpanRecord>,
     options: ImportOptions,
+    strict: bool,
     dropped_open_spans: u64,
     dropped_completed_spans: u64,
+    open_candidate_count: usize,
+    open_samples: &[OpenSpanSample],
 ) -> Result<ImportedRun, ImportError> {
     let imported = run_from_span_records(spans, options)?;
-    if dropped_open_spans == 0 && dropped_completed_spans == 0 {
+    if open_candidate_count > 0 && strict {
+        return Err(ImportError::StrictViolation(format!(
+            "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
+        )));
+    }
+    if dropped_open_spans == 0 && dropped_completed_spans == 0 && open_candidate_count == 0 {
         return Ok(imported);
     }
     let (mut run, mut warnings) = imported.into_parts();
+    if open_candidate_count > 0 {
+        let mut msg = format!("live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions");
+        if !open_samples.is_empty() {
+            let samples = open_samples
+                .iter()
+                .map(|sample| {
+                    format!(
+                        "name={}, id={:?}, tt.kind={:?}, tt.request_id={:?}",
+                        sample.name, sample.id, sample.tt_kind, sample.tt_request_id
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            msg.push_str("; samples: ");
+            msg.push_str(&samples);
+        }
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
     if dropped_open_spans > 0 {
         let msg = format!("live recorder dropped {dropped_open_spans} candidate spans because max_open_spans was reached");
         run.metadata.lifecycle_warnings.push(msg.clone());
@@ -292,6 +351,17 @@ fn imported_with_drop_warnings(
     }
     run.truncation.limits_hit = true;
     Ok(ImportedRun::new(run, warnings))
+}
+
+fn scalar_field_string(value: Option<&FieldValue>) -> Option<String> {
+    match value {
+        Some(FieldValue::String(v)) => Some(v.clone()),
+        Some(FieldValue::Bool(v)) => Some(v.to_string()),
+        Some(FieldValue::I64(v)) => Some(v.to_string()),
+        Some(FieldValue::U64(v)) => Some(v.to_string()),
+        Some(FieldValue::F64(v)) => Some(v.to_string()),
+        Some(FieldValue::Null) | None => None,
+    }
 }
 
 #[derive(Default)]
@@ -625,5 +695,63 @@ mod tests {
         let recorder = TracingRecorder::builder(" ").build();
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
+    }
+
+    #[test]
+    fn open_candidate_warns_in_snapshot_and_shutdown_non_strict() {
+        with_recorder(|recorder| {
+            let _open = tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1");
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert!(imported.warnings().iter().any(|w| w
+                .message()
+                .contains("open candidate span(s) at snapshot/shutdown")));
+            assert!(imported
+                .run()
+                .metadata
+                .lifecycle_warnings
+                .iter()
+                .any(|w| w.contains("open candidate span(s) at snapshot/shutdown")));
+            let shutdown = recorder.shutdown().unwrap();
+            assert!(shutdown.warnings().iter().any(|w| w
+                .message()
+                .contains("open candidate span(s) at snapshot/shutdown")));
+        });
+    }
+
+    #[test]
+    fn strict_snapshot_errors_for_open_candidate() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let _open = tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1");
+            let err = recorder.snapshot_run().unwrap_err();
+            assert!(matches!(err, ImportError::StrictViolation(_)));
+        });
+    }
+
+    #[test]
+    fn unrelated_open_span_does_not_warn() {
+        with_recorder(|recorder| {
+            let _open = tracing::info_span!("ordinary", foo = 1_u64);
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.warnings().is_empty());
+        });
+    }
+
+    #[test]
+    fn empty_tt_kind_still_counts_as_open_candidate() {
+        with_recorder(|recorder| {
+            let _open = tracing::info_span!(
+                "request",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r1"
+            );
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported
+                .warnings()
+                .iter()
+                .any(|w| w.message().contains("tt.kind")));
+        });
     }
 }
