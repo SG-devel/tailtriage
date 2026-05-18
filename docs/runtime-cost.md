@@ -53,22 +53,22 @@ Each mode is executed as a separate process; this keeps process-global tracing s
 
 ## CI smoke policy
 
-CI runs a bounded runtime-cost smoke on the Ubuntu extended release leg:
+CI runs one bounded runtime-cost smoke on the Ubuntu extended release leg:
 
 ```bash
 python3 scripts/measure_runtime_cost.py \
-  --requests 800 \
+  --requests 1200 \
   --concurrency 32 \
-  --work-ms 3 \
-  --rounds 1 \
-  --warmup-rounds 0 \
+  --work-ms 4 \
+  --rounds 2 \
+  --warmup-rounds 1 \
   --artifact-dir demos/runtime_cost/artifacts/ci-smoke
 python3 scripts/validate_runtime_cost_summary.py \
   --raw demos/runtime_cost/artifacts/ci-smoke/runtime-cost-raw.jsonl \
   --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 ```
 
-This is a bounded diagnostic sanity check only. It enforces broad catastrophic-regression checks and required tracing evidence shape, not rigorous performance benchmarking. Full runtime-cost measurement remains a local/developer-run path via the canonical command above.
+This is a bounded diagnostic sanity check only. It enforces broad catastrophic-regression checks and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
 
 ## Inputs and knobs
 
