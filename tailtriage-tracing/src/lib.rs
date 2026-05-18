@@ -122,7 +122,8 @@ where
                         started_at_unix_ms: span.started_at_unix_ms(),
                         finished_at_unix_ms: span.finished_at_unix_ms(),
                         latency_us: span.duration_us_ref().unwrap_or(
-                            (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                            (span.finished_at_unix_ms() - span.started_at_unix_ms())
+                                .saturating_mul(1000),
                         ),
                         outcome,
                     });
@@ -146,7 +147,8 @@ where
                         started_at_unix_ms: span.started_at_unix_ms(),
                         finished_at_unix_ms: span.finished_at_unix_ms(),
                         latency_us: span.duration_us_ref().unwrap_or(
-                            (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                            (span.finished_at_unix_ms() - span.started_at_unix_ms())
+                                .saturating_mul(1000),
                         ),
                         success,
                     });
@@ -170,7 +172,8 @@ where
                         waited_from_unix_ms: span.started_at_unix_ms(),
                         waited_until_unix_ms: span.finished_at_unix_ms(),
                         wait_us: span.duration_us_ref().unwrap_or(
-                            (span.finished_at_unix_ms() - span.started_at_unix_ms()) * 1000,
+                            (span.finished_at_unix_ms() - span.started_at_unix_ms())
+                                .saturating_mul(1000),
                         ),
                         depth_at_start,
                     });
