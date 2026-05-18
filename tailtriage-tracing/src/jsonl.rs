@@ -52,9 +52,27 @@ pub fn import_jsonl_reader<R: Read>(
     }
 
     let imported = run_from_span_records(spans, options)?;
-    let (run, mut conversion_warnings) = imported.into_parts();
+    let (mut run, mut conversion_warnings) = imported.into_parts();
+    attach_parse_warnings_to_lifecycle(&mut run, &parse_warnings);
     parse_warnings.append(&mut conversion_warnings);
     Ok(ImportedRun::new(run, parse_warnings))
+}
+
+fn attach_parse_warnings_to_lifecycle(
+    run: &mut tailtriage_core::Run,
+    parse_warnings: &[crate::ImportWarning],
+) {
+    for warning in parse_warnings {
+        let message = warning.message();
+        if !run
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|existing| existing == message)
+        {
+            run.metadata.lifecycle_warnings.push(message.to_owned());
+        }
+    }
 }
 
 /// Imports newline-delimited JSON records from a filesystem path.
@@ -568,6 +586,58 @@ mod tests {
                     .unwrap_err();
             assert!(matches!(err, ImportError::StrictViolation(_)));
         }
+    }
+
+    #[test]
+    fn parse_warnings_are_persisted_to_run_lifecycle_warnings() {
+        let input = r#"
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/b"}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.warnings().len(), 1);
+        let warning = imported.warnings()[0].message();
+        assert!(warning.contains("line 2") || warning.contains("line 3"));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w == warning));
+    }
+
+    #[test]
+    fn conversion_warnings_still_follow_existing_lifecycle_policy() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+        assert_eq!(imported.run().metadata.lifecycle_warnings.len(), 1);
+        assert_eq!(
+            imported.warnings()[0].message(),
+            imported.run().metadata.lifecycle_warnings[0]
+        );
+    }
+
+    #[test]
+    fn unrelated_malformed_normalized_span_does_not_create_lifecycle_warning() {
+        let input = r#"
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"span":{"name":"other","id":123,"started_at_unix_ms":1,"finished_at_unix_ms":2}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported.warnings().is_empty());
+        assert!(imported.run().metadata.lifecycle_warnings.is_empty());
+    }
+
+    #[test]
+    fn strict_parse_warning_case_still_errors_without_run() {
+        let input = r#"{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
