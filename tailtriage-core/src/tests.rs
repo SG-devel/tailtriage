@@ -1136,6 +1136,7 @@ fn run_builder_applies_request_limit_and_updates_truncation() {
     assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
     assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
     assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
 }
 
 #[test]
@@ -1161,6 +1162,7 @@ fn run_builder_applies_stage_limit_and_updates_truncation() {
     assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
     assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
     assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
 }
 
 #[test]
@@ -1186,6 +1188,7 @@ fn run_builder_applies_queue_limit_and_updates_truncation() {
     assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
     assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
     assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
 }
 
 #[test]
@@ -1219,6 +1222,7 @@ fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
     assert_eq!(run.truncation.dropped_queues, 0);
     assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
     assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
 }
 
 #[test]
@@ -1258,6 +1262,7 @@ fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
     assert_eq!(run.truncation.dropped_queues, 0);
     assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
     assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
 }
 
 #[test]
@@ -1316,4 +1321,5 @@ fn run_builder_uses_mode_default_limits_when_limits_not_explicit() {
     assert_eq!(run.requests.len(), default_limits.max_requests);
     assert_eq!(run.truncation.dropped_requests, 2);
     assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
 }

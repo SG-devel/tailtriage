@@ -177,19 +177,22 @@ Use `RunBuilder` only when you already have completed request, stage, queue, in-
 ```rust,no_run
 use tailtriage_core::{RequestEvent, RunBuilder, RunBuilderOptions};
 
-let mut builder = RunBuilder::new(RunBuilderOptions::new("checkout-service"))?;
-builder.push_request(RequestEvent {
-    request_id: "req-1".into(),
-    route: "/test".into(),
-    kind: Some("http".into()),
-    started_at_unix_ms: 1,
-    finished_at_unix_ms: 2,
-    latency_us: 1_000,
-    outcome: "ok".into(),
-});
-let run = builder.finish();
-assert_eq!(run.requests.len(), 1);
-# Ok::<(), tailtriage_core::BuildError>(())
+fn assemble_run() -> Result<(), tailtriage_core::BuildError> {
+    let mut builder = RunBuilder::new(RunBuilderOptions::new("checkout-service"))?;
+    builder.push_request(RequestEvent {
+        request_id: "req-1".into(),
+        route: "/test".into(),
+        kind: Some("http".into()),
+        started_at_unix_ms: 1,
+        finished_at_unix_ms: 2,
+        latency_us: 1_000,
+        outcome: "ok".into(),
+    });
+
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    Ok(())
+}
 ```
 
 ## What this crate does not do
