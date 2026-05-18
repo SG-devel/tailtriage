@@ -22,31 +22,25 @@ Public APIs:
 - `import_jsonl_reader(reader, options)`
 - `import_jsonl_path(path, options)`
 
-Supported stable contract (recommended for tests and integrations):
+### Canonical JSONL shape
+
+Use this normalized completed-span shape as the stable authoring format for tests and integrations:
 
 ```json
-{
-  "span": {
-    "name": "http.request",
-    "id": "span-1",
-    "parent_id": "root-1",
-    "started_at_unix_ms": 1700000000000,
-    "finished_at_unix_ms": 1700000000120,
-    "fields": {
-      "tt.kind": "request",
-      "tt.request_id": "req-42",
-      "tt.route": "/checkout"
-    }
-  }
-}
+{"span":{"name":"http.request","started_at_unix_ms":1700000000000,"finished_at_unix_ms":1700000000120,"duration_us":120000,"fields":{"tt.kind":"request","tt.request_id":"req-42","tt.route":"/checkout"}}}
 ```
 
-Notes:
+Rules:
+
+- `started_at_unix_ms` and `finished_at_unix_ms` are required unix-millisecond timestamps.
+- `duration_us` is optional and must be an unsigned integer microseconds value.
+- When present, `duration_us` overrides timestamp-derived duration for request latency, stage latency, and queue wait.
+- Start/end timestamps are still required even when `duration_us` is present.
+- Use literal dotted keys (for example `"tt.kind"`) inside `fields`.
+
+Importer behavior in this phase:
 
 - Importer accepts `started_at_unix_ms`/`finished_at_unix_ms` and aliases `start_unix_ms`/`end_unix_ms`.
-- Normalized spans may include optional `duration_us` (unsigned integer microseconds). When present, it overrides derived `(finished-start)` duration for request latency, stage latency, and queue wait.
-- Start/end unix-ms timestamps are still required even when `duration_us` is present.
-- In this phase, normalized shape uses **literal dotted keys** inside `fields` (for example `"tt.kind"` and `"tt.request_id"`), not nested objects that require flattening.
 - Importer reads `tt.*` fields from `fields`, `span.fields`, or top-level `tt.*` keys when present.
 - Scalars can be strings, bools, numbers, or null.
 - Empty lines are ignored.
@@ -61,24 +55,28 @@ tailtriage import tracing-json spans.jsonl --service checkout --output tailtriag
 tailtriage analyze tailtriage-run.json
 ```
 
-## tracing-subscriber JSON caveat
+### tracing-subscriber JSON caveat
 
-Direct `tracing-subscriber` JSON output can vary by formatter configuration. In
-this phase, the importer supports:
+Direct `tracing-subscriber` JSON output can vary by formatter configuration. In this phase, tolerant close-event import is best-effort compatibility only, not the preferred/stable authoring format.
 
-- normalized completed-span JSONL (shape above), and
-- close-event-like records only when they include explicit start/end unix-ms timestamps.
+For stable ingestion contracts, author canonical normalized completed-span JSONL.
 
-Close-event-like records require explicit unix-ms start/end timestamps; timing is not guessed from line receive time, and broad compatibility with arbitrary tracing JSON is not claimed.
+### Field convention
 
-## Intended field shape
+These `tt.*` fields are the stable semantic contract for tracing intake:
 
-Typical span fields are expected to follow this shape:
+| Field | Required for span kind | Expected type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `tt.kind` | request, stage, queue | string (`"request"`, `"stage"`, `"queue"`) | none | Span classification used to map timing/evidence into request, stage, and queue triage records. |
+| `tt.request_id` | request, stage, queue | string | none | Correlation key that groups request span plus related stage/queue spans. |
+| `tt.route` | request | string | none | Request route or operation name for request-level grouping. |
+| `tt.stage` | stage | string | none | Logical downstream stage name (for example `"db"`, `"cache"`, `"http"`). |
+| `tt.queue` | queue | string | none | Logical queue name attributed to queue wait evidence. |
+| `tt.outcome` | request (optional), stage (optional), queue (optional) | string | none | Outcome label recorded by application code (for example `"ok"`, `"error"`, `"timeout"`). |
+| `tt.success` | request (optional), stage (optional), queue (optional) | bool | none | Optional success/failure scalar used for coarse outcome slicing. |
+| `tt.depth_at_start` | queue (optional) | unsigned integer (or numeric value convertible to `u64`) | none | Queue depth sampled at queue-span start for queue-pressure context. |
 
-- request: `tt.kind`, `tt.request_id`, `tt.route`
-- stage: `tt.kind`, `tt.request_id`, `tt.stage`
-- queue: `tt.kind`, `tt.request_id`, `tt.queue`, `tt.depth_at_start`
-
+Fields outside this list are ignored by tracing intake unless/ until explicitly documented.
 
 ## Live tracing recorder
 
@@ -122,6 +120,27 @@ Live recorder latency/wait precision uses monotonic elapsed duration (`duration_
 Tracing span capture for request/stage/queue evidence works outside Tokio runtimes. Runtime-pressure evidence still requires tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans cannot infer executor or blocking-pool pressure by themselves.
 
 
+
+### Live recorder tracking rule
+
+A span must declare at least one `tt.*` field at span creation to be tracked by `TracingRecorder`.
+
+- `tt.kind` may be filled later only if some `tt.*` field was declared at creation (for example with `tracing::field::Empty`).
+- Record `tt.*` values as typed scalar fields (string/bool/number), not only debug-formatted values.
+
+Minimal example:
+
+```rust
+let span = tracing::info_span!(
+    "db.stage",
+    tt.kind = tracing::field::Empty,
+    tt.request_id = "req-42",
+    tt.stage = "db"
+);
+span.record("tt.kind", "stage");
+```
+
+Tracing-only imports/recordings provide request/stage/queue evidence and do not fabricate runtime-pressure evidence. Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
 
 ## Optional Tokio runtime sampler coupling
 
