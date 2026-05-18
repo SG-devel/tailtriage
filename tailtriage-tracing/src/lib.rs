@@ -37,8 +37,7 @@ pub mod tokio;
 mod types;
 
 use tailtriage_core::{
-    CaptureMode, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata, StageEvent,
-    TruncationSummary, UnfinishedRequests, SCHEMA_VERSION,
+    BuildError, CaptureMode, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
 };
 
 pub use convention::{
@@ -69,7 +68,6 @@ pub fn run_from_span_records<I>(
 where
     I: IntoIterator<Item = SpanRecord>,
 {
-    validate_service_name(options.service_name())?;
     let mut warnings = Vec::new();
     let mut requests = Vec::new();
     let mut stages = Vec::new();
@@ -206,46 +204,35 @@ where
         .map(|w| w.message().to_owned())
         .collect::<Vec<_>>();
 
-    let metadata = RunMetadata {
-        run_id,
-        service_name: options.service_name().to_owned(),
-        service_version: options.service_version_ref().map(ToOwned::to_owned),
-        started_at_unix_ms,
-        finished_at_unix_ms,
-        finalized_at_unix_ms: Some(finished_at_unix_ms),
-        mode: CaptureMode::Light,
-        effective_core_config: Some(EffectiveCoreConfig {
-            mode: CaptureMode::Light,
-            capture_limits: CaptureMode::Light.core_defaults(),
-            strict_lifecycle: false,
-        }),
-        effective_tokio_sampler_config: None,
-        host: None,
-        pid: None,
-        lifecycle_warnings,
-        unfinished_requests: UnfinishedRequests::default(),
-        run_end_reason: None,
-    };
-
-    let run = Run {
-        schema_version: SCHEMA_VERSION,
-        metadata,
-        requests,
-        stages,
-        queues,
-        inflight: Vec::new(),
-        runtime_snapshots: Vec::new(),
-        truncation: TruncationSummary::default(),
-    };
+    let mut builder_options = RunBuilderOptions::new(options.service_name())
+        .run_id(run_id)
+        .mode(CaptureMode::Light)
+        .capture_limits(CaptureMode::Light.core_defaults())
+        .strict_lifecycle(false)
+        .started_at_unix_ms(started_at_unix_ms)
+        .finished_at_unix_ms(finished_at_unix_ms)
+        .finalized_at_unix_ms(finished_at_unix_ms);
+    if let Some(service_version) = options.service_version_ref() {
+        builder_options = builder_options.service_version(service_version);
+    }
+    let mut builder = RunBuilder::new(builder_options).map_err(|error| match error {
+        BuildError::EmptyServiceName => ImportError::EmptyServiceName,
+    })?;
+    for request in requests {
+        builder.push_request(request);
+    }
+    for stage in stages {
+        builder.push_stage(stage);
+    }
+    for queue in queues {
+        builder.push_queue(queue);
+    }
+    for lifecycle_warning in lifecycle_warnings {
+        builder.add_lifecycle_warning(lifecycle_warning);
+    }
+    let run = builder.finish();
 
     Ok(ImportedRun::new(run, warnings))
-}
-
-fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
-    if service_name.trim().is_empty() {
-        return Err(ImportError::EmptyServiceName);
-    }
-    Ok(())
 }
 
 fn update_min_max(min_start: &mut Option<u64>, max_finish: &mut Option<u64>, span: &SpanRecord) {
@@ -538,7 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_input_returns_valid_run_with_zero_events() {
+    fn run_from_span_records_empty_input_uses_equal_start_finish_finalized() {
         let imported = run_from_span_records(Vec::new(), ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
@@ -546,6 +533,10 @@ mod tests {
         assert_eq!(
             imported.run().metadata.finished_at_unix_ms,
             imported.run().metadata.started_at_unix_ms
+        );
+        assert_eq!(
+            imported.run().metadata.finalized_at_unix_ms,
+            Some(imported.run().metadata.finished_at_unix_ms)
         );
     }
 
@@ -571,6 +562,47 @@ mod tests {
             .clone();
         assert_eq!(run.metadata.started_at_unix_ms, 10);
         assert_eq!(run.metadata.finished_at_unix_ms, 20);
+    }
+
+    #[test]
+    fn run_from_span_records_uses_schema_v1_finalization_semantics() {
+        let spans = vec![SpanRecord::new("req", 10, 20)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.metadata.started_at_unix_ms, 10);
+        assert_eq!(run.metadata.finished_at_unix_ms, 20);
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(20));
+    }
+
+    #[test]
+    fn run_from_span_records_preserves_computed_import_run_id() {
+        let spans = vec![SpanRecord::new("req", 10, 20)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.metadata.run_id, "tracing-import-10-20");
+    }
+
+    #[test]
+    fn run_from_span_records_preserves_explicit_import_run_id() {
+        let spans = vec![SpanRecord::new("req", 10, 20)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")];
+        let run = run_from_span_records(spans, ImportOptions::new("svc").run_id("explicit-run-id"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.metadata.run_id, "explicit-run-id");
     }
 
     #[test]
