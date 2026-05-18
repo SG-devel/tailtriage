@@ -537,6 +537,13 @@ mod tests {
     }
 
     #[test]
+    fn run_from_span_records_validates_service_name_before_strict_span_parsing() {
+        let spans = vec![SpanRecord::new("bad", 10, 20).field(TT_KIND, 123_u64)];
+        let err = run_from_span_records(spans, ImportOptions::new("   ").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::EmptyServiceName));
+    }
+
+    #[test]
     fn run_from_span_records_empty_input_uses_equal_start_finish_finalized() {
         let imported = run_from_span_records(Vec::new(), ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
