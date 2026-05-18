@@ -104,6 +104,17 @@ Near-term tasks:
 - keep validation docs present-tense and stable, not PR-history oriented
 - update docs contract tests when public docs structure intentionally changes
 
+### 7) Tracing validation and CI readiness
+
+Keep tracing validation bounded, deterministic, and aligned with current scope.
+
+Near-term tasks:
+
+- keep semantic parity harness (`validate-tracing-parity all`) as the CI-facing tracing parity gate
+- keep runtime-sensitive tracing demos coupled to Tokio-session runtime snapshots (`TracingTokioSession`)
+- keep runtime-cost tracing-vs-native smoke validation in CI bounded to catastrophic sanity checks, with full measurement local
+- keep OTel/OTLP out of scope for tracing intake and runtime-cost validation
+
 ### 6) Tracing-intake adoption friction reduction
 
 Keep the optional tracing intake path clear for teams already using Rust `tracing`.

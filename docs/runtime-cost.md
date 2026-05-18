@@ -51,6 +51,16 @@ python3 scripts/measure_runtime_cost.py
 The script builds `demos/runtime_cost` in release mode and runs warmup + measured rounds.
 Each mode is executed as a separate process; this keeps process-global tracing subscriber installation valid for tracing modes.
 
+
+## CI smoke and local full measurement
+
+CI runs a bounded runtime-cost smoke on one Ubuntu extended leg to verify artifact shape and catastrophic-regression sanity checks only.
+
+- CI smoke command uses explicit small parameters and writes to `demos/runtime_cost/artifacts/ci-smoke/`.
+- CI then validates raw+summary artifacts with `scripts/validate_runtime_cost_summary.py`.
+- CI smoke keeps tracing modes enabled, including `tracing_light_tokio_sampler` runtime-snapshot and sampler-metadata checks.
+- Full runtime-cost measurement (`python3 scripts/measure_runtime_cost.py`) remains the developer/local path for richer directional comparisons.
+
 ## Inputs and knobs
 
 CLI options (with equivalent env vars):

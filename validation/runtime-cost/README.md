@@ -12,3 +12,5 @@ Tracing comparisons in this domain measure tailtriage semantic tracing spans (`t
 
 
 Unified orchestration: `scripts/validate_all.py` invokes runtime-cost operational validation in `full` and `publish` profiles while preserving direct domain-runner usage.
+
+CI additionally runs a bounded runtime-cost smoke and validates emitted summary/raw artifacts; this is a diagnostic sanity gate, not rigorous benchmark gating.
