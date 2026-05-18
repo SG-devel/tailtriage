@@ -403,6 +403,35 @@ def _validate_sanity(summary: dict) -> None:
         )
 
 
+def _format_ratio(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}x"
+
+
+def print_ratio_table(summary: dict) -> None:
+    ratios = summary.get("tracing_vs_native_ratios", {})
+    rows = [
+        (
+            "tracing_light / core_light",
+            ratios.get("tracing_light_vs_core_light_latency_p95"),
+            ratios.get("tracing_light_vs_core_light_throughput"),
+        ),
+        (
+            "tracing_sampler / native_sampler",
+            ratios.get("tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95"),
+            ratios.get("tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput"),
+        ),
+        (
+            "tracing_drop_path / native_drop_path",
+            ratios.get("tracing_light_drop_path_vs_core_light_drop_path_latency_p95"),
+            ratios.get("tracing_light_drop_path_vs_core_light_drop_path_throughput"),
+        ),
+    ]
+    print("| comparison | p95 ratio | throughput ratio |")
+    print("|---|---:|---:|")
+    for comparison, p95_ratio, throughput_ratio in rows:
+        print(f"| {comparison} | {_format_ratio(p95_ratio)} | {_format_ratio(throughput_ratio)} |")
+
+
 def build_release_binary(root_dir: Path) -> Path:
     manifest_path = root_dir / "demos/runtime_cost/Cargo.toml"
     print("Building runtime_cost demo in release mode...", file=sys.stderr)
@@ -504,6 +533,7 @@ def main() -> None:
             print(f" - {reason}", file=sys.stderr)
 
     print(json.dumps(summary, indent=2))
+    print_ratio_table(summary)
     print(f"raw results: {raw_path}")
     print(f"summary: {summary_path}")
 
