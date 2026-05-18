@@ -95,7 +95,7 @@ fn parse_record(
             if !has_tt {
                 return Ok(None);
             }
-            return match parse_normalized_span(span_obj) {
+            return match parse_normalized_span(value, span_obj) {
                 Ok(span) => Ok(Some(span)),
                 Err(err) => {
                     let message = format!("line {line_no}: {err}");
@@ -152,6 +152,7 @@ fn value_has_tailtriage_field(value: &Value) -> bool {
 }
 
 fn parse_normalized_span(
+    value: &Value,
     span_obj: &serde_json::Map<String, Value>,
 ) -> Result<SpanRecord, ImportError> {
     let name = required_string(span_obj, "name")?;
@@ -172,7 +173,7 @@ fn parse_normalized_span(
         span = span.duration_us(duration_us);
     }
 
-    let fields = extract_fields_for_span(&Value::Object(span_obj.clone()));
+    let fields = extract_fields_for_span(value);
     for (k, v) in fields {
         span = span.field(k, v);
     }
@@ -246,6 +247,7 @@ fn indicates_close_event(value: &Value) -> bool {
 }
 
 fn extract_fields_for_span(value: &Value) -> BTreeMap<String, FieldValue> {
+    // Precedence is outer fields < span.fields < top-level tt.* (last source wins).
     let mut out = BTreeMap::new();
     collect_fields_object(value.get("fields"), &mut out);
     collect_fields_object(value.get("span").and_then(|s| s.get("fields")), &mut out);
@@ -394,6 +396,69 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].queue, "permits");
+    }
+
+    #[test]
+    fn normalized_request_with_outer_fields_imports() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].route, "/outer");
+    }
+
+    #[test]
+    fn normalized_request_with_top_level_tt_fields_imports() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"request","tt.request_id":"r1","tt.route":"/top"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].route, "/top");
+    }
+
+    #[test]
+    fn normalized_stage_with_outer_fields_imports() {
+        let input = r#"{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].stage, "db");
+    }
+
+    #[test]
+    fn normalized_stage_with_top_level_tt_fields_imports() {
+        let input = r#"{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].stage, "db");
+    }
+
+    #[test]
+    fn normalized_queue_with_outer_fields_imports() {
+        let input = r#"{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].depth_at_start, Some(3));
+    }
+
+    #[test]
+    fn normalized_queue_with_top_level_tt_fields_imports() {
+        let input = r#"{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].depth_at_start, Some(3));
+    }
+
+    #[test]
+    fn normalized_span_fields_still_imports() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/span"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].route, "/span");
+    }
+
+    #[test]
+    fn normalized_field_precedence_outer_then_span_then_top_level() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/span"}},"fields":{"tt.route":"/outer"},"tt.route":"/top"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].route, "/top");
     }
 
     #[test]
@@ -579,6 +644,20 @@ mod tests {
         assert_eq!(imported.run().requests[0].latency_us, 1234);
         assert_eq!(imported.run().stages[0].latency_us, 1234);
         assert_eq!(imported.run().queues[0].wait_us, 1234);
+    }
+
+    #[test]
+    fn normalized_duration_us_with_outer_fields_still_applies() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].latency_us, 1234);
+    }
+
+    #[test]
+    fn normalized_duration_us_with_top_level_tt_fields_still_applies() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"tt.kind":"request","tt.request_id":"r1","tt.route":"/top"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].latency_us, 1234);
     }
 
     #[test]
