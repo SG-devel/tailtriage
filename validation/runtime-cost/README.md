@@ -9,6 +9,7 @@ Generated outputs are written under `target/operational-validation/` and are not
 
 Runtime-cost numbers are machine/workload/profile scoped for local triage validation and are not universal production guarantees.
 Tracing comparisons in this domain measure tailtriage semantic tracing spans (`tt.*`) and optional Tokio-session runtime sampling; they do not add OTel/OTLP behavior.
+CI additionally runs a bounded runtime-cost smoke plus `scripts/validate_runtime_cost_summary.py` to confirm analyzable artifacts and catastrophic-regression sanity checks; this is not rigorous benchmark gating.
 
 
 Unified orchestration: `scripts/validate_all.py` invokes runtime-cost operational validation in `full` and `publish` profiles while preserving direct domain-runner usage.

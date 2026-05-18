@@ -53,6 +53,9 @@ env:
 # - pull_request and main push use path filters to skip irrelevant runs.
 # - docs-contracts enforces public documentation contracts.
 # - Ubuntu dev/release are the extended legs (demos/smokes/policy checks).
+# - Tracing parity is gated on the Ubuntu extended dev leg.
+# - Runtime-cost CI smoke is a bounded diagnostic sanity check on one Ubuntu extended leg.
+# - Full runtime-cost measurements remain local and are not rigorous CI benchmark claims.
 # - Windows/macOS run Cargo compile/lint/test coverage to catch OS-specific behavior.
 # - The external crates.io consumer smoke step remains intentionally disabled.
 jobs:
@@ -210,6 +213,10 @@ jobs:
         if: matrix.extended
         run: python3 scripts/demo_tool.py validate retry-storm --profile ${{ matrix.profile }}
 
+      - name: Validate tracing parity (all demos)
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev' && matrix.extended
+        run: python3 scripts/demo_tool.py validate-tracing-parity all --profile dev
+
       - name: Smoke-check public examples
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/smoke_public_examples.py
@@ -241,6 +248,14 @@ jobs:
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_diagnostic_benchmark
 
+      - name: Validate runtime-cost measurement helper unit tests
+        if: matrix.extended && matrix.profile == 'dev'
+        run: python3 -m unittest scripts.tests.test_measure_runtime_cost
+
+      - name: Validate runtime-cost summary validator unit tests
+        if: matrix.extended && matrix.profile == 'dev'
+        run: python3 -m unittest scripts.tests.test_validate_runtime_cost_summary
+
       - name: Validate deterministic diagnostics benchmark corpus
         if: matrix.extended && matrix.profile == 'dev'
         run: |
@@ -269,7 +284,27 @@ jobs:
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
 
-      - name: Measure runtime cost (non-blocking)
-        if: matrix.extended
-        continue-on-error: true
-        run: python3 scripts/measure_runtime_cost.py
+      - name: Measure runtime cost (bounded CI smoke)
+        if: matrix.extended && matrix.profile == 'release'
+        run: |
+          python3 scripts/measure_runtime_cost.py \
+            --requests 800 \
+            --concurrency 32 \
+            --work-ms 3 \
+            --rounds 1 \
+            --warmup-rounds 0 \
+            --artifact-dir demos/runtime_cost/artifacts/ci-smoke
+
+      - name: Validate runtime-cost smoke outputs
+        if: matrix.extended && matrix.profile == 'release'
+        run: |
+          python3 scripts/validate_runtime_cost_summary.py \
+            --raw demos/runtime_cost/artifacts/ci-smoke/runtime-cost-raw.jsonl \
+            --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
+
+      - name: Upload runtime-cost smoke artifacts
+        if: always() && matrix.extended && matrix.profile == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-cost-ci-smoke
+          path: demos/runtime_cost/artifacts/ci-smoke/

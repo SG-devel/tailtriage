@@ -51,6 +51,22 @@ python3 scripts/measure_runtime_cost.py
 The script builds `demos/runtime_cost` in release mode and runs warmup + measured rounds.
 Each mode is executed as a separate process; this keeps process-global tracing subscriber installation valid for tracing modes.
 
+## CI smoke command (bounded)
+
+CI runs a bounded smoke check for runtime-cost artifacts:
+
+```bash
+python3 scripts/measure_runtime_cost.py \
+  --requests 800 \
+  --concurrency 32 \
+  --work-ms 3 \
+  --rounds 1 \
+  --warmup-rounds 0 \
+  --artifact-dir demos/runtime_cost/artifacts/ci-smoke
+```
+
+That CI smoke is a diagnostic sanity gate only. It validates artifact shape, tracing/native ratio availability, runtime-snapshot presence for `tracing_light_tokio_sampler`, and catastrophic-regression thresholds. It is not a rigorous benchmark claim.
+
 ## Inputs and knobs
 
 CLI options (with equivalent env vars):
@@ -85,6 +101,7 @@ Numbers are directional and machine/workload/profile scoped; broad thresholds ar
 - `CaptureMode` changes retention defaults; it does not auto-start the runtime sampler.
 - Tracing modes measure tailtriage semantic `tt.*` tracing spans (not OTel/OTLP export).
 - Tracing spans alone do not imply runtime-pressure evidence; runtime-pressure evidence requires Tokio-session runtime snapshots.
+- `tracing_light_tokio_sampler` runtime-pressure evidence relies on `TracingTokioSession` runtime sampling and its sampler metadata.
 - Post-limit overhead improvements come from cheaper drop-path handling after limits are hit, while preserving drop counters and truncation visibility.
 
 ## Operational validation runner

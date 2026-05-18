@@ -114,6 +114,7 @@ Near-term tasks:
 - keep positioning explicit: tracing intake converts tracing-shaped evidence into standard Runs for the existing analyzer
 - preserve bounded claims: no tracing backend semantics, no OTel/OTLP, no observability-platform expansion
 - keep runtime-pressure guidance explicit: tracing-only imports usually lack runtime snapshots, so Tokio sampling remains the path for runtime-pressure evidence
+- keep parity/validation posture explicit: semantic parity harness exists, runtime-sensitive demos use `TracingTokioSession`, runtime-cost tracing-vs-native measurement exists, and CI gates one bounded tracing-parity leg plus one bounded runtime-cost smoke leg
 
 ## Near-term sequencing
 

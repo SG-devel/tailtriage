@@ -16,6 +16,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 - `blocking_service` and `executor_pressure_service` also support `--instrumentation native|tracing`.
 - Runtime-sensitive tracing parity uses `TracingTokioSession` plus deterministic runtime snapshots recorded during workload execution.
 - Tracing spans alone do not infer runtime pressure; runtime-sensitive parity relies on those recorded snapshots.
+- CI-facing tracing parity coverage uses `python3 scripts/demo_tool.py validate-tracing-parity all --profile dev` on the Ubuntu extended dev leg.
 - Tracing inflight remains out of scope unless explicitly implemented.
 - This tracing demo mode is not OTel/OTLP and not an observability backend.
 - Suspects in parity runs remain triage leads, not proof of root cause.
