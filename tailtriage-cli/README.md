@@ -61,6 +61,7 @@ tailtriage import tracing-json "fixtures/tracing spans.jsonl" --service checkout
 ```
 
 The command imports completed tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
+Tracing-only imports provide request/stage/queue intake but do not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured (for example via Tokio runtime sampling).
 Malformed JSON input remains fatal. In non-strict mode, syntactically valid malformed/incomplete `tt.*` records are skipped with `warning: ...` lines.
 `--service` must not be empty or whitespace.
 Import fails when zero request events would be written (for example unrelated-only input or all-skipped malformed `tt.*` input), because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
