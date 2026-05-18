@@ -154,7 +154,8 @@ impl RunBuilder {
         let ts = unix_time_ms();
         let started_at_unix_ms = options.started_at_unix_ms.unwrap_or(ts);
         let finished_at_unix_ms = options.finished_at_unix_ms.unwrap_or(ts);
-        let finalized_at_unix_ms = Some(options.finalized_at_unix_ms.unwrap_or(ts));
+        let finalized_at_unix_ms =
+            Some(options.finalized_at_unix_ms.unwrap_or(finished_at_unix_ms));
 
         Ok(Self {
             run: Run::new(RunMetadata {

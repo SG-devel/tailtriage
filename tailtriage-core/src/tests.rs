@@ -1019,6 +1019,19 @@ fn run_builder_default_finalized_timestamp_is_some() {
 }
 
 #[test]
+fn run_builder_defaults_finalized_timestamp_to_finished_timestamp() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(200),
+    )
+    .expect("ok")
+    .finish();
+    assert_eq!(run.metadata.finished_at_unix_ms, 200);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
+}
+
+#[test]
 fn run_builder_preserves_explicit_finalized_timestamp() {
     let run =
         crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").finalized_at_unix_ms(777))
