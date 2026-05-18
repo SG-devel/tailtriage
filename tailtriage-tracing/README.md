@@ -87,7 +87,7 @@ describes the stable field contract used by import and live recording.
 | `tt.queue` | queue | string | none | Queue label for queue-wait evidence. |
 | `tt.outcome` | none (optional) | string | none | Optional completion outcome label (for example `ok`/`error`). |
 | `tt.success` | none (optional) | bool | none | Optional normalized success flag. |
-| `tt.depth_at_start` | queue | unsigned integer | `0` | Queue depth snapshot when queued work started waiting. |
+| `tt.depth_at_start` | queue | unsigned integer | omitted when unknown (`None`) | Queue depth snapshot when queued work started waiting. |
 
 
 ## Live tracing recorder

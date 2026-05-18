@@ -1,8 +1,8 @@
 mod support;
 
-use support::equivalence_harness::assert_native_and_tracing_full_parity;
+use support::equivalence_harness::assert_deterministic_span_import_full_parity;
 
 #[test]
-fn native_and_tracing_runs_have_semantic_parity() {
-    assert_native_and_tracing_full_parity();
+fn deterministic_span_import_matches_native_run_analysis_and_rendering() {
+    assert_deterministic_span_import_full_parity();
 }
