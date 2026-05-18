@@ -924,3 +924,172 @@ fn dropping_unfinished_completion_panics_in_debug() {
         "unfinished completion should panic in debug"
     );
 }
+
+#[test]
+fn run_builder_creates_empty_run_with_explicit_metadata() {
+    let options = crate::RunBuilderOptions::new("checkout-service")
+        .service_version("1.2.3")
+        .run_id("run-explicit")
+        .mode(CaptureMode::Investigation)
+        .capture_limits(CaptureLimits {
+            max_requests: 1,
+            max_stages: 2,
+            max_queues: 3,
+            max_inflight_snapshots: 4,
+            max_runtime_snapshots: 5,
+        })
+        .strict_lifecycle(true)
+        .started_at_unix_ms(10)
+        .finished_at_unix_ms(20)
+        .finalized_at_unix_ms(30)
+        .host("host-a")
+        .pid(1234)
+        .run_end_reason(crate::RunEndReason::Shutdown);
+
+    let run = crate::RunBuilder::new(options)
+        .expect("run builder should succeed")
+        .finish();
+
+    assert_eq!(run.schema_version, crate::SCHEMA_VERSION);
+    assert_eq!(run.metadata.service_name, "checkout-service");
+    assert_eq!(run.metadata.service_version.as_deref(), Some("1.2.3"));
+    assert_eq!(run.metadata.run_id, "run-explicit");
+    assert_eq!(run.metadata.mode, CaptureMode::Investigation);
+    assert_eq!(run.metadata.started_at_unix_ms, 10);
+    assert_eq!(run.metadata.finished_at_unix_ms, 20);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(30));
+    assert_eq!(run.metadata.host.as_deref(), Some("host-a"));
+    assert_eq!(run.metadata.pid, Some(1234));
+    assert_eq!(
+        run.metadata.run_end_reason,
+        Some(crate::RunEndReason::Shutdown)
+    );
+    assert_eq!(
+        run.metadata
+            .effective_core_config
+            .expect("effective core config should be present")
+            .capture_limits,
+        CaptureLimits {
+            max_requests: 1,
+            max_stages: 2,
+            max_queues: 3,
+            max_inflight_snapshots: 4,
+            max_runtime_snapshots: 5,
+        }
+    );
+    assert!(run.requests.is_empty());
+    assert!(run.stages.is_empty());
+    assert!(run.queues.is_empty());
+    assert!(run.inflight.is_empty());
+    assert!(run.runtime_snapshots.is_empty());
+}
+
+#[test]
+fn run_builder_rejects_blank_service_name() {
+    let err = crate::RunBuilder::new(crate::RunBuilderOptions::new("   "))
+        .expect_err("blank service name should fail");
+    assert_eq!(err, BuildError::EmptyServiceName);
+}
+
+#[test]
+fn run_builder_generated_default_run_ids_are_unique() {
+    let first = crate::RunBuilder::new(crate::RunBuilderOptions::new("checkout-service"))
+        .expect("first builder should succeed")
+        .finish();
+    let second = crate::RunBuilder::new(crate::RunBuilderOptions::new("checkout-service"))
+        .expect("second builder should succeed")
+        .finish();
+
+    assert_ne!(first.metadata.run_id, second.metadata.run_id);
+}
+
+#[test]
+fn run_builder_default_metadata_host_and_pid_are_none() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("checkout-service"))
+        .expect("builder should succeed")
+        .finish();
+
+    assert!(run.metadata.host.is_none());
+    assert!(run.metadata.pid.is_none());
+}
+
+#[test]
+fn run_builder_default_finalized_timestamp_is_some() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("checkout-service"))
+        .expect("builder should succeed")
+        .finish();
+
+    assert!(run.metadata.finalized_at_unix_ms.is_some());
+}
+
+#[test]
+fn run_builder_explicit_finalized_timestamp_is_preserved() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("checkout-service").finalized_at_unix_ms(42),
+    )
+    .expect("builder should succeed")
+    .finish();
+
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(42));
+}
+
+#[test]
+fn run_builder_strict_lifecycle_is_preserved_in_effective_config() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("checkout-service").strict_lifecycle(true),
+    )
+    .expect("builder should succeed")
+    .finish();
+
+    assert!(
+        run.metadata
+            .effective_core_config
+            .expect("effective core config should be present")
+            .strict_lifecycle
+    );
+}
+
+#[test]
+fn run_builder_run_end_reason_if_absent_is_not_overwritten() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("checkout-service"))
+        .expect("builder should succeed");
+    builder.set_run_end_reason_if_absent(crate::RunEndReason::Shutdown);
+    builder.set_run_end_reason_if_absent(crate::RunEndReason::ManualDisarm);
+    let run = builder.finish();
+
+    assert_eq!(
+        run.metadata.run_end_reason,
+        Some(crate::RunEndReason::Shutdown)
+    );
+}
+
+#[test]
+fn run_builder_lifecycle_warnings_are_preserved() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("checkout-service"))
+        .expect("builder should succeed");
+    builder.add_lifecycle_warning("warning-a");
+    builder.add_lifecycle_warning("warning-b");
+
+    let run = builder.finish();
+    assert_eq!(
+        run.metadata.lifecycle_warnings,
+        vec!["warning-a".to_string(), "warning-b".to_string()]
+    );
+}
+
+#[test]
+fn run_builder_unfinished_requests_are_preserved() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("checkout-service"))
+        .expect("builder should succeed");
+    let unfinished = crate::UnfinishedRequests {
+        count: 2,
+        sample: vec![crate::UnfinishedRequestSample {
+            request_id: "req-1".to_string(),
+            route: "/checkout".to_string(),
+        }],
+    };
+    builder.set_unfinished_requests(unfinished.clone());
+    let run = builder.finish();
+
+    assert_eq!(run.metadata.unfinished_requests, unfinished);
+}
