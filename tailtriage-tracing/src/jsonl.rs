@@ -84,6 +84,7 @@ fn parse_record(
     strict: bool,
     warnings: &mut Vec<crate::ImportWarning>,
 ) -> Result<Option<SpanRecord>, ImportError> {
+    let has_tt = value_has_tailtriage_field(value);
     if let Some(span_obj) = value.get("span").and_then(Value::as_object) {
         if span_obj.contains_key("name")
             && (span_obj.contains_key("started_at_unix_ms")
@@ -91,9 +92,12 @@ fn parse_record(
             && (span_obj.contains_key("finished_at_unix_ms")
                 || span_obj.contains_key("end_unix_ms"))
         {
+            if !has_tt {
+                return Ok(None);
+            }
             return match parse_normalized_span(span_obj) {
                 Ok(span) => Ok(Some(span)),
-                Err(err) if value_has_tailtriage_field(value) => {
+                Err(err) if has_tt => {
                     let message = format!("line {line_no}: {err}");
                     if strict {
                         Err(ImportError::StrictViolation(message))
@@ -105,7 +109,7 @@ fn parse_record(
                 Err(err) => Err(err),
             };
         }
-        if value_has_tailtriage_field(value) && !indicates_close_event(value) {
+        if has_tt && !indicates_close_event(value) {
             let message = format!(
                 "line {line_no}: invalid field `span`: tailtriage span must include name, started_at_unix_ms/start_unix_ms, and finished_at_unix_ms/end_unix_ms"
             );
@@ -119,7 +123,7 @@ fn parse_record(
 
     match parse_close_event_shape(value) {
         Ok(result) => Ok(result),
-        Err(err) if value_has_tailtriage_field(value) => {
+        Err(err) if has_tt => {
             let message = format!("line {line_no}: {err}");
             if strict {
                 Err(ImportError::StrictViolation(message))
@@ -163,6 +167,15 @@ fn parse_normalized_span(
     }
     if let Some(parent_id) = parent_id {
         span = span.parent_id(parent_id);
+    }
+    if let Some(duration_us) = span_obj.get("duration_us") {
+        let duration_us = duration_us
+            .as_u64()
+            .ok_or_else(|| ImportError::InvalidField {
+                field: "duration_us",
+                reason: "expected unsigned integer microseconds as u64".to_owned(),
+            })?;
+        span = span.duration_us(duration_us);
     }
 
     let fields = extract_fields_for_span(&Value::Object(span_obj.clone()));
@@ -511,6 +524,67 @@ mod tests {
         let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
             .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn malformed_unrelated_normalized_spans_are_ignored() {
+        let input = r#"
+{"span":{"name":"req","id":123,"started_at_unix_ms":1,"finished_at_unix_ms":2}}
+{"span":{"name":"req","parent_id":{},"started_at_unix_ms":1,"finished_at_unix_ms":2}}
+{"span":{"name":123,"started_at_unix_ms":1,"finished_at_unix_ms":2}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().is_empty());
+    }
+
+    #[test]
+    fn malformed_tt_normalized_spans_warn_non_strict_error_strict() {
+        for input in [
+            r#"{"span":{"name":"req","id":123,"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#,
+            r#"{"span":{"name":"req","parent_id":{},"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#,
+            r#"{"span":{"name":123,"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#,
+        ] {
+            let imported =
+                import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+            assert_eq!(imported.warnings().len(), 1);
+            let err =
+                import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+                    .unwrap_err();
+            assert!(matches!(err, ImportError::StrictViolation(_)));
+        }
+    }
+
+    #[test]
+    fn normalized_duration_us_overrides_request_stage_queue_latency() {
+        let input = r#"
+{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":1234,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+{"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":1234,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].latency_us, 1234);
+        assert_eq!(imported.run().stages[0].latency_us, 1234);
+        assert_eq!(imported.run().queues[0].wait_us, 1234);
+    }
+
+    #[test]
+    fn invalid_duration_us_tt_span_warns_non_strict_errors_strict() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"duration_us":"bad","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn invalid_duration_us_unrelated_normalized_span_is_ignored() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"duration_us":"bad"}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().is_empty());
     }
 
     #[test]
