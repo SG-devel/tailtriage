@@ -924,3 +924,157 @@ fn dropping_unfinished_completion_panics_in_debug() {
         "unfinished completion should panic in debug"
     );
 }
+
+#[test]
+fn run_builder_creates_empty_run_with_explicit_metadata() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 20,
+        max_queues: 30,
+        max_inflight_snapshots: 40,
+        max_runtime_snapshots: 50,
+    };
+    let mut builder = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("payments")
+            .service_version("1.2.3")
+            .run_id("run-explicit")
+            .mode(CaptureMode::Investigation)
+            .capture_limits(limits)
+            .strict_lifecycle(true)
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(200)
+            .finalized_at_unix_ms(300)
+            .host("svc-host")
+            .pid(42)
+            .run_end_reason(crate::RunEndReason::Shutdown),
+    )
+    .expect("builder should succeed");
+    builder.push_request(crate::RequestEvent {
+        request_id: "r1".into(),
+        route: "/x".into(),
+        kind: None,
+        started_at_unix_ms: 1,
+        finished_at_unix_ms: 2,
+        latency_us: 10,
+        outcome: "ok".into(),
+    });
+    let run = builder.finish();
+
+    assert_eq!(run.metadata.service_name, "payments");
+    assert_eq!(run.metadata.service_version.as_deref(), Some("1.2.3"));
+    assert_eq!(run.metadata.run_id, "run-explicit");
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
+    assert_eq!(run.metadata.finished_at_unix_ms, 200);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(300));
+    assert_eq!(run.metadata.mode, CaptureMode::Investigation);
+    assert_eq!(run.metadata.host.as_deref(), Some("svc-host"));
+    assert_eq!(run.metadata.pid, Some(42));
+    assert_eq!(
+        run.metadata.run_end_reason,
+        Some(crate::RunEndReason::Shutdown)
+    );
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(
+        run.metadata.effective_core_config.expect("present"),
+        crate::EffectiveCoreConfig {
+            mode: CaptureMode::Investigation,
+            capture_limits: limits,
+            strict_lifecycle: true
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_blank_service_name() {
+    let err = crate::RunBuilder::new(crate::RunBuilderOptions::new("  ")).expect_err("should fail");
+    assert_eq!(err, BuildError::EmptyServiceName);
+}
+
+#[test]
+fn run_builder_default_run_ids_are_unique() {
+    let first = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    let second = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    assert_ne!(first.metadata.run_id, second.metadata.run_id);
+}
+
+#[test]
+fn run_builder_defaults_host_and_pid_to_none() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    assert!(run.metadata.host.is_none());
+    assert!(run.metadata.pid.is_none());
+}
+
+#[test]
+fn run_builder_default_finalized_timestamp_is_some() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    assert!(run.metadata.finalized_at_unix_ms.is_some());
+}
+
+#[test]
+fn run_builder_preserves_explicit_finalized_timestamp() {
+    let run =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").finalized_at_unix_ms(777))
+            .expect("ok")
+            .finish();
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(777));
+}
+
+#[test]
+fn run_builder_strict_lifecycle_in_effective_core_config() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").strict_lifecycle(true))
+        .expect("ok")
+        .finish();
+    assert!(
+        run.metadata
+            .effective_core_config
+            .expect("present")
+            .strict_lifecycle
+    );
+}
+
+#[test]
+fn run_builder_set_run_end_reason_if_absent_only_sets_once() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    builder.set_run_end_reason_if_absent(crate::RunEndReason::Shutdown);
+    builder.set_run_end_reason_if_absent(crate::RunEndReason::ManualDisarm);
+    let run = builder.finish();
+    assert_eq!(
+        run.metadata.run_end_reason,
+        Some(crate::RunEndReason::Shutdown)
+    );
+}
+
+#[test]
+fn run_builder_preserves_lifecycle_warnings() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    builder.add_lifecycle_warning("warning-1");
+    builder.add_lifecycle_warning("warning-2");
+    let run = builder.finish();
+    assert_eq!(
+        run.metadata.lifecycle_warnings,
+        vec!["warning-1", "warning-2"]
+    );
+}
+
+#[test]
+fn run_builder_preserves_unfinished_requests() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    builder.set_unfinished_requests(crate::UnfinishedRequests {
+        count: 2,
+        sample: vec![crate::UnfinishedRequestSample {
+            request_id: "a".into(),
+            route: "/r".into(),
+        }],
+    });
+    let run = builder.finish();
+    assert_eq!(run.metadata.unfinished_requests.count, 2);
+    assert_eq!(run.metadata.unfinished_requests.sample.len(), 1);
+}

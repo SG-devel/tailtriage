@@ -905,7 +905,7 @@ pub(crate) fn duration_to_us(duration: Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
 
-fn generate_run_id() -> String {
+pub(crate) fn generate_run_id() -> String {
     format!("run-{}", uuid::Uuid::new_v4())
 }
 
