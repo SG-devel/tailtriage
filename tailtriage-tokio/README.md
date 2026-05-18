@@ -42,6 +42,7 @@ Examples:
 - active bounded sections as in-flight evidence
 
 This crate does not change core request lifecycle semantics.
+Runtime-pressure evidence still depends on runtime snapshots captured by the sampler; tracing spans alone do not provide Tokio executor/blocking queue-depth fields.
 
 ## When to choose this crate
 
@@ -350,3 +351,4 @@ For those surfaces, use:
 - `tailtriage-axum`: Axum middleware/extractor integration
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
+- `tailtriage-tracing`: optional tracing intake bridge; combine with runtime sampling when executor/blocking-pressure separation is required

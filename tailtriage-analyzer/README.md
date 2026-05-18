@@ -22,7 +22,7 @@ Suspects are investigation leads, not proof of root cause.
 cargo add tailtriage-analyzer
 ```
 
-You also need a capture crate that provides `tailtriage_core::Run`, such as `tailtriage` or `tailtriage-core`.
+You also need a capture crate that provides `tailtriage_core::Run`, such as `tailtriage`, `tailtriage-core`, or `tailtriage-tracing`.
 
 ## How to obtain a `Run`
 
@@ -30,7 +30,7 @@ You also need a capture crate that provides `tailtriage_core::Run`, such as `tai
 
 Typical flow:
 
-- capture/integration crates (`tailtriage`, `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`) produce completed runs or saved artifacts
+- capture/integration crates (`tailtriage`, `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, `tailtriage-tracing`) produce completed runs or saved artifacts
 - `tailtriage-analyzer` analyzes completed in-memory runs or stable snapshots in process
 - `tailtriage-cli` loads saved artifacts from disk and invokes `tailtriage-analyzer`
 

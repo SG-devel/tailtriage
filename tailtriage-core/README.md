@@ -177,3 +177,4 @@ This crate does not provide:
 - analysis/report generation
 
 Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, `tailtriage-analyzer`, and `tailtriage-cli`.
+For teams already emitting Rust `tracing` spans, `tailtriage-tracing` can import tracing-shaped request/stage/queue evidence into standard `tailtriage_core::Run` values.
