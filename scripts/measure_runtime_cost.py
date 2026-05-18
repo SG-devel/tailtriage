@@ -504,6 +504,29 @@ def main() -> None:
             print(f" - {reason}", file=sys.stderr)
 
     print(json.dumps(summary, indent=2))
+    ratios = summary.get("tracing_vs_native_ratios", {})
+
+    def ratio_text(key: str) -> str:
+        value = ratios.get(key)
+        return f"{value:.2f}x" if isinstance(value, (int, float)) and value is not None else "n/a"
+
+    print("| comparison | p95 ratio | throughput ratio |")
+    print("|---|---:|---:|")
+    print(
+        "| tracing_light / core_light | "
+        f"{ratio_text('tracing_light_vs_core_light_latency_p95')} | "
+        f"{ratio_text('tracing_light_vs_core_light_throughput')} |"
+    )
+    print(
+        "| tracing_sampler / native_sampler | "
+        f"{ratio_text('tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95')} | "
+        f"{ratio_text('tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput')} |"
+    )
+    print(
+        "| tracing_drop_path / native_drop_path | "
+        f"{ratio_text('tracing_light_drop_path_vs_core_light_drop_path_latency_p95')} | "
+        f"{ratio_text('tracing_light_drop_path_vs_core_light_drop_path_throughput')} |"
+    )
     print(f"raw results: {raw_path}")
     print(f"summary: {summary_path}")
 

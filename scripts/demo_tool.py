@@ -1091,7 +1091,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     parity_parser = subparsers.add_parser(
         "validate-tracing-parity",
-        help="Run native/tracing parity checks for supported non-runtime-sensitive demos.",
+        help="Run native/tracing parity checks for demo scenarios, including runtime-sensitive demos.",
     )
     parity_parser.add_argument("scenario", choices=PARITY_SCENARIOS)
     parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")

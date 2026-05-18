@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context};
 use serde::Serialize;
 use tailtriage_analyzer::{render_json_pretty, try_analyze_run, AnalyzeOptions};
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Run, Tailtriage};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, MemorySink, Run, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 use tailtriage_tracing::tokio::TracingTokioSession;
 use tailtriage_tracing::TracingRecorder;
@@ -162,6 +162,7 @@ enum Backend {
     Native {
         tailtriage: Arc<Tailtriage>,
         sampler: Option<RuntimeSampler>,
+        sink: MemorySink,
     },
     TracingRecorder {
         rec: TracingRecorder,
@@ -255,13 +256,8 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
                 .mode
                 .core_mode()
                 .ok_or_else(|| anyhow!("missing capture mode"))?;
-            let mut b = Tailtriage::builder("runtime_cost_demo").output(
-                cli.output_dir.join(
-                    cli.mode
-                        .artifact_file_name()
-                        .context("missing artifact filename")?,
-                ),
-            );
+            let sink = MemorySink::new();
+            let mut b = Tailtriage::builder("runtime_cost_demo").sink(sink.clone());
             b = match mode {
                 CaptureMode::Light => b.light(),
                 CaptureMode::Investigation => b.investigation(),
@@ -284,6 +280,7 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
             Ok(Backend::Native {
                 tailtriage: tt,
                 sampler,
+                sink,
             })
         }
         InstrumentationKind::Tracing => {
@@ -323,12 +320,15 @@ async fn finalize_backend_and_write_artifact(
         Backend::Native {
             tailtriage,
             sampler,
+            sink,
         } => {
             if let Some(s) = sampler {
                 s.shutdown().await;
             }
-            let run = tailtriage.snapshot();
             tailtriage.shutdown()?;
+            let run = sink.last_run().ok_or_else(|| {
+                anyhow!("native runtime-cost run sink did not receive finalized run")
+            })?;
             Some(run)
         }
         Backend::TracingRecorder { rec } => Some(rec.shutdown()?.into_parts().0),
