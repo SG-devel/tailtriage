@@ -4,8 +4,14 @@ use std::time::Duration;
 
 use futures_executor::block_on;
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions, DiagnosisKind, Report};
-use tailtriage_core::{MemorySink, Run, Tailtriage};
-use tailtriage_tracing::TracingRecorder;
+use tailtriage_core::{
+    CaptureMode, EffectiveCoreConfig, MemorySink, QueueEvent, RequestEvent, Run, RunMetadata,
+    StageEvent, Tailtriage, TruncationSummary, UnfinishedRequests, SCHEMA_VERSION,
+};
+use tailtriage_tracing::{
+    run_from_span_records, ImportOptions, SpanRecord, TracingRecorder, TT_DEPTH_AT_START, TT_KIND,
+    TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
+};
 use tracing_subscriber::prelude::*;
 
 #[derive(Debug)]
@@ -52,9 +58,9 @@ pub struct ParityReport {
     pub rendered: RenderedReportParityReport,
 }
 
-pub fn assert_native_and_tracing_full_parity() {
-    let native_run = native_run();
-    let (tracing_run, warnings) = tracing_run();
+pub fn assert_native_and_tracing_full_parity(expected: DiagnosisKind) {
+    let native_run = deterministic_native_run();
+    let (tracing_run, warnings) = deterministic_tracing_run();
     let report = build_parity_report(&native_run, &tracing_run);
 
     assert!(
@@ -78,6 +84,16 @@ pub fn assert_native_and_tracing_full_parity() {
         report.analyzer.native_primary_score,
         report.analyzer.tracing_primary_score
     );
+    assert_eq!(
+        report.analyzer.native_primary_suspect,
+        Some(expected.clone()),
+        "deterministic native fixture should produce stable primary suspect {expected:?}"
+    );
+    assert_eq!(
+        report.analyzer.tracing_primary_suspect,
+        Some(expected),
+        "deterministic tracing fixture should produce stable primary suspect"
+    );
 }
 
 pub fn build_parity_report(native_run: &Run, tracing_run: &Run) -> ParityReport {
@@ -100,7 +116,174 @@ pub fn build_parity_report(native_run: &Run, tracing_run: &Run) -> ParityReport 
     }
 }
 
-fn native_run() -> Run {
+fn deterministic_native_run() -> Run {
+    let request_rows = [
+        ("r1", 100_000_u64, 70_000_u64, 9_000_u64, 6_000_u64, 0_u64),
+        (
+            "r2",
+            110_000_u64,
+            80_000_u64,
+            10_000_u64,
+            7_000_u64,
+            200_u64,
+        ),
+        ("r3", 102_000_u64, 74_000_u64, 8_000_u64, 6_000_u64, 400_u64),
+        ("r4", 108_000_u64, 79_000_u64, 9_000_u64, 7_000_u64, 600_u64),
+        ("r5", 104_000_u64, 76_000_u64, 8_000_u64, 5_000_u64, 800_u64),
+    ];
+    let base_ms = 1_700_000_000_000_u64;
+    let mut run = Run {
+        schema_version: SCHEMA_VERSION,
+        metadata: RunMetadata {
+            run_id: "deterministic-native".to_owned(),
+            service_name: "svc".to_owned(),
+            service_version: None,
+            started_at_unix_ms: base_ms,
+            finished_at_unix_ms: base_ms + 2_000,
+            finalized_at_unix_ms: Some(base_ms + 2_000),
+            mode: CaptureMode::Light,
+            effective_core_config: Some(EffectiveCoreConfig {
+                mode: CaptureMode::Light,
+                capture_limits: CaptureMode::Light.core_defaults(),
+                strict_lifecycle: false,
+            }),
+            effective_tokio_sampler_config: None,
+            host: None,
+            pid: None,
+            lifecycle_warnings: Vec::new(),
+            unfinished_requests: UnfinishedRequests::default(),
+            run_end_reason: None,
+        },
+        requests: Vec::new(),
+        stages: Vec::new(),
+        queues: Vec::new(),
+        inflight: Vec::new(),
+        runtime_snapshots: Vec::new(),
+        truncation: TruncationSummary::default(),
+    };
+    for (id, request_lat, queue_wait, db_lat, cache_lat, offset_ms) in request_rows {
+        let request_start = base_ms + offset_ms;
+        run.requests.push(RequestEvent {
+            request_id: id.to_owned(),
+            route: "/checkout".to_owned(),
+            kind: None,
+            started_at_unix_ms: request_start,
+            finished_at_unix_ms: request_start + (request_lat / 1_000),
+            latency_us: request_lat,
+            outcome: "ok".to_owned(),
+        });
+        run.queues.push(QueueEvent {
+            request_id: id.to_owned(),
+            queue: "permits".to_owned(),
+            waited_from_unix_ms: request_start + 1,
+            waited_until_unix_ms: request_start + 1 + (queue_wait / 1_000),
+            wait_us: queue_wait,
+            depth_at_start: Some(3),
+        });
+        run.stages.push(StageEvent {
+            request_id: id.to_owned(),
+            stage: "db".to_owned(),
+            started_at_unix_ms: request_start + 82,
+            finished_at_unix_ms: request_start + 82 + (db_lat / 1_000),
+            latency_us: db_lat,
+            success: true,
+        });
+        run.stages.push(StageEvent {
+            request_id: id.to_owned(),
+            stage: "cache".to_owned(),
+            started_at_unix_ms: request_start + 92,
+            finished_at_unix_ms: request_start + 92 + (cache_lat / 1_000),
+            latency_us: cache_lat,
+            success: true,
+        });
+    }
+    run
+}
+
+fn deterministic_tracing_run() -> (Run, Vec<String>) {
+    let base_ms = 1_700_000_000_000_u64;
+    let request_rows = [
+        ("r1", 100_000_u64, 70_000_u64, 9_000_u64, 6_000_u64, 0_u64),
+        (
+            "r2",
+            110_000_u64,
+            80_000_u64,
+            10_000_u64,
+            7_000_u64,
+            200_u64,
+        ),
+        ("r3", 102_000_u64, 74_000_u64, 8_000_u64, 6_000_u64, 400_u64),
+        ("r4", 108_000_u64, 79_000_u64, 9_000_u64, 7_000_u64, 600_u64),
+        ("r5", 104_000_u64, 76_000_u64, 8_000_u64, 5_000_u64, 800_u64),
+    ];
+    let mut spans = Vec::new();
+    for (id, request_lat, queue_wait, db_lat, cache_lat, offset_ms) in request_rows {
+        let request_start = base_ms + offset_ms;
+        spans.push(
+            SpanRecord::new(
+                "request",
+                request_start,
+                request_start + (request_lat / 1_000),
+            )
+            .duration_us(request_lat)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, id)
+            .field(TT_ROUTE, "/checkout")
+            .field(TT_OUTCOME, "ok"),
+        );
+        spans.push(
+            SpanRecord::new(
+                "queue",
+                request_start + 1,
+                request_start + 1 + (queue_wait / 1_000),
+            )
+            .duration_us(queue_wait)
+            .field(TT_KIND, "queue")
+            .field(TT_REQUEST_ID, id)
+            .field(TT_QUEUE, "permits")
+            .field(TT_DEPTH_AT_START, 3_u64),
+        );
+        spans.push(
+            SpanRecord::new(
+                "db",
+                request_start + 82,
+                request_start + 82 + (db_lat / 1_000),
+            )
+            .duration_us(db_lat)
+            .field(TT_KIND, "stage")
+            .field(TT_REQUEST_ID, id)
+            .field(TT_STAGE, "db")
+            .field(TT_SUCCESS, true),
+        );
+        spans.push(
+            SpanRecord::new(
+                "cache",
+                request_start + 92,
+                request_start + 92 + (cache_lat / 1_000),
+            )
+            .duration_us(cache_lat)
+            .field(TT_KIND, "stage")
+            .field(TT_REQUEST_ID, id)
+            .field(TT_STAGE, "cache")
+            .field(TT_SUCCESS, true),
+        );
+    }
+    let imported = run_from_span_records(
+        spans,
+        ImportOptions::new("svc").run_id("deterministic-tracing"),
+    )
+    .expect("deterministic tracing run should import");
+    (
+        imported.run().clone(),
+        imported
+            .warnings()
+            .iter()
+            .map(|w| w.message().to_owned())
+            .collect(),
+    )
+}
+
+fn live_native_run() -> Run {
     let sink = MemorySink::default();
     let tt = Tailtriage::builder("svc")
         .sink(sink.clone())
@@ -136,11 +319,11 @@ fn native_run() -> Run {
     sink.last_run().unwrap()
 }
 
-fn tracing_run() -> (Run, Vec<String>) {
-    tracing_run_with_queue("permits")
+fn live_tracing_run() -> (Run, Vec<String>) {
+    live_tracing_run_with_queue("permits")
 }
 
-fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
+fn live_tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
     let recorder = TracingRecorder::builder("svc").build();
     let subscriber = tracing_subscriber::registry().with(recorder.layer());
     tracing::subscriber::with_default(subscriber, || {
@@ -531,8 +714,11 @@ fn format_mismatches(mismatches: &[String]) -> String {
 
 #[test]
 fn parity_report_detects_queue_name_mismatch() {
-    let native = native_run();
-    let (tracing, _) = tracing_run_with_queue("permits_changed");
+    let native = deterministic_native_run();
+    let (mut tracing, _) = deterministic_tracing_run();
+    for queue_event in &mut tracing.queues {
+        queue_event.queue = "permits_changed".to_owned();
+    }
     let report = build_parity_report(&native, &tracing);
     assert!(
         report
@@ -622,8 +808,8 @@ Next checks:
 
 #[test]
 fn parity_report_detects_request_outcome_mismatch() {
-    let native = native_run();
-    let (mut tracing, _) = tracing_run();
+    let native = deterministic_native_run();
+    let (mut tracing, _) = deterministic_tracing_run();
     let request = tracing
         .requests
         .iter_mut()
@@ -641,4 +827,61 @@ fn parity_report_detects_request_outcome_mismatch() {
         "expected outcome mismatch, got {:?}",
         report.run.mismatches
     );
+}
+
+#[test]
+fn live_recorder_preserves_event_shape_and_outputs_analyzable_run() {
+    let _ = live_native_run();
+    let (tracing_run, warnings) = live_tracing_run();
+    assert!(
+        warnings.is_empty(),
+        "unexpected tracing warnings: {warnings:?}"
+    );
+    assert_eq!(tracing_run.requests.len(), 3);
+    assert_eq!(tracing_run.stages.len(), 6);
+    assert_eq!(tracing_run.queues.len(), 3);
+
+    let request_ids: BTreeSet<_> = tracing_run
+        .requests
+        .iter()
+        .map(|request| request.request_id.as_str())
+        .collect();
+    assert_eq!(request_ids, BTreeSet::from(["r1", "r2", "r3"]));
+    let routes: BTreeSet<_> = tracing_run
+        .requests
+        .iter()
+        .map(|request| request.route.as_str())
+        .collect();
+    assert!(routes.contains("/checkout"));
+
+    let stage_set: BTreeSet<_> = tracing_run
+        .stages
+        .iter()
+        .map(|stage| (stage.request_id.as_str(), stage.stage.as_str()))
+        .collect();
+    for request_id in ["r1", "r2", "r3"] {
+        assert!(stage_set.contains(&(request_id, "db")));
+        assert!(stage_set.contains(&(request_id, "cache")));
+    }
+    let queue_set: BTreeSet<_> = tracing_run
+        .queues
+        .iter()
+        .map(|queue| (queue.request_id.as_str(), queue.queue.as_str()))
+        .collect();
+    for request_id in ["r1", "r2", "r3"] {
+        assert!(queue_set.contains(&(request_id, "permits")));
+    }
+    assert!(tracing_run
+        .queues
+        .iter()
+        .all(|queue| queue.depth_at_start == Some(3)));
+    assert!(tracing_run
+        .requests
+        .iter()
+        .all(|request| request.latency_us > 0));
+    assert!(tracing_run.stages.iter().all(|stage| stage.latency_us > 0));
+    assert!(tracing_run.queues.iter().all(|queue| queue.wait_us > 0));
+
+    let report = analyze_run(&tracing_run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 3);
 }
