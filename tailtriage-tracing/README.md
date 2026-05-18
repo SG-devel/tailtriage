@@ -133,7 +133,9 @@ declared at span creation time**.
 - `tt.kind` may be filled later only when a `tt.*` field was declared initially
   (for example with `tracing::field::Empty`).
 - Record `tt.*` values as typed scalar fields (string/bool/number), not only
-  debug-formatted values.
+  debug-formatted values. In particular, `tt.kind` should be recorded as a
+  plain string like `"request"`; debug output such as `Some("request")` is
+  treated as an unknown kind by import validation.
 
 Minimal pattern:
 

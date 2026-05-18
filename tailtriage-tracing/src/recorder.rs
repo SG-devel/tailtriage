@@ -57,7 +57,7 @@ impl Default for RecorderLimits {
 
 #[derive(Debug, Default)]
 struct RecorderState {
-    open: BTreeMap<String, OpenSpan>,
+    open: BTreeMap<u64, OpenSpan>,
     completed: Vec<SpanRecord>,
     dropped_open_spans: u64,
     dropped_completed_spans: u64,
@@ -251,23 +251,21 @@ where
             started_instant: Instant::now(),
             is_tt_candidate: metadata_candidate || initial_candidate,
         };
-        state.open.insert(id.into_u64().to_string(), open_span);
+        state.open.insert(id.into_u64(), open_span);
     }
 
     fn on_record(&self, span_id: &Id, values: &tracing::span::Record<'_>, _ctx: Context<'_, S>) {
         let mut visitor = FieldVisitor::default();
         values.record(&mut visitor);
         let mut state = lock_state(&self.state);
-        let key = span_id.into_u64().to_string();
-        if let Some(span) = state.open.get_mut(&key) {
+        if let Some(span) = state.open.get_mut(&span_id.into_u64()) {
             span.fields.extend(visitor.fields);
         }
     }
 
     fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
         let mut state = lock_state(&self.state);
-        let key = id.into_u64().to_string();
-        if let Some(open) = state.open.remove(&key) {
+        if let Some(open) = state.open.remove(&id.into_u64()) {
             if !open.fields.contains_key(TT_KIND) {
                 return;
             }
@@ -569,6 +567,63 @@ mod tests {
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().requests.len(), 1);
             assert_eq!(run.run().requests[0].route, "/late-kind");
+        });
+    }
+
+    #[test]
+    fn span_without_tt_fields_is_not_tracked_even_with_other_fields() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!("request-ish", user_id = 42_u64, route = "/ignored");
+            span.record("other_field", 7_u64);
+            drop(span);
+
+            let run = recorder.snapshot_run().unwrap();
+            assert!(run.run().requests.is_empty());
+            assert!(run.run().stages.is_empty());
+            assert!(run.run().queues.is_empty());
+            assert!(run.warnings().is_empty());
+        });
+    }
+
+    #[test]
+    fn invalid_tt_kind_recorded_later_warns_and_is_not_imported() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r1",
+                tt.route = "/invalid-kind"
+            );
+            span.record("tt.kind", "REQUEST");
+            drop(span);
+
+            let run = recorder.snapshot_run().unwrap();
+            assert!(run.run().requests.is_empty());
+            assert!(run
+                .warnings()
+                .iter()
+                .any(|w| w.message().contains("unknown tt.kind 'REQUEST'")));
+        });
+    }
+
+    #[test]
+    fn debug_formatted_tt_kind_does_not_become_valid_kind() {
+        with_recorder(|recorder| {
+            let kind = Some("request");
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = tracing::field::debug(&kind),
+                tt.request_id = "r1",
+                tt.route = "/debug-kind"
+            );
+            drop(span);
+
+            let run = recorder.snapshot_run().unwrap();
+            assert!(run.run().requests.is_empty());
+            assert!(run
+                .warnings()
+                .iter()
+                .any(|w| w.message().contains("unknown tt.kind")));
         });
     }
 
