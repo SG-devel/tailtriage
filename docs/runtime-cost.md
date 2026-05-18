@@ -51,6 +51,8 @@ python3 scripts/measure_runtime_cost.py
 The script builds `demos/runtime_cost` in release mode and runs warmup + measured rounds.
 Each mode is executed as a separate process; this keeps process-global tracing subscriber installation valid for tracing modes.
 
+CI runs a bounded smoke variant (single short round) to confirm artifacts, tracing-vs-native sanity metrics, runtime snapshots for `tracing_light_tokio_sampler`, sampler metadata, and drop-path signals. Full multi-round measurement remains a local/developer validation path.
+
 ## Inputs and knobs
 
 CLI options (with equivalent env vars):
@@ -78,13 +80,14 @@ Per-mode records now include instrumentation family (`baseline` / `native` / `tr
 - Use **Post-limit / drop-path overhead** only for intentionally saturated-limit behavior.
 
 If `measurement_quality` reports noisy/unstable, rerun on a quieter machine state before drawing stronger conclusions.
-Numbers are directional and machine/workload/profile scoped; broad thresholds are intended only to catch catastrophic regressions.
+Numbers are directional and machine/workload/profile scoped; CI thresholds are catastrophic-regression checks only, not rigorous benchmark claims.
 
 ## Semantics reminder
 
 - `CaptureMode` changes retention defaults; it does not auto-start the runtime sampler.
 - Tracing modes measure tailtriage semantic `tt.*` tracing spans (not OTel/OTLP export).
 - Tracing spans alone do not imply runtime-pressure evidence; runtime-pressure evidence requires Tokio-session runtime snapshots.
+- `TracingTokioSession` mode is a separate runtime-sampling coupling path from tracing spans themselves.
 - Post-limit overhead improvements come from cheaper drop-path handling after limits are hit, while preserving drop counters and truncation visibility.
 
 ## Operational validation runner

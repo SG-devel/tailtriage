@@ -31,7 +31,7 @@ Normal CI keeps deterministic diagnostics and docs contracts as gates but does n
 | Deterministic corpus | Yes in normal CI and in `validation-snapshot.yml` | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
-| Runtime-cost measurement | Partially (non-blocking measure in CI) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
+| Runtime-cost measurement | Yes (bounded smoke + summary validation in CI; full runs manual/local) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
 | Collector-limit stress | Yes (smoke profile + summary validation) | bounded drop/truncation/warning/downgrade behavior under stress | zero drops under all load |
 | Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
 
@@ -71,6 +71,7 @@ Operational validation has dedicated domain folders under `validation/runtime-co
 `scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/operational-validation/`.
 
 Runtime-cost results are machine/workload/profile scoped and are not universal production guarantees.
+Normal CI uses bounded runtime-cost smoke as a diagnostic sanity gate (including tracing modes and catastrophic-ratio checks), not as rigorous benchmark certification.
 
 ## Collector-limit validation
 Collector-limit validation checks visible bounded drops, truncation warnings, and confidence downgrade behavior.

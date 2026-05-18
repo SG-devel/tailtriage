@@ -19,6 +19,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 - Tracing inflight remains out of scope unless explicitly implemented.
 - This tracing demo mode is not OTel/OTLP and not an observability backend.
 - Suspects in parity runs remain triage leads, not proof of root cause.
+- CI-facing tracing parity coverage uses `python3 scripts/demo_tool.py validate-tracing-parity all --profile dev` on Ubuntu extended dev.
 
 ## Strongest public demonstration scenarios
 
