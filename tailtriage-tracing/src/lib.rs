@@ -105,8 +105,17 @@ where
             continue;
         }
 
+        let Some(kind) = SpanKind::parse(kind) else {
+            strict_or_warn(
+                options.strict_mode(),
+                &mut warnings,
+                format!("unknown tt.kind '{kind}' in span '{}'", span.name()),
+            )?;
+            continue;
+        };
+
         match kind {
-            "request" => {
+            SpanKind::Request => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let route = required_string(&span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
@@ -130,7 +139,7 @@ where
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
-            "stage" => {
+            SpanKind::Stage => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let stage = required_string(&span, TT_STAGE, options.strict_mode(), &mut warnings)?;
@@ -155,7 +164,7 @@ where
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
             }
-            "queue" => {
+            SpanKind::Queue => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let queue = required_string(&span, TT_QUEUE, options.strict_mode(), &mut warnings)?;
@@ -179,13 +188,6 @@ where
                     });
                     update_min_max(&mut min_start, &mut max_finish, &span);
                 }
-            }
-            other => {
-                strict_or_warn(
-                    options.strict_mode(),
-                    &mut warnings,
-                    format!("unknown tt.kind '{other}' in span '{}'", span.name()),
-                )?;
             }
         }
     }

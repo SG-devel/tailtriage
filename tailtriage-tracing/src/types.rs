@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 /// Semantic span kind used by tailtriage tracing intake.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum SpanKind {
     /// Request-level span.
@@ -16,6 +17,7 @@ pub enum SpanKind {
 
 /// Supported scalar field values on imported spans.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(untagged)]
 pub enum FieldValue {
     /// String field value.
@@ -30,6 +32,19 @@ pub enum FieldValue {
     F64(f64),
     /// Null field value.
     Null,
+}
+
+impl SpanKind {
+    /// Parses `tt.kind` values used by tracing import.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "request" => Some(Self::Request),
+            "stage" => Some(Self::Stage),
+            "queue" => Some(Self::Queue),
+            _ => None,
+        }
+    }
 }
 
 impl From<&str> for FieldValue {
@@ -161,6 +176,7 @@ impl SpanRecord {
 
 /// Import options for converting tracing-shaped spans into a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportOptions {
     service_name: String,
     service_version: Option<String>,
@@ -224,6 +240,7 @@ impl ImportOptions {
 
 /// Non-fatal warning produced while importing tracing-shaped spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImportWarning {
     message: String,
 }
@@ -251,6 +268,7 @@ impl core::fmt::Display for ImportWarning {
 
 /// Result of a completed import operation.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ImportedRun {
     run: tailtriage_core::Run,
     warnings: Vec<ImportWarning>,
@@ -286,6 +304,15 @@ impl ImportedRun {
 mod tests {
     use super::*;
     use crate::{TT_DEPTH_AT_START, TT_KIND, TT_SUCCESS};
+
+    #[test]
+    fn span_kind_parse_supports_only_convention_values() {
+        assert_eq!(SpanKind::parse("request"), Some(SpanKind::Request));
+        assert_eq!(SpanKind::parse("stage"), Some(SpanKind::Stage));
+        assert_eq!(SpanKind::parse("queue"), Some(SpanKind::Queue));
+        assert_eq!(SpanKind::parse("REQUEST"), None);
+        assert_eq!(SpanKind::parse("wat"), None);
+    }
 
     #[test]
     fn span_record_builder_stores_fields() {
