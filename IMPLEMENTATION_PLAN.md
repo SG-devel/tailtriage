@@ -114,6 +114,7 @@ Near-term tasks:
 - keep positioning explicit: tracing intake converts tracing-shaped evidence into standard Runs for the existing analyzer
 - preserve bounded claims: no tracing backend semantics, no OTel/OTLP, no observability-platform expansion
 - keep runtime-pressure guidance explicit: tracing-only imports usually lack runtime snapshots, so Tokio sampling remains the path for runtime-pressure evidence
+- keep CI readiness explicit: tracing parity is gated on Ubuntu extended dev; runtime-cost is gated by bounded smoke sanity checks on Ubuntu extended release
 
 ## Near-term sequencing
 

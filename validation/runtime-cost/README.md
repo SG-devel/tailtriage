@@ -12,3 +12,5 @@ Tracing comparisons in this domain measure tailtriage semantic tracing spans (`t
 
 
 Unified orchestration: `scripts/validate_all.py` invokes runtime-cost operational validation in `full` and `publish` profiles while preserving direct domain-runner usage.
+
+CI additionally runs one bounded runtime-cost smoke plus `scripts/validate_runtime_cost_summary.py` on Ubuntu extended release. This CI path validates artifact shape and broad catastrophic sanity checks only; full runtime-cost measurement remains local/developer-run and machine/workload/profile scoped.

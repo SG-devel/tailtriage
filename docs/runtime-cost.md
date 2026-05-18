@@ -51,6 +51,25 @@ python3 scripts/measure_runtime_cost.py
 The script builds `demos/runtime_cost` in release mode and runs warmup + measured rounds.
 Each mode is executed as a separate process; this keeps process-global tracing subscriber installation valid for tracing modes.
 
+## CI smoke policy
+
+CI runs a bounded runtime-cost smoke on the Ubuntu extended release leg:
+
+```bash
+python3 scripts/measure_runtime_cost.py \
+  --requests 800 \
+  --concurrency 32 \
+  --work-ms 3 \
+  --rounds 1 \
+  --warmup-rounds 0 \
+  --artifact-dir demos/runtime_cost/artifacts/ci-smoke
+python3 scripts/validate_runtime_cost_summary.py \
+  --raw demos/runtime_cost/artifacts/ci-smoke/runtime-cost-raw.jsonl \
+  --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
+```
+
+This is a bounded diagnostic sanity check only. It enforces broad catastrophic-regression checks and required tracing evidence shape, not rigorous performance benchmarking. Full runtime-cost measurement remains a local/developer-run path via the canonical command above.
+
 ## Inputs and knobs
 
 CLI options (with equivalent env vars):
