@@ -15,23 +15,22 @@ This crate is intentionally narrow:
 
 Both JSONL import and live recorder intake produce standard `tailtriage_core::Run` values for the same analyzer/report workflow.
 
-## JSONL import support in this phase
+## Canonical JSONL shape
 
 Public APIs:
 
 - `import_jsonl_reader(reader, options)`
 - `import_jsonl_path(path, options)`
 
-Supported stable contract (recommended for tests and integrations):
+Use this normalized shape for stable integrations and fixtures:
 
 ```json
 {
   "span": {
     "name": "http.request",
-    "id": "span-1",
-    "parent_id": "root-1",
     "started_at_unix_ms": 1700000000000,
     "finished_at_unix_ms": 1700000000120,
+    "duration_us": 120000,
     "fields": {
       "tt.kind": "request",
       "tt.request_id": "req-42",
@@ -41,11 +40,11 @@ Supported stable contract (recommended for tests and integrations):
 }
 ```
 
-Notes:
+Canonical contract notes:
 
-- Importer accepts `started_at_unix_ms`/`finished_at_unix_ms` and aliases `start_unix_ms`/`end_unix_ms`.
-- Normalized spans may include optional `duration_us` (unsigned integer microseconds). When present, it overrides derived `(finished-start)` duration for request latency, stage latency, and queue wait.
-- Start/end unix-ms timestamps are still required even when `duration_us` is present.
+- `duration_us` is optional and must be an unsigned integer microseconds value.
+- When present, `duration_us` overrides derived `(finished-start)` duration for request latency, stage latency, and queue wait.
+- `started_at_unix_ms` and `finished_at_unix_ms` are still required even when `duration_us` is present.
 - In this phase, normalized shape uses **literal dotted keys** inside `fields` (for example `"tt.kind"` and `"tt.request_id"`), not nested objects that require flattening.
 - Importer reads `tt.*` fields from `fields`, `span.fields`, or top-level `tt.*` keys when present.
 - Scalars can be strings, bools, numbers, or null.
@@ -53,6 +52,7 @@ Notes:
 - Malformed JSON line input is an import error in both strict and non-strict mode.
 - In non-strict mode, syntactically valid but malformed/incomplete `tt.*` records are skipped with warnings.
 - In strict mode, malformed/incomplete `tt.*` records are import errors.
+- Tolerant close-event-like import support is best-effort compatibility for some existing tracing JSONL sources, not the preferred/stable authoring format.
 
 CLI import for the same shape:
 
@@ -71,14 +71,24 @@ this phase, the importer supports:
 
 Close-event-like records require explicit unix-ms start/end timestamps; timing is not guessed from line receive time, and broad compatibility with arbitrary tracing JSON is not claimed.
 
-## Intended field shape
+## Field convention
 
-Typical span fields are expected to follow this shape:
+`tailtriage-tracing` triage intake uses literal dotted `tt.*` keys for request,
+stage, and queue evidence.
 
-- request: `tt.kind`, `tt.request_id`, `tt.route`
-- stage: `tt.kind`, `tt.request_id`, `tt.stage`
-- queue: `tt.kind`, `tt.request_id`, `tt.queue`, `tt.depth_at_start`
+| Field | Required for span kind | Expected type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `tt.kind` | request, stage, queue | string (`"request"`, `"stage"`, `"queue"`) | none | Classifies span semantics for triage import. |
+| `tt.request_id` | request, stage, queue | string | none | Correlation key joining request + child stage/queue spans in one request timeline. |
+| `tt.route` | request | string | empty route | Request route label used in request-level evidence grouping. |
+| `tt.stage` | stage | string | none | Stage label used for stage-latency evidence and ranking. |
+| `tt.queue` | queue | string | none | Queue label used for queue-wait evidence and ranking. |
+| `tt.outcome` | request, stage, queue (optional on all) | string | `"ok"` | Outcome label (`"ok"` or error-like values) used in evidence context. |
+| `tt.success` | request, stage, queue (optional on all) | boolean | derived from `tt.outcome` (`true` when `tt.outcome == "ok"`) | Explicit success flag override for success/failure context. |
+| `tt.depth_at_start` | queue (optional) | unsigned integer | none | Queue depth at enqueue/start used as supporting queue pressure context. |
 
+Treat fields as typed scalar values (string/bool/number/null), not only
+debug-formatted strings.
 
 ## Live tracing recorder
 
@@ -113,13 +123,41 @@ assert_eq!(run.requests.len(), 1);
 # Ok::<(), tailtriage_tracing::ImportError>(())
 ```
 
+## Live recorder tracking rule
+
+A span must declare at least one `tt.*` field at span creation to be tracked by
+the live recorder. If a span has no `tt.*` field at creation, later recordings
+are ignored for intake.
+
+`tt.kind` may be filled later only when a `tt.*` field was declared initially
+(for example with `tracing::field::Empty`):
+
+```rust
+use tracing::field::Empty;
+
+let span = tracing::info_span!(
+    "db.query",
+    tt.kind = Empty,
+    tt.request_id = "req-42",
+    tt.stage = "db"
+);
+span.record("tt.kind", "stage");
+```
+
+Record `tt.*` values as typed scalar fields (string/bool/number) rather than
+only debug-formatted text.
+
 The live recorder is bounded by default (`DEFAULT_MAX_OPEN_SPANS`, `DEFAULT_MAX_COMPLETED_SPANS`), and limits are configurable via `TracingRecorder::builder(...).max_open_spans(...)`, `.max_completed_spans(...)`, or `.limits(RecorderLimits { ... })`.
 
 Use `#[tracing::instrument(fields(...))]` or `.instrument(...)` so span fields attach to async work correctly.
 Do not hold a manual entered-span guard across `.await`; async spans may enter/exit many times, and this recorder finalizes completed work on `on_close` (drop), not enter/exit transitions.
 Live recorder latency/wait precision uses monotonic elapsed duration (`duration_us`) captured at close time.
 
-Tracing span capture for request/stage/queue evidence works outside Tokio runtimes. Runtime-pressure evidence still requires tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans cannot infer executor or blocking-pool pressure by themselves.
+Tracing span capture for request/stage/queue evidence works outside Tokio
+runtimes. Tracing-only imports provide request/stage/queue evidence but do not
+fabricate runtime-pressure evidence. Runtime-pressure evidence still requires
+tailtriage's Tokio sampler or future runtime-metrics import; tracing-only spans
+cannot infer executor or blocking-pool pressure by themselves.
 
 
 
