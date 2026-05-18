@@ -6,9 +6,18 @@ use crate::{
 
 /// Options for assembling a completed [`Run`] artifact.
 ///
-/// This API is intended for completed evidence assembly (for example, importing
-/// or adapting already-collected run evidence). For normal live instrumentation,
-/// use [`crate::Tailtriage`] and its request lifecycle APIs.
+/// This API is for completed evidence assembly (for example, import/conversion
+/// paths), not live request instrumentation. Normal live instrumentation should
+/// use [`crate::Tailtriage::builder`].
+///
+/// When omitted:
+/// - mode defaults to [`CaptureMode::Light`]
+/// - capture limits default to `mode.core_defaults()`
+/// - host and pid remain `None`
+/// - run id uses the same core run-id generator as live capture
+/// - timestamps are filled from one captured current unix-ms value
+///
+/// `finalized_at_unix_ms` is always `Some(...)` for [`RunBuilder`] output.
 #[derive(Debug, Clone)]
 pub struct RunBuilderOptions {
     service_name: String,
@@ -113,11 +122,14 @@ impl RunBuilderOptions {
     }
 }
 
-/// Completed-run artifact assembler.
+/// Advanced/import API for completed-run artifact assembly.
 ///
-/// Use this when you already have request/stage/queue/runtime evidence and need
-/// to assemble a finalized [`Run`] value. This is not the normal live
-/// instrumentation path.
+/// [`RunBuilder`] assembles a finalized [`Run`] from already measured evidence.
+/// It does not perform live request lifecycle tracking.
+///
+/// Push methods use first-N retention through the same bounded
+/// retention/truncation helper used by the live collector. Overflow items are
+/// dropped and reflected in [`Run::truncation`].
 #[derive(Debug)]
 pub struct RunBuilder {
     run: Run,
@@ -170,18 +182,31 @@ impl RunBuilder {
     }
 
     /// Appends a request event.
+    ///
+    /// The event is retained only while request capture-limit capacity remains;
+    /// otherwise it is dropped and `truncation.dropped_requests` is updated.
     pub fn push_request(&mut self, event: RequestEvent) {
         let _ = crate::retention::push_request_bounded(&mut self.run, self.capture_limits, event);
     }
     /// Appends a stage event.
+    ///
+    /// The event is retained only while stage capture-limit capacity remains;
+    /// otherwise it is dropped and `truncation.dropped_stages` is updated.
     pub fn push_stage(&mut self, event: StageEvent) {
         let _ = crate::retention::push_stage_bounded(&mut self.run, self.capture_limits, event);
     }
     /// Appends a queue event.
+    ///
+    /// The event is retained only while queue capture-limit capacity remains;
+    /// otherwise it is dropped and `truncation.dropped_queues` is updated.
     pub fn push_queue(&mut self, event: QueueEvent) {
         let _ = crate::retention::push_queue_bounded(&mut self.run, self.capture_limits, event);
     }
     /// Appends an in-flight snapshot.
+    ///
+    /// The snapshot is retained only while in-flight snapshot capture-limit
+    /// capacity remains; otherwise it is dropped and
+    /// `truncation.dropped_inflight_snapshots` is updated.
     pub fn push_inflight_snapshot(&mut self, snapshot: InFlightSnapshot) {
         let _ = crate::retention::push_inflight_snapshot_bounded(
             &mut self.run,
@@ -190,6 +215,10 @@ impl RunBuilder {
         );
     }
     /// Appends a runtime snapshot.
+    ///
+    /// The snapshot is retained only while runtime snapshot capture-limit
+    /// capacity remains; otherwise it is dropped and
+    /// `truncation.dropped_runtime_snapshots` is updated.
     pub fn push_runtime_snapshot(&mut self, snapshot: RuntimeSnapshot) {
         let _ = crate::retention::push_runtime_snapshot_bounded(
             &mut self.run,
@@ -215,7 +244,10 @@ impl RunBuilder {
             self.run.metadata.run_end_reason = Some(reason);
         }
     }
-    /// Finalizes builder ownership and returns the completed run artifact.
+    /// Consumes the builder and returns the assembled finalized [`Run`].
+    ///
+    /// This does not perform lifecycle validation or synthesize missing
+    /// completions.
     #[must_use]
     pub fn finish(self) -> Run {
         self.run
