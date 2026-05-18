@@ -10,6 +10,7 @@ use crate::{ImportError, ImportedRun, RecorderLimits, TailtriageLayer, TracingRe
 
 /// Error returned when starting [`TracingTokioSession`].
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum TracingTokioSessionStartError {
     /// Underlying tracing recorder setup failed.
     Build(BuildError),
@@ -30,6 +31,7 @@ impl std::error::Error for TracingTokioSessionStartError {}
 
 /// Error returned when shutting down [`TracingTokioSession`].
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum TracingTokioSessionShutdownError {
     /// Snapshot import failed.
     Import(ImportError),
