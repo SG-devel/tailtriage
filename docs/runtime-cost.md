@@ -60,7 +60,7 @@ python3 scripts/measure_runtime_cost.py \
   --requests 1200 \
   --concurrency 32 \
   --work-ms 4 \
-  --rounds 2 \
+  --rounds 4 \
   --warmup-rounds 1 \
   --artifact-dir demos/runtime_cost/artifacts/ci-smoke
 python3 scripts/validate_runtime_cost_summary.py \
@@ -68,7 +68,22 @@ python3 scripts/validate_runtime_cost_summary.py \
   --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 ```
 
-This is a bounded diagnostic sanity check only. It enforces broad catastrophic-regression checks and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+This is a bounded diagnostic sanity check only. It enforces required tracing evidence shape plus bounded tracing/native parity checks, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+
+Hard tracing/native parity thresholds enforced in CI smoke:
+
+- p95 latency ratio must be `<= 1.25x` native for:
+  - `tracing_light / core_light`
+  - `tracing_light_tokio_sampler / core_light_tokio_sampler`
+  - `tracing_light_drop_path / core_light_drop_path`
+- throughput ratio must be `>= 0.75x` native for the same three pairs
+
+Soft warning band (does not fail CI):
+
+- warning when tracing p95 ratio is `> 1.05x` native
+- warning when tracing throughput ratio is `< 0.95x` native
+
+Minor wins/losses inside this ±5% band are treated as parity. Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing remains a first-class intake bridge for users already using tracing or preferring span-shaped instrumentation, and is expected to stay close to native in cost.
 
 ## Inputs and knobs
 
@@ -97,7 +112,7 @@ Per-mode records now include instrumentation family (`baseline` / `native` / `tr
 - Use **Post-limit / drop-path overhead** only for intentionally saturated-limit behavior.
 
 If `measurement_quality` reports noisy/unstable, rerun on a quieter machine state before drawing stronger conclusions.
-Numbers are directional and machine/workload/profile scoped; broad thresholds are intended only to catch catastrophic regressions.
+Numbers are directional and machine/workload/profile scoped; CI smoke is a bounded regression gate, not a rigorous benchmark.
 
 ## Semantics reminder
 
