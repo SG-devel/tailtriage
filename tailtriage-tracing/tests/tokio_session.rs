@@ -67,6 +67,10 @@ async fn session_merges_tracing_and_runtime() {
     assert_eq!(run.queues[0].depth_at_start, Some(2));
     assert!(!run.runtime_snapshots.is_empty());
     assert!(run.metadata.effective_tokio_sampler_config.is_some());
+    assert_eq!(
+        run.metadata.finalized_at_unix_ms,
+        Some(run.metadata.finished_at_unix_ms)
+    );
 }
 
 #[test]
@@ -227,4 +231,34 @@ async fn record_runtime_snapshot_does_not_alter_tracing_events() {
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.stages.len(), 1);
     assert_eq!(run.queues.len(), 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn max_runtime_snapshots_limit_propagates_to_merged_output() {
+    let session = TracingTokioSession::builder("svc")
+        .max_runtime_snapshots(1)
+        .start()
+        .expect("start session");
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: 100,
+        alive_tasks: Some(1),
+        global_queue_depth: Some(2),
+        local_queue_depth: Some(3),
+        blocking_queue_depth: Some(4),
+        remote_schedule_count: Some(5),
+    });
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: 101,
+        alive_tasks: Some(6),
+        global_queue_depth: Some(7),
+        local_queue_depth: Some(8),
+        blocking_queue_depth: Some(9),
+        remote_schedule_count: Some(10),
+    });
+
+    let imported = session.snapshot_run().expect("snapshot run");
+    let run = imported.run();
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
+    assert!(run.truncation.limits_hit);
 }

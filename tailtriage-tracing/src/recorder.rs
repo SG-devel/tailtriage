@@ -794,7 +794,13 @@ mod tests {
             let _open =
                 tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1").entered();
             let err = recorder.snapshot_run().unwrap_err();
-            assert!(matches!(err, ImportError::StrictViolation(_)));
+            match err {
+                ImportError::StrictViolation(message) => {
+                    assert!(message.contains("open candidate span(s) at snapshot/shutdown"));
+                    assert!(message.contains("not converted into fabricated completions"));
+                }
+                other => panic!("expected strict violation, got {other:?}"),
+            }
         });
     }
 
