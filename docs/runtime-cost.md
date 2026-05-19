@@ -60,7 +60,7 @@ python3 scripts/measure_runtime_cost.py \
   --requests 1200 \
   --concurrency 32 \
   --work-ms 4 \
-  --rounds 2 \
+  --rounds 4 \
   --warmup-rounds 1 \
   --artifact-dir demos/runtime_cost/artifacts/ci-smoke
 python3 scripts/validate_runtime_cost_summary.py \
@@ -68,7 +68,7 @@ python3 scripts/validate_runtime_cost_summary.py \
   --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 ```
 
-This is a bounded diagnostic sanity check only. It enforces broad catastrophic-regression checks and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+This is a bounded diagnostic sanity check only. It enforces tracing/native parity hard checks (p95 <= 1.25x native and throughput >= 0.75x native), a 5% soft warning band (p95 > 1.05x or throughput < 0.95x), and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
 
 ## Inputs and knobs
 
@@ -109,3 +109,6 @@ Numbers are directional and machine/workload/profile scoped; broad thresholds ar
 ## Operational validation runner
 
 Use `python3 scripts/run_operational_validation.py --domain runtime-cost` for manual/local runtime-cost validation that emits JSONL records, stable summary JSON, and an optional scorecard. Results are machine/workload/profile scoped and should be treated as measurements, not universal guarantees. Missing metrics are emitted as `null` rather than guessed.
+
+
+Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 5% warning band are treated as parity, not as a reason to change the default recommendation.

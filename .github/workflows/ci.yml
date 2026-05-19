@@ -291,7 +291,7 @@ jobs:
             --requests 1200 \
             --concurrency 32 \
             --work-ms 4 \
-            --rounds 2 \
+            --rounds 4 \
             --warmup-rounds 1 \
             --artifact-dir demos/runtime_cost/artifacts/ci-smoke
 

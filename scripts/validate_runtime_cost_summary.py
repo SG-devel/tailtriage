@@ -13,7 +13,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from measure_runtime_cost import MODES, _validate_sanity
+from measure_runtime_cost import MIN_ROUNDS_FOR_STABLE, MODES, QUALITY_INSUFFICIENT_DATA, _validate_sanity
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,6 +44,16 @@ def validate(raw_path: Path, summary_path: Path) -> None:
 
     if "tracing_vs_native_ratios" not in summary:
         raise SystemExit("summary missing tracing_vs_native_ratios")
+
+    measured_rounds = summary.get("measured_rounds")
+    if not isinstance(measured_rounds, int) or measured_rounds < MIN_ROUNDS_FOR_STABLE:
+        raise SystemExit(
+            f"measured_rounds must be >= {MIN_ROUNDS_FOR_STABLE} for CI smoke validation (found: {measured_rounds})"
+        )
+
+    measurement_quality = summary.get("measurement_quality")
+    if measurement_quality == QUALITY_INSUFFICIENT_DATA:
+        raise SystemExit("measurement_quality is insufficient_data after expected measured rounds")
 
     _validate_sanity(summary)
 

@@ -36,6 +36,8 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         abs_metrics["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] = 1
         abs_metrics["tracing_light_drop_path"]["drop_path_signal_present_rounds"] = 1
         return {
+            "measured_rounds": 4,
+            "measurement_quality": "noisy",
             "absolute_metrics": abs_metrics,
             "tracing_vs_native_ratios": {
                 "tracing_light_vs_core_light_latency_p95": 1.0,
@@ -43,7 +45,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
                 "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.1,
                 "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.8,
                 "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.2,
-                "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.7,
+                "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.8,
             },
         }
 
@@ -100,6 +102,20 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
     def test_missing_required_ratio_key_fails(self) -> None:
         summary = self._summary()
         del summary["tracing_vs_native_ratios"]["tracing_light_drop_path_vs_core_light_drop_path_throughput"]
+        raw, summ, tmp = self._write(summary)
+        with tmp, self.assertRaises(SystemExit):
+            validate_runtime_cost_summary.validate(raw, summ)
+
+    def test_fewer_measured_rounds_fails(self) -> None:
+        summary = self._summary()
+        summary["measured_rounds"] = 2
+        raw, summ, tmp = self._write(summary)
+        with tmp, self.assertRaises(SystemExit):
+            validate_runtime_cost_summary.validate(raw, summ)
+
+    def test_insufficient_data_quality_fails(self) -> None:
+        summary = self._summary()
+        summary["measurement_quality"] = "insufficient_data"
         raw, summ, tmp = self._write(summary)
         with tmp, self.assertRaises(SystemExit):
             validate_runtime_cost_summary.validate(raw, summ)
