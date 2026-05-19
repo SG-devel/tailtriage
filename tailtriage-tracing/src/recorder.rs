@@ -683,6 +683,7 @@ mod tests {
         });
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
         assert!(imported
             .warnings()
             .iter()
@@ -794,7 +795,13 @@ mod tests {
             let _open =
                 tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1").entered();
             let err = recorder.snapshot_run().unwrap_err();
-            assert!(matches!(err, ImportError::StrictViolation(_)));
+            match err {
+                ImportError::StrictViolation(msg) => {
+                    assert!(msg.contains("open candidate span(s)"));
+                    assert!(msg.contains("not converted into fabricated completions"));
+                }
+                _ => panic!("expected strict violation"),
+            }
         });
     }
 
