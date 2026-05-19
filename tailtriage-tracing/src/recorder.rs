@@ -61,6 +61,8 @@ struct RecorderState {
     completed: Vec<SpanRecord>,
     dropped_open_spans: u64,
     dropped_completed_spans: u64,
+    closed_missing_kind_spans: u64,
+    closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
 }
 
 #[derive(Debug)]
@@ -82,6 +84,21 @@ struct OpenSpanSample {
     tt_request_id: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct ClosedMissingKindSample {
+    name: String,
+    span_id: Option<String>,
+    tt_request_id: Option<String>,
+}
+
+struct SnapshotStats {
+    dropped_open_spans: u64,
+    dropped_completed_spans: u64,
+    open_candidate_count: u64,
+    open_samples: Vec<OpenSpanSample>,
+    closed_missing_kind_spans: u64,
+    closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+}
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
         Ok(guard) => guard,
@@ -113,13 +130,7 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
-        let (
-            spans,
-            dropped_open_spans,
-            dropped_completed_spans,
-            open_candidate_count,
-            open_samples,
-        ) = {
+        let (spans, stats) = {
             let state = lock_state(&self.state);
             let mut samples = Vec::new();
             let mut count = 0_u64;
@@ -138,20 +149,17 @@ impl TracingRecorder {
             }
             (
                 state.completed.clone(),
-                state.dropped_open_spans,
-                state.dropped_completed_spans,
-                count,
-                samples,
+                SnapshotStats {
+                    dropped_open_spans: state.dropped_open_spans,
+                    dropped_completed_spans: state.dropped_completed_spans,
+                    open_candidate_count: count,
+                    open_samples: samples,
+                    closed_missing_kind_spans: state.closed_missing_kind_spans,
+                    closed_missing_kind_samples: state.closed_missing_kind_samples.clone(),
+                },
             )
         };
-        imported_with_drop_warnings(
-            spans,
-            self.options.clone(),
-            dropped_open_spans,
-            dropped_completed_spans,
-            open_candidate_count,
-            &open_samples,
-        )
+        imported_with_drop_warnings(spans, self.options.clone(), &stats)
     }
 
     /// Converts currently completed spans into an imported run.
@@ -267,6 +275,21 @@ where
         let mut state = lock_state(&self.state);
         if let Some(open) = state.open.remove(&id.into_u64()) {
             if !open.fields.contains_key(TT_KIND) {
+                if open.is_tt_candidate {
+                    state.closed_missing_kind_spans =
+                        state.closed_missing_kind_spans.saturating_add(1);
+                    if state.closed_missing_kind_samples.len() < 3 {
+                        state
+                            .closed_missing_kind_samples
+                            .push(ClosedMissingKindSample {
+                                name: open.name.clone(),
+                                span_id: open.id.clone(),
+                                tt_request_id: scalar_field_string(
+                                    open.fields.get("tt.request_id"),
+                                ),
+                            });
+                    }
+                }
                 return;
             }
             let mut record = SpanRecord::new(
@@ -307,18 +330,36 @@ fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
 fn imported_with_drop_warnings(
     spans: Vec<SpanRecord>,
     options: ImportOptions,
-    dropped_open_spans: u64,
-    dropped_completed_spans: u64,
-    open_candidate_count: u64,
-    open_samples: &[OpenSpanSample],
+    stats: &SnapshotStats,
 ) -> Result<ImportedRun, ImportError> {
-    if options.strict_mode() && open_candidate_count > 0 {
-        return Err(ImportError::StrictViolation(format!(
-            "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
-        )));
+    let dropped_open_spans = stats.dropped_open_spans;
+    let dropped_completed_spans = stats.dropped_completed_spans;
+    let open_candidate_count = stats.open_candidate_count;
+    let open_samples = stats.open_samples.as_slice();
+    let closed_missing_kind_spans = stats.closed_missing_kind_spans;
+    let closed_missing_kind_samples = stats.closed_missing_kind_samples.as_slice();
+    if options.strict_mode() {
+        let mut messages = Vec::new();
+        if open_candidate_count > 0 {
+            messages.push(format!(
+                "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
+            ));
+        }
+        if closed_missing_kind_spans > 0 {
+            messages.push(format!(
+                "live recorder closed {closed_missing_kind_spans} candidate span(s) missing tt.kind; closed candidate spans without tt.kind are not converted"
+            ));
+        }
+        if !messages.is_empty() {
+            return Err(ImportError::StrictViolation(messages.join("; ")));
+        }
     }
     let imported = run_from_span_records(spans, options)?;
-    if dropped_open_spans == 0 && dropped_completed_spans == 0 && open_candidate_count == 0 {
+    if dropped_open_spans == 0
+        && dropped_completed_spans == 0
+        && open_candidate_count == 0
+        && closed_missing_kind_spans == 0
+    {
         return Ok(imported);
     }
     let (mut run, mut warnings) = imported.into_parts();
@@ -335,6 +376,29 @@ fn imported_with_drop_warnings(
                         sample.name,
                         sample.span_id.as_deref().unwrap_or("-"),
                         sample.tt_kind.as_deref().unwrap_or("-"),
+                        sample.tt_request_id.as_deref().unwrap_or("-")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            let _ = write!(&mut msg, "; samples: {sample_text}");
+        }
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
+
+    if closed_missing_kind_spans > 0 {
+        let mut msg = format!(
+            "live recorder closed {closed_missing_kind_spans} candidate span(s) missing tt.kind; closed candidate spans without tt.kind are not converted"
+        );
+        if !closed_missing_kind_samples.is_empty() {
+            let sample_text = closed_missing_kind_samples
+                .iter()
+                .map(|sample| {
+                    format!(
+                        "name={}, id={}, tt.request_id={}",
+                        sample.name,
+                        sample.span_id.as_deref().unwrap_or("-"),
                         sample.tt_request_id.as_deref().unwrap_or("-")
                     )
                 })
@@ -759,6 +823,127 @@ mod tests {
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
 
+    #[test]
+    fn closed_candidate_missing_tt_kind_warns_non_strict() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "http.request",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert!(imported.run().stages.is_empty());
+            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.warnings().len(), 1);
+            let msg = imported.warnings()[0].message();
+            assert!(msg.contains("missing tt.kind"));
+            assert!(msg.contains("http.request") || msg.contains("r1"));
+            assert!(imported
+                .run()
+                .metadata
+                .lifecycle_warnings
+                .iter()
+                .any(|w| w == msg));
+        });
+    }
+
+    #[test]
+    fn closed_candidate_missing_tt_kind_errors_strict() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "http.request",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(
+                    message.contains("missing tt.kind") || message.contains("closed candidate")
+                );
+                assert!(!message.contains("0 open candidate span(s)"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn closed_candidate_missing_tt_kind_shutdown_errors_strict() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "http.request",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+        let err = recorder.shutdown().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(
+                    message.contains("missing tt.kind") || message.contains("closed candidate")
+                );
+                assert!(!message.contains("0 open candidate span(s)"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strict_mode_reports_open_and_closed_missing_kind_causes_together() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let _open = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r-open",
+                tt.route = "/open"
+            )
+            .entered();
+            let closed_missing_kind = tracing::info_span!(
+                "stage.db",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r-closed"
+            );
+            drop(closed_missing_kind);
+
+            let err = recorder.snapshot_run().unwrap_err();
+            match err {
+                ImportError::StrictViolation(message) => {
+                    assert!(message.contains("open candidate span(s)"));
+                    assert!(
+                        message.contains("missing tt.kind") || message.contains("closed candidate")
+                    );
+                }
+                other => panic!("unexpected error: {other:?}"),
+            }
+        });
+    }
+
+    #[test]
+    fn unrelated_closed_span_still_ignored_without_warning() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!("ordinary", user_id = 7_u64);
+            drop(span);
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert!(imported.run().stages.is_empty());
+            assert!(imported.run().queues.is_empty());
+            assert!(imported.warnings().is_empty());
+        });
+    }
     #[test]
     fn strict_mode_rejects_open_candidate_spans_without_fabricating_completions() {
         let recorder = TracingRecorder::builder("svc").strict(true).build();
