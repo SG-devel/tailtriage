@@ -584,7 +584,7 @@ mod tests {
     #[test]
     fn parse_warnings_are_persisted_to_run_lifecycle_warnings() {
         let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"broken","fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/broken"}}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
@@ -603,7 +603,7 @@ mod tests {
     #[test]
     fn conversion_warnings_still_follow_existing_lifecycle_policy() {
         let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"req2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2"}}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn unrelated_malformed_normalized_span_does_not_create_lifecycle_warning() {
         let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"other","id":123,"started_at_unix_ms":3,"finished_at_unix_ms":4}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
@@ -825,6 +825,45 @@ mod tests {
         assert!(imported.warnings().is_empty());
     }
 
+    #[test]
+    fn normalized_tt_fields_without_kind_warn_non_strict_and_error_strict() {
+        let input = r#"{"span":{"name":"http.request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.request_id":"r1","tt.route":"/checkout"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("missing required field 'tt.kind' in span 'http.request'")));
+
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(
+            matches!(err, ImportError::StrictViolation(msg) if msg.contains("missing required field 'tt.kind'"))
+        );
+    }
+
+    #[test]
+    fn jsonl_missing_outcome_and_success_warn_once_each() {
+        let input = r#"
+{"span":{"name":"req-1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"span":{"name":"req-2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/b"}}}
+{"span":{"name":"st-1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+{"span":{"name":"st-2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"cache"}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let msgs: Vec<String> = imported
+            .warnings()
+            .iter()
+            .map(|warning| warning.message().to_owned())
+            .collect();
+        assert_eq!(msgs.iter().filter(|m| m.contains("tt.outcome")).count(), 1);
+        assert_eq!(msgs.iter().filter(|m| m.contains("tt.success")).count(), 1);
+        assert!(msgs
+            .iter()
+            .any(|m| m.contains("2 request span(s) missing optional 'tt.outcome'; assumed 'ok'")));
+        assert!(msgs
+            .iter()
+            .any(|m| m.contains("2 stage span(s) missing optional 'tt.success'; assumed true")));
+    }
     #[test]
     fn empty_service_name_is_rejected_for_jsonl_import() {
         let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();

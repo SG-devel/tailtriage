@@ -36,7 +36,8 @@ Recommended normalized line shape for tests and integrations:
     "fields": {
       "tt.kind": "request",
       "tt.request_id": "req-42",
-      "tt.route": "/checkout"
+      "tt.route": "/checkout",
+      "tt.outcome": "ok"
     }
   }
 }
@@ -85,9 +86,9 @@ describes the stable field contract used by import and live recording.
 | `tt.route` | request | string | none | Logical request route/name used for request-level grouping. |
 | `tt.stage` | stage | string | none | Stage label for downstream-stage evidence. |
 | `tt.queue` | queue | string | none | Queue label for queue-wait evidence. |
-| `tt.outcome` | none (optional) | string | none | Optional completion outcome label (for example `ok`/`error`). |
-| `tt.success` | none (optional) | bool | none | Optional normalized success flag. |
-| `tt.depth_at_start` | queue | unsigned integer | omitted when unknown | Queue depth snapshot when queued work started waiting. |
+| `tt.outcome` | request | string | `ok` when omitted | Optional request outcome label; importer emits one aggregate warning when defaulted. |
+| `tt.success` | stage | bool | `true` when omitted | Optional stage success flag; importer emits one aggregate warning when defaulted. |
+| `tt.depth_at_start` | queue | unsigned integer | omitted when unknown | Queue depth snapshot when queued work started waiting; no warning when absent. |
 
 
 ## Live tracing recorder

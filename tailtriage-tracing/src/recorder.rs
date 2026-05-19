@@ -496,7 +496,8 @@ mod tests {
                 "request",
                 tt.kind = "request",
                 tt.request_id = "r1",
-                tt.route = "/a"
+                tt.route = "/a",
+                tt.outcome = "ok"
             );
             drop(span);
             let run = recorder.snapshot_run().unwrap();
@@ -542,6 +543,7 @@ mod tests {
                 tt.kind = "request",
                 tt.request_id = "r1",
                 tt.route = "/a",
+                tt.outcome = "ok",
                 tt.outcome = tracing::field::Empty
             );
             span.record("tt.outcome", "timeout");
@@ -734,7 +736,8 @@ mod tests {
                 "request",
                 tt.kind = "request",
                 tt.request_id = "r1",
-                tt.route = "/a"
+                tt.route = "/a",
+                tt.outcome = "ok"
             );
             drop(span1);
             let span2 = tracing::info_span!(
@@ -770,7 +773,8 @@ mod tests {
                 "request",
                 tt.kind = "request",
                 tt.request_id = "r1",
-                tt.route = "/a"
+                tt.route = "/a",
+                tt.outcome = "ok"
             );
             let span2 = tracing::info_span!(
                 "request",
@@ -806,7 +810,8 @@ mod tests {
                 "request",
                 tt.kind = "request",
                 tt.request_id = "r1",
-                tt.route = "/a"
+                tt.route = "/a",
+                tt.outcome = "ok"
             );
             drop(request);
             drop(unrelated);
