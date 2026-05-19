@@ -338,15 +338,21 @@ fn imported_with_drop_warnings(
     let open_samples = stats.open_samples.as_slice();
     let closed_missing_kind_spans = stats.closed_missing_kind_spans;
     let closed_missing_kind_samples = stats.closed_missing_kind_samples.as_slice();
-    if options.strict_mode() && (open_candidate_count > 0 || closed_missing_kind_spans > 0) {
-        return Err(ImportError::StrictViolation(format!(
-            "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
-        )));
-    }
-    if options.strict_mode() && closed_missing_kind_spans > 0 {
-        return Err(ImportError::StrictViolation(format!(
-            "live recorder closed {closed_missing_kind_spans} candidate span(s) missing tt.kind; closed candidate spans without tt.kind are not converted"
-        )));
+    if options.strict_mode() {
+        let mut messages = Vec::new();
+        if open_candidate_count > 0 {
+            messages.push(format!(
+                "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
+            ));
+        }
+        if closed_missing_kind_spans > 0 {
+            messages.push(format!(
+                "live recorder closed {closed_missing_kind_spans} candidate span(s) missing tt.kind; closed candidate spans without tt.kind are not converted"
+            ));
+        }
+        if !messages.is_empty() {
+            return Err(ImportError::StrictViolation(messages.join("; ")));
+        }
     }
     let imported = run_from_span_records(spans, options)?;
     if dropped_open_spans == 0
@@ -861,10 +867,9 @@ mod tests {
         match err {
             ImportError::StrictViolation(message) => {
                 assert!(
-                    message.contains("tt.kind")
-                        || message.contains("closed")
-                        || message.contains("open candidate")
+                    message.contains("missing tt.kind") || message.contains("closed candidate")
                 );
+                assert!(!message.contains("0 open candidate span(s)"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -884,7 +889,47 @@ mod tests {
             drop(span);
         });
         let err = recorder.shutdown().unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(
+                    message.contains("missing tt.kind") || message.contains("closed candidate")
+                );
+                assert!(!message.contains("0 open candidate span(s)"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strict_mode_reports_open_and_closed_missing_kind_causes_together() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let _open = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r-open",
+                tt.route = "/open"
+            )
+            .entered();
+            let closed_missing_kind = tracing::info_span!(
+                "stage.db",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r-closed"
+            );
+            drop(closed_missing_kind);
+
+            let err = recorder.snapshot_run().unwrap_err();
+            match err {
+                ImportError::StrictViolation(message) => {
+                    assert!(message.contains("open candidate span(s)"));
+                    assert!(
+                        message.contains("missing tt.kind") || message.contains("closed candidate")
+                    );
+                }
+                other => panic!("unexpected error: {other:?}"),
+            }
+        });
     }
 
     #[test]
