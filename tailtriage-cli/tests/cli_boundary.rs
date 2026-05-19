@@ -305,11 +305,41 @@ fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("tt.route"));
     assert!(run_path.exists(), "run output should be written");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
+}
+
+#[test]
+fn import_tracing_json_missing_tt_kind_tt_fields_warns_and_still_writes_when_valid_present() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        r#"{"span":{"name":"good","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
+{"span":{"name":"bad","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.request_id":"r2","tt.route":"/broken"}}}
+"#,
+    )
+    .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("missing required field 'tt.kind'"));
+    assert!(run_path.exists());
 }
 
 #[test]
@@ -462,7 +492,7 @@ fn valid_cli_artifact_with_empty_requests() -> &'static str {
 }
 
 fn complete_span_jsonl_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.success":true}}}
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
 {"span":{"name":"db.stage","started_at_unix_ms":1002,"finished_at_unix_ms":1006,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db","tt.success":true}}}
 {"span":{"name":"admission.queue","started_at_unix_ms":1000,"finished_at_unix_ms":1002,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"admission"}}}
 "#
@@ -474,7 +504,7 @@ fn incomplete_tailtriage_span_fixture() -> &'static str {
 }
 
 fn one_valid_request_span_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.success":true}}}
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }
 
@@ -484,6 +514,6 @@ fn malformed_tailtriage_span_fixture() -> &'static str {
 
 fn mixed_valid_and_incomplete_request_span_fixture() -> &'static str {
     r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
-{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.success":true}}}
+{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }

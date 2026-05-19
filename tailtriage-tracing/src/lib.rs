@@ -75,10 +75,25 @@ where
     let mut queues = Vec::new();
     let mut min_start: Option<u64> = None;
     let mut max_finish: Option<u64> = None;
+    let mut missing_request_outcome = 0_u64;
+    let mut missing_stage_success = 0_u64;
 
     for span in spans {
+        let has_tailtriage_fields = span_has_tailtriage_field(&span);
         let kind = match get_string_field_state(&span, TT_KIND) {
-            StringFieldState::Missing => continue,
+            StringFieldState::Missing => {
+                if has_tailtriage_fields {
+                    strict_or_warn(
+                        options.strict_mode(),
+                        &mut warnings,
+                        format!(
+                            "missing required field '{TT_KIND}' in span '{}'",
+                            span.name()
+                        ),
+                    )?;
+                }
+                continue;
+            }
             StringFieldState::Value(kind) => {
                 let Some(kind) = SpanKind::parse(kind) else {
                     strict_or_warn(
@@ -120,10 +135,14 @@ where
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let route = required_string(&span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(route)) = (request_id, route) {
-                    let Some(outcome) = parse_outcome(&span, options.strict_mode(), &mut warnings)?
-                    else {
+                    let (outcome, outcome_missing) =
+                        parse_outcome(&span, options.strict_mode(), &mut warnings)?;
+                    let Some(outcome) = outcome else {
                         continue;
                     };
+                    if outcome_missing {
+                        missing_request_outcome += 1;
+                    }
                     requests.push(RequestEvent {
                         request_id,
                         route,
@@ -144,12 +163,15 @@ where
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
                 let stage = required_string(&span, TT_STAGE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(stage)) = (request_id, stage) {
-                    let success = match parse_success(&span, options.strict_mode(), &mut warnings)?
-                    {
-                        OptionalField::Missing => true,
-                        OptionalField::Value(success) => success,
-                        OptionalField::Invalid => continue,
-                    };
+                    let (success, success_missing) =
+                        match parse_success(&span, options.strict_mode(), &mut warnings)? {
+                            OptionalField::Missing => (true, true),
+                            OptionalField::Value(success) => (success, false),
+                            OptionalField::Invalid => continue,
+                        };
+                    if success_missing {
+                        missing_stage_success += 1;
+                    }
                     stages.push(StageEvent {
                         request_id,
                         stage,
@@ -190,6 +212,16 @@ where
                 }
             }
         }
+    }
+    if missing_request_outcome > 0 {
+        warnings.push(ImportWarning::new(format!(
+            "{missing_request_outcome} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'"
+        )));
+    }
+    if missing_stage_success > 0 {
+        warnings.push(ImportWarning::new(format!(
+            "{missing_stage_success} stage span(s) missing optional '{TT_SUCCESS}'; assumed true"
+        )));
     }
 
     let started_at_unix_ms = min_start.unwrap_or_else(tailtriage_core::unix_time_ms);
@@ -275,6 +307,9 @@ fn get_string_field_state<'a>(span: &'a SpanRecord, key: &str) -> StringFieldSta
         None => StringFieldState::Missing,
     }
 }
+fn span_has_tailtriage_field(span: &SpanRecord) -> bool {
+    span.fields().keys().any(|key| key.starts_with("tt."))
+}
 
 fn required_string(
     span: &SpanRecord,
@@ -328,10 +363,10 @@ fn parse_outcome(
     span: &SpanRecord,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
-) -> Result<Option<String>, ImportError> {
+) -> Result<(Option<String>, bool), ImportError> {
     match get_string_field_state(span, TT_OUTCOME) {
-        StringFieldState::Missing => Ok(Some("ok".to_owned())),
-        StringFieldState::Value(value) => Ok(Some(value.to_owned())),
+        StringFieldState::Missing => Ok((Some("ok".to_owned()), true)),
+        StringFieldState::Value(value) => Ok((Some(value.to_owned()), false)),
         StringFieldState::InvalidType => {
             strict_or_warn(
                 strict,
@@ -341,7 +376,7 @@ fn parse_outcome(
                     span.name()
                 ),
             )?;
-            Ok(None)
+            Ok((None, false))
         }
     }
 }
@@ -475,13 +510,42 @@ mod tests {
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_QUEUE, "q1"),
         ];
-        let run = run_from_span_records(spans, ImportOptions::new("svc"))
-            .unwrap()
-            .run()
-            .clone();
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let run = imported.run().clone();
         assert_eq!(run.requests[0].outcome, "ok");
         assert!(run.stages[0].success);
         assert_eq!(run.queues[0].depth_at_start, None);
+        assert_eq!(imported.warnings().len(), 2);
+    }
+
+    #[test]
+    fn non_tt_span_is_ignored_without_warning() {
+        let spans = vec![SpanRecord::new("other", 1, 2).field("http.method", "GET")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().is_empty());
+    }
+
+    #[test]
+    fn tt_span_missing_kind_warns_and_skips_non_strict() {
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0]
+            .message()
+            .contains("missing required field 'tt.kind'"));
+    }
+
+    #[test]
+    fn tt_span_missing_kind_errors_in_strict() {
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
@@ -614,7 +678,8 @@ mod tests {
             SpanRecord::new("req", 10, 20)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .field(TT_ROUTE, "/")
+                .field(TT_OUTCOME, "ok"),
         ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
@@ -631,7 +696,8 @@ mod tests {
             SpanRecord::new("req", 10, 20)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .field(TT_ROUTE, "/")
+                .field(TT_OUTCOME, "ok"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
@@ -687,7 +753,8 @@ mod tests {
             SpanRecord::new("req", 10, 20)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .field(TT_ROUTE, "/")
+                .field(TT_OUTCOME, "ok"),
             SpanRecord::new("st", 1, 1_000)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
@@ -707,7 +774,8 @@ mod tests {
             SpanRecord::new("req", 10, 20)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/"),
+                .field(TT_ROUTE, "/")
+                .field(TT_OUTCOME, "ok"),
             SpanRecord::new("st", 1, 1_000)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
@@ -732,7 +800,7 @@ mod tests {
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 0);
-        assert_eq!(imported.warnings().len(), 1);
+        assert_eq!(imported.warnings().len(), 2);
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
         assert_eq!(imported.run().metadata.finished_at_unix_ms, 20);
     }
