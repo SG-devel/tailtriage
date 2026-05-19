@@ -13,14 +13,18 @@ This crate is intentionally narrow:
 - It does **not** implement OpenTelemetry or OTLP.
 - It does **not** change `tailtriage-analyzer`.
 
-Both JSONL import and live recorder intake produce standard `tailtriage_core::Run` values for the same analyzer/report workflow.
+JSONL import, typed `SpanRecord` import, and live recorder intake all assemble standard `tailtriage_core::Run` artifacts through core-owned completed-run assembly.
+Completed tracing import output follows the same bounded retention/truncation semantics as core-built runs.
 
 ## JSONL import support in this phase
 
 Public APIs:
 
+- `run_from_span_records(records, options)`
 - `import_jsonl_reader(reader, options)`
 - `import_jsonl_path(path, options)`
+- `TracingRecorder`
+- optional `tokio::TracingTokioSession`
 
 ### Canonical JSONL shape (stable authoring contract)
 

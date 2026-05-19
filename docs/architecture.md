@@ -43,6 +43,7 @@ Owns the core capture model:
 - queue/stage/inflight instrumentation wrappers
 - run artifact schema and sink behavior
 - capture limits/truncation accounting
+- completed-run assembly for import/adaptation bridges (with the same bounded retention/truncation semantics as live capture)
 
 ### `tailtriage-tokio`
 
@@ -51,6 +52,11 @@ Adds optional runtime-pressure snapshots to the same run artifact via `RuntimeSa
 ### `tailtriage-axum`
 
 Adds optional Axum request-boundary ergonomics (middleware + extractor).
+
+### `tailtriage-tracing`
+
+A narrow intake bridge for tracing-shaped completed spans and live `tt.*` span recording.
+It converts/imports tracing evidence into standard core `Run` artifacts, does not implement OpenTelemetry/OTLP, and does not change analyzer behavior.
 
 ### `tailtriage-analyzer`
 
