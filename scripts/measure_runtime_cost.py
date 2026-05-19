@@ -51,6 +51,9 @@ QUALITY_NOISY = "noisy"
 QUALITY_UNSTABLE = "unstable"
 QUALITY_INSUFFICIENT_DATA = "insufficient_data"
 MIN_ROUNDS_FOR_STABLE = 4
+TRACING_PARITY_P95_HARD_LIMIT = 1.10
+TRACING_PARITY_THROUGHPUT_HARD_FLOOR = 0.90
+TRACING_PARITY_SOFT_WARNING_BAND = 0.02
 
 DELTA_VS_BASELINE_MODE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Baked-in overhead", ("baked_in_no_request_context",)),
@@ -73,6 +76,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work-ms", type=int, default=int(os.environ.get("WORK_MS", str(DEFAULT_WORK_MS))))
     parser.add_argument("--rounds", type=int, default=int(os.environ.get("ROUNDS", str(DEFAULT_ROUNDS))))
     parser.add_argument("--warmup-rounds", type=int, default=int(os.environ.get("WARMUP_ROUNDS", str(DEFAULT_WARMUP_ROUNDS))))
+    parser.add_argument(
+        "--print-json",
+        action="store_true",
+        help="Print the full summary JSON in addition to the compact report.",
+    )
     return parser.parse_args()
 
 
@@ -381,26 +389,48 @@ def _validate_sanity(summary: dict) -> None:
             raise SystemExit(f"{key} is required and cannot be null (likely zero/missing denominator)")
         if value != value or value in (float("inf"), float("-inf")):
             raise SystemExit(f"{key} must be finite (not NaN or infinity)")
-    if ratios["tracing_light_vs_core_light_latency_p95"] > 20:
-        raise SystemExit("tracing_light_vs_core_light_latency_p95 exceeds catastrophic threshold (>20x)")
-    if ratios["tracing_light_vs_core_light_throughput"] < 0.05:
-        raise SystemExit("tracing_light_vs_core_light_throughput is below catastrophic threshold (<0.05x)")
-    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95"] > 20:
-        raise SystemExit(
-            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95 exceeds catastrophic threshold (>20x)"
-        )
-    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput"] < 0.05:
-        raise SystemExit(
-            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput is below catastrophic threshold (<0.05x)"
-        )
-    if ratios["tracing_light_drop_path_vs_core_light_drop_path_latency_p95"] > 20:
-        raise SystemExit(
-            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95 exceeds catastrophic threshold (>20x)"
-        )
-    if ratios["tracing_light_drop_path_vs_core_light_drop_path_throughput"] < 0.05:
-        raise SystemExit(
-            "tracing_light_drop_path_vs_core_light_drop_path_throughput is below catastrophic threshold (<0.05x)"
-        )
+
+    warnings = evaluate_tracing_parity(ratios)
+    for warning in warnings:
+        print(f"WARNING: {warning}", file=sys.stderr)
+
+
+def evaluate_tracing_parity(ratios: dict[str, float]) -> list[str]:
+    warnings: list[str] = []
+    pairs = (
+        ("tracing_light", "tracing_light_vs_core_light_latency_p95", "tracing_light_vs_core_light_throughput"),
+        (
+            "tracing_light_tokio_sampler",
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95",
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput",
+        ),
+        (
+            "tracing_light_drop_path",
+            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95",
+            "tracing_light_drop_path_vs_core_light_drop_path_throughput",
+        ),
+    )
+
+    for mode_label, latency_key, throughput_key in pairs:
+        latency_ratio = ratios[latency_key]
+        if latency_ratio > TRACING_PARITY_P95_HARD_LIMIT:
+            raise SystemExit(f"{latency_key} exceeds parity threshold (>{TRACING_PARITY_P95_HARD_LIMIT}x)")
+        if latency_ratio > (1.0 + TRACING_PARITY_SOFT_WARNING_BAND):
+            warnings.append(
+                f"{mode_label} p95 is {latency_ratio:.2f}x native; "
+                "within hard threshold but above 2% warning band"
+            )
+
+        throughput_ratio = ratios[throughput_key]
+        if throughput_ratio < TRACING_PARITY_THROUGHPUT_HARD_FLOOR:
+            raise SystemExit(f"{throughput_key} is below parity threshold (<{TRACING_PARITY_THROUGHPUT_HARD_FLOOR}x)")
+        if throughput_ratio < (1.0 - TRACING_PARITY_SOFT_WARNING_BAND):
+            warnings.append(
+                f"{mode_label} throughput is {throughput_ratio:.2f}x native; "
+                "within hard threshold but below 2% warning band"
+            )
+
+    return warnings
 
 
 def build_release_binary(root_dir: Path) -> Path:
@@ -457,6 +487,10 @@ def run_mode(binary_path: Path, mode: str, args: argparse.Namespace, artifact_di
     return json.loads(output[-1])
 
 
+def ratio_text(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}x"
+
+
 def main() -> None:
     args = parse_args()
     if args.requests <= 0 or args.concurrency <= 0 or args.work_ms <= 0:
@@ -503,7 +537,7 @@ def main() -> None:
         for reason in summary["stability_warning"] or []:
             print(f" - {reason}", file=sys.stderr)
 
-    print(json.dumps(summary, indent=2))
+    parity_warnings = evaluate_tracing_parity(summary.get("tracing_vs_native_ratios", {}))
     ratios = summary.get("tracing_vs_native_ratios", {})
     rows = (
         (
@@ -522,14 +556,56 @@ def main() -> None:
             ratios.get("tracing_light_drop_path_vs_core_light_drop_path_throughput"),
         ),
     )
-    print("| comparison | p95 ratio | throughput ratio |")
-    print("|---|---:|---:|")
+    print("Runtime-cost CI smoke summary")
+    print(
+        "requests="
+        f"{summary['requests']} concurrency={summary['concurrency']} work_ms={summary['work_ms']} "
+        f"warmup_rounds={summary['warmup_rounds']} measured_rounds={summary['measured_rounds']} "
+        f"quality={summary['measurement_quality']}"
+    )
+    print()
+    print("GATED tracing/native runtime-path ratios")
+    print("| comparison | p95 ratio | throughput ratio | status |")
+    print("|---|---:|---:|---|")
     for name, p95_ratio, throughput_ratio in rows:
         p95_text = "n/a" if p95_ratio is None else f"{p95_ratio:.2f}x"
         throughput_text = "n/a" if throughput_ratio is None else f"{throughput_ratio:.2f}x"
-        print(f"| {name} | {p95_text} | {throughput_text} |")
+        status = "ok"
+        if (p95_ratio is not None and p95_ratio > TRACING_PARITY_P95_HARD_LIMIT) or (
+            throughput_ratio is not None and throughput_ratio < TRACING_PARITY_THROUGHPUT_HARD_FLOOR
+        ):
+            status = "fail"
+        elif (p95_ratio is not None and p95_ratio > (1.0 + TRACING_PARITY_SOFT_WARNING_BAND)) or (
+            throughput_ratio is not None and throughput_ratio < (1.0 - TRACING_PARITY_SOFT_WARNING_BAND)
+        ):
+            status = "warn"
+        print(f"| {name} | {p95_text} | {throughput_text} | {status} |")
+    print()
+    print("Informational post-run ratios")
+    print("| comparison | ratio |")
+    print("|---|---:|")
+    print(f"| tracing finalize / native finalize | {ratio_text(ratios.get('tracing_finalize_vs_native_finalize'))} |")
+    print(f"| tracing analyze / native analyze | {ratio_text(ratios.get('tracing_analyze_vs_native_analyze'))} |")
+    print(f"| tracing render / native render | {ratio_text(ratios.get('tracing_render_vs_native_render'))} |")
+    print()
+    print("Warnings")
+    if parity_warnings:
+        for warning in parity_warnings:
+            print(f"- WARNING: {warning}")
+    if summary["measurement_quality"] != QUALITY_STABLE:
+        print(
+            f"- WARNING: measurement quality is {summary['measurement_quality']}; rerun on a quieter machine for stronger conclusions."
+        )
+        for reason in summary["stability_warning"] or []:
+            print(f"- {reason}")
+    if not parity_warnings and summary["measurement_quality"] == QUALITY_STABLE:
+        print("- none")
+    print()
+    print("Artifacts")
     print(f"raw results: {raw_path}")
     print(f"summary: {summary_path}")
+    if args.print_json:
+        print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
