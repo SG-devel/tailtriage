@@ -288,7 +288,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: |
           python3 scripts/measure_runtime_cost.py \
-            --requests 2000 \
+            --requests 4000 \
             --concurrency 32 \
             --work-ms 4 \
             --rounds 4 \
@@ -301,4 +301,3 @@ jobs:
           python3 scripts/validate_runtime_cost_summary.py \
             --raw demos/runtime_cost/artifacts/ci-smoke/runtime-cost-raw.jsonl \
             --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
-

@@ -41,11 +41,11 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
             "absolute_metrics": abs_metrics,
             "tracing_vs_native_ratios": {
                 "tracing_light_vs_core_light_latency_p95": 1.0,
-                "tracing_light_vs_core_light_throughput": 0.9,
-                "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.1,
-                "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.8,
-                "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.2,
-                "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.8,
+                "tracing_light_vs_core_light_throughput": 0.97,
+                "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.03,
+                "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.97,
+                "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.03,
+                "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.97,
             },
         }
 

@@ -207,11 +207,11 @@ class RuntimeCostSummaryTests(unittest.TestCase):
                                             "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
                    "tracing_vs_native_ratios": {
                        "tracing_light_vs_core_light_latency_p95": 1.10,
-                       "tracing_light_vs_core_light_throughput": 0.8,
+                       "tracing_light_vs_core_light_throughput": 0.9,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.10,
-                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.8,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.9,
                        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.10,
-                       "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.8,
+                       "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.9,
                    }}
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] = 1
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] = 1
@@ -220,25 +220,47 @@ class RuntimeCostSummaryTests(unittest.TestCase):
 
     def test_parity_warning_for_latency_above_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
-            "tracing_light_vs_core_light_latency_p95": 1.11,
+            "tracing_light_vs_core_light_latency_p95": 1.03,
             "tracing_light_vs_core_light_throughput": 1.0,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_throughput": 1.0,
         })
-        self.assertTrue(any("tracing_light p95 is 1.11x native" in w for w in warnings))
+        self.assertTrue(any("tracing_light p95 is 1.03x native" in w for w in warnings))
+
+    def test_parity_no_warning_for_latency_at_or_below_soft_band(self) -> None:
+        warnings = measure_runtime_cost.evaluate_tracing_parity({
+            "tracing_light_vs_core_light_latency_p95": 1.02,
+            "tracing_light_vs_core_light_throughput": 1.0,
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.02,
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
+            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.02,
+            "tracing_light_drop_path_vs_core_light_drop_path_throughput": 1.0,
+        })
+        self.assertEqual(warnings, [])
 
     def test_parity_warning_for_throughput_below_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
             "tracing_light_vs_core_light_latency_p95": 1.0,
-            "tracing_light_vs_core_light_throughput": 0.89,
+            "tracing_light_vs_core_light_throughput": 0.97,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_throughput": 1.0,
         })
-        self.assertTrue(any("tracing_light throughput is 0.89x native" in w for w in warnings))
+        self.assertTrue(any("tracing_light throughput is 0.97x native" in w for w in warnings))
+
+    def test_parity_no_warning_for_throughput_at_or_above_soft_band(self) -> None:
+        warnings = measure_runtime_cost.evaluate_tracing_parity({
+            "tracing_light_vs_core_light_latency_p95": 1.0,
+            "tracing_light_vs_core_light_throughput": 0.98,
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.98,
+            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
+            "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.98,
+        })
+        self.assertEqual(warnings, [])
 
 
 if __name__ == "__main__":

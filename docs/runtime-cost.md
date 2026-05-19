@@ -68,7 +68,7 @@ python3 scripts/validate_runtime_cost_summary.py \
   --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 ```
 
-This is a bounded diagnostic sanity check only. It enforces tracing/native parity hard checks (p95 <= 1.25x native and throughput >= 0.75x native), a 10% soft warning band (p95 > 1.10x or throughput < 0.90x), and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+This is a bounded diagnostic sanity check only. It enforces tracing/native parity hard checks (p95 <= 1.10x native and throughput >= 0.90x native), a 2% soft warning band (p95 > 1.02x or throughput < 0.98x), and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. CI logs print compact runtime-cost tables by default, while full JSON remains in artifacts (`runtime-cost-summary.json`) and can be printed locally with `--print-json`. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
 
 ## Inputs and knobs
 
@@ -79,6 +79,7 @@ CLI options (with equivalent env vars):
 - `--work-ms` (`WORK_MS`, default `3`)
 - `--warmup-rounds` (`WARMUP_ROUNDS`, default `2`)
 - `--rounds` (`ROUNDS`, default `6`)
+- `--print-json` (print full summary JSON after compact report)
 
 ## Artifacts emitted
 
@@ -112,4 +113,4 @@ Numbers are directional and machine/workload/profile scoped; this bounded smoke 
 Use `python3 scripts/run_operational_validation.py --domain runtime-cost` for manual/local runtime-cost validation that emits JSONL records, stable summary JSON, and an optional scorecard. Results are machine/workload/profile scoped and should be treated as measurements, not universal guarantees. Missing metrics are emitted as `null` rather than guessed.
 
 
-Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 10% warning band are treated as parity, not as a reason to change the default recommendation.
+Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 2% warning band are treated as parity, not as a reason to change the default recommendation.
