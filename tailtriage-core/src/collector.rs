@@ -460,14 +460,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_runtime_snapshots =
-                    run.truncation.dropped_runtime_snapshots.saturating_add(1);
+            if crate::retention::push_runtime_snapshot_bounded(&mut run, self.limits, snapshot) {
                 self.truncation_state.runtime_snapshots.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.runtime_snapshots.push(snapshot);
             }
         }
         if notify_limits_hit {
@@ -510,13 +505,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.stages.len() >= self.limits.max_stages {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_stages = run.truncation.dropped_stages.saturating_add(1);
+            if crate::retention::push_stage_bounded(&mut run, self.limits, event) {
                 self.truncation_state.stages.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.stages.push(event);
             }
         }
         if notify_limits_hit {
@@ -534,13 +525,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.queues.len() >= self.limits.max_queues {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_queues = run.truncation.dropped_queues.saturating_add(1);
+            if crate::retention::push_queue_bounded(&mut run, self.limits, event) {
                 self.truncation_state.queues.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.queues.push(event);
             }
         }
         if notify_limits_hit {
@@ -558,14 +545,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.inflight.len() >= self.limits.max_inflight_snapshots {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_inflight_snapshots =
-                    run.truncation.dropped_inflight_snapshots.saturating_add(1);
+            if crate::retention::push_inflight_snapshot_bounded(&mut run, self.limits, snapshot) {
                 self.truncation_state.inflight.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.inflight.push(snapshot);
             }
         }
         if notify_limits_hit {
@@ -583,13 +565,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.requests.len() >= self.limits.max_requests {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_requests = run.truncation.dropped_requests.saturating_add(1);
+            if crate::retention::push_request_bounded(&mut run, self.limits, event) {
                 self.truncation_state.requests.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.requests.push(event);
             }
         }
         if notify_limits_hit {
@@ -905,7 +883,7 @@ pub(crate) fn duration_to_us(duration: Duration) -> u64 {
     duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
 
-fn generate_run_id() -> String {
+pub(crate) fn generate_run_id() -> String {
     format!("run-{}", uuid::Uuid::new_v4())
 }
 

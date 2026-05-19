@@ -694,6 +694,7 @@ mod tests {
             .iter()
             .any(|w| w.contains("dropped 1 completed spans")));
         assert!(imported.run().truncation.limits_hit);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
     }
 
     #[test]
@@ -756,6 +757,29 @@ mod tests {
         let recorder = TracingRecorder::builder(" ").build();
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
+    }
+
+    #[test]
+    fn strict_mode_rejects_open_candidate_spans_without_fabricating_completions() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        let err = tracing::subscriber::with_default(subscriber, || {
+            let _open_guard = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r-open",
+                tt.route = "/open"
+            )
+            .entered();
+            recorder.snapshot_run().expect_err("strict should reject")
+        });
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("open candidate span(s)"));
+                assert!(message.contains("not converted into fabricated completions"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]
