@@ -778,7 +778,7 @@ mod tests {
                 assert!(message.contains("open candidate span(s)"));
                 assert!(message.contains("not converted into fabricated completions"));
             }
-            other => panic!("unexpected error: {other}"),
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 
