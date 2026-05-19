@@ -47,6 +47,9 @@ def validate(raw_path: Path, summary_path: Path) -> None:
 
     _validate_sanity(summary)
 
+    for warning in summary.get("parity_warnings") or []:
+        print(warning)
+
 
 def main() -> None:
     args = parse_args()

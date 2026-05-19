@@ -52,6 +52,10 @@ QUALITY_UNSTABLE = "unstable"
 QUALITY_INSUFFICIENT_DATA = "insufficient_data"
 MIN_ROUNDS_FOR_STABLE = 4
 
+TRACING_NATIVE_P95_HARD_LIMIT = 1.25
+TRACING_NATIVE_THROUGHPUT_HARD_FLOOR = 0.75
+TRACING_NATIVE_SOFT_WARNING_BAND = 0.05
+
 DELTA_VS_BASELINE_MODE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Baked-in overhead", ("baked_in_no_request_context",)),
     ("Core mode overhead", UNSATURATED_CORE_MODES),
@@ -350,6 +354,13 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
 
 
 def _validate_sanity(summary: dict) -> None:
+    measured_rounds = summary.get("measured_rounds")
+    if measured_rounds is None or measured_rounds < MIN_ROUNDS_FOR_STABLE:
+        raise SystemExit(
+            f"measured_rounds must be >= {MIN_ROUNDS_FOR_STABLE} for runtime-cost CI smoke "
+            f"(got {measured_rounds})"
+        )
+
     abs_m = summary["absolute_metrics"]
     required = ("core_light", "tracing_light", "tracing_light_tokio_sampler")
     for mode in MODES:
@@ -381,26 +392,61 @@ def _validate_sanity(summary: dict) -> None:
             raise SystemExit(f"{key} is required and cannot be null (likely zero/missing denominator)")
         if value != value or value in (float("inf"), float("-inf")):
             raise SystemExit(f"{key} must be finite (not NaN or infinity)")
-    if ratios["tracing_light_vs_core_light_latency_p95"] > 20:
-        raise SystemExit("tracing_light_vs_core_light_latency_p95 exceeds catastrophic threshold (>20x)")
-    if ratios["tracing_light_vs_core_light_throughput"] < 0.05:
-        raise SystemExit("tracing_light_vs_core_light_throughput is below catastrophic threshold (<0.05x)")
-    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95"] > 20:
-        raise SystemExit(
-            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95 exceeds catastrophic threshold (>20x)"
-        )
-    if ratios["tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput"] < 0.05:
-        raise SystemExit(
-            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput is below catastrophic threshold (<0.05x)"
-        )
-    if ratios["tracing_light_drop_path_vs_core_light_drop_path_latency_p95"] > 20:
-        raise SystemExit(
-            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95 exceeds catastrophic threshold (>20x)"
-        )
-    if ratios["tracing_light_drop_path_vs_core_light_drop_path_throughput"] < 0.05:
-        raise SystemExit(
-            "tracing_light_drop_path_vs_core_light_drop_path_throughput is below catastrophic threshold (<0.05x)"
-        )
+
+    latency_keys = (
+        "tracing_light_vs_core_light_latency_p95",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95",
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95",
+    )
+    throughput_keys = (
+        "tracing_light_vs_core_light_throughput",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput",
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput",
+    )
+
+    for key in latency_keys:
+        ratio = ratios[key]
+        if ratio > TRACING_NATIVE_P95_HARD_LIMIT:
+            raise SystemExit(f"{key} exceeds parity threshold (>{TRACING_NATIVE_P95_HARD_LIMIT}x)")
+
+    for key in throughput_keys:
+        ratio = ratios[key]
+        if ratio < TRACING_NATIVE_THROUGHPUT_HARD_FLOOR:
+            raise SystemExit(f"{key} is below parity threshold (<{TRACING_NATIVE_THROUGHPUT_HARD_FLOOR}x)")
+
+    soft_latency_limit = 1.0 + TRACING_NATIVE_SOFT_WARNING_BAND
+    soft_throughput_floor = 1.0 - TRACING_NATIVE_SOFT_WARNING_BAND
+    soft_warning_messages: list[str] = []
+
+    warning_names = (
+        ("tracing_light", "tracing_light_vs_core_light_latency_p95", "tracing_light_vs_core_light_throughput"),
+        (
+            "tracing_light_tokio_sampler",
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95",
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput",
+        ),
+        (
+            "tracing_light_drop_path",
+            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95",
+            "tracing_light_drop_path_vs_core_light_drop_path_throughput",
+        ),
+    )
+
+    for mode_name, latency_key, throughput_key in warning_names:
+        latency_ratio = ratios[latency_key]
+        throughput_ratio = ratios[throughput_key]
+        if latency_ratio > soft_latency_limit:
+            soft_warning_messages.append(
+                f"WARNING: {mode_name} p95 is {latency_ratio:.2f}x native; "
+                "within hard threshold but above 5% warning band"
+            )
+        if throughput_ratio < soft_throughput_floor:
+            soft_warning_messages.append(
+                f"WARNING: {mode_name} throughput is {throughput_ratio:.2f}x native; "
+                "within hard threshold but below 5% warning band"
+            )
+
+    summary["parity_warnings"] = soft_warning_messages
 
 
 def build_release_binary(root_dir: Path) -> Path:
@@ -495,6 +541,10 @@ def main() -> None:
                 raw_file.write(json.dumps(measurement) + "\n")
 
     summary = summarize(raw_path, summary_path)
+    parity_warnings = summary.get("parity_warnings") or []
+    for warning in parity_warnings:
+        print(warning, file=sys.stderr)
+
     if summary["measurement_quality"] != QUALITY_STABLE:
         print(
             f"WARNING: measurement quality is {summary['measurement_quality']}; rerun on a quieter machine for stronger conclusions.",

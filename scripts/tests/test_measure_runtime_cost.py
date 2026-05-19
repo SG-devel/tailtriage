@@ -159,14 +159,14 @@ class RuntimeCostSummaryTests(unittest.TestCase):
             self.assertEqual(drop_summary["limit_reached_rounds"], 4)
             self.assertGreater(drop_summary["dropped_requests"]["mean"], 0)
 
-    def test_sanity_fails_on_catastrophic_latency_ratio(self) -> None:
-        summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
+    def test_sanity_fails_on_parity_latency_ratio(self) -> None:
+        summary = {"measured_rounds": 4, "absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
                                             "runtime_snapshots": {"median": 0},
                                             "effective_tokio_sampler_config_present_rounds": 0,
                                             "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
                    "tracing_vs_native_ratios": {
-                       "tracing_light_vs_core_light_latency_p95": 25.0,
+                       "tracing_light_vs_core_light_latency_p95": 1.26,
                        "tracing_light_vs_core_light_throughput": 0.5,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
@@ -179,15 +179,15 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             measure_runtime_cost._validate_sanity(summary)
 
-    def test_sanity_fails_on_catastrophic_throughput_ratio(self) -> None:
-        summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
+    def test_sanity_fails_on_parity_throughput_ratio(self) -> None:
+        summary = {"measured_rounds": 4, "absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
                                             "runtime_snapshots": {"median": 0},
                                             "effective_tokio_sampler_config_present_rounds": 0,
                                             "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
                    "tracing_vs_native_ratios": {
                        "tracing_light_vs_core_light_latency_p95": 1.0,
-                       "tracing_light_vs_core_light_throughput": 0.01,
+                       "tracing_light_vs_core_light_throughput": 0.74,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
                        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
@@ -199,24 +199,61 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             measure_runtime_cost._validate_sanity(summary)
 
-    def test_sanity_passes_for_reasonable_tracing_ratios(self) -> None:
-        summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
+    def test_sanity_passes_for_inbound_parity_ratios(self) -> None:
+        summary = {"measured_rounds": 4, "absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
                                             "runtime_snapshots": {"median": 0},
                                             "effective_tokio_sampler_config_present_rounds": 0,
                                             "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
                    "tracing_vs_native_ratios": {
-                       "tracing_light_vs_core_light_latency_p95": 2.0,
-                       "tracing_light_vs_core_light_throughput": 0.8,
-                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 2.0,
-                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.8,
-                       "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 2.0,
-                       "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.8,
+                       "tracing_light_vs_core_light_latency_p95": 1.02,
+                       "tracing_light_vs_core_light_throughput": 0.98,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.03,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.97,
+                       "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.01,
+                       "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.99,
                    }}
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] = 1
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] = 1
         summary["absolute_metrics"]["tracing_light_drop_path"]["drop_path_signal_present_rounds"] = 1
         measure_runtime_cost._validate_sanity(summary)
+
+    def test_sanity_warns_without_failing_for_soft_band_movement(self) -> None:
+        summary = {"measured_rounds": 4, "absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
+                                            "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
+                                            "runtime_snapshots": {"median": 0},
+                                            "effective_tokio_sampler_config_present_rounds": 0,
+                                            "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
+                   "tracing_vs_native_ratios": {
+                       "tracing_light_vs_core_light_latency_p95": 1.07,
+                       "tracing_light_vs_core_light_throughput": 0.93,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.02,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.96,
+                       "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.01,
+                       "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.99,
+                   }}
+        summary["absolute_metrics"]["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] = 1
+        summary["absolute_metrics"]["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] = 1
+        summary["absolute_metrics"]["tracing_light_drop_path"]["drop_path_signal_present_rounds"] = 1
+        measure_runtime_cost._validate_sanity(summary)
+        self.assertTrue(summary.get("parity_warnings"))
+
+    def test_sanity_fails_when_measured_rounds_below_minimum(self) -> None:
+        summary = {"measured_rounds": 2, "absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
+                                            "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
+                                            "runtime_snapshots": {"median": 0},
+                                            "effective_tokio_sampler_config_present_rounds": 0,
+                                            "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
+                   "tracing_vs_native_ratios": {
+                       "tracing_light_vs_core_light_latency_p95": 1.0,
+                       "tracing_light_vs_core_light_throughput": 1.0,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
+                       "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
+                       "tracing_light_drop_path_vs_core_light_drop_path_throughput": 1.0,
+                   }}
+        with self.assertRaises(SystemExit):
+            measure_runtime_cost._validate_sanity(summary)
 
 
 if __name__ == "__main__":
