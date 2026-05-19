@@ -85,9 +85,9 @@ describes the stable field contract used by import and live recording.
 | `tt.route` | request | string | none | Logical request route/name used for request-level grouping. |
 | `tt.stage` | stage | string | none | Stage label for downstream-stage evidence. |
 | `tt.queue` | queue | string | none | Queue label for queue-wait evidence. |
-| `tt.outcome` | none (optional) | string | none | Optional completion outcome label (for example `ok`/`error`). |
-| `tt.success` | none (optional) | bool | none | Optional normalized success flag. |
-| `tt.depth_at_start` | queue | unsigned integer | omitted when unknown | Queue depth snapshot when queued work started waiting. |
+| `tt.outcome` | request (optional) | string | defaults to `ok`; importer emits one aggregate warning per import | Optional request completion outcome label (for example `ok`/`error`). |
+| `tt.success` | stage (optional) | bool | defaults to `true`; importer emits one aggregate warning per import | Optional stage success flag. |
+| `tt.depth_at_start` | queue (optional) | unsigned integer | omitted when unknown; no warning when absent | Queue depth snapshot when queued work started waiting. |
 
 
 ## Live tracing recorder

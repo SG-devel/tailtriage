@@ -826,6 +826,41 @@ mod tests {
     }
 
     #[test]
+    fn normalized_tt_fields_missing_kind_warn_and_skip_non_strict() {
+        let input = r#"{"span":{"name":"http.request","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.request_id":"r1","tt.route":"/checkout"}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0]
+            .message()
+            .contains("missing required field 'tt.kind' in span 'http.request'"));
+    }
+
+    #[test]
+    fn normalized_tt_fields_missing_kind_error_strict() {
+        let input = r#"{"span":{"name":"http.request","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.request_id":"r1","tt.route":"/checkout"}}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn aggregate_optional_default_warnings_are_not_spammy() {
+        let input = r#"{"span":{"name":"req1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"span":{"name":"req2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/b"}}}
+{"span":{"name":"st1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+{"span":{"name":"st2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"cache"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.warnings().len(), 2);
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("2 request span(s) missing optional 'tt.outcome'")));
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("2 stage span(s) missing optional 'tt.success'")));
+    }
+
+    #[test]
     fn empty_service_name_is_rejected_for_jsonl_import() {
         let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
