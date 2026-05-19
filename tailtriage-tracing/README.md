@@ -36,7 +36,8 @@ Recommended normalized line shape for tests and integrations:
     "fields": {
       "tt.kind": "request",
       "tt.request_id": "req-42",
-      "tt.route": "/checkout"
+      "tt.route": "/checkout",
+      "tt.outcome": "ok"
     }
   }
 }

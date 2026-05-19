@@ -369,7 +369,7 @@ fn parse_outcome(
 ) -> Result<Option<String>, ImportError> {
     match get_string_field_state(span, TT_OUTCOME) {
         StringFieldState::Missing => {
-            *missing_count += 1;
+            *missing_count = (*missing_count).saturating_add(1);
             Ok(Some("ok".to_owned()))
         }
         StringFieldState::Value(value) => Ok(Some(value.to_owned())),
@@ -406,7 +406,7 @@ fn parse_success(
             Ok(OptionalField::Invalid)
         }
         None => {
-            *missing_count += 1;
+            *missing_count = (*missing_count).saturating_add(1);
             Ok(OptionalField::Missing)
         }
     }

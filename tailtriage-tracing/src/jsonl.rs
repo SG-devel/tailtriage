@@ -102,6 +102,17 @@ fn parse_record(
     strict: bool,
     warnings: &mut Vec<crate::ImportWarning>,
 ) -> Result<Option<SpanRecord>, ImportError> {
+    if let Some(field_name) = first_non_scalar_tailtriage_field(value) {
+        let message = format!(
+            "line {line_no}: invalid field '{field_name}': expected scalar tt.* value in JSONL record"
+        );
+        if strict {
+            return Err(ImportError::StrictViolation(message));
+        }
+        warnings.push(crate::ImportWarning::new(message));
+        return Ok(None);
+    }
+
     let has_tt = value_has_tailtriage_field(value);
     if let Some(span_obj) = value.get("span").and_then(Value::as_object) {
         let is_normalized_shape = span_obj.contains_key("name")
@@ -163,6 +174,39 @@ fn parse_record(
         }
         Err(err) => Err(err),
     }
+}
+
+fn first_non_scalar_tailtriage_field(value: &Value) -> Option<String> {
+    let is_non_scalar = |v: &Value| matches!(v, Value::Array(_) | Value::Object(_));
+    let mut first: Option<String> = None;
+    let mut consider = |key: &str, raw: &Value| {
+        if key.starts_with("tt.") && is_non_scalar(raw) && first.is_none() {
+            first = Some(key.to_owned());
+        }
+    };
+
+    if let Some(map) = value.get("fields").and_then(Value::as_object) {
+        for (k, v) in map {
+            consider(k, v);
+        }
+    }
+    if let Some(map) = value
+        .get("span")
+        .and_then(Value::as_object)
+        .and_then(|span| span.get("fields"))
+        .and_then(Value::as_object)
+    {
+        for (k, v) in map {
+            consider(k, v);
+        }
+    }
+    if let Some(map) = value.as_object() {
+        for (k, v) in map {
+            consider(k, v);
+        }
+    }
+
+    first
 }
 
 fn value_has_tailtriage_field(value: &Value) -> bool {
@@ -628,6 +672,48 @@ mod tests {
             .message()
             .contains("missing required field 'tt.kind' in span 'req'")));
 
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn non_scalar_span_fields_tt_kind_warns_non_strict_and_errors_strict() {
+        let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":{"bad":true}}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn non_scalar_outer_fields_tt_kind_warns_non_strict_and_errors_strict() {
+        let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":{"bad":true}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn non_scalar_top_level_tt_kind_warns_non_strict_and_errors_strict() {
+        let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":{"bad":true}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
         let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
             .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));

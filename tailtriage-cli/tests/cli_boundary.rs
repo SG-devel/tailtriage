@@ -439,6 +439,31 @@ fn import_tracing_json_fails_when_non_strict_skips_all_malformed_tt_spans() {
 }
 
 #[test]
+fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, only_missing_kind_tailtriage_spans_fixture())
+        .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("missing required field 'tt.kind'"));
+    assert!(stderr.contains("zero request events"));
+    assert!(!run_path.exists(), "run output should not be written");
+}
+
+#[test]
 fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
@@ -518,5 +543,11 @@ fn mixed_valid_and_incomplete_request_span_fixture() -> &'static str {
 fn mixed_valid_and_missing_kind_fixture() -> &'static str {
     r#"{"span":{"name":"oops","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
 {"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
+"#
+}
+
+fn only_missing_kind_tailtriage_spans_fixture() -> &'static str {
+    r#"{"span":{"name":"oops-1","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
+{"span":{"name":"oops-2","started_at_unix_ms":1010,"finished_at_unix_ms":1015,"fields":{"tt.request_id":"req-1","tt.route":"/oops2"}}}
 "#
 }
