@@ -220,25 +220,25 @@ class RuntimeCostSummaryTests(unittest.TestCase):
 
     def test_parity_warning_for_latency_above_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
-            "tracing_light_vs_core_light_latency_p95": 1.07,
+            "tracing_light_vs_core_light_latency_p95": 1.11,
             "tracing_light_vs_core_light_throughput": 1.0,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_throughput": 1.0,
         })
-        self.assertTrue(any("tracing_light p95 is 1.07x native" in w for w in warnings))
+        self.assertTrue(any("tracing_light p95 is 1.11x native" in w for w in warnings))
 
     def test_parity_warning_for_throughput_below_soft_band(self) -> None:
         warnings = measure_runtime_cost.evaluate_tracing_parity({
             "tracing_light_vs_core_light_latency_p95": 1.0,
-            "tracing_light_vs_core_light_throughput": 0.93,
+            "tracing_light_vs_core_light_throughput": 0.89,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
             "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
             "tracing_light_drop_path_vs_core_light_drop_path_throughput": 1.0,
         })
-        self.assertTrue(any("tracing_light throughput is 0.93x native" in w for w in warnings))
+        self.assertTrue(any("tracing_light throughput is 0.89x native" in w for w in warnings))
 
 
 if __name__ == "__main__":

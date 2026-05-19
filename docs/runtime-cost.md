@@ -57,7 +57,7 @@ CI runs one bounded runtime-cost smoke on the Ubuntu extended release leg:
 
 ```bash
 python3 scripts/measure_runtime_cost.py \
-  --requests 1200 \
+  --requests 4000 \
   --concurrency 32 \
   --work-ms 4 \
   --rounds 4 \
@@ -68,7 +68,7 @@ python3 scripts/validate_runtime_cost_summary.py \
   --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 ```
 
-This is a bounded diagnostic sanity check only. It enforces tracing/native parity hard checks (p95 <= 1.25x native and throughput >= 0.75x native), a 5% soft warning band (p95 > 1.05x or throughput < 0.95x), and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+This is a bounded diagnostic sanity check only. It enforces tracing/native parity hard checks (p95 <= 1.25x native and throughput >= 0.75x native), a 10% soft warning band (p95 > 1.10x or throughput < 0.90x), and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
 
 ## Inputs and knobs
 
@@ -96,8 +96,9 @@ Per-mode records now include instrumentation family (`baseline` / `native` / `tr
 - Use **Incremental runtime sampler overhead** to isolate sampler contribution from same-mode core baselines.
 - Use **Post-limit / drop-path overhead** only for intentionally saturated-limit behavior.
 
-If `measurement_quality` reports noisy/unstable, rerun on a quieter machine state before drawing stronger conclusions.
-Numbers are directional and machine/workload/profile scoped; broad thresholds are intended only to catch catastrophic regressions.
+If `measurement_quality` reports noisy/unstable, CI reports warnings but does not fail solely for that quality classification; rerun on a quieter machine state before drawing stronger conclusions.
+If `measurement_quality` is `insufficient_data` after expected measured rounds, CI fails.
+Numbers are directional and machine/workload/profile scoped; this bounded smoke catches meaningful regressions, not rigorous benchmark conclusions.
 
 ## Semantics reminder
 
@@ -111,4 +112,4 @@ Numbers are directional and machine/workload/profile scoped; broad thresholds ar
 Use `python3 scripts/run_operational_validation.py --domain runtime-cost` for manual/local runtime-cost validation that emits JSONL records, stable summary JSON, and an optional scorecard. Results are machine/workload/profile scoped and should be treated as measurements, not universal guarantees. Missing metrics are emitted as `null` rather than guessed.
 
 
-Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 5% warning band are treated as parity, not as a reason to change the default recommendation.
+Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 10% warning band are treated as parity, not as a reason to change the default recommendation.

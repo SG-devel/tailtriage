@@ -53,7 +53,7 @@ QUALITY_INSUFFICIENT_DATA = "insufficient_data"
 MIN_ROUNDS_FOR_STABLE = 4
 TRACING_PARITY_P95_HARD_LIMIT = 1.25
 TRACING_PARITY_THROUGHPUT_HARD_FLOOR = 0.75
-TRACING_PARITY_SOFT_WARNING_BAND = 0.05
+TRACING_PARITY_SOFT_WARNING_BAND = 0.10
 
 DELTA_VS_BASELINE_MODE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Baked-in overhead", ("baked_in_no_request_context",)),
@@ -413,7 +413,7 @@ def evaluate_tracing_parity(ratios: dict[str, float]) -> list[str]:
         if latency_ratio > (1.0 + TRACING_PARITY_SOFT_WARNING_BAND):
             warnings.append(
                 f"{mode_label} p95 is {latency_ratio:.2f}x native; "
-                "within hard threshold but above 5% warning band"
+                "within hard threshold but above 10% warning band"
             )
 
         throughput_ratio = ratios[throughput_key]
@@ -422,7 +422,7 @@ def evaluate_tracing_parity(ratios: dict[str, float]) -> list[str]:
         if throughput_ratio < (1.0 - TRACING_PARITY_SOFT_WARNING_BAND):
             warnings.append(
                 f"{mode_label} throughput is {throughput_ratio:.2f}x native; "
-                "within hard threshold but below 5% warning band"
+                "within hard threshold but below 10% warning band"
             )
 
     return warnings

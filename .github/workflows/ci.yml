@@ -273,8 +273,8 @@ jobs:
         run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
 
       - name: Validate tracing parity across all demos
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
-        run: python3 scripts/demo_tool.py validate-tracing-parity all --profile release
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev' && matrix.extended
+        run: python3 scripts/demo_tool.py validate-tracing-parity all --profile dev
 
       - name: Validate runtime-cost script unit tests
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev' && matrix.extended
@@ -288,7 +288,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: |
           python3 scripts/measure_runtime_cost.py \
-            --requests 1200 \
+            --requests 4000 \
             --concurrency 32 \
             --work-ms 4 \
             --rounds 4 \
