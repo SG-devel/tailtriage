@@ -306,7 +306,8 @@ fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
                     "request",
                     tt.kind = "request",
                     tt.request_id = id,
-                    tt.route = "/checkout"
+                    tt.route = "/checkout",
+                    tt.outcome = "ok"
                 );
                 {
                     let _request_guard = request.enter();

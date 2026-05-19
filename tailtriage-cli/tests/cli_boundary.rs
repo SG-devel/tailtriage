@@ -438,6 +438,33 @@ fn import_tracing_json_fails_when_non_strict_skips_all_malformed_tt_spans() {
     assert!(!run_path.exists(), "run output should not be written");
 }
 
+#[test]
+fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, mixed_valid_and_missing_kind_fixture())
+        .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("missing required field 'tt.kind'"));
+    assert!(run_path.exists(), "run output should be written");
+}
+
 fn valid_cli_artifact_with_requests() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
@@ -462,7 +489,7 @@ fn valid_cli_artifact_with_empty_requests() -> &'static str {
 }
 
 fn complete_span_jsonl_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.success":true}}}
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
 {"span":{"name":"db.stage","started_at_unix_ms":1002,"finished_at_unix_ms":1006,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db","tt.success":true}}}
 {"span":{"name":"admission.queue","started_at_unix_ms":1000,"finished_at_unix_ms":1002,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"admission"}}}
 "#
@@ -474,7 +501,7 @@ fn incomplete_tailtriage_span_fixture() -> &'static str {
 }
 
 fn one_valid_request_span_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.success":true}}}
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }
 
@@ -484,6 +511,12 @@ fn malformed_tailtriage_span_fixture() -> &'static str {
 
 fn mixed_valid_and_incomplete_request_span_fixture() -> &'static str {
     r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
-{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.success":true}}}
+{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
+"#
+}
+
+fn mixed_valid_and_missing_kind_fixture() -> &'static str {
+    r#"{"span":{"name":"oops","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }

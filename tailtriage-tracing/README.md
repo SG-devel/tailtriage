@@ -85,9 +85,9 @@ describes the stable field contract used by import and live recording.
 | `tt.route` | request | string | none | Logical request route/name used for request-level grouping. |
 | `tt.stage` | stage | string | none | Stage label for downstream-stage evidence. |
 | `tt.queue` | queue | string | none | Queue label for queue-wait evidence. |
-| `tt.outcome` | none (optional) | string | none | Optional completion outcome label (for example `ok`/`error`). |
-| `tt.success` | none (optional) | bool | none | Optional normalized success flag. |
-| `tt.depth_at_start` | queue | unsigned integer | omitted when unknown | Queue depth snapshot when queued work started waiting. |
+| `tt.outcome` | request (optional) | string | `ok` (with aggregate importer warning) | Optional completion outcome label (for example `ok`/`error`). |
+| `tt.success` | stage (optional) | bool | `true` (with aggregate importer warning) | Optional normalized success flag. |
+| `tt.depth_at_start` | queue (optional) | unsigned integer | omitted when unknown (no warning) | Queue depth snapshot when queued work started waiting. |
 
 
 ## Live tracing recorder
@@ -110,10 +110,9 @@ tracing::subscriber::with_default(subscriber, || {
             tt.kind = "request",
             tt.request_id = "req-42",
             tt.route = "/checkout",
-            tt.outcome = tracing::field::Empty
+            tt.outcome = "ok"
         );
         let _entered = request.enter();
-        request.record("tt.outcome", "ok");
     }
 });
 

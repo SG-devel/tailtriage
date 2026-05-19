@@ -584,7 +584,7 @@ mod tests {
     #[test]
     fn parse_warnings_are_persisted_to_run_lifecycle_warnings() {
         let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"broken","fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/broken"}}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
@@ -603,7 +603,7 @@ mod tests {
     #[test]
     fn conversion_warnings_still_follow_existing_lifecycle_policy() {
         let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"req2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2"}}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
@@ -620,9 +620,51 @@ mod tests {
     }
 
     #[test]
+    fn tt_fields_without_kind_warn_non_strict_and_error_strict() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.request_id":"r1","tt.route":"/ok"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("missing required field 'tt.kind' in span 'req'")));
+
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn missing_optional_defaults_emit_aggregate_warnings_once() {
+        let input = r#"
+{"span":{"name":"req1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
+{"span":{"name":"req2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/ok2"}}}
+{"span":{"name":"st1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+{"span":{"name":"st2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"cache"}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let msgs = imported
+            .warnings()
+            .iter()
+            .map(|w| w.message().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            msgs.iter()
+                .filter(|m| m.contains("missing optional 'tt.outcome'"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            msgs.iter()
+                .filter(|m| m.contains("missing optional 'tt.success'"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn unrelated_malformed_normalized_span_does_not_create_lifecycle_warning() {
         let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"other","id":123,"started_at_unix_ms":3,"finished_at_unix_ms":4}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
