@@ -683,6 +683,7 @@ mod tests {
         });
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
         assert!(imported
             .warnings()
             .iter()
@@ -795,6 +796,9 @@ mod tests {
                 tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1").entered();
             let err = recorder.snapshot_run().unwrap_err();
             assert!(matches!(err, ImportError::StrictViolation(_)));
+            assert!(err
+                .to_string()
+                .contains("incomplete spans are not converted into fabricated completions"));
         });
     }
 
