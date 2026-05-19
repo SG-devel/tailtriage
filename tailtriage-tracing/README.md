@@ -1,19 +1,19 @@
 # tailtriage-tracing
 
-`tailtriage-tracing` is a focused intake bridge surface for tracing-shaped span
-records that can be converted into `tailtriage_core::Run` inputs.
+`tailtriage-tracing` is a focused intake bridge surface for tracing-shaped completed spans that are assembled into standard `tailtriage_core::Run` artifacts through core-owned completed-run assembly.
 
 This crate is intentionally narrow:
 
 - It defines semantic convention keys (`tt.*`) for triage-oriented span fields.
 - It defines typed intake records and import option/result types.
 - It converts typed `SpanRecord` values with `run_from_span_records`.
-- It imports JSONL from readers/paths when records contain completed span timing.
-- It provides an in-process `tracing_subscriber::Layer` recorder for completed `tt.*` spans.
+- It imports JSONL from readers/paths when records contain completed span timing (`import_jsonl_reader` / `import_jsonl_path`).
+- It provides an in-process `tracing_subscriber::Layer` recorder (`TracingRecorder`) for completed `tt.*` spans.
+- It optionally couples live tracing intake with Tokio runtime snapshots via `tokio::TracingTokioSession`.
 - It does **not** implement OpenTelemetry or OTLP.
 - It does **not** change `tailtriage-analyzer`.
 
-Both JSONL import and live recorder intake produce standard `tailtriage_core::Run` values for the same analyzer/report workflow.
+JSONL import, typed `SpanRecord` import, and live recorder intake all produce standard `tailtriage_core::Run` values for the same analyzer/report workflow via core-owned completed-run assembly. Completed tracing import output follows the same bounded retention/truncation semantics as core-built runs.
 
 ## JSONL import support in this phase
 
