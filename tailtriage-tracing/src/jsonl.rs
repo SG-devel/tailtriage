@@ -139,7 +139,19 @@ fn parse_record(
     }
 
     match parse_close_event_shape(value) {
-        Ok(result) => Ok(result),
+        Ok(Some(result)) => Ok(Some(result)),
+        Ok(None) if has_tt => {
+            let message = format!(
+                "line {line_no}: tailtriage JSONL record must use normalized span shape or supported close-event shape with explicit timestamps"
+            );
+            if strict {
+                Err(ImportError::StrictViolation(message))
+            } else {
+                warnings.push(crate::ImportWarning::new(message));
+                Ok(None)
+            }
+        }
+        Ok(None) => Ok(None),
         Err(err) if has_tt => {
             let message = format!("line {line_no}: {err}");
             if strict {
@@ -770,6 +782,47 @@ mod tests {
         let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
             .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn top_level_tt_record_without_span_shape_warns_non_strict() {
+        let input = r#"{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.run().stages.is_empty());
+        assert!(imported.run().queues.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        let msg = imported.warnings()[0].message();
+        assert!(msg.contains("line 1"));
+        assert!(msg.contains("normalized span shape") || msg.contains("explicit timestamps"));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w == msg));
+    }
+
+    #[test]
+    fn top_level_tt_record_without_span_shape_errors_strict() {
+        let input = r#"{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(
+            err.to_string().contains("normalized span shape")
+                || err.to_string().contains("explicit timestamps")
+        );
+    }
+
+    #[test]
+    fn unrelated_top_level_json_record_still_ignored() {
+        let input = r#"{"message":"ordinary log","level":"info","request_id":"r1"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.run().stages.is_empty());
+        assert!(imported.run().queues.is_empty());
+        assert!(imported.warnings().is_empty());
     }
 
     #[test]
