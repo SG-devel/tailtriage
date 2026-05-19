@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -159,14 +161,14 @@ class RuntimeCostSummaryTests(unittest.TestCase):
             self.assertEqual(drop_summary["limit_reached_rounds"], 4)
             self.assertGreater(drop_summary["dropped_requests"]["mean"], 0)
 
-    def test_sanity_fails_on_catastrophic_latency_ratio(self) -> None:
+    def test_sanity_fails_when_latency_ratio_exceeds_parity_threshold(self) -> None:
         summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
                                             "runtime_snapshots": {"median": 0},
                                             "effective_tokio_sampler_config_present_rounds": 0,
                                             "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
                    "tracing_vs_native_ratios": {
-                       "tracing_light_vs_core_light_latency_p95": 25.0,
+                       "tracing_light_vs_core_light_latency_p95": 1.26,
                        "tracing_light_vs_core_light_throughput": 0.5,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
@@ -179,7 +181,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             measure_runtime_cost._validate_sanity(summary)
 
-    def test_sanity_fails_on_catastrophic_throughput_ratio(self) -> None:
+    def test_sanity_fails_when_throughput_ratio_is_below_parity_threshold(self) -> None:
         summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
                                             "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
                                             "runtime_snapshots": {"median": 0},
@@ -187,7 +189,7 @@ class RuntimeCostSummaryTests(unittest.TestCase):
                                             "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
                    "tracing_vs_native_ratios": {
                        "tracing_light_vs_core_light_latency_p95": 1.0,
-                       "tracing_light_vs_core_light_throughput": 0.01,
+                       "tracing_light_vs_core_light_throughput": 0.74,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
                        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
@@ -206,17 +208,40 @@ class RuntimeCostSummaryTests(unittest.TestCase):
                                             "effective_tokio_sampler_config_present_rounds": 0,
                                             "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
                    "tracing_vs_native_ratios": {
-                       "tracing_light_vs_core_light_latency_p95": 2.0,
+                       "tracing_light_vs_core_light_latency_p95": 1.05,
                        "tracing_light_vs_core_light_throughput": 0.8,
-                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 2.0,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.05,
                        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 0.8,
-                       "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 2.0,
+                       "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.05,
                        "tracing_light_drop_path_vs_core_light_drop_path_throughput": 0.8,
                    }}
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] = 1
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] = 1
         summary["absolute_metrics"]["tracing_light_drop_path"]["drop_path_signal_present_rounds"] = 1
         measure_runtime_cost._validate_sanity(summary)
+
+    def test_sanity_warns_for_soft_latency_band_but_does_not_fail(self) -> None:
+        summary = {"absolute_metrics": {m: {"throughput_rps": {"median": 10.0}, "latency_p95_ms": {"median": 2.0},
+                                            "run_requests": {"median": 1}, "run_stages": {"median": 1}, "run_queues": {"median": 1},
+                                            "runtime_snapshots": {"median": 0},
+                                            "effective_tokio_sampler_config_present_rounds": 0,
+                                            "drop_path_signal_present_rounds": 0} for m in measure_runtime_cost.MODES},
+                   "measured_rounds": 4,
+                   "tracing_vs_native_ratios": {
+                       "tracing_light_vs_core_light_latency_p95": 1.07,
+                       "tracing_light_vs_core_light_throughput": 0.96,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": 1.0,
+                       "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": 1.0,
+                       "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": 1.0,
+                       "tracing_light_drop_path_vs_core_light_drop_path_throughput": 1.0,
+                   }}
+        summary["absolute_metrics"]["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] = 1
+        summary["absolute_metrics"]["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] = 1
+        summary["absolute_metrics"]["tracing_light_drop_path"]["drop_path_signal_present_rounds"] = 1
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            measure_runtime_cost._validate_sanity(summary)
+        self.assertIn("WARNING: tracing_light p95 is 1.07x native", stderr.getvalue())
 
 
 if __name__ == "__main__":

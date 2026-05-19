@@ -60,7 +60,7 @@ python3 scripts/measure_runtime_cost.py \
   --requests 1200 \
   --concurrency 32 \
   --work-ms 4 \
-  --rounds 2 \
+  --rounds 4 \
   --warmup-rounds 1 \
   --artifact-dir demos/runtime_cost/artifacts/ci-smoke
 python3 scripts/validate_runtime_cost_summary.py \
@@ -68,7 +68,17 @@ python3 scripts/validate_runtime_cost_summary.py \
   --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 ```
 
-This is a bounded diagnostic sanity check only. It enforces broad catastrophic-regression checks and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+This is a bounded runtime-cost smoke for regression triage, not a rigorous benchmark. It enforces required tracing evidence shape plus tracing/native parity hard thresholds:
+
+- tracing/native p95 ratio must be `<= 1.25x`
+- tracing/native throughput ratio must be `>= 0.75x`
+
+The same tracing/native pairs emit non-failing warnings when movement exceeds a 5% parity band:
+
+- p95 ratio warning when `> 1.05x`
+- throughput ratio warning when `< 0.95x`
+
+Minor movement inside that warning band is treated as parity, not as a reason to change the default recommendation. Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing remains a first-class intake bridge for users already using tracing or preferring span-shaped instrumentation, and should remain close to native in cost. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
 
 ## Inputs and knobs
 
@@ -97,7 +107,7 @@ Per-mode records now include instrumentation family (`baseline` / `native` / `tr
 - Use **Post-limit / drop-path overhead** only for intentionally saturated-limit behavior.
 
 If `measurement_quality` reports noisy/unstable, rerun on a quieter machine state before drawing stronger conclusions.
-Numbers are directional and machine/workload/profile scoped; broad thresholds are intended only to catch catastrophic regressions.
+Numbers are directional and machine/workload/profile scoped. CI parity thresholds are bounded smoke checks, not universal performance guarantees.
 
 ## Semantics reminder
 
