@@ -67,6 +67,10 @@ async fn session_merges_tracing_and_runtime() {
     assert_eq!(run.queues[0].depth_at_start, Some(2));
     assert!(!run.runtime_snapshots.is_empty());
     assert!(run.metadata.effective_tokio_sampler_config.is_some());
+    assert_eq!(
+        run.metadata.finalized_at_unix_ms,
+        Some(run.metadata.finished_at_unix_ms)
+    );
 }
 
 #[test]
@@ -153,6 +157,10 @@ async fn record_runtime_snapshot_is_visible_in_snapshot_run() {
     });
 
     let imported = session.snapshot_run().expect("snapshot run");
+    assert_eq!(
+        imported.run().metadata.finalized_at_unix_ms,
+        Some(imported.run().metadata.finished_at_unix_ms)
+    );
     assert!(imported
         .run()
         .runtime_snapshots
@@ -176,6 +184,10 @@ async fn record_runtime_snapshot_is_visible_in_shutdown_output() {
     });
 
     let imported = session.shutdown().await.expect("shutdown");
+    assert_eq!(
+        imported.run().metadata.finalized_at_unix_ms,
+        Some(imported.run().metadata.finished_at_unix_ms)
+    );
     assert!(imported
         .run()
         .runtime_snapshots
@@ -227,4 +239,34 @@ async fn record_runtime_snapshot_does_not_alter_tracing_events() {
     assert_eq!(run.requests.len(), 1);
     assert_eq!(run.stages.len(), 1);
     assert_eq!(run.queues.len(), 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn runtime_snapshot_truncation_propagates_to_imported_run() {
+    let session = TracingTokioSession::builder("svc")
+        .max_runtime_snapshots(1)
+        .start()
+        .expect("start session");
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: unix_time_ms(),
+        alive_tasks: Some(1),
+        global_queue_depth: Some(1),
+        local_queue_depth: Some(1),
+        blocking_queue_depth: Some(1),
+        remote_schedule_count: Some(1),
+    });
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: unix_time_ms().saturating_add(1),
+        alive_tasks: Some(2),
+        global_queue_depth: Some(2),
+        local_queue_depth: Some(2),
+        blocking_queue_depth: Some(2),
+        remote_schedule_count: Some(2),
+    });
+
+    let imported = session.snapshot_run().expect("snapshot run");
+    let run = imported.run();
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
+    assert!(run.truncation.limits_hit);
 }
