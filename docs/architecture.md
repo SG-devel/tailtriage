@@ -43,6 +43,7 @@ Owns the core capture model:
 - queue/stage/inflight instrumentation wrappers
 - run artifact schema and sink behavior
 - capture limits/truncation accounting
+- completed-run assembly used by import/adaptation bridges
 
 ### `tailtriage-tokio`
 
@@ -64,6 +65,11 @@ Owns in-process analysis/report generation from completed runs:
 ### `tailtriage-cli`
 
 Consumes run artifacts from disk, validates schema/loader rules, invokes `tailtriage-analyzer`, and emits text/JSON output. CLI report rendering delegates to analyzer-owned renderers.
+
+### `tailtriage-tracing`
+
+A narrow intake bridge for tracing-shaped completed spans and live `tt.*` span recording.
+It converts/imports tracing intake into standard core `Run` artifacts, does not implement OpenTelemetry/OTLP, and does not change analyzer behavior.
 
 ## Relationship model
 
