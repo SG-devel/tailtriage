@@ -488,6 +488,53 @@ fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
     assert!(stderr.contains("warning:"));
     assert!(stderr.contains("missing required field 'tt.kind'"));
     assert!(run_path.exists(), "run output should be written");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    let warning_matches = loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .filter(|warning| warning.as_str() == "missing required field 'tt.kind' in span 'oops'")
+        .count();
+    assert_eq!(warning_matches, 1);
+}
+
+#[test]
+fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, mixed_valid_and_unknown_kind_fixture())
+        .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("unknown tt.kind 'mystery' in span 'unknown'"));
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    let warning_matches = loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .filter(|warning| warning.as_str() == "unknown tt.kind 'mystery' in span 'unknown'")
+        .count();
+    assert_eq!(warning_matches, 1);
 }
 
 fn valid_cli_artifact_with_requests() -> &'static str {
@@ -549,5 +596,11 @@ fn mixed_valid_and_missing_kind_fixture() -> &'static str {
 fn only_missing_kind_tailtriage_spans_fixture() -> &'static str {
     r#"{"span":{"name":"oops-1","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
 {"span":{"name":"oops-2","started_at_unix_ms":1010,"finished_at_unix_ms":1015,"fields":{"tt.request_id":"req-1","tt.route":"/oops2"}}}
+"#
+}
+
+fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
+    r#"{"span":{"name":"unknown","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.kind":"mystery"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }
