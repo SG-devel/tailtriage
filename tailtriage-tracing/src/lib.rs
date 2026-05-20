@@ -234,11 +234,17 @@ where
         ToOwned::to_owned,
     );
 
-    let lifecycle_warnings = warnings
-        .iter()
-        .filter(|warning| is_lifecycle_warning(warning.message()))
-        .map(|w| w.message().to_owned())
-        .collect::<Vec<_>>();
+    let mut lifecycle_warnings = Vec::new();
+    for warning in &warnings {
+        let message = warning.message();
+        if is_durable_conversion_warning(message)
+            && !lifecycle_warnings
+                .iter()
+                .any(|existing| existing == message)
+        {
+            lifecycle_warnings.push(message.to_owned());
+        }
+    }
 
     let mut builder_options = RunBuilderOptions::new(options.service_name())
         .run_id(run_id)
@@ -363,10 +369,11 @@ fn required_string(
     }
 }
 
-fn is_lifecycle_warning(message: &str) -> bool {
+fn is_durable_conversion_warning(message: &str) -> bool {
     message.starts_with("skipped span")
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
+        || message.starts_with("unknown tt.kind")
 }
 
 fn strict_or_warn(
@@ -744,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_kind_does_not_affect_metadata_bounds_and_lifecycle_warning() {
+    fn unknown_kind_is_persisted_as_durable_lifecycle_warning() {
         let spans = vec![
             SpanRecord::new("unknown", 1, 1_000).field(TT_KIND, "wat"),
             SpanRecord::new("req", 10, 20)
@@ -760,7 +767,7 @@ mod tests {
             .metadata
             .lifecycle_warnings
             .iter()
-            .all(|w| !w.contains("unknown tt.kind")));
+            .any(|w| w.contains("unknown tt.kind 'wat' in span 'unknown'")));
     }
 
     #[test]
