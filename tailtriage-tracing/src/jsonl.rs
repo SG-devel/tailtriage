@@ -664,6 +664,21 @@ mod tests {
     }
 
     #[test]
+    fn conversion_warnings_are_not_duplicated_in_lifecycle_warnings() {
+        let input = r#"{"span":{"name":"unknown","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"mystery"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let warning_message = imported.warnings()[0].message().to_owned();
+        let matches = imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .filter(|warning| warning.as_str() == warning_message)
+            .count();
+        assert_eq!(matches, 1);
+    }
+
+    #[test]
     fn tt_fields_without_kind_warn_non_strict_and_error_strict() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.request_id":"r1","tt.route":"/ok"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
