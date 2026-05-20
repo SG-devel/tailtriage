@@ -664,10 +664,16 @@ mod tests {
     }
 
     #[test]
-    fn conversion_warnings_are_not_duplicated_in_lifecycle_warnings() {
-        let input = r#"{"span":{"name":"unknown","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"mystery"}}}"#;
+    fn unknown_kind_warning_is_durable_once_with_valid_request_present() {
+        let input = r#"
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
+{"span":{"name":"unknown","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"mystery"}}}
+"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        let warning_message = imported.warnings()[0].message().to_owned();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.warnings().len(), 1);
+        let warning_message = "unknown tt.kind 'mystery' in span 'unknown'";
+        assert_eq!(imported.warnings()[0].message(), warning_message);
         let matches = imported
             .run()
             .metadata
