@@ -537,6 +537,48 @@ fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
     assert_eq!(warning_matches, 1);
 }
 
+#[test]
+fn import_tracing_json_persists_optional_default_assumption_warnings() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, missing_optional_defaults_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("missing optional 'tt.outcome'; assumed 'ok'"));
+    assert!(stderr.contains("missing optional 'tt.success'; assumed true"));
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w.contains("missing optional 'tt.outcome'; assumed 'ok'")));
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w.contains("missing optional 'tt.success'; assumed true")));
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}
+
 fn valid_cli_artifact_with_requests() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
@@ -602,5 +644,11 @@ fn only_missing_kind_tailtriage_spans_fixture() -> &'static str {
 fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
     r#"{"span":{"name":"unknown","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.kind":"mystery"}}}
 {"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
+"#
+}
+
+fn missing_optional_defaults_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
+{"span":{"name":"db.stage","started_at_unix_ms":1002,"finished_at_unix_ms":1006,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
 "#
 }

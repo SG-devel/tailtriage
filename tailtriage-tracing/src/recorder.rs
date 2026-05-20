@@ -124,7 +124,7 @@ impl TracingRecorder {
         }
     }
 
-    /// Converts currently completed spans into an imported run.
+    /// Returns a non-consuming snapshot imported run from currently completed spans.
     ///
     /// # Errors
     ///
@@ -162,14 +162,14 @@ impl TracingRecorder {
         imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
     }
 
-    /// Converts currently completed spans into an imported run.
+    /// Consumes this recorder handle and converts currently completed spans into a final imported run.
     ///
-    /// This is currently equivalent to [`Self::snapshot_run`].
+    /// Span completion is still driven by span close/drop events (`on_close`), not by enter/exit transitions.
     ///
     /// # Errors
     ///
     /// Returns [`ImportError`] when strict conversion fails.
-    pub fn shutdown(&self) -> Result<ImportedRun, ImportError> {
+    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         self.snapshot_run()
     }
 }
@@ -619,7 +619,7 @@ mod tests {
                 tt.route = "/checkout"
             );
             drop(span);
-            let run = recorder.shutdown().unwrap();
+            let run = recorder.clone().shutdown().unwrap();
             assert_eq!(run.run().requests.len(), 1);
             assert_eq!(run.run().requests[0].request_id, "r1");
             assert_eq!(run.run().requests[0].route, "/checkout");
@@ -758,7 +758,7 @@ mod tests {
             drop(queue);
             drop(stage);
 
-            let imported = recorder.shutdown().unwrap();
+            let imported = recorder.clone().shutdown().unwrap();
             let run = imported.run();
             assert_eq!(run.requests.len(), 1);
             assert_eq!(run.queues.len(), 1);
@@ -1205,7 +1205,7 @@ mod tests {
                 .lifecycle_warnings
                 .iter()
                 .any(|w| w.contains("open candidate span(s) at snapshot/shutdown")));
-            let shutdown = recorder.shutdown().unwrap();
+            let shutdown = recorder.clone().shutdown().unwrap();
             assert!(shutdown.warnings().iter().any(|w| w
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));
