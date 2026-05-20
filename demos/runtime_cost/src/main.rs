@@ -181,16 +181,7 @@ async fn main() -> anyhow::Result<()> {
     let finalize_start = Instant::now();
     let (run, artifact_path) = finalize_backend_and_write_artifact(&cli, &mut backend).await?;
     let artifact_finalize_ms = finalize_start.elapsed().as_secs_f64() * 1000.0;
-    let analyze_start = Instant::now();
-    let (analyze_ms, report_render_ms) = if let Some(ref run_value) = run {
-        let report = try_analyze_run(run_value, AnalyzeOptions::default())?;
-        let analyze_ms = analyze_start.elapsed().as_secs_f64() * 1000.0;
-        let render_start = Instant::now();
-        black_box(render_json_pretty(&report)?);
-        (analyze_ms, render_start.elapsed().as_secs_f64() * 1000.0)
-    } else {
-        (0.0, 0.0)
-    };
+    let (analyze_ms, report_render_ms) = analyze_and_render_timings_for_run(run.as_ref())?;
     latencies.sort_unstable();
     let truncation = run.as_ref().map(|r| TruncationMeasurement {
         dropped_requests: r.truncation.dropped_requests,
@@ -566,6 +557,39 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn baked_in_no_request_context_finalizes_and_skips_analysis() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "tailtriage-runtime-cost-no-request-context-test-{}",
+            std::process::id()
+        ));
+        let cli = Cli {
+            mode: Mode::BakedInNoRequestContext,
+            requests: 1,
+            concurrency: 1,
+            work_ms: 1,
+            output_dir: output_dir.clone(),
+        };
+        std::fs::create_dir_all(&output_dir).expect("create output dir");
+        let mut backend = build_backend(&cli).expect("build backend");
+        let (latencies, _) = run_requests(&cli, &backend).await.expect("run requests");
+        assert_eq!(latencies.len(), 1);
+        let (run, artifact_path) = finalize_backend_and_write_artifact(&cli, &mut backend)
+            .await
+            .expect("finalize and write");
+        let run = run.expect("native run should exist");
+        assert!(run.requests.is_empty());
+        let artifact_path = artifact_path.expect("artifact path should exist");
+        assert_eq!(
+            PathBuf::from(artifact_path),
+            output_dir.join("run-baked_in_no_request_context.json")
+        );
+        assert_eq!(
+            analyze_and_render_timings_for_run(Some(&run)).unwrap(),
+            (0.0, 0.0)
+        );
+    }
+
     #[test]
     fn mode_parse_accepts_tracing_modes() {
         assert_eq!(Mode::parse("tracing_light"), Some(Mode::TracingLight));
@@ -588,5 +612,21 @@ mod tests {
         assert_eq!(m.instrumentation(), InstrumentationKind::Tracing);
         assert!(m.uses_runtime_sampler());
         assert!(!m.uses_drop_path_limits());
+    }
+}
+
+fn analyze_and_render_timings_for_run(run: Option<&Run>) -> anyhow::Result<(f64, f64)> {
+    let analyze_start = Instant::now();
+    if let Some(run_value) = run {
+        if run_value.requests.is_empty() {
+            return Ok((0.0, 0.0));
+        }
+        let report = try_analyze_run(run_value, AnalyzeOptions::default())?;
+        let analyze_ms = analyze_start.elapsed().as_secs_f64() * 1000.0;
+        let render_start = Instant::now();
+        black_box(render_json_pretty(&report)?);
+        Ok((analyze_ms, render_start.elapsed().as_secs_f64() * 1000.0))
+    } else {
+        Ok((0.0, 0.0))
     }
 }
