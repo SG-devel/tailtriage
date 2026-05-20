@@ -159,7 +159,7 @@ impl TracingRecorder {
                 },
             )
         };
-        imported_with_drop_warnings(spans, self.options.clone(), &stats)
+        imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
     }
 
     /// Converts currently completed spans into an imported run.
@@ -327,7 +327,11 @@ fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
     fields.keys().any(|k| k.starts_with("tt."))
 }
 
-fn push_strict_recorder_messages(messages: &mut Vec<String>, stats: &SnapshotStats) {
+fn push_strict_recorder_messages(
+    messages: &mut Vec<String>,
+    stats: &SnapshotStats,
+    limits: RecorderLimits,
+) {
     if stats.open_candidate_count > 0 {
         messages.push(format!(
             "live recorder observed {} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions",
@@ -342,14 +346,14 @@ fn push_strict_recorder_messages(messages: &mut Vec<String>, stats: &SnapshotSta
     }
     if stats.dropped_open_spans > 0 {
         messages.push(format!(
-            "live recorder dropped {} open candidate span(s) because max_open_spans was reached; raise max_open_spans or reduce capture scope",
-            stats.dropped_open_spans
+            "live recorder dropped {} open candidate span(s) because max_open_spans={} was reached; raise max_open_spans or reduce capture scope",
+            stats.dropped_open_spans, limits.max_open_spans
         ));
     }
     if stats.dropped_completed_spans > 0 {
         messages.push(format!(
-            "live recorder dropped {} completed span(s) because max_completed_spans was reached; raise max_completed_spans or reduce capture scope",
-            stats.dropped_completed_spans
+            "live recorder dropped {} completed span(s) because max_completed_spans={} was reached; raise max_completed_spans or reduce capture scope",
+            stats.dropped_completed_spans, limits.max_completed_spans
         ));
     }
 }
@@ -434,10 +438,11 @@ fn imported_with_drop_warnings(
     spans: Vec<SpanRecord>,
     options: ImportOptions,
     stats: &SnapshotStats,
+    limits: RecorderLimits,
 ) -> Result<ImportedRun, ImportError> {
     let mut strict_messages = Vec::new();
     if options.strict_mode() {
-        push_strict_recorder_messages(&mut strict_messages, stats);
+        push_strict_recorder_messages(&mut strict_messages, stats, limits);
     }
 
     let imported = match run_from_span_records(spans, options) {
@@ -831,7 +836,7 @@ mod tests {
         match err {
             ImportError::StrictViolation(message) => {
                 assert!(message.contains("dropped 1 completed span"));
-                assert!(message.contains("max_completed_spans"));
+                assert!(message.contains("max_completed_spans=1"));
                 assert!(message.contains("reduce capture scope"));
             }
             other => panic!("unexpected error: {other:?}"),
@@ -867,8 +872,41 @@ mod tests {
         match err {
             ImportError::StrictViolation(message) => {
                 assert!(message.contains("dropped 1 open candidate span"));
-                assert!(message.contains("max_open_spans"));
+                assert!(message.contains("max_open_spans=1"));
                 assert!(message.contains("reduce capture scope"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strict_mode_combines_recorder_drop_and_conversion_strict_violations() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_completed_spans(1)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let malformed =
+                tracing::info_span!("request-bad", tt.kind = "request", tt.request_id = "r-bad");
+            drop(malformed);
+            let valid = tracing::info_span!(
+                "request-good",
+                tt.kind = "request",
+                tt.request_id = "r-good",
+                tt.route = "/ok"
+            );
+            drop(valid);
+        });
+
+        let err = recorder.snapshot_run().expect_err(
+            "strict mode should fail when recorder retention drops and strict conversion both occur",
+        );
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("dropped 1 completed span"));
+                assert!(message.contains("max_completed_spans=1"));
+                assert!(message.contains("tt.route"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
