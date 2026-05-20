@@ -14,7 +14,7 @@ pub const TT_QUEUE: &str = "tt.queue";
 pub const TT_DEPTH_AT_START: &str = "tt.depth_at_start";
 /// Field key for request outcome label.
 pub const TT_OUTCOME: &str = "tt.outcome";
-/// Field key for boolean request success.
+/// Field key for boolean stage success.
 pub const TT_SUCCESS: &str = "tt.success";
 
 #[cfg(test)]
