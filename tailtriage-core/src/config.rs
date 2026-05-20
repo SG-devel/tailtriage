@@ -208,12 +208,40 @@ impl Config {
 pub enum BuildError {
     /// Service name was empty.
     EmptyServiceName,
+    /// Run finish timestamp was earlier than start timestamp.
+    InvalidRunTimeBounds {
+        /// Start timestamp provided for run metadata.
+        started_at_unix_ms: u64,
+        /// Finish timestamp provided for run metadata.
+        finished_at_unix_ms: u64,
+    },
+    /// Run finalization timestamp was earlier than finish timestamp.
+    InvalidFinalizationTime {
+        /// Finish timestamp provided for run metadata.
+        finished_at_unix_ms: u64,
+        /// Finalization timestamp provided for run metadata.
+        finalized_at_unix_ms: u64,
+    },
 }
 
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyServiceName => write!(f, "service_name cannot be empty"),
+            Self::InvalidRunTimeBounds {
+                started_at_unix_ms,
+                finished_at_unix_ms,
+            } => write!(
+                f,
+                "invalid run time bounds: finish ({finished_at_unix_ms}) must be >= start ({started_at_unix_ms})"
+            ),
+            Self::InvalidFinalizationTime {
+                finished_at_unix_ms,
+                finalized_at_unix_ms,
+            } => write!(
+                f,
+                "invalid finalization time: finalized ({finalized_at_unix_ms}) must be >= finish ({finished_at_unix_ms})"
+            ),
         }
     }
 }

@@ -255,6 +255,9 @@ where
 
     let mut run_builder = RunBuilder::new(builder_options).map_err(|err| match err {
         BuildError::EmptyServiceName => ImportError::EmptyServiceName,
+        BuildError::InvalidRunTimeBounds { .. } | BuildError::InvalidFinalizationTime { .. } => {
+            ImportError::StrictViolation(err.to_string())
+        }
     })?;
 
     for request in requests {
