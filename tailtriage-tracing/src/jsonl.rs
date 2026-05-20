@@ -821,6 +821,19 @@ mod tests {
     }
 
     #[test]
+    fn normalized_zero_duration_us_is_accepted_for_positive_timestamp_spans() {
+        let input = r#"
+{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":0,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":0,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+{"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":0,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].latency_us, 0);
+        assert_eq!(imported.run().stages[0].latency_us, 0);
+        assert_eq!(imported.run().queues[0].wait_us, 0);
+    }
+
+    #[test]
     fn normalized_request_fields_import_from_outer_fields() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();

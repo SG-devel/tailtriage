@@ -379,13 +379,6 @@ fn validate_request_event(event: &RequestEvent) -> Result<(), RunBuilderEventErr
             "must not be empty",
         ));
     }
-    if event.finished_at_unix_ms > event.started_at_unix_ms && event.latency_us == 0 {
-        return Err(invalid_event(
-            "RequestEvent",
-            "latency_us",
-            "must be > 0 when finished_at_unix_ms > started_at_unix_ms",
-        ));
-    }
     Ok(())
 }
 fn validate_stage_event(event: &StageEvent) -> Result<(), RunBuilderEventError> {
@@ -406,13 +399,6 @@ fn validate_stage_event(event: &StageEvent) -> Result<(), RunBuilderEventError> 
             "must be >= started_at_unix_ms",
         ));
     }
-    if event.finished_at_unix_ms > event.started_at_unix_ms && event.latency_us == 0 {
-        return Err(invalid_event(
-            "StageEvent",
-            "latency_us",
-            "must be > 0 when finished_at_unix_ms > started_at_unix_ms",
-        ));
-    }
     Ok(())
 }
 fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> {
@@ -431,13 +417,6 @@ fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> 
             "QueueEvent",
             "waited_until_unix_ms",
             "must be >= waited_from_unix_ms",
-        ));
-    }
-    if event.waited_until_unix_ms > event.waited_from_unix_ms && event.wait_us == 0 {
-        return Err(invalid_event(
-            "QueueEvent",
-            "wait_us",
-            "must be > 0 when waited_until_unix_ms > waited_from_unix_ms",
         ));
     }
     Ok(())
