@@ -159,7 +159,7 @@ impl TracingRecorder {
                 },
             )
         };
-        imported_with_drop_warnings(spans, self.options.clone(), &stats)
+        imported_with_drop_warnings(spans, self.options.clone(), self.limits, &stats)
     }
 
     /// Converts currently completed spans into an imported run.
@@ -330,6 +330,7 @@ fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
 fn imported_with_drop_warnings(
     spans: Vec<SpanRecord>,
     options: ImportOptions,
+    limits: RecorderLimits,
     stats: &SnapshotStats,
 ) -> Result<ImportedRun, ImportError> {
     let dropped_open_spans = stats.dropped_open_spans;
@@ -339,17 +340,13 @@ fn imported_with_drop_warnings(
     let closed_missing_kind_spans = stats.closed_missing_kind_spans;
     let closed_missing_kind_samples = stats.closed_missing_kind_samples.as_slice();
     if options.strict_mode() {
-        let mut messages = Vec::new();
-        if open_candidate_count > 0 {
-            messages.push(format!(
-                "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
-            ));
-        }
-        if closed_missing_kind_spans > 0 {
-            messages.push(format!(
-                "live recorder closed {closed_missing_kind_spans} candidate span(s) missing tt.kind; closed candidate spans without tt.kind are not converted"
-            ));
-        }
+        let messages = strict_violation_messages(
+            open_candidate_count,
+            closed_missing_kind_spans,
+            dropped_open_spans,
+            dropped_completed_spans,
+            limits,
+        );
         if !messages.is_empty() {
             return Err(ImportError::StrictViolation(messages.join("; ")));
         }
@@ -423,6 +420,39 @@ fn imported_with_drop_warnings(
         run.truncation.limits_hit = true;
     }
     Ok(ImportedRun::new(run, warnings))
+}
+
+fn strict_violation_messages(
+    open_candidate_count: u64,
+    closed_missing_kind_spans: u64,
+    dropped_open_spans: u64,
+    dropped_completed_spans: u64,
+    limits: RecorderLimits,
+) -> Vec<String> {
+    let mut messages = Vec::new();
+    if open_candidate_count > 0 {
+        messages.push(format!(
+            "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
+        ));
+    }
+    if closed_missing_kind_spans > 0 {
+        messages.push(format!(
+            "live recorder closed {closed_missing_kind_spans} candidate span(s) missing tt.kind; closed candidate spans without tt.kind are not converted"
+        ));
+    }
+    if dropped_open_spans > 0 {
+        messages.push(format!(
+            "live recorder dropped {dropped_open_spans} candidate open span(s) because max_open_spans={} was reached; raise recorder limits or reduce capture scope",
+            limits.max_open_spans
+        ));
+    }
+    if dropped_completed_spans > 0 {
+        messages.push(format!(
+            "live recorder dropped {dropped_completed_spans} completed span(s) because max_completed_spans={} was reached; raise recorder limits or reduce capture scope",
+            limits.max_completed_spans
+        ));
+    }
+    messages
 }
 
 fn scalar_field_string(value: Option<&FieldValue>) -> Option<String> {
@@ -793,6 +823,98 @@ mod tests {
             .lifecycle_warnings
             .iter()
             .any(|w| w.contains("dropped 1 candidate spans")));
+        assert!(imported.run().truncation.limits_hit);
+    }
+
+    #[test]
+    fn strict_mode_errors_when_max_open_spans_drops_candidate_spans() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_open_spans(0)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("candidate open span(s)"));
+                assert!(message.contains("max_open_spans=0"));
+                assert!(message.contains("raise recorder limits or reduce capture scope"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strict_mode_errors_when_max_completed_spans_drops_completed_spans() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_completed_spans(0)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+        let err = recorder.shutdown().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("completed span(s)"));
+                assert!(message.contains("max_completed_spans=0"));
+                assert!(message.contains("raise recorder limits or reduce capture scope"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_strict_mode_reports_drop_warnings_and_truncation() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_open_spans(0)
+            .max_completed_spans(0)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let open = tracing::info_span!(
+                "request-open",
+                tt.kind = "request",
+                tt.request_id = "r-open",
+                tt.route = "/open"
+            )
+            .entered();
+            let closed = tracing::info_span!(
+                "request-closed",
+                tt.kind = "request",
+                tt.request_id = "r-closed",
+                tt.route = "/closed"
+            );
+            drop(closed);
+            drop(open);
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped 2 candidate spans")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("dropped 2 candidate spans")));
         assert!(imported.run().truncation.limits_hit);
     }
 
