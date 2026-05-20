@@ -53,9 +53,11 @@ pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind,
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
 ///
-/// Spans without [`TT_KIND`] are ignored silently. In non-strict mode, malformed
-/// `tt.*` spans are skipped and surfaced as warnings. In strict mode, the first
-/// malformed `tt.*` span returns an [`ImportError`].
+/// Spans without any `tt.*` fields are ignored silently. Spans with `tt.*`
+/// fields but missing `tt.kind` are treated as malformed tailtriage input.
+/// In non-strict mode, malformed `tt.*` spans are skipped and surfaced as
+/// warnings. In strict mode, the first malformed `tt.*` span returns an
+/// [`ImportError`].
 /// # Errors
 ///
 /// Returns [`ImportError::StrictViolation`] when `options.strict(true)` is set
