@@ -991,6 +991,86 @@ fn run_builder_rejects_blank_service_name() {
 }
 
 #[test]
+fn run_builder_valid_explicit_timestamps_are_preserved() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(150)
+            .finalized_at_unix_ms(200),
+    )
+    .expect("valid timestamps should succeed")
+    .finish();
+
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
+    assert_eq!(run.metadata.finished_at_unix_ms, 150);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
+}
+
+#[test]
+fn run_builder_equal_timestamp_bounds_are_valid() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(100)
+            .finalized_at_unix_ms(100),
+    )
+    .expect("equal timestamps should succeed")
+    .finish();
+
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
+    assert_eq!(run.metadata.finished_at_unix_ms, 100);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(100));
+}
+
+#[test]
+fn run_builder_rejects_finished_before_started() {
+    let err = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(99),
+    )
+    .expect_err("invalid bounds should fail");
+
+    assert_eq!(
+        err,
+        BuildError::InvalidRunTimeBounds {
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 99
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_finalized_before_finished() {
+    let err = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(150)
+            .finalized_at_unix_ms(149),
+    )
+    .expect_err("invalid finalization should fail");
+
+    assert_eq!(
+        err,
+        BuildError::InvalidFinalizationTime {
+            finished_at_unix_ms: 150,
+            finalized_at_unix_ms: 149
+        }
+    );
+}
+
+#[test]
+fn run_builder_default_timestamps_produce_valid_finalized_run() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("default timestamps should succeed")
+        .finish();
+
+    assert!(run.metadata.finalized_at_unix_ms.is_some());
+    assert!(run.metadata.finished_at_unix_ms >= run.metadata.started_at_unix_ms);
+    assert!(run.metadata.finalized_at_unix_ms.expect("some") >= run.metadata.finished_at_unix_ms);
+}
+
+#[test]
 fn run_builder_default_run_ids_are_unique() {
     let first = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("ok")
@@ -1033,10 +1113,14 @@ fn run_builder_defaults_finalized_timestamp_to_finished_timestamp() {
 
 #[test]
 fn run_builder_preserves_explicit_finalized_timestamp() {
-    let run =
-        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").finalized_at_unix_ms(777))
-            .expect("ok")
-            .finish();
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(700)
+            .finished_at_unix_ms(750)
+            .finalized_at_unix_ms(777),
+    )
+    .expect("ok")
+    .finish();
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(777));
 }
 

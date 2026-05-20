@@ -154,8 +154,21 @@ impl RunBuilder {
         let ts = unix_time_ms();
         let started_at_unix_ms = options.started_at_unix_ms.unwrap_or(ts);
         let finished_at_unix_ms = options.finished_at_unix_ms.unwrap_or(ts);
-        let finalized_at_unix_ms =
-            Some(options.finalized_at_unix_ms.unwrap_or(finished_at_unix_ms));
+        let finalized_at_unix_ms = options.finalized_at_unix_ms.unwrap_or(finished_at_unix_ms);
+
+        if finished_at_unix_ms < started_at_unix_ms {
+            return Err(BuildError::InvalidRunTimeBounds {
+                started_at_unix_ms,
+                finished_at_unix_ms,
+            });
+        }
+
+        if finalized_at_unix_ms < finished_at_unix_ms {
+            return Err(BuildError::InvalidFinalizationTime {
+                finished_at_unix_ms,
+                finalized_at_unix_ms,
+            });
+        }
 
         Ok(Self {
             run: Run::new(RunMetadata {
@@ -164,7 +177,7 @@ impl RunBuilder {
                 service_version: options.service_version,
                 started_at_unix_ms,
                 finished_at_unix_ms,
-                finalized_at_unix_ms,
+                finalized_at_unix_ms: Some(finalized_at_unix_ms),
                 mode,
                 effective_core_config: Some(EffectiveCoreConfig {
                     mode,
