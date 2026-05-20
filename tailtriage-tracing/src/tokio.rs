@@ -222,6 +222,32 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
     tracing_run
         .runtime_snapshots
         .clone_from(&runtime_run.runtime_snapshots);
+    if !tracing_run.runtime_snapshots.is_empty() {
+        let runtime_min = tracing_run
+            .runtime_snapshots
+            .iter()
+            .map(|snapshot| snapshot.at_unix_ms)
+            .min()
+            .expect("non-empty runtime snapshots have a minimum timestamp");
+        let runtime_max = tracing_run
+            .runtime_snapshots
+            .iter()
+            .map(|snapshot| snapshot.at_unix_ms)
+            .max()
+            .expect("non-empty runtime snapshots have a maximum timestamp");
+
+        tracing_run.metadata.started_at_unix_ms =
+            tracing_run.metadata.started_at_unix_ms.min(runtime_min);
+        tracing_run.metadata.finished_at_unix_ms =
+            tracing_run.metadata.finished_at_unix_ms.max(runtime_max);
+
+        let finalized = tracing_run
+            .metadata
+            .finalized_at_unix_ms
+            .unwrap_or(tracing_run.metadata.finished_at_unix_ms)
+            .max(tracing_run.metadata.finished_at_unix_ms);
+        tracing_run.metadata.finalized_at_unix_ms = Some(finalized);
+    }
     tracing_run.metadata.effective_tokio_sampler_config =
         runtime_run.metadata.effective_tokio_sampler_config;
     tracing_run.truncation.dropped_runtime_snapshots =
@@ -243,7 +269,7 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
 mod tests {
     use super::merge_runtime_data;
     use crate::ImportedRun;
-    use tailtriage_core::{MemorySink, Tailtriage};
+    use tailtriage_core::{MemorySink, RuntimeSnapshot, Tailtriage};
 
     fn empty_run(service_name: &str) -> tailtriage_core::Run {
         Tailtriage::builder(service_name)
@@ -325,5 +351,122 @@ mod tests {
             vec!["trace-warning", "shared", "non-runtime"]
         );
         assert_eq!(run.requests.len(), 1);
+    }
+
+    #[test]
+    fn merge_runtime_data_runtime_snapshots_expand_metadata_bounds() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.metadata.started_at_unix_ms = 1_500;
+        tracing_run.metadata.finished_at_unix_ms = 1_800;
+        tracing_run.metadata.finalized_at_unix_ms = Some(1_800);
+
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.runtime_snapshots = vec![
+            RuntimeSnapshot {
+                at_unix_ms: 1_000,
+                alive_tasks: None,
+                global_queue_depth: None,
+                local_queue_depth: None,
+                blocking_queue_depth: None,
+                remote_schedule_count: None,
+            },
+            RuntimeSnapshot {
+                at_unix_ms: 2_200,
+                alive_tasks: None,
+                global_queue_depth: None,
+                local_queue_depth: None,
+                blocking_queue_depth: None,
+                remote_schedule_count: None,
+            },
+        ];
+
+        let merged = merge_runtime_data(ImportedRun::new(tracing_run, vec![]), &runtime_run);
+        let run = merged.run();
+        assert_eq!(run.metadata.started_at_unix_ms, 1_000);
+        assert_eq!(run.metadata.finished_at_unix_ms, 2_200);
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(2_200));
+        assert_eq!(run.runtime_snapshots, runtime_run.runtime_snapshots);
+        assert!(run.runtime_snapshots.iter().all(|snapshot| {
+            snapshot.at_unix_ms >= run.metadata.started_at_unix_ms
+                && snapshot.at_unix_ms <= run.metadata.finished_at_unix_ms
+        }));
+    }
+
+    #[test]
+    fn merge_runtime_data_without_runtime_snapshots_preserves_metadata_bounds() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.metadata.started_at_unix_ms = 1_500;
+        tracing_run.metadata.finished_at_unix_ms = 1_800;
+        tracing_run.metadata.finalized_at_unix_ms = Some(1_900);
+
+        let runtime_run = empty_run("runtime");
+
+        let merged =
+            merge_runtime_data(ImportedRun::new(tracing_run.clone(), vec![]), &runtime_run);
+        let run = merged.run();
+        assert_eq!(
+            run.metadata.started_at_unix_ms,
+            tracing_run.metadata.started_at_unix_ms
+        );
+        assert_eq!(
+            run.metadata.finished_at_unix_ms,
+            tracing_run.metadata.finished_at_unix_ms
+        );
+        assert_eq!(
+            run.metadata.finalized_at_unix_ms,
+            tracing_run.metadata.finalized_at_unix_ms
+        );
+    }
+
+    #[test]
+    fn merge_runtime_data_does_not_move_finalized_backwards() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.metadata.started_at_unix_ms = 1_500;
+        tracing_run.metadata.finished_at_unix_ms = 1_800;
+        tracing_run.metadata.finalized_at_unix_ms = Some(2_500);
+
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.runtime_snapshots = vec![RuntimeSnapshot {
+            at_unix_ms: 2_200,
+            alive_tasks: None,
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        }];
+
+        let merged = merge_runtime_data(ImportedRun::new(tracing_run, vec![]), &runtime_run);
+        let run = merged.run();
+        assert_eq!(run.metadata.finished_at_unix_ms, 2_200);
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(2_500));
+        assert!(run.runtime_snapshots.iter().all(|snapshot| {
+            snapshot.at_unix_ms >= run.metadata.started_at_unix_ms
+                && snapshot.at_unix_ms <= run.metadata.finished_at_unix_ms
+        }));
+    }
+
+    #[test]
+    fn merge_runtime_data_repairs_missing_finalized_when_runtime_snapshots_present() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.metadata.started_at_unix_ms = 1_500;
+        tracing_run.metadata.finished_at_unix_ms = 1_800;
+        tracing_run.metadata.finalized_at_unix_ms = None;
+
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.runtime_snapshots = vec![RuntimeSnapshot {
+            at_unix_ms: 1_900,
+            alive_tasks: None,
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        }];
+
+        let merged = merge_runtime_data(ImportedRun::new(tracing_run, vec![]), &runtime_run);
+        let run = merged.run();
+        assert_eq!(
+            run.metadata.finalized_at_unix_ms,
+            Some(run.metadata.finished_at_unix_ms)
+        );
     }
 }
