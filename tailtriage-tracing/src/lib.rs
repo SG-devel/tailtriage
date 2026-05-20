@@ -236,7 +236,7 @@ where
 
     let lifecycle_warnings = warnings
         .iter()
-        .filter(|warning| is_lifecycle_warning(warning.message()))
+        .filter(|warning| is_durable_conversion_warning(warning.message()))
         .map(|w| w.message().to_owned())
         .collect::<Vec<_>>();
 
@@ -363,8 +363,9 @@ fn required_string(
     }
 }
 
-fn is_lifecycle_warning(message: &str) -> bool {
+fn is_durable_conversion_warning(message: &str) -> bool {
     message.starts_with("skipped span")
+        || message.starts_with("unknown tt.kind")
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
 }
@@ -760,7 +761,36 @@ mod tests {
             .metadata
             .lifecycle_warnings
             .iter()
-            .all(|w| !w.contains("unknown tt.kind")));
+            .any(|w| w.contains("unknown tt.kind")));
+    }
+
+    #[test]
+    fn optional_default_warnings_are_not_persisted_to_lifecycle_warnings() {
+        let spans = vec![
+            SpanRecord::new("req", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("st", 1, 2)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("missing optional 'tt.outcome'")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("missing optional 'tt.success'")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .all(|w| !w.contains("missing optional")));
     }
 
     #[test]

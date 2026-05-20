@@ -488,6 +488,45 @@ fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
     assert!(stderr.contains("warning:"));
     assert!(stderr.contains("missing required field 'tt.kind'"));
     assert!(run_path.exists(), "run output should be written");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w.contains("missing required field 'tt.kind'")));
+}
+
+#[test]
+fn import_tracing_json_persists_unknown_kind_warning_to_run_artifact() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, mixed_valid_and_unknown_kind_fixture())
+        .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w.contains("unknown tt.kind 'wat'")));
 }
 
 fn valid_cli_artifact_with_requests() -> &'static str {
@@ -542,6 +581,12 @@ fn mixed_valid_and_incomplete_request_span_fixture() -> &'static str {
 
 fn mixed_valid_and_missing_kind_fixture() -> &'static str {
     r#"{"span":{"name":"oops","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
+"#
+}
+
+fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
+    r#"{"span":{"name":"oops","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.kind":"wat","tt.request_id":"req-0"}}}
 {"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }

@@ -664,6 +664,29 @@ mod tests {
     }
 
     #[test]
+    fn unknown_kind_warning_is_durable_in_jsonl_import() {
+        let input = r#"
+{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"wat","tt.request_id":"r0"}}}
+{"span":{"name":"req","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        let warning = imported
+            .warnings()
+            .iter()
+            .find(|w| w.message().contains("unknown tt.kind"))
+            .expect("unknown kind warning should be emitted")
+            .message()
+            .to_owned();
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w == &warning));
+    }
+
+    #[test]
     fn tt_fields_without_kind_warn_non_strict_and_error_strict() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.request_id":"r1","tt.route":"/ok"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
