@@ -268,7 +268,7 @@ impl DemoInstrumentation {
     ///
     /// Returns an error when shutting down instrumentation or writing output fails.
     pub fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
-        match &self.backend {
+        match self.backend {
             DemoInstrumentationBackend::Native(tailtriage) => {
                 tailtriage.shutdown()?;
                 Ok(())

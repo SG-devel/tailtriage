@@ -105,16 +105,14 @@ let recorder = TracingRecorder::builder("checkout-service")
 
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
 tracing::subscriber::with_default(subscriber, || {
-    {
-        let request = tracing::info_span!(
-            "http.request",
-            tt.kind = "request",
-            tt.request_id = "req-42",
-            tt.route = "/checkout",
-            tt.outcome = "ok"
-        );
-        let _entered = request.enter();
-    }
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-42",
+        tt.route = "/checkout",
+        tt.outcome = "ok"
+    );
+    futures_executor::block_on(async move { async {}.instrument(request).await });
 });
 
 let imported = recorder.shutdown()?;
@@ -151,6 +149,7 @@ The live recorder is bounded by default (`DEFAULT_MAX_OPEN_SPANS`, `DEFAULT_MAX_
 
 Use `#[tracing::instrument(fields(...))]` or `.instrument(...)` so span fields attach to async work correctly.
 Do not hold a manual entered-span guard across `.await`; async spans may enter/exit many times, and this recorder finalizes completed work on `on_close` (drop), not enter/exit transitions.
+Use `snapshot_run()` for non-consuming inspection, and `shutdown()` when finalizing via a consumed recorder handle.
 Live recorder latency/wait precision uses monotonic elapsed duration (`duration_us`) captured at close time.
 
 Tracing-only import/recording provides request, stage, and queue evidence. It

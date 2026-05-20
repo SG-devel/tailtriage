@@ -124,7 +124,9 @@ impl TracingRecorder {
         }
     }
 
-    /// Converts currently completed spans into an imported run.
+    /// Returns a non-consuming snapshot of currently completed spans as an imported run.
+    ///
+    /// Span completion is driven by span close/drop, not enter/exit.
     ///
     /// # Errors
     ///
@@ -162,14 +164,14 @@ impl TracingRecorder {
         imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
     }
 
-    /// Converts currently completed spans into an imported run.
+    /// Consumes this recorder handle and returns a final imported run snapshot.
     ///
-    /// This is currently equivalent to [`Self::snapshot_run`].
+    /// Span completion is driven by span close/drop, not enter/exit.
     ///
     /// # Errors
     ///
     /// Returns [`ImportError`] when strict conversion fails.
-    pub fn shutdown(&self) -> Result<ImportedRun, ImportError> {
+    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         self.snapshot_run()
     }
 }
@@ -610,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_returns_imported_run() {
+    fn snapshot_run_is_non_consuming_and_shutdown_consumes_owned_handle() {
         with_recorder(|recorder| {
             let span = tracing::info_span!(
                 "request",
@@ -619,11 +621,26 @@ mod tests {
                 tt.route = "/checkout"
             );
             drop(span);
-            let run = recorder.shutdown().unwrap();
-            assert_eq!(run.run().requests.len(), 1);
-            assert_eq!(run.run().requests[0].request_id, "r1");
-            assert_eq!(run.run().requests[0].route, "/checkout");
+            let snapshot = recorder.snapshot_run().unwrap();
+            assert_eq!(snapshot.run().requests.len(), 1);
+            assert_eq!(snapshot.run().requests[0].request_id, "r1");
+            assert_eq!(snapshot.run().requests[0].route, "/checkout");
         });
+
+        let recorder = TracingRecorder::builder("svc").build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+        let run = recorder.shutdown().unwrap();
+        assert_eq!(run.run().requests.len(), 1);
+        assert_eq!(run.run().requests[0].request_id, "r2");
     }
 
     #[test]
@@ -758,7 +775,7 @@ mod tests {
             drop(queue);
             drop(stage);
 
-            let imported = recorder.shutdown().unwrap();
+            let imported = recorder.snapshot_run().unwrap();
             let run = imported.run();
             assert_eq!(run.requests.len(), 1);
             assert_eq!(run.queues.len(), 1);
@@ -1205,7 +1222,7 @@ mod tests {
                 .lifecycle_warnings
                 .iter()
                 .any(|w| w.contains("open candidate span(s) at snapshot/shutdown")));
-            let shutdown = recorder.shutdown().unwrap();
+            let shutdown = recorder.snapshot_run().unwrap();
             assert!(shutdown.warnings().iter().any(|w| w
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));
