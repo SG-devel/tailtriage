@@ -124,7 +124,9 @@ impl TracingRecorder {
         }
     }
 
-    /// Converts currently completed spans into an imported run.
+    /// Returns a non-consuming snapshot of currently completed spans as an imported run.
+    ///
+    /// Live span completion is driven by span close/drop rather than enter/exit.
     ///
     /// # Errors
     ///
@@ -162,14 +164,14 @@ impl TracingRecorder {
         imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
     }
 
-    /// Converts currently completed spans into an imported run.
+    /// Consumes this recorder handle and returns the final imported run snapshot.
     ///
-    /// This is currently equivalent to [`Self::snapshot_run`].
+    /// Live span completion is driven by span close/drop rather than enter/exit.
     ///
     /// # Errors
     ///
     /// Returns [`ImportError`] when strict conversion fails.
-    pub fn shutdown(&self) -> Result<ImportedRun, ImportError> {
+    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         self.snapshot_run()
     }
 }
@@ -610,6 +612,26 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_run_is_non_consuming_and_shutdown_consumes_owned_handle() {
+        let recorder = TracingRecorder::builder("svc").build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+
+        let snap = recorder.snapshot_run().unwrap();
+        assert_eq!(snap.run().requests.len(), 1);
+        let imported = recorder.shutdown().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
     fn shutdown_returns_imported_run() {
         with_recorder(|recorder| {
             let span = tracing::info_span!(
@@ -619,7 +641,7 @@ mod tests {
                 tt.route = "/checkout"
             );
             drop(span);
-            let run = recorder.shutdown().unwrap();
+            let run = recorder.clone().shutdown().unwrap();
             assert_eq!(run.run().requests.len(), 1);
             assert_eq!(run.run().requests[0].request_id, "r1");
             assert_eq!(run.run().requests[0].route, "/checkout");
@@ -758,7 +780,7 @@ mod tests {
             drop(queue);
             drop(stage);
 
-            let imported = recorder.shutdown().unwrap();
+            let imported = recorder.clone().shutdown().unwrap();
             let run = imported.run();
             assert_eq!(run.requests.len(), 1);
             assert_eq!(run.queues.len(), 1);
@@ -1205,7 +1227,7 @@ mod tests {
                 .lifecycle_warnings
                 .iter()
                 .any(|w| w.contains("open candidate span(s) at snapshot/shutdown")));
-            let shutdown = recorder.shutdown().unwrap();
+            let shutdown = recorder.clone().shutdown().unwrap();
             assert!(shutdown.warnings().iter().any(|w| w
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));

@@ -94,6 +94,7 @@ describes the stable field contract used by import and live recording.
 ## Live tracing recorder
 
 ```rust
+use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 use tailtriage_tracing::TracingRecorder;
 
@@ -105,7 +106,7 @@ let recorder = TracingRecorder::builder("checkout-service")
 
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
 tracing::subscriber::with_default(subscriber, || {
-    {
+    futures_executor::block_on(async {
         let request = tracing::info_span!(
             "http.request",
             tt.kind = "request",
@@ -113,10 +114,11 @@ tracing::subscriber::with_default(subscriber, || {
             tt.route = "/checkout",
             tt.outcome = "ok"
         );
-        let _entered = request.enter();
-    }
+        async {}.instrument(request).await;
+    });
 });
 
+let imported = recorder.snapshot_run()?;
 let imported = recorder.shutdown()?;
 let run = imported.run();
 assert_eq!(run.requests.len(), 1);

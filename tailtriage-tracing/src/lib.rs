@@ -365,6 +365,8 @@ fn is_durable_conversion_warning(message: &str) -> bool {
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
+        || message.contains(" missing optional 'tt.outcome'; assumed 'ok'")
+        || message.contains(" missing optional 'tt.success'; assumed true")
 }
 
 fn attach_durable_conversion_warnings(run: &mut tailtriage_core::Run, warnings: &[ImportWarning]) {
@@ -660,7 +662,27 @@ mod tests {
             .iter()
             .any(|m| m.contains("2 stage span(s) missing optional 'tt.success'; assumed true")));
         assert!(!msgs.iter().any(|m| m.contains("tt.depth_at_start")));
-        assert!(imported.run().metadata.lifecycle_warnings.is_empty());
+        let lifecycle_warnings = &imported.run().metadata.lifecycle_warnings;
+        assert!(lifecycle_warnings
+            .iter()
+            .any(|m| m.contains("2 request span(s) missing optional 'tt.outcome'; assumed 'ok'")));
+        assert!(lifecycle_warnings
+            .iter()
+            .any(|m| m.contains("2 stage span(s) missing optional 'tt.success'; assumed true")));
+        assert_eq!(
+            lifecycle_warnings
+                .iter()
+                .filter(|m| m.contains("missing optional 'tt.outcome'"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            lifecycle_warnings
+                .iter()
+                .filter(|m| m.contains("missing optional 'tt.success'"))
+                .count(),
+            1
+        );
     }
 
     #[test]

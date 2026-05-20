@@ -251,6 +251,50 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
 }
 
 #[test]
+fn import_tracing_json_persists_optional_default_warnings_in_run_metadata() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, optional_defaults_span_jsonl_fixture())
+        .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("1 request span(s) missing optional 'tt.outcome'; assumed 'ok'"));
+    assert!(stderr.contains("1 stage span(s) missing optional 'tt.success'; assumed true"));
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w.contains("1 request span(s) missing optional 'tt.outcome'; assumed 'ok'")));
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w.contains("1 stage span(s) missing optional 'tt.success'; assumed true")));
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}
+
+#[test]
 fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
@@ -569,6 +613,12 @@ fn complete_span_jsonl_fixture() -> &'static str {
 
 fn incomplete_tailtriage_span_fixture() -> &'static str {
     r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
+"#
+}
+
+fn optional_defaults_span_jsonl_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
+{"span":{"name":"db.stage","started_at_unix_ms":1002,"finished_at_unix_ms":1006,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
 "#
 }
 

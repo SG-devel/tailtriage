@@ -50,24 +50,34 @@ Live in-memory recorder:
 ```rust
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_tracing::TracingRecorder;
+use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 
 let recorder = TracingRecorder::builder("checkout-service").build();
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
 
 tracing::subscriber::with_default(subscriber, || {
-    let request = tracing::info_span!(
-        "http.request",
-        tt.kind = "request",
-        tt.request_id = "req-1",
-        tt.route = "/checkout"
-    );
-    let _entered = request.enter();
+    futures_executor::block_on(async {
+        let request = tracing::info_span!(
+            "http.request",
+            tt.kind = "request",
+            tt.request_id = "req-1",
+            tt.route = "/checkout"
+        );
+
+        async {
+            // request work goes here
+        }
+        .instrument(request)
+        .await;
+    });
 });
 
 let imported = recorder.shutdown()?;
 let report = analyze_run(imported.run(), AnalyzeOptions::default());
 ```
+
+Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` consumes the recorder handle for finalization.
 
 This live path supports in-process diagnosis without writing an intermediate Run file.
 
