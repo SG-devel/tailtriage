@@ -645,6 +645,27 @@ mod tests {
     }
 
     #[test]
+    fn unknown_tt_kind_warning_is_durable_without_lifecycle_duplicates() {
+        let input = r#"
+{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
+{"span":{"name":"unknown","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"mystery","tt.request_id":"r2"}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let warning = imported
+            .warnings()
+            .iter()
+            .find(|w| w.message().contains("unknown tt.kind"))
+            .expect("unknown kind warning");
+        let durable_count = imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .filter(|msg| msg.as_str() == warning.message())
+            .count();
+        assert_eq!(durable_count, 1);
+    }
+    #[test]
     fn conversion_warnings_still_follow_existing_lifecycle_policy() {
         let input = r#"
 {"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
