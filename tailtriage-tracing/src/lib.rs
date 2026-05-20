@@ -270,13 +270,19 @@ where
     })?;
 
     for request in requests {
-        run_builder.push_request(request);
+        run_builder
+            .push_request(request)
+            .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
     }
     for stage in stages {
-        run_builder.push_stage(stage);
+        run_builder
+            .push_stage(stage)
+            .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
     }
     for queue in queues {
-        run_builder.push_queue(queue);
+        run_builder
+            .push_queue(queue)
+            .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
     }
     let mut run = run_builder.finish();
     attach_durable_conversion_warnings(&mut run, &warnings);
