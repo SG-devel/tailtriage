@@ -32,6 +32,8 @@ pub enum ImportError {
     StrictViolation(String),
     /// Service name was empty or whitespace-only.
     EmptyServiceName,
+    /// Run event failed `RunBuilder` shape validation.
+    InvalidRunEvent(String),
 }
 
 impl fmt::Display for ImportError {
@@ -51,6 +53,7 @@ impl fmt::Display for ImportError {
             }
             Self::StrictViolation(message) => write!(f, "strict import violation: {message}"),
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
+            Self::InvalidRunEvent(message) => write!(f, "invalid run event: {message}"),
         }
     }
 }
