@@ -1033,10 +1033,14 @@ fn run_builder_defaults_finalized_timestamp_to_finished_timestamp() {
 
 #[test]
 fn run_builder_preserves_explicit_finalized_timestamp() {
-    let run =
-        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").finalized_at_unix_ms(777))
-            .expect("ok")
-            .finish();
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(700)
+            .finished_at_unix_ms(750)
+            .finalized_at_unix_ms(777),
+    )
+    .expect("ok")
+    .finish();
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(777));
 }
 

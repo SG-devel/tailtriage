@@ -255,6 +255,24 @@ where
 
     let mut run_builder = RunBuilder::new(builder_options).map_err(|err| match err {
         BuildError::EmptyServiceName => ImportError::EmptyServiceName,
+        BuildError::InvalidRunTimeBounds {
+            started_at_unix_ms,
+            finished_at_unix_ms,
+        } => ImportError::InvalidField {
+            field: "tt.started_at_unix_ms/tt.finished_at_unix_ms",
+            reason: format!(
+                "finished_at_unix_ms ({finished_at_unix_ms}) must be >= started_at_unix_ms ({started_at_unix_ms})"
+            ),
+        },
+        BuildError::InvalidFinalizationTime {
+            finished_at_unix_ms,
+            finalized_at_unix_ms,
+        } => ImportError::InvalidField {
+            field: "tt.finished_at_unix_ms/tt.finalized_at_unix_ms",
+            reason: format!(
+                "finalized_at_unix_ms ({finalized_at_unix_ms}) must be >= finished_at_unix_ms ({finished_at_unix_ms})"
+            ),
+        },
     })?;
 
     for request in requests {

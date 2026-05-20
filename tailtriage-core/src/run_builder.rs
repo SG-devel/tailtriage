@@ -142,6 +142,12 @@ impl RunBuilder {
     /// # Errors
     ///
     /// Returns [`BuildError::EmptyServiceName`] when the service name is blank.
+    ///
+    /// Returns [`BuildError::InvalidRunTimeBounds`] when finish timestamp is
+    /// earlier than start timestamp.
+    ///
+    /// Returns [`BuildError::InvalidFinalizationTime`] when finalization
+    /// timestamp is earlier than finish timestamp.
     pub fn new(options: RunBuilderOptions) -> Result<Self, BuildError> {
         if options.service_name.trim().is_empty() {
             return Err(BuildError::EmptyServiceName);
@@ -154,8 +160,20 @@ impl RunBuilder {
         let ts = unix_time_ms();
         let started_at_unix_ms = options.started_at_unix_ms.unwrap_or(ts);
         let finished_at_unix_ms = options.finished_at_unix_ms.unwrap_or(ts);
-        let finalized_at_unix_ms =
-            Some(options.finalized_at_unix_ms.unwrap_or(finished_at_unix_ms));
+        let finalized_at_unix_ms = options.finalized_at_unix_ms.unwrap_or(finished_at_unix_ms);
+
+        if finished_at_unix_ms < started_at_unix_ms {
+            return Err(BuildError::InvalidRunTimeBounds {
+                started_at_unix_ms,
+                finished_at_unix_ms,
+            });
+        }
+        if finalized_at_unix_ms < finished_at_unix_ms {
+            return Err(BuildError::InvalidFinalizationTime {
+                finished_at_unix_ms,
+                finalized_at_unix_ms,
+            });
+        }
 
         Ok(Self {
             run: Run::new(RunMetadata {
@@ -164,7 +182,7 @@ impl RunBuilder {
                 service_version: options.service_version,
                 started_at_unix_ms,
                 finished_at_unix_ms,
-                finalized_at_unix_ms,
+                finalized_at_unix_ms: Some(finalized_at_unix_ms),
                 mode,
                 effective_core_config: Some(EffectiveCoreConfig {
                     mode,
@@ -252,5 +270,93 @@ impl RunBuilder {
     #[must_use]
     pub fn finish(self) -> Run {
         self.run
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{BuildError, RunBuilder, RunBuilderOptions};
+
+    #[test]
+    fn valid_explicit_timestamps_pass() {
+        let run = RunBuilder::new(
+            RunBuilderOptions::new("svc")
+                .started_at_unix_ms(100)
+                .finished_at_unix_ms(150)
+                .finalized_at_unix_ms(200),
+        )
+        .expect("valid timestamp ordering must build")
+        .finish();
+
+        assert_eq!(run.metadata.started_at_unix_ms, 100);
+        assert_eq!(run.metadata.finished_at_unix_ms, 150);
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
+    }
+
+    #[test]
+    fn equal_bounds_pass() {
+        let run = RunBuilder::new(
+            RunBuilderOptions::new("svc")
+                .started_at_unix_ms(100)
+                .finished_at_unix_ms(100)
+                .finalized_at_unix_ms(100),
+        )
+        .expect("equal bounds must build")
+        .finish();
+
+        assert_eq!(run.metadata.started_at_unix_ms, 100);
+        assert_eq!(run.metadata.finished_at_unix_ms, 100);
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(100));
+    }
+
+    #[test]
+    fn finished_before_started_fails() {
+        let err = RunBuilder::new(
+            RunBuilderOptions::new("svc")
+                .started_at_unix_ms(100)
+                .finished_at_unix_ms(99),
+        )
+        .expect_err("finish before start must fail");
+
+        assert_eq!(
+            err,
+            BuildError::InvalidRunTimeBounds {
+                started_at_unix_ms: 100,
+                finished_at_unix_ms: 99,
+            }
+        );
+    }
+
+    #[test]
+    fn finalized_before_finished_fails() {
+        let err = RunBuilder::new(
+            RunBuilderOptions::new("svc")
+                .started_at_unix_ms(100)
+                .finished_at_unix_ms(150)
+                .finalized_at_unix_ms(149),
+        )
+        .expect_err("finalized before finished must fail");
+
+        assert_eq!(
+            err,
+            BuildError::InvalidFinalizationTime {
+                finished_at_unix_ms: 150,
+                finalized_at_unix_ms: 149,
+            }
+        );
+    }
+
+    #[test]
+    fn defaults_produce_valid_finalized_run() {
+        let run = RunBuilder::new(RunBuilderOptions::new("svc"))
+            .expect("default timestamps must build")
+            .finish();
+        let finalized_at = run
+            .metadata
+            .finalized_at_unix_ms
+            .expect("run builder always finalizes");
+
+        assert!(run.metadata.finished_at_unix_ms >= run.metadata.started_at_unix_ms);
+        assert!(finalized_at >= run.metadata.finished_at_unix_ms);
     }
 }
