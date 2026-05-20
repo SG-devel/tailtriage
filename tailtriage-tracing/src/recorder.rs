@@ -806,7 +806,8 @@ mod tests {
                 "request",
                 tt.kind = "request",
                 tt.request_id = "r1",
-                tt.route = "/a"
+                tt.route = "/a",
+                tt.outcome = "ok"
             );
             drop(request);
             drop(unrelated);
