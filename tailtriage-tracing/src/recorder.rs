@@ -340,6 +340,16 @@ fn imported_with_drop_warnings(
     let closed_missing_kind_samples = stats.closed_missing_kind_samples.as_slice();
     if options.strict_mode() {
         let mut messages = Vec::new();
+        if dropped_open_spans > 0 {
+            messages.push(format!(
+                "live recorder dropped {dropped_open_spans} candidate open span(s) because max_open_spans was reached; raise max_open_spans or reduce capture scope"
+            ));
+        }
+        if dropped_completed_spans > 0 {
+            messages.push(format!(
+                "live recorder dropped {dropped_completed_spans} completed span(s) because max_completed_spans was reached; raise max_completed_spans or reduce capture scope"
+            ));
+        }
         if open_candidate_count > 0 {
             messages.push(format!(
                 "live recorder observed {open_candidate_count} open candidate span(s) at snapshot/shutdown; incomplete spans are not converted into fabricated completions"
@@ -794,6 +804,113 @@ mod tests {
             .iter()
             .any(|w| w.contains("dropped 1 candidate spans")));
         assert!(imported.run().truncation.limits_hit);
+    }
+
+    #[test]
+    fn strict_mode_errors_when_max_open_spans_drops_candidate_spans() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_open_spans(0)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span);
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("candidate open span(s)"));
+                assert!(message.contains("max_open_spans"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn strict_mode_errors_when_max_completed_spans_drops_completed_spans() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_completed_spans(0)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            );
+            drop(span);
+        });
+        let err = recorder.shutdown().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("completed span(s)"));
+                assert!(message.contains("max_completed_spans"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_strict_mode_reports_drop_warnings_and_truncation() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_open_spans(1)
+            .max_completed_spans(0)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let open1 = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r-open-1",
+                tt.route = "/open-1"
+            );
+            let open2 = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r-open-2",
+                tt.route = "/open-2"
+            );
+            let completed = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r-done",
+                tt.route = "/done"
+            );
+            drop(completed);
+
+            drop(open1);
+            drop(open2);
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert!(imported.run().truncation.limits_hit);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_open_spans was reached")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_spans was reached")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("max_open_spans was reached")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("max_completed_spans was reached")));
     }
 
     #[test]
