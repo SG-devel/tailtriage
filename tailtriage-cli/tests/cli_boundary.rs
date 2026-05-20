@@ -501,6 +501,55 @@ fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
 }
 
 #[test]
+fn import_tracing_json_persists_optional_default_assumption_warnings() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, missing_optional_defaults_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("warning:"));
+    assert!(stderr.contains("1 request span(s) missing optional 'tt.outcome'; assumed 'ok'"));
+    assert!(stderr.contains("1 stage span(s) missing optional 'tt.success'; assumed true"));
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w == "1 request span(s) missing optional 'tt.outcome'; assumed 'ok'"));
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|w| w == "1 stage span(s) missing optional 'tt.success'; assumed true"));
+
+    let report = tailtriage_analyzer::analyze_run(
+        &loaded.run,
+        tailtriage_analyzer::AnalyzeOptions::default(),
+    );
+    assert!(report.request_count > 0);
+}
+
+#[test]
 fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
@@ -535,6 +584,12 @@ fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
         .filter(|warning| warning.as_str() == "unknown tt.kind 'mystery' in span 'unknown'")
         .count();
     assert_eq!(warning_matches, 1);
+}
+
+fn missing_optional_defaults_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
+{"span":{"name":"db.stage","started_at_unix_ms":1002,"finished_at_unix_ms":1006,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
+"#
 }
 
 fn valid_cli_artifact_with_requests() -> &'static str {

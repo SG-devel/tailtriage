@@ -94,6 +94,7 @@ describes the stable field contract used by import and live recording.
 ## Live tracing recorder
 
 ```rust
+use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 use tailtriage_tracing::TracingRecorder;
 
@@ -104,22 +105,29 @@ let recorder = TracingRecorder::builder("checkout-service")
     .build();
 
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
+async fn run_checkout() {
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-42",
+        tt.route = "/checkout",
+        tt.outcome = "ok"
+    );
+
+    async {}.instrument(request).await;
+}
+
 tracing::subscriber::with_default(subscriber, || {
-    {
-        let request = tracing::info_span!(
-            "http.request",
-            tt.kind = "request",
-            tt.request_id = "req-42",
-            tt.route = "/checkout",
-            tt.outcome = "ok"
-        );
-        let _entered = request.enter();
-    }
+    // invoke your runtime here and run `run_checkout()`
 });
+
+let snapshot = recorder.snapshot_run()?;
+assert_eq!(snapshot.run().requests.len(), 1);
 
 let imported = recorder.shutdown()?;
 let run = imported.run();
 assert_eq!(run.requests.len(), 1);
+# // `snapshot_run()` is non-consuming; `shutdown()` consumes this recorder handle.
 # Ok::<(), tailtriage_tracing::ImportError>(())
 ```
 
