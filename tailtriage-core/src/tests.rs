@@ -1045,6 +1045,22 @@ fn run_builder_preserves_explicit_finalized_timestamp() {
 }
 
 #[test]
+fn run_builder_preserves_explicit_timestamps_exactly() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(150)
+            .finalized_at_unix_ms(200),
+    )
+    .expect("ok")
+    .finish();
+
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
+    assert_eq!(run.metadata.finished_at_unix_ms, 150);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
+}
+
+#[test]
 fn run_builder_allows_equal_timestamp_bounds() {
     let run = crate::RunBuilder::new(
         crate::RunBuilderOptions::new("svc")
