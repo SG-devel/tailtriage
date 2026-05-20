@@ -3,6 +3,35 @@ use crate::{
     EffectiveCoreConfig, EffectiveTokioSamplerConfig, InFlightSnapshot, QueueEvent, RequestEvent,
     Run, RunEndReason, RunMetadata, RuntimeSnapshot, StageEvent, UnfinishedRequests,
 };
+use core::fmt;
+
+/// Error returned when [`RunBuilder`] rejects an invalid pushed event shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunBuilderEventError {
+    /// Event payload had invalid or inconsistent field values.
+    InvalidEvent {
+        /// Event type name.
+        event: &'static str,
+        /// Field that failed validation.
+        field: &'static str,
+        /// Human-readable validation failure reason.
+        reason: String,
+    },
+}
+
+impl fmt::Display for RunBuilderEventError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidEvent {
+                event,
+                field,
+                reason,
+            } => write!(f, "invalid {event} event field `{field}`: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for RunBuilderEventError {}
 
 /// Options for assembling a completed [`Run`] artifact.
 ///
@@ -207,46 +236,86 @@ impl RunBuilder {
     ///
     /// The event is retained only while request capture-limit capacity remains;
     /// otherwise it is dropped and `truncation.dropped_requests` is updated.
-    pub fn push_request(&mut self, event: RequestEvent) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunBuilderEventError`] when required request fields are blank,
+    /// timestamp order is invalid, or latency is inconsistent with timestamp span.
+    pub fn push_request(&mut self, event: RequestEvent) -> Result<(), RunBuilderEventError> {
+        validate_request_event(&event)?;
         let _ = crate::retention::push_request_bounded(&mut self.run, self.capture_limits, event);
+        Ok(())
     }
     /// Appends a stage event.
     ///
     /// The event is retained only while stage capture-limit capacity remains;
     /// otherwise it is dropped and `truncation.dropped_stages` is updated.
-    pub fn push_stage(&mut self, event: StageEvent) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunBuilderEventError`] when required stage fields are blank,
+    /// timestamp order is invalid, or latency is inconsistent with timestamp span.
+    pub fn push_stage(&mut self, event: StageEvent) -> Result<(), RunBuilderEventError> {
+        validate_stage_event(&event)?;
         let _ = crate::retention::push_stage_bounded(&mut self.run, self.capture_limits, event);
+        Ok(())
     }
     /// Appends a queue event.
     ///
     /// The event is retained only while queue capture-limit capacity remains;
     /// otherwise it is dropped and `truncation.dropped_queues` is updated.
-    pub fn push_queue(&mut self, event: QueueEvent) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunBuilderEventError`] when required queue fields are blank,
+    /// wait timestamp order is invalid, or wait duration is inconsistent.
+    pub fn push_queue(&mut self, event: QueueEvent) -> Result<(), RunBuilderEventError> {
+        validate_queue_event(&event)?;
         let _ = crate::retention::push_queue_bounded(&mut self.run, self.capture_limits, event);
+        Ok(())
     }
     /// Appends an in-flight snapshot.
     ///
     /// The snapshot is retained only while in-flight snapshot capture-limit
     /// capacity remains; otherwise it is dropped and
     /// `truncation.dropped_inflight_snapshots` is updated.
-    pub fn push_inflight_snapshot(&mut self, snapshot: InFlightSnapshot) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunBuilderEventError`] when `gauge` is blank.
+    pub fn push_inflight_snapshot(
+        &mut self,
+        snapshot: InFlightSnapshot,
+    ) -> Result<(), RunBuilderEventError> {
+        validate_inflight_snapshot(&snapshot)?;
         let _ = crate::retention::push_inflight_snapshot_bounded(
             &mut self.run,
             self.capture_limits,
             snapshot,
         );
+        Ok(())
     }
     /// Appends a runtime snapshot.
     ///
     /// The snapshot is retained only while runtime snapshot capture-limit
     /// capacity remains; otherwise it is dropped and
     /// `truncation.dropped_runtime_snapshots` is updated.
-    pub fn push_runtime_snapshot(&mut self, snapshot: RuntimeSnapshot) {
+    ///
+    /// This method does not validate optional metric fields.
+    ///
+    /// # Errors
+    ///
+    /// This currently returns `Ok(())` for all runtime snapshots.
+    pub fn push_runtime_snapshot(
+        &mut self,
+        snapshot: RuntimeSnapshot,
+    ) -> Result<(), RunBuilderEventError> {
         let _ = crate::retention::push_runtime_snapshot_bounded(
             &mut self.run,
             self.capture_limits,
             snapshot,
         );
+        Ok(())
     }
     /// Adds one lifecycle warning string.
     pub fn add_lifecycle_warning(&mut self, warning: impl Into<String>) {
@@ -274,4 +343,108 @@ impl RunBuilder {
     pub fn finish(self) -> Run {
         self.run
     }
+}
+
+fn invalid_event(
+    event: &'static str,
+    field: &'static str,
+    reason: impl Into<String>,
+) -> RunBuilderEventError {
+    RunBuilderEventError::InvalidEvent {
+        event,
+        field,
+        reason: reason.into(),
+    }
+}
+
+fn validate_request_event(event: &RequestEvent) -> Result<(), RunBuilderEventError> {
+    if event.request_id.trim().is_empty() {
+        return Err(invalid_event("request", "request_id", "must not be blank"));
+    }
+    if event.route.trim().is_empty() {
+        return Err(invalid_event("request", "route", "must not be blank"));
+    }
+    if event.finished_at_unix_ms < event.started_at_unix_ms {
+        return Err(invalid_event(
+            "request",
+            "finished_at_unix_ms",
+            format!(
+                "{} must be >= started_at_unix_ms ({})",
+                event.finished_at_unix_ms, event.started_at_unix_ms
+            ),
+        ));
+    }
+    if event.outcome.trim().is_empty() {
+        return Err(invalid_event("request", "outcome", "must not be blank"));
+    }
+    if event.finished_at_unix_ms > event.started_at_unix_ms && event.latency_us == 0 {
+        return Err(invalid_event(
+            "request",
+            "latency_us",
+            "must be > 0 when finished_at_unix_ms > started_at_unix_ms",
+        ));
+    }
+    Ok(())
+}
+fn validate_stage_event(event: &StageEvent) -> Result<(), RunBuilderEventError> {
+    if event.request_id.trim().is_empty() {
+        return Err(invalid_event("stage", "request_id", "must not be blank"));
+    }
+    if event.stage.trim().is_empty() {
+        return Err(invalid_event("stage", "stage", "must not be blank"));
+    }
+    if event.finished_at_unix_ms < event.started_at_unix_ms {
+        return Err(invalid_event(
+            "stage",
+            "finished_at_unix_ms",
+            format!(
+                "{} must be >= started_at_unix_ms ({})",
+                event.finished_at_unix_ms, event.started_at_unix_ms
+            ),
+        ));
+    }
+    if event.finished_at_unix_ms > event.started_at_unix_ms && event.latency_us == 0 {
+        return Err(invalid_event(
+            "stage",
+            "latency_us",
+            "must be > 0 when finished_at_unix_ms > started_at_unix_ms",
+        ));
+    }
+    Ok(())
+}
+fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> {
+    if event.request_id.trim().is_empty() {
+        return Err(invalid_event("queue", "request_id", "must not be blank"));
+    }
+    if event.queue.trim().is_empty() {
+        return Err(invalid_event("queue", "queue", "must not be blank"));
+    }
+    if event.waited_until_unix_ms < event.waited_from_unix_ms {
+        return Err(invalid_event(
+            "queue",
+            "waited_until_unix_ms",
+            format!(
+                "{} must be >= waited_from_unix_ms ({})",
+                event.waited_until_unix_ms, event.waited_from_unix_ms
+            ),
+        ));
+    }
+    if event.waited_until_unix_ms > event.waited_from_unix_ms && event.wait_us == 0 {
+        return Err(invalid_event(
+            "queue",
+            "wait_us",
+            "must be > 0 when waited_until_unix_ms > waited_from_unix_ms",
+        ));
+    }
+    Ok(())
+}
+fn validate_inflight_snapshot(snapshot: &InFlightSnapshot) -> Result<(), RunBuilderEventError> {
+    if snapshot.gauge.trim().is_empty() {
+        return Err(invalid_event(
+            "inflight_snapshot",
+            "gauge",
+            "must not be blank",
+        ));
+    }
+    Ok(())
 }

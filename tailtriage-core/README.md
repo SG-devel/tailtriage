@@ -177,7 +177,7 @@ Use `RunBuilder` only when you already have completed request, stage, queue, in-
 ```rust,no_run
 use tailtriage_core::{RequestEvent, RunBuilder, RunBuilderOptions};
 
-fn assemble_run() -> Result<(), tailtriage_core::BuildError> {
+fn assemble_run() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = RunBuilder::new(RunBuilderOptions::new("checkout-service"))?;
     builder.push_request(RequestEvent {
         request_id: "req-1".into(),
@@ -187,13 +187,15 @@ fn assemble_run() -> Result<(), tailtriage_core::BuildError> {
         finished_at_unix_ms: 2,
         latency_us: 1_000,
         outcome: "ok".into(),
-    });
+    })?;
 
     let run = builder.finish();
     assert_eq!(run.requests.len(), 1);
     Ok(())
 }
 ```
+
+`RunBuilder::new(...)` validates top-level run timestamp ordering and service-name presence. Push methods validate event shape. Retention overflow is not an error: over-limit items are dropped and `Run.truncation` counters are updated. `RunBuilder` does not validate cross-event correlation (for example, stage/queue events without matching request events remain allowed) and does not synthesize missing lifecycle completions.
 
 ## What this crate does not do
 
