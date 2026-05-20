@@ -1510,6 +1510,10 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
     assert!(builder.push_request(request).is_ok());
 
     let mut stage = test_stage_event("req", "stage");
+    stage.request_id = " ".into();
+    assert!(builder.push_stage(stage).is_err());
+
+    let mut stage = test_stage_event("req", "stage");
     stage.stage = " ".into();
     assert!(builder.push_stage(stage).is_err());
 
@@ -1523,6 +1527,10 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
     stage.finished_at_unix_ms = 4;
     stage.latency_us = 0;
     assert!(builder.push_stage(stage).is_ok());
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.request_id = " ".into();
+    assert!(builder.push_queue(queue).is_err());
 
     let mut queue = test_queue_event("req", "queue");
     queue.queue = " ".into();

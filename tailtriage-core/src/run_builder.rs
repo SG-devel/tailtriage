@@ -302,7 +302,10 @@ impl RunBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`RunBuilderEventError`] when the snapshot has invalid shape.
+    /// Currently returns `Ok(())` for all runtime snapshots. The `Result`
+    /// keeps this API consistent with other [`RunBuilder`] push methods and
+    /// leaves room for future runtime snapshot validation without changing
+    /// the method shape.
     pub fn push_runtime_snapshot(
         &mut self,
         snapshot: RuntimeSnapshot,
