@@ -181,13 +181,8 @@ async fn main() -> anyhow::Result<()> {
     let finalize_start = Instant::now();
     let (run, artifact_path) = finalize_backend_and_write_artifact(&cli, &mut backend).await?;
     let artifact_finalize_ms = finalize_start.elapsed().as_secs_f64() * 1000.0;
-    let analyze_start = Instant::now();
     let (analyze_ms, report_render_ms) = if let Some(ref run_value) = run {
-        let report = try_analyze_run(run_value, AnalyzeOptions::default())?;
-        let analyze_ms = analyze_start.elapsed().as_secs_f64() * 1000.0;
-        let render_start = Instant::now();
-        black_box(render_json_pretty(&report)?);
-        (analyze_ms, render_start.elapsed().as_secs_f64() * 1000.0)
+        analyze_and_render_if_requests(run_value)?
     } else {
         (0.0, 0.0)
     };
@@ -534,6 +529,18 @@ fn micros_to_millis_f64(m: u64) -> anyhow::Result<f64> {
     Ok(m.to_string().parse::<f64>()? / 1_000.0)
 }
 
+fn analyze_and_render_if_requests(run: &Run) -> anyhow::Result<(f64, f64)> {
+    if run.requests.is_empty() {
+        return Ok((0.0, 0.0));
+    }
+    let analyze_start = Instant::now();
+    let report = try_analyze_run(run, AnalyzeOptions::default())?;
+    let analyze_ms = analyze_start.elapsed().as_secs_f64() * 1000.0;
+    let render_start = Instant::now();
+    black_box(render_json_pretty(&report)?);
+    Ok((analyze_ms, render_start.elapsed().as_secs_f64() * 1000.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,6 +571,39 @@ mod tests {
             PathBuf::from(artifact_path),
             output_dir.join("run-core_light.json")
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn baked_in_no_request_context_finalizes_artifact_with_zero_requests() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "tailtriage-runtime-cost-test-no-request-context-{}",
+            std::process::id()
+        ));
+        let cli = Cli {
+            mode: Mode::BakedInNoRequestContext,
+            requests: 1,
+            concurrency: 1,
+            work_ms: 1,
+            output_dir: output_dir.clone(),
+        };
+        std::fs::create_dir_all(&output_dir).expect("create output dir");
+        let mut backend = build_backend(&cli).expect("build backend");
+        let (latencies, _) = run_requests(&cli, &backend).await.expect("run requests");
+        assert_eq!(latencies.len(), 1);
+        let (run, artifact_path) = finalize_backend_and_write_artifact(&cli, &mut backend)
+            .await
+            .expect("finalize and write");
+        let run = run.expect("native run should exist");
+        assert!(run.requests.is_empty());
+        let artifact_path = artifact_path.expect("artifact path should exist");
+        assert_eq!(
+            PathBuf::from(artifact_path),
+            output_dir.join("run-baked_in_no_request_context.json")
+        );
+        let (analyze_ms, report_render_ms) =
+            analyze_and_render_if_requests(&run).expect("skip analysis for zero-request run");
+        assert_eq!(analyze_ms, 0.0);
+        assert_eq!(report_render_ms, 0.0);
     }
 
     #[test]
