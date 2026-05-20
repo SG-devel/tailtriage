@@ -601,8 +601,14 @@ mod tests {
         );
         let (analyze_ms, report_render_ms) =
             measure_analysis_and_render_ms(Some(&run)).expect("skip analyze/render");
-        assert_eq!(analyze_ms, 0.0);
-        assert_eq!(report_render_ms, 0.0);
+        assert!(
+            analyze_ms.abs() <= f64::EPSILON,
+            "expected skipped analysis timing to be zero, got {analyze_ms}"
+        );
+        assert!(
+            report_render_ms.abs() <= f64::EPSILON,
+            "expected skipped report rendering timing to be zero, got {report_render_ms}"
+        );
     }
 
     #[test]
