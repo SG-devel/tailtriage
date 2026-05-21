@@ -45,10 +45,12 @@ pub use convention::{
     TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
 };
 pub use error::ImportError;
-pub use jsonl::{import_jsonl_path, import_jsonl_reader};
+pub use jsonl::{
+    import_jsonl_path, import_jsonl_path_with_mode, import_jsonl_reader, JsonlParseMode,
+};
 pub use recorder::{
-    RecorderLimits, TailtriageLayer, TracingRecorder, TracingRecorderBuilder,
-    DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
+    RecorderLimits, TailtriageLayer, TracingIntakeSession, TracingIntakeSessionBuilder,
+    TracingRecorder, TracingRecorderBuilder, DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 

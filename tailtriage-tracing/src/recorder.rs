@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -18,6 +21,31 @@ pub struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
     limits: RecorderLimits,
+}
+/// High-level tracing intake bridge for completed `tt.*` spans.
+///
+/// A session attaches to an existing `tracing_subscriber` registry via [`Self::layer`],
+/// captures completed `tt.*` spans, and converts them into standard `tailtriage_core::Run`
+/// artifacts through [`Self::snapshot_run`] or [`Self::shutdown`].
+///
+/// When configured, the session emits stable completed-span JSONL records in the
+/// wrapper form `{"format":"tailtriage.tracing-span.v1","span":{...}}` and can
+/// optionally write a Run JSON file on shutdown.
+///
+/// This API is intentionally a tracing intake bridge; it does not implement OTel/OTLP.
+/// Tracing-only evidence does not fabricate runtime-pressure snapshots, and suspects
+/// in resulting diagnosis reports remain triage leads rather than root-cause proof.
+#[derive(Debug, Clone)]
+pub struct TracingIntakeSession {
+    recorder: TracingRecorder,
+    run_json_path: Option<PathBuf>,
+}
+/// Builder for [`TracingIntakeSession`].
+#[derive(Debug, Clone)]
+pub struct TracingIntakeSessionBuilder {
+    recorder_builder: TracingRecorderBuilder,
+    completed_span_jsonl_path: Option<PathBuf>,
+    run_json_path: Option<PathBuf>,
 }
 
 /// Builder for [`TracingRecorder`].
@@ -63,6 +91,9 @@ struct RecorderState {
     dropped_completed_spans: u64,
     closed_missing_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    writer_failure: Option<String>,
+    completed_span_writer_path: Option<PathBuf>,
+    completed_span_writer: Option<BufWriter<std::fs::File>>,
 }
 
 #[derive(Debug)]
@@ -98,6 +129,7 @@ struct SnapshotStats {
     open_samples: Vec<OpenSpanSample>,
     closed_missing_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    writer_failure: Option<String>,
 }
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
@@ -132,6 +164,7 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
+        self.flush_completed_span_writer()?;
         let (spans, stats) = {
             let state = lock_state(&self.state);
             let mut samples = Vec::new();
@@ -158,10 +191,36 @@ impl TracingRecorder {
                     open_samples: samples,
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
                     closed_missing_kind_samples: state.closed_missing_kind_samples.clone(),
+                    writer_failure: state.writer_failure.clone(),
                 },
             )
         };
         imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
+    }
+
+    fn flush_completed_span_writer(&self) -> Result<(), ImportError> {
+        let mut state = lock_state(&self.state);
+        if let Some(writer) = state.completed_span_writer.as_mut() {
+            if let Err(err) = writer.flush() {
+                let msg = format_writer_failure(
+                    "flush",
+                    state.completed_span_writer_path.as_deref(),
+                    &err,
+                );
+                state.writer_failure = Some(msg.clone());
+                if self.options.strict_mode() {
+                    return Err(ImportError::Io {
+                        operation: "flush completed span jsonl writer",
+                        context: state.completed_span_writer_path.as_ref().map_or_else(
+                            || "completed-span-jsonl".to_owned(),
+                            |p| p.display().to_string(),
+                        ),
+                        reason: err.to_string(),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Consumes this recorder handle and returns a final imported run snapshot.
@@ -176,22 +235,174 @@ impl TracingRecorder {
     }
 }
 
+impl TracingIntakeSession {
+    /// Creates a tracing intake session builder with required service metadata.
+    ///
+    /// ```no_run
+    /// use tailtriage_tracing::TracingIntakeSession;
+    /// use tracing_subscriber::prelude::*;
+    ///
+    /// let session = TracingIntakeSession::builder("checkout")
+    ///     .completed_span_jsonl_path("completed-spans.jsonl")
+    ///     .build()
+    ///     .expect("session should build");
+    ///
+    /// let subscriber = tracing_subscriber::registry().with(session.layer());
+    /// tracing::subscriber::with_default(subscriber, || {
+    ///     let span = tracing::info_span!(
+    ///         "request",
+    ///         tt.kind = "request",
+    ///         tt.request_id = "r1",
+    ///         tt.route = "/checkout"
+    ///     );
+    ///     drop(span);
+    /// });
+    ///
+    /// let _ = session.shutdown().expect("shutdown should succeed");
+    /// ```
+    pub fn builder(service_name: impl Into<String>) -> TracingIntakeSessionBuilder {
+        TracingIntakeSessionBuilder {
+            recorder_builder: TracingRecorder::builder(service_name),
+            completed_span_jsonl_path: None,
+            run_json_path: None,
+        }
+    }
+    /// Returns a `tracing_subscriber` layer for this intake session.
+    ///
+    /// Add this layer beside your existing subscriber layers; this does not replace
+    /// your tracing pipeline.
+    #[must_use]
+    pub fn layer(&self) -> TailtriageLayer {
+        self.recorder.layer()
+    }
+    /// Returns a non-consuming imported snapshot of completed spans.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when strict conversion fails.
+    pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
+        self.recorder.snapshot_run()
+    }
+    /// Finalizes intake and optionally writes run JSON when configured.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when conversion fails or when configured run-json output cannot be written.
+    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
+        let imported = self.recorder.shutdown()?;
+        if let Some(path) = self.run_json_path {
+            let file = std::fs::File::create(&path).map_err(|err| ImportError::Io {
+                operation: "create run json path",
+                context: path.display().to_string(),
+                reason: err.to_string(),
+            })?;
+            serde_json::to_writer_pretty(file, imported.run()).map_err(|err| {
+                ImportError::InvalidField {
+                    field: "run_json_path",
+                    reason: err.to_string(),
+                }
+            })?;
+        }
+        Ok(imported)
+    }
+}
+impl TracingIntakeSessionBuilder {
+    /// Enables or disables strict mode for conversion warnings.
+    #[must_use]
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.recorder_builder = self.recorder_builder.strict(strict);
+        self
+    }
+    /// Sets service version metadata for converted run output.
+    #[must_use]
+    pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
+        self.recorder_builder = self.recorder_builder.service_version(service_version);
+        self
+    }
+    /// Sets explicit run id metadata for converted run output.
+    #[must_use]
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.recorder_builder = self.recorder_builder.run_id(run_id);
+        self
+    }
+    /// Sets open/completed in-memory retention limits.
+    #[must_use]
+    pub fn limits(mut self, limits: RecorderLimits) -> Self {
+        self.recorder_builder = self.recorder_builder.limits(limits);
+        self
+    }
+    /// Sets maximum concurrently tracked open candidate spans.
+    #[must_use]
+    pub fn max_open_spans(mut self, v: usize) -> Self {
+        self.recorder_builder = self.recorder_builder.max_open_spans(v);
+        self
+    }
+    /// Sets maximum retained completed candidate spans in memory.
+    #[must_use]
+    pub fn max_completed_spans(mut self, v: usize) -> Self {
+        self.recorder_builder = self.recorder_builder.max_completed_spans(v);
+        self
+    }
+    /// Enables completed-span JSONL output at the given path.
+    ///
+    /// Writes completed spans as spans close using the stable wrapper shape.
+    /// The file is created or truncated when the session is built.
+    #[must_use]
+    pub fn completed_span_jsonl_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.completed_span_jsonl_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+    /// Enables Run JSON output on shutdown at the given path.
+    #[must_use]
+    pub fn run_json_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.run_json_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+    /// Builds a tracing intake session and opens optional outputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the completed-span JSONL path cannot be opened.
+    pub fn build(self) -> Result<TracingIntakeSession, ImportError> {
+        let recorder = self.recorder_builder.build();
+        if let Some(path) = self.completed_span_jsonl_path {
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&path)
+                .map_err(|err| ImportError::Io {
+                    operation: "open completed span jsonl path",
+                    context: path.display().to_string(),
+                    reason: err.to_string(),
+                })?;
+            let mut state = lock_state(&recorder.state);
+            state.completed_span_writer = Some(BufWriter::new(file));
+            state.completed_span_writer_path = Some(path);
+        }
+        Ok(TracingIntakeSession {
+            recorder,
+            run_json_path: self.run_json_path,
+        })
+    }
+}
+
 impl TracingRecorderBuilder {
-    /// Sets service version metadata.
+    /// Sets service version metadata for converted run output.
     #[must_use]
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.options = self.options.service_version(service_version);
         self
     }
 
-    /// Sets explicit run-id metadata.
+    /// Sets explicit run id metadata for converted run output.
     #[must_use]
     pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
         self.options = self.options.run_id(run_id);
         self
     }
 
-    /// Enables or disables strict conversion mode.
+    /// Enables or disables strict mode for conversion warnings.
     #[must_use]
     pub fn strict(mut self, strict: bool) -> Self {
         self.options = self.options.strict(strict);
@@ -207,7 +418,7 @@ impl TracingRecorderBuilder {
             limits: self.limits,
         }
     }
-    /// Sets both open/completed in-memory span retention limits.
+    /// Sets open/completed in-memory retention limits.
     #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.limits = limits;
@@ -311,6 +522,31 @@ where
             for (k, v) in open.fields {
                 record = record.field(k, v);
             }
+            if let Some(writer) = state.completed_span_writer.as_mut() {
+                let wrapped = serde_json::json!({
+                    "format": "tailtriage.tracing-span.v1",
+                    "span": record,
+                });
+                match serde_json::to_writer(&mut *writer, &wrapped) {
+                    Ok(()) => match writer.write_all(b"\n") {
+                        Ok(()) => {}
+                        Err(err) => {
+                            state.writer_failure = Some(format_writer_failure(
+                                "write newline",
+                                state.completed_span_writer_path.as_deref(),
+                                &err,
+                            ));
+                        }
+                    },
+                    Err(err) => {
+                        state.writer_failure = Some(format_writer_failure(
+                            "write span record",
+                            state.completed_span_writer_path.as_deref(),
+                            &err,
+                        ));
+                    }
+                }
+            }
             if state.completed.len() >= self.limits.max_completed_spans {
                 state.dropped_completed_spans = state.dropped_completed_spans.saturating_add(1);
                 return;
@@ -324,6 +560,15 @@ fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
         .fields()
         .iter()
         .any(|f| f.name().starts_with("tt."))
+}
+
+fn format_writer_failure(
+    operation: &str,
+    path: Option<&Path>,
+    err: &dyn std::error::Error,
+) -> String {
+    let path_text = path.map_or_else(|| "<unknown>".to_owned(), |p| p.display().to_string());
+    format!("completed-span JSONL writer failed to {operation} at {path_text}: {err}")
 }
 fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
     fields.keys().any(|k| k.starts_with("tt."))
@@ -356,6 +601,11 @@ fn push_strict_recorder_messages(
         messages.push(format!(
             "live recorder dropped {} completed span(s) because max_completed_spans={} was reached; raise max_completed_spans or reduce capture scope",
             stats.dropped_completed_spans, limits.max_completed_spans
+        ));
+    }
+    if let Some(reason) = &stats.writer_failure {
+        messages.push(format!(
+            "live recorder failed writing completed-span JSONL output: {reason}"
         ));
     }
 }
@@ -434,6 +684,11 @@ fn append_non_strict_drop_warnings(
     if stats.dropped_open_spans > 0 || stats.dropped_completed_spans > 0 {
         run.truncation.limits_hit = true;
     }
+    if let Some(reason) = &stats.writer_failure {
+        let msg = format!("live recorder failed writing completed-span JSONL output: {reason}");
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
 }
 
 fn imported_with_drop_warnings(
@@ -464,6 +719,7 @@ fn imported_with_drop_warnings(
         && stats.dropped_completed_spans == 0
         && stats.open_candidate_count == 0
         && stats.closed_missing_kind_spans == 0
+        && stats.writer_failure.is_none()
     {
         return Ok(imported);
     }
@@ -1278,5 +1534,232 @@ mod tests {
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));
         });
+    }
+
+    #[test]
+    fn intake_session_wrapper_jsonl_and_truncate_behavior() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        std::fs::write(
+            &spans_path,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"old","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"old","tt.route":"/old"}}}"#,
+        )
+        .unwrap();
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span);
+        });
+        let imported = session.shutdown().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        assert!(!raw.contains("\"old\""));
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn intake_session_emits_wrapper_shape_and_round_trips_wrapper_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span);
+        });
+        session.snapshot_run().unwrap();
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+        let value: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(value["format"], "tailtriage.tracing-span.v1");
+        assert!(value["span"].is_object());
+        assert_eq!(value["span"]["name"], "request");
+        assert!(value["span"]["started_at_unix_ms"].is_number());
+        assert!(value["span"]["finished_at_unix_ms"].is_number());
+        assert!(value["span"]["duration_us"].is_number());
+        assert_eq!(value["span"]["fields"]["tt.kind"], "request");
+        assert_eq!(value["span"]["fields"]["tt.request_id"], "r1");
+        assert_eq!(value["span"]["fields"]["tt.route"], "/a");
+
+        let imported = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
+        assert_eq!(imported.run().requests[0].route, "/a");
+    }
+
+    #[test]
+    fn streaming_jsonl_is_independent_of_in_memory_completed_retention() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .max_completed_spans(1)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            ));
+        });
+        let snapshot = session.snapshot_run().unwrap();
+        assert_eq!(snapshot.run().requests.len(), 1);
+        assert!(snapshot
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped 1 completed spans")));
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 2);
+        let imported = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 2);
+        let ids: Vec<_> = imported
+            .run()
+            .requests
+            .iter()
+            .map(|r| r.request_id.as_str())
+            .collect();
+        assert!(ids.contains(&"r1"));
+        assert!(ids.contains(&"r2"));
+    }
+
+    #[test]
+    fn intake_session_build_writer_open_failure_returns_io() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad_path = dir.path().join("missing").join("spans.jsonl");
+        let err = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&bad_path)
+            .build()
+            .unwrap_err();
+        assert!(matches!(err, ImportError::Io { .. }));
+        assert!(err.to_string().contains("spans.jsonl"));
+    }
+
+    #[test]
+    fn intake_session_run_json_path_writes_valid_run_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+        session.shutdown().unwrap();
+        assert!(run_path.exists());
+        let run: tailtriage_core::Run =
+            serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
+        assert_eq!(run.requests.len(), 1);
+    }
+
+    #[test]
+    fn unrelated_spans_are_ignored_by_completed_span_jsonl_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!("unrelated", user = 1_u64));
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+        session.shutdown().unwrap();
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+        let line = lines[0];
+        assert!(line.contains("\"tt.request_id\":\"r1\""));
+        assert!(!line.contains("unrelated"));
+    }
+
+    #[test]
+    fn intake_session_captures_request_stage_queue() {
+        let session = TracingIntakeSession::builder("svc").build().unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "req-1",
+                tt.route = "/checkout",
+                tt.outcome = "ok"
+            ));
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "req-1",
+                tt.stage = "db",
+                tt.success = true
+            ));
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "req-1",
+                tt.queue = "admission",
+                tt.depth_at_start = 7_u64
+            ));
+        });
+        let snapshot = session.snapshot_run().unwrap();
+        let run = snapshot.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+        assert!(run.runtime_snapshots.is_empty());
+        assert_eq!(run.requests[0].route, "/checkout");
+        assert_eq!(run.stages[0].stage, "db");
+        assert_eq!(run.queues[0].queue, "admission");
+        assert_eq!(run.queues[0].depth_at_start, Some(7));
     }
 }

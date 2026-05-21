@@ -24,6 +24,31 @@ pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
+    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
+}
+
+/// Parse mode for tracing JSONL import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonlParseMode {
+    /// Accept stable wrapper records plus compatibility legacy shapes.
+    Compatible,
+    /// Accept only the stable wrapper shape `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
+    TailtriageWrapperOnly,
+}
+
+/// Imports newline-delimited JSON records from a reader with an explicit parse mode.
+///
+/// # Errors
+///
+/// Returns [`ImportError::Io`] for reader I/O failures,
+/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
+/// and existing field/conversion errors for malformed tailtriage span records
+/// or strict conversion violations surfaced by [`run_from_span_records`].
+pub fn import_jsonl_reader_with_mode<R: Read>(
+    reader: R,
+    options: ImportOptions,
+    mode: JsonlParseMode,
+) -> Result<ImportedRun, ImportError> {
     let mut spans = Vec::new();
     let mut parse_warnings = Vec::new();
     let reader = BufReader::new(reader);
@@ -46,7 +71,7 @@ pub fn import_jsonl_reader<R: Read>(
                 reason: err.to_string(),
             })?;
 
-        if let Some(span) = parse_record(line_no + 1, &value, strict, &mut parse_warnings)? {
+        if let Some(span) = parse_record(line_no + 1, &value, strict, &mut parse_warnings, mode)? {
             spans.push(span);
         }
     }
@@ -87,21 +112,100 @@ pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
+    import_jsonl_path_with_mode(path, options, JsonlParseMode::Compatible)
+}
+
+/// Imports newline-delimited JSON records from a filesystem path with an explicit parse mode.
+///
+/// # Errors
+///
+/// Returns [`ImportError::Io`] for path open/read failures,
+/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSON lines,
+/// and strict/field errors for invalid span records.
+pub fn import_jsonl_path_with_mode(
+    path: impl AsRef<Path>,
+    options: ImportOptions,
+    mode: JsonlParseMode,
+) -> Result<ImportedRun, ImportError> {
     let path_ref = path.as_ref();
     let file = std::fs::File::open(path_ref).map_err(|err| ImportError::Io {
         operation: "open jsonl path",
         context: path_ref.display().to_string(),
         reason: err.to_string(),
     })?;
-    import_jsonl_reader(file, options)
+    import_jsonl_reader_with_mode(file, options, mode)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_record(
     line_no: usize,
     value: &Value,
     strict: bool,
     warnings: &mut Vec<crate::ImportWarning>,
+    mode: JsonlParseMode,
 ) -> Result<Option<SpanRecord>, ImportError> {
+    if let Some(obj) = value.as_object() {
+        if let (Some(format), Some(span_value)) = (obj.get("format"), obj.get("span")) {
+            let Some(format_marker) = format.as_str() else {
+                let message = format!(
+                    "line {line_no}: invalid field 'format': expected string format marker"
+                );
+                if strict {
+                    return Err(ImportError::StrictViolation(message));
+                }
+                warnings.push(crate::ImportWarning::new(message));
+                return Ok(None);
+            };
+
+            if format_marker != "tailtriage.tracing-span.v1" {
+                let message =
+                    format!("line {line_no}: unsupported span format marker '{format_marker}'");
+                if strict {
+                    return Err(ImportError::StrictViolation(message));
+                }
+                warnings.push(crate::ImportWarning::new(message));
+                return Ok(None);
+            }
+
+            let Some(_) = span_value.as_object() else {
+                let message = format!(
+                    "line {line_no}: invalid field 'span': expected completed span object for tailtriage.tracing-span.v1"
+                );
+                if strict {
+                    return Err(ImportError::StrictViolation(message));
+                }
+                warnings.push(crate::ImportWarning::new(message));
+                return Ok(None);
+            };
+
+            return match serde_json::from_value::<SpanRecord>(span_value.clone()) {
+                Ok(span) => Ok(Some(span)),
+                Err(err) => {
+                    let message =
+                        format!("line {line_no}: invalid tailtriage.tracing-span.v1 span: {err}");
+                    if strict {
+                        Err(ImportError::StrictViolation(message))
+                    } else {
+                        warnings.push(crate::ImportWarning::new(message));
+                        Ok(None)
+                    }
+                }
+            };
+        }
+    }
+    if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
+        let message = format!(
+            "line {line_no}: expected stable wrapper shape {{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{{...}}}}"
+        );
+        if strict {
+            return Err(ImportError::StrictViolation(message));
+        }
+        warnings.push(crate::ImportWarning::new(message));
+        return Ok(None);
+    }
+    if let Ok(span) = serde_json::from_value::<SpanRecord>(value.clone()) {
+        return Ok(Some(span));
+    }
     if let Some(field_name) = first_non_scalar_tailtriage_field(value) {
         let message = format!(
             "line {line_no}: invalid field '{field_name}': expected scalar tt.* value in JSONL record"
@@ -991,6 +1095,211 @@ mod tests {
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
         assert!(imported.warnings().is_empty());
+    }
+
+    #[test]
+    fn wrapper_only_mode_accepts_wrapper_and_rejects_unwrapped() {
+        let wrapped = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(wrapped),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn wrapper_only_non_strict_unwrapped_warns_and_skips() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert!(!imported.warnings().is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("tailtriage.tracing-span.v1")));
+    }
+
+    #[test]
+    fn wrapper_only_unsupported_marker_strict_errors_and_non_strict_warns() {
+        let v2 = r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(v2),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("v2") || err.to_string().contains("unsupported"));
+
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(v2),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("v2") || w.message().contains("unsupported")));
+    }
+
+    #[test]
+    fn wrapper_v1_with_bad_span_timestamp_reports_invalid_span_not_marker() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(msg.contains("tailtriage.tracing-span.v1"));
+        assert!(msg.contains("started_at_unix_ms") || msg.contains("expected"));
+        assert!(!msg.contains("unsupported span format marker"));
+
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(!imported.warnings()[0]
+            .message()
+            .contains("unsupported span format marker"));
+    }
+
+    #[test]
+    fn wrapper_v1_with_missing_required_span_field_reports_invalid_span() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(msg.contains("span") || msg.contains("name"));
+        assert!(!msg.contains("unsupported span format marker"));
+
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+    }
+
+    #[test]
+    fn wrapper_v1_with_non_object_span_reports_invalid_span_field() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":"not an object"}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(
+            msg.contains("invalid field 'span'") || msg.contains("expected completed span object")
+        );
+        assert!(!msg.contains("unsupported span format marker"));
+
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+    }
+
+    #[test]
+    fn wrapper_with_non_string_format_reports_invalid_format_field() {
+        let input = r#"{"format":1,"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(msg.contains("format") && msg.contains("expected string"));
+
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+    }
+
+    #[test]
+    fn compatible_mode_accepts_old_normalized_shape() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported =
+            import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn wrapper_fixture_imports_request_stage_queue() {
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(include_str!("../tests/fixtures/tailtriage-span-v1.jsonl")),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+        assert_eq!(run.requests[0].request_id, "req-1");
+        assert_eq!(run.requests[0].route, "/checkout");
+        assert_eq!(run.stages[0].stage, "db");
+        assert_eq!(run.queues[0].queue, "admission");
+        assert_eq!(run.queues[0].depth_at_start, Some(7));
+    }
+
+    #[test]
+    fn wrapper_fixture_preserves_duration_us() {
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(include_str!("../tests/fixtures/tailtriage-span-v1.jsonl")),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests[0].latency_us, 30_000);
+        assert_eq!(run.stages[0].latency_us, 10_000);
+        assert_eq!(run.queues[0].wait_us, 4_000);
     }
 
     #[test]

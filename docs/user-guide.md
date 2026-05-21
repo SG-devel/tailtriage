@@ -32,58 +32,47 @@ cargo add tailtriage --features axum
 
 The `controller` and `tokio` namespaces are available with default features; `axum` remains opt-in.
 
-### Using existing tracing spans
+### Already using tracing?
 
 If you already instrument request/stage/queue work with Rust `tracing`, use `tailtriage-tracing` as an intake path into the same triage workflow.
 
-Offline JSONL import:
+A) Completed-span JSONL intake path:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
 tailtriage analyze tailtriage-run.json
 ```
 
-`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented completed-span JSONL shape from `tailtriage-tracing` (normalized literal dotted `tt.*` keys). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific.
+`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific.
 
-Live in-memory recorder:
+B) Direct Run JSON path:
 
 ```rust,no_run
-use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
-use tailtriage_tracing::TracingRecorder;
-use tracing::Instrument;
+use tailtriage_tracing::TracingIntakeSession;
 use tracing_subscriber::prelude::*;
 
-async fn handle_request() {
-    let request = tracing::info_span!(
-        "http.request",
-        tt.kind = "request",
-        tt.request_id = "req-1",
-        tt.route = "/checkout"
-    );
-    async {
-        // request work goes here
-    }
-    .instrument(request)
-    .await;
-}
-
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let recorder = TracingRecorder::builder("checkout-service").build();
-let subscriber = tracing_subscriber::registry().with(recorder.layer());
-
+let session = TracingIntakeSession::builder("checkout-service")
+    .run_json_path("target/tailtriage-examples/checkout.run.json")
+    .build()?;
+let subscriber = tracing_subscriber::registry().with(session.layer());
 tracing::subscriber::with_default(subscriber, || {
-    // run `handle_request()` on your async runtime
+    let _request = tracing::info_span!("request", tt.kind = "request", tt.request_id = "req-1", tt.route = "/checkout");
 });
-
-let imported = recorder.shutdown()?;
-let report = analyze_run(imported.run(), AnalyzeOptions::default());
-# let _ = report;
+session.shutdown()?;
 # Ok(())
 # }
 ```
-Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` consumes the recorder handle for finalization.
 
-This live path supports in-process diagnosis without writing an intermediate Run file.
+Then analyze directly:
+
+```bash
+tailtriage analyze target/tailtriage-examples/checkout.run.json
+```
+
+Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
+
+For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
 
 ## 2) Core workflow: capture -> analyze -> next check -> re-run
 

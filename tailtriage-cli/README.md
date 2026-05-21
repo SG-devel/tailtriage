@@ -45,14 +45,41 @@ tailtriage analyze tailtriage-run.json --format json
 Import completed tracing span records from JSONL into Run JSON:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
 ```
 
-With optional metadata flags and strict validation:
+With optional metadata flags, strict validation, and explicit format:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
 ```
+
+
+`tailtriage import tracing-json` imports **completed tracing span records** into **Run JSON** (not Report JSON).
+
+Recommended stable input format is the tailtriage wrapper JSONL shape:
+
+```json
+{"format":"tailtriage.tracing-span.v1","span":{...}}
+```
+
+`--input-format` values:
+- `auto`
+- `tailtriage-span-jsonl`
+- `tracing-subscriber-fmt-json`
+
+Behavior:
+- `tailtriage-span-jsonl` enforces wrapper-only parsing.
+- `auto` keeps compatibility parsing for older normalized shapes and rejects likely ordinary `tracing_subscriber::fmt().json()` logs with setup guidance.
+- `tracing-subscriber-fmt-json` intentionally fails with setup guidance in the current product scope.
+
+After import, run analysis separately:
+
+```bash
+tailtriage analyze tailtriage-run.json
+```
+
+Zero-request imports fail by design (the CLI loader requires at least one request).
 
 When paths include spaces, quote them in shell usage:
 

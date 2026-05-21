@@ -72,10 +72,10 @@ If your service already emits `tracing` spans, use `tailtriage-tracing` as a nar
 
 - Offline JSONL import:
   ```bash
-  tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+  tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
   tailtriage analyze tailtriage-run.json
   ```
-- Live in-memory import: `tailtriage_tracing::TracingRecorder`
+- Live session path: add `tailtriage_tracing::TracingIntakeSession` and `session.layer()` beside your existing subscriber setup.
 
 Both paths convert tracing-shaped evidence into standard `tailtriage_core::Run` data and feed the same analyzer/report workflow (evidence-ranked suspects and next checks). Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
 
@@ -239,7 +239,7 @@ tailtriage analyze tailtriage-run.json --format json
 Import completed tracing span records (JSONL) into a Run artifact first when needed:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
 ```
 
 `tailtriage import tracing-json` writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr.

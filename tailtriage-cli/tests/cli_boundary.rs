@@ -251,6 +251,110 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
 }
 
 #[test]
+fn import_tracing_json_input_format_tailtriage_wrapper_only_accepts_fixture() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--input-format")
+        .arg("tailtriage-span-jsonl")
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.stages.len(), 1);
+    assert_eq!(loaded.run.queues.len(), 1);
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}
+
+#[test]
+fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, one_valid_request_span_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--input-format")
+        .arg("tailtriage-span-jsonl")
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("tailtriage.tracing-span.v1") || stderr.contains("stable wrapper"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_input_format_fmt_json_fails_with_guidance() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("fmt.jsonl");
+    std::fs::write(&spans_path, r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"close"}}"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--input-format")
+        .arg("tracing-subscriber-fmt-json")
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(dir.path().join("run.json"))
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("TracingIntakeSession"));
+    assert!(stderr.contains("tailtriage-span-jsonl"));
+}
+
+#[test]
+fn import_tracing_json_auto_rejects_fmt_json_with_guidance() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("fmt.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"close"}}"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("tracing_subscriber::fmt().json()"));
+    assert!(stderr.contains("completed tt.*") || stderr.contains("completed tt.* span records"));
+    assert!(stderr.contains("TracingIntakeSession"));
+    assert!(stderr.contains("tailtriage-span-jsonl"));
+    assert!(!run_path.exists());
+}
+
+#[test]
 fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
@@ -612,10 +716,7 @@ fn valid_cli_artifact_with_empty_requests() -> &'static str {
 }
 
 fn complete_span_jsonl_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
-{"span":{"name":"db.stage","started_at_unix_ms":1002,"finished_at_unix_ms":1006,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db","tt.success":true}}}
-{"span":{"name":"admission.queue","started_at_unix_ms":1000,"finished_at_unix_ms":1002,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"admission"}}}
-"#
+    include_str!("../../tailtriage-tracing/tests/fixtures/tailtriage-span-v1.jsonl")
 }
 
 fn incomplete_tailtriage_span_fixture() -> &'static str {
