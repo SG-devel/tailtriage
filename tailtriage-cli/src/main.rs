@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use serde_json::Value;
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
@@ -63,6 +64,9 @@ enum ImportCommand {
         /// Fail on malformed/incomplete tailtriage spans.
         #[arg(long)]
         strict: bool,
+        /// Declares expected input shape for tracing import.
+        #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
+        input_format: TracingInputFormat,
     },
 }
 
@@ -72,6 +76,45 @@ enum OutputFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum TracingInputFormat {
+    Auto,
+    TailtriageSpanJsonl,
+    TracingSubscriberFmtJson,
+}
+
+fn reject_unsupported_fmt_json(
+    path: &std::path::Path,
+    input_format: TracingInputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if matches!(input_format, TracingInputFormat::TracingSubscriberFmtJson) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput,
+            "--input-format tracing-subscriber-fmt-json is not supported for import in this release. tailtriage needs completed span records with started_at_unix_ms and finished_at_unix_ms. Recommended setup: add tailtriage_tracing::TracingIntakeSession layer, write completed-span JSONL, then run: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>"
+        ).into());
+    }
+    let f = std::fs::File::open(path)?;
+    let r = std::io::BufRead::lines(std::io::BufReader::new(f));
+    for line in r.take(20) {
+        let line = line?;
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let v: Value = match serde_json::from_str(t) {
+            Ok(v) => v,
+            Err(_) => break,
+        };
+        let looks_fmt =
+            v.get("fields").is_some() && v.get("span").is_none() && v.get("level").is_some();
+        if looks_fmt {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData,
+                "input appears to be tracing_subscriber::fmt().json() event logs without completed span start/end timing. tailtriage import needs completed tt.* span records. Recommended: capture with tailtriage_tracing::TracingIntakeSession and import that completed-span JSONL."
+            ).into());
+        }
+        break;
+    }
+    Ok(())
+}
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
@@ -84,6 +127,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 service_version,
                 run_id,
                 strict,
+                input_format,
             } => {
                 let mut options = ImportOptions::new(service).strict(strict);
                 if let Some(service_version) = service_version {
@@ -93,6 +137,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     options = options.run_id(run_id);
                 }
 
+                reject_unsupported_fmt_json(&spans_jsonl, input_format)?;
                 let imported = import_jsonl_path(spans_jsonl, options)?;
                 for warning in imported.warnings() {
                     eprintln!("warning: {}", warning.message());
@@ -100,7 +145,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if imported.run().requests.is_empty() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        "tracing import produced zero request events; tailtriage analyze requires at least one request event",
+                        "tracing import produced zero request events; tailtriage needs completed tt.* request spans with start/end timestamps. Use TracingIntakeSession layer capture, then import the completed-span JSONL.",
                     )
                     .into());
                 }

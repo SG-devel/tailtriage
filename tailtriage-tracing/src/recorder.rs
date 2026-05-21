@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -18,6 +20,21 @@ pub struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
     limits: RecorderLimits,
+}
+
+/// High-level tracing intake session for first-time integrations.
+#[derive(Debug, Clone)]
+pub struct TracingIntakeSession {
+    recorder: TracingRecorder,
+    run_json_path: Option<PathBuf>,
+}
+
+/// Builder for [`TracingIntakeSession`].
+#[derive(Debug, Clone)]
+pub struct TracingIntakeSessionBuilder {
+    recorder: TracingRecorderBuilder,
+    completed_span_jsonl_path: Option<PathBuf>,
+    run_json_path: Option<PathBuf>,
 }
 
 /// Builder for [`TracingRecorder`].
@@ -63,6 +80,14 @@ struct RecorderState {
     dropped_completed_spans: u64,
     closed_missing_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    writer: Option<CompletedSpanJsonlWriter>,
+    writer_failures: Vec<String>,
+}
+
+#[derive(Debug)]
+struct CompletedSpanJsonlWriter {
+    path: PathBuf,
+    writer: BufWriter<std::fs::File>,
 }
 
 #[derive(Debug)]
@@ -98,6 +123,7 @@ struct SnapshotStats {
     open_samples: Vec<OpenSpanSample>,
     closed_missing_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    writer_failures: Vec<String>,
 }
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
@@ -158,6 +184,7 @@ impl TracingRecorder {
                     open_samples: samples,
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
                     closed_missing_kind_samples: state.closed_missing_kind_samples.clone(),
+                    writer_failures: state.writer_failures.clone(),
                 },
             )
         };
@@ -173,6 +200,46 @@ impl TracingRecorder {
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         self.snapshot_run()
+    }
+}
+
+impl TracingIntakeSession {
+    /// Creates a builder with required service name metadata.
+    pub fn builder(service_name: impl Into<String>) -> TracingIntakeSessionBuilder {
+        TracingIntakeSessionBuilder {
+            recorder: TracingRecorder::builder(service_name),
+            completed_span_jsonl_path: None,
+            run_json_path: None,
+        }
+    }
+
+    /// Returns a cloneable tracing layer.
+    #[must_use]
+    pub fn layer(&self) -> TailtriageLayer {
+        self.recorder.layer()
+    }
+
+    /// Returns a non-consuming snapshot converted to `ImportedRun`.
+    pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
+        self.recorder.snapshot_run()
+    }
+
+    /// Finalizes capture and optionally writes pretty run JSON.
+    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
+        let imported = self.recorder.shutdown()?;
+        if let Some(path) = self.run_json_path {
+            let file = std::fs::File::create(&path).map_err(|err| ImportError::Io {
+                operation: "write run json",
+                context: path.display().to_string(),
+                reason: err.to_string(),
+            })?;
+            serde_json::to_writer_pretty(file, imported.run()).map_err(|err| ImportError::Io {
+                operation: "write run json",
+                context: path.display().to_string(),
+                reason: err.to_string(),
+            })?;
+        }
+        Ok(imported)
     }
 }
 
@@ -207,6 +274,7 @@ impl TracingRecorderBuilder {
             limits: self.limits,
         }
     }
+
     /// Sets both open/completed in-memory span retention limits.
     #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
@@ -224,6 +292,70 @@ impl TracingRecorderBuilder {
     pub fn max_completed_spans(mut self, max_completed_spans: usize) -> Self {
         self.limits.max_completed_spans = max_completed_spans;
         self
+    }
+}
+
+impl TracingIntakeSessionBuilder {
+    #[must_use]
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.recorder = self.recorder.strict(strict);
+        self
+    }
+    #[must_use]
+    pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
+        self.recorder = self.recorder.service_version(service_version);
+        self
+    }
+    #[must_use]
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.recorder = self.recorder.run_id(run_id);
+        self
+    }
+    #[must_use]
+    pub fn limits(mut self, limits: RecorderLimits) -> Self {
+        self.recorder = self.recorder.limits(limits);
+        self
+    }
+    #[must_use]
+    pub fn max_open_spans(mut self, value: usize) -> Self {
+        self.recorder = self.recorder.max_open_spans(value);
+        self
+    }
+    #[must_use]
+    pub fn max_completed_spans(mut self, value: usize) -> Self {
+        self.recorder = self.recorder.max_completed_spans(value);
+        self
+    }
+    #[must_use]
+    pub fn completed_span_jsonl_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.completed_span_jsonl_path = Some(path.into());
+        self
+    }
+    #[must_use]
+    pub fn run_json_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.run_json_path = Some(path.into());
+        self
+    }
+
+    pub fn build(self) -> Result<TracingIntakeSession, ImportError> {
+        let recorder = self.recorder.build();
+        if let Some(path) = self.completed_span_jsonl_path {
+            let file = std::fs::File::create(&path).map_err(|err| ImportError::Io {
+                operation: "open completed span jsonl",
+                context: path.display().to_string(),
+                reason: err.to_string(),
+            })?;
+            let writer = CompletedSpanJsonlWriter {
+                path,
+                writer: BufWriter::new(file),
+            };
+            let mut state = lock_state(&recorder.state);
+            state.writer = Some(writer);
+        }
+        Ok(TracingIntakeSession {
+            recorder,
+            run_json_path: self.run_json_path,
+        })
     }
 }
 
@@ -315,8 +447,28 @@ where
                 state.dropped_completed_spans = state.dropped_completed_spans.saturating_add(1);
                 return;
             }
+            if let Some(writer) = state.writer.as_mut() {
+                if let Err(reason) = writer.write_record(&record) {
+                    state.writer_failures.push(reason);
+                }
+            }
             state.completed.push(record);
         }
+    }
+}
+
+impl CompletedSpanJsonlWriter {
+    fn write_record(&mut self, record: &SpanRecord) -> Result<(), String> {
+        let value = serde_json::json!({"format":"tailtriage.tracing-span.v1","span":record});
+        serde_json::to_writer(&mut self.writer, &value)
+            .map_err(|e| format!("writer failure ({}): {}", self.path.display(), e))?;
+        self.writer
+            .write_all(b"\n")
+            .map_err(|e| format!("writer failure ({}): {}", self.path.display(), e))?;
+        self.writer
+            .flush()
+            .map_err(|e| format!("writer failure ({}): {}", self.path.display(), e))?;
+        Ok(())
     }
 }
 fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
@@ -351,6 +503,11 @@ fn push_strict_recorder_messages(
             "live recorder dropped {} open candidate span(s) because max_open_spans={} was reached; raise max_open_spans or reduce capture scope",
             stats.dropped_open_spans, limits.max_open_spans
         ));
+    }
+    for failure in &stats.writer_failures {
+        let msg = format!("live recorder failed to write completed-span JSONL: {failure}");
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
     }
     if stats.dropped_completed_spans > 0 {
         messages.push(format!(
@@ -422,6 +579,11 @@ fn append_non_strict_drop_warnings(
         );
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
+    }
+    for failure in &stats.writer_failures {
+        messages.push(format!(
+            "live recorder failed to write completed-span JSONL: {failure}"
+        ));
     }
     if stats.dropped_completed_spans > 0 {
         let msg = format!(
