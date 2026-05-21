@@ -307,29 +307,55 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() 
 }
 
 #[test]
-fn import_tracing_json_input_format_fmt_json_fails_with_guidance() {
+fn import_tracing_json_help_lists_only_live_input_formats() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg("--help")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("tailtriage-span-jsonl"));
+    assert!(stdout.contains("auto"));
+    assert!(!stdout.contains("tracing-subscriber-fmt-json"));
+}
+
+#[test]
+fn import_tracing_json_explicit_wrapper_mode_does_not_sniff_fmt_json() {
     let dir = tempfile::tempdir().expect("tempdir should build");
-    let spans_path = dir.path().join("fmt.jsonl");
-    std::fs::write(&spans_path, r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"close"}}"#).unwrap();
+    let spans_path = dir.path().join("fmt_then_wrapper.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        format!(
+            "{{\"timestamp\":\"2026-01-01T00:00:00Z\",\"level\":\"INFO\",\"target\":\"svc\"}}\n{}",
+            complete_span_jsonl_fixture()
+        ),
+    )
+    .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
         .arg("--input-format")
-        .arg("tracing-subscriber-fmt-json")
+        .arg("tailtriage-span-jsonl")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
-        .arg(dir.path().join("run.json"))
+        .arg(&run_path)
         .output()
         .expect("cli should run");
-    assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("TracingIntakeSession"));
-    assert!(stderr.contains("tailtriage-span-jsonl"));
+    assert!(
+        !output.status.success() || run_path.exists(),
+        "expected either parse failure or successful import"
+    );
+    assert!(!stderr.contains("ordinary tracing log JSON"));
 }
 
 #[test]
+
 fn import_tracing_json_auto_rejects_fmt_json_with_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("fmt.jsonl");
@@ -347,8 +373,8 @@ fn import_tracing_json_auto_rejects_fmt_json_with_guidance() {
         .expect("cli should run");
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("tracing_subscriber::fmt().json()"));
-    assert!(stderr.contains("completed tt.*") || stderr.contains("completed tt.* span records"));
+    assert!(stderr.contains("ordinary tracing log JSON"));
+    assert!(stderr.contains("completed tailtriage span JSONL"));
     assert!(stderr.contains("TracingIntakeSession"));
     assert!(stderr.contains("tailtriage-span-jsonl"));
     assert!(!run_path.exists());
@@ -515,7 +541,7 @@ fn import_tracing_json_fails_when_only_unrelated_lines_are_present() {
         .expect("cli should run");
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("zero request events"));
+    assert!(stderr.contains("zero-request run artifact is not persistable"));
     assert!(!run_path.exists(), "run output should not be written");
 }
 
@@ -538,7 +564,7 @@ fn import_tracing_json_fails_when_non_strict_skips_all_malformed_tt_spans() {
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
-    assert!(stderr.contains("zero request events"));
+    assert!(stderr.contains("zero-request run artifact is not persistable"));
     assert!(!run_path.exists(), "run output should not be written");
 }
 
@@ -563,7 +589,7 @@ fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
     assert!(stderr.contains("missing required field 'tt.kind'"));
-    assert!(stderr.contains("zero request events"));
+    assert!(stderr.contains("zero-request run artifact is not persistable"));
     assert!(!run_path.exists(), "run output should not be written");
 }
 

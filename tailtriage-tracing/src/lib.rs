@@ -388,6 +388,20 @@ fn filter_correlated_queues(
     Ok(())
 }
 
+/// Ensures a Run artifact is persistable for later `tailtriage analyze` usage.
+///
+/// # Errors
+///
+/// Returns [`ImportError::ZeroRequestArtifact`] when the run has no completed
+/// request events.
+pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result<(), ImportError> {
+    if run.requests.is_empty() {
+        return Err(ImportError::ZeroRequestArtifact {
+            guidance: "persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and explicit unix-ms timing fields".to_owned(),
+        });
+    }
+    Ok(())
+}
 fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
     if service_name.trim().is_empty() {
         return Err(ImportError::EmptyServiceName);
@@ -586,6 +600,7 @@ fn parse_depth_at_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tailtriage_core::{CaptureMode, RequestEvent, RunBuilder, RunBuilderOptions};
 
     #[test]
     fn span_kind_parser_accepts_supported_values_only() {
@@ -1390,5 +1405,41 @@ mod tests {
     fn empty_service_name_is_rejected() {
         let err = run_from_span_records(Vec::new(), ImportOptions::new(" ")).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
+    }
+
+    #[test]
+    fn ensure_persistable_run_has_requests_ok_for_non_empty_run() {
+        let mut builder = RunBuilder::new(
+            RunBuilderOptions::new("svc")
+                .run_id("r1")
+                .mode(CaptureMode::Light),
+        )
+        .unwrap();
+        builder
+            .push_request(RequestEvent {
+                request_id: "req-1".into(),
+                route: "/x".into(),
+                kind: None,
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 1000,
+                outcome: "ok".into(),
+            })
+            .unwrap();
+        let run = builder.finish();
+        assert!(ensure_persistable_run_has_requests(&run).is_ok());
+    }
+
+    #[test]
+    fn ensure_persistable_run_has_requests_errors_for_zero_request_run() {
+        let run = RunBuilder::new(
+            RunBuilderOptions::new("svc")
+                .run_id("r1")
+                .mode(CaptureMode::Light),
+        )
+        .unwrap()
+        .finish();
+        let err = ensure_persistable_run_has_requests(&run).unwrap_err();
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
     }
 }

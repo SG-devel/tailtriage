@@ -49,20 +49,32 @@ B) Direct Run JSON path:
 
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;
+use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# async fn do_checkout() {}
+# async fn main_async() -> Result<(), Box<dyn std::error::Error>> {
 let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .build()?;
 let subscriber = tracing_subscriber::registry().with(session.layer());
-tracing::subscriber::with_default(subscriber, || {
-    let _request = tracing::info_span!("request", tt.kind = "request", tt.request_id = "req-1", tt.route = "/checkout");
-});
+tracing::subscriber::with_default(subscriber, || async {
+    let span = tracing::info_span!(
+        "request",
+        tt.kind = "request",
+        tt.request_id = "req-1",
+        tt.route = "/checkout",
+        tt.outcome = "ok"
+    );
+    do_checkout().instrument(span).await;
+})
+.await;
 session.shutdown()?;
 # Ok(())
 # }
 ```
+
+Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
 
 Then analyze directly:
 

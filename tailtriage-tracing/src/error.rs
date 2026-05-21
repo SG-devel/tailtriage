@@ -34,6 +34,11 @@ pub enum ImportError {
     EmptyServiceName,
     /// Imported run event failed `tailtriage-core` run-builder validation.
     InvalidRunEvent(String),
+    /// Persisted Run JSON artifact is invalid for CLI analysis because it has zero requests.
+    ZeroRequestArtifact {
+        /// Actionable guidance for producing a persistable Run artifact.
+        guidance: String,
+    },
 }
 
 impl fmt::Display for ImportError {
@@ -54,6 +59,12 @@ impl fmt::Display for ImportError {
             Self::StrictViolation(message) => write!(f, "strict import violation: {message}"),
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
             Self::InvalidRunEvent(message) => write!(f, "invalid run event: {message}"),
+            Self::ZeroRequestArtifact { guidance } => {
+                write!(
+                    f,
+                    "zero-request run artifact is not persistable: {guidance}"
+                )
+            }
         }
     }
 }
