@@ -388,6 +388,20 @@ fn filter_correlated_queues(
     Ok(())
 }
 
+/// Ensures a Run JSON artifact intended for persistence is analyzable by `tailtriage analyze`.
+///
+/// # Errors
+///
+/// Returns [`ImportError::ZeroRequestArtifact`] when the run has zero request events.
+pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result<(), ImportError> {
+    if run.requests.is_empty() {
+        return Err(ImportError::ZeroRequestArtifact {
+            guidance: "persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and explicit unix-ms timing fields (start/end)".to_owned(),
+        });
+    }
+    Ok(())
+}
+
 fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
     if service_name.trim().is_empty() {
         return Err(ImportError::EmptyServiceName);
@@ -1390,5 +1404,31 @@ mod tests {
     fn empty_service_name_is_rejected() {
         let err = run_from_span_records(Vec::new(), ImportOptions::new(" ")).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
+    }
+}
+
+#[cfg(test)]
+mod persistable_run_tests {
+    use super::*;
+
+    #[test]
+    fn ensure_persistable_run_has_requests_ok_when_run_has_request() {
+        let imported = run_from_span_records(
+            [SpanRecord::new("request", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/")],
+            ImportOptions::new("svc"),
+        )
+        .expect("import should succeed");
+        assert!(ensure_persistable_run_has_requests(imported.run()).is_ok());
+    }
+
+    #[test]
+    fn ensure_persistable_run_has_requests_err_when_run_has_no_requests() {
+        let imported =
+            run_from_span_records([], ImportOptions::new("svc")).expect("import should succeed");
+        let err = ensure_persistable_run_has_requests(imported.run()).expect_err("should fail");
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
     }
 }

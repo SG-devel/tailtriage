@@ -12,7 +12,8 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    run_from_span_records, FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    ensure_persistable_run_has_requests, run_from_span_records, FieldValue, ImportError,
+    ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
@@ -291,6 +292,7 @@ impl TracingIntakeSession {
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         let imported = self.recorder.shutdown()?;
         if let Some(path) = self.run_json_path {
+            ensure_persistable_run_has_requests(imported.run())?;
             let file = std::fs::File::create(&path).map_err(|err| ImportError::Io {
                 operation: "create run json path",
                 context: path.display().to_string(),
@@ -1695,6 +1697,35 @@ mod tests {
         let run: tailtriage_core::Run =
             serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
         assert_eq!(run.requests.len(), 1);
+    }
+
+    #[test]
+    fn intake_session_run_json_path_zero_requests_does_not_create_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let err = session.shutdown().unwrap_err();
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
+        assert!(!run_path.exists());
+    }
+
+    #[test]
+    fn intake_session_run_json_path_zero_requests_keeps_existing_file_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        std::fs::write(&run_path, "sentinel").unwrap();
+        let before = std::fs::read(&run_path).unwrap();
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let err = session.shutdown().unwrap_err();
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
+        let after = std::fs::read(&run_path).unwrap();
+        assert_eq!(before, after);
     }
 
     #[test]

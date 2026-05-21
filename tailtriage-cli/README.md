@@ -55,7 +55,7 @@ tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl 
 ```
 
 
-`tailtriage import tracing-json` imports **completed tracing span records** into **Run JSON** (not Report JSON).
+`tailtriage import tracing-json` imports **completed `tt.*` tracing span JSONL records** into **Run JSON** (not Report JSON). Analysis is a separate step.
 
 Recommended stable input format is the tailtriage wrapper JSONL shape:
 
@@ -66,12 +66,10 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 `--input-format` values:
 - `auto`
 - `tailtriage-span-jsonl`
-- `tracing-subscriber-fmt-json`
 
 Behavior:
 - `tailtriage-span-jsonl` enforces wrapper-only parsing.
 - `auto` keeps compatibility parsing for older normalized shapes and rejects likely ordinary `tracing_subscriber::fmt().json()` logs with setup guidance.
-- `tracing-subscriber-fmt-json` intentionally fails with setup guidance in the current product scope.
 
 After import, run analysis separately:
 
@@ -285,3 +283,6 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+
+Auto mode rejects ordinary `tracing_subscriber::fmt().json()` logs early with guidance. Import does not guess timing from line receive time; it requires explicit unix-ms start/end timestamps on completed spans.

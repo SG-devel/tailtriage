@@ -43,7 +43,7 @@ tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-s
 tailtriage analyze tailtriage-run.json
 ```
 
-`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific.
+`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). Arbitrary `tracing_subscriber::fmt().json()` logs are not imported. `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Import does not guess timing from line receive time; completed spans must provide explicit unix-ms start/end timestamps. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific.
 
 B) Direct Run JSON path:
 
@@ -342,3 +342,6 @@ Semantics notes:
 - [Diagnostics guide](diagnostics.md)
 - [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)
+
+
+Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
