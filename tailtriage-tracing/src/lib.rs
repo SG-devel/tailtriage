@@ -583,6 +583,23 @@ fn parse_depth_at_start(
     }
 }
 
+/// Ensures a run artifact is suitable for persistence and later `tailtriage analyze` usage.
+///
+/// Persisted Run JSON artifacts must contain at least one completed request span-derived
+/// request event. In-memory snapshots may still legitimately have zero requests.
+///
+/// # Errors
+///
+/// Returns [`ImportError::ZeroRequestArtifact`] when `run.requests` is empty.
+pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result<(), ImportError> {
+    if run.requests.is_empty() {
+        return Err(ImportError::ZeroRequestArtifact {
+            guidance: "persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and timing fields (tt.started_at_unix_ms/tt.finished_at_unix_ms).".to_string(),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1391,4 +1408,45 @@ mod tests {
         let err = run_from_span_records(Vec::new(), ImportOptions::new(" ")).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
+
+    #[test]
+    fn ensure_persistable_run_has_requests_accepts_run_with_request() {
+        let run = run_from_span_records(
+            vec![SpanRecord::new("req", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/")],
+            ImportOptions::new("svc"),
+        )
+        .unwrap()
+        .run()
+        .clone();
+        assert!(ensure_persistable_run_has_requests(&run).is_ok());
+    }
+
+    #[test]
+    fn ensure_persistable_run_has_requests_rejects_zero_request_run() {
+        let run = run_from_span_records(Vec::new(), ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        let err = ensure_persistable_run_has_requests(&run).unwrap_err();
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
+    }
+}
+/// Ensures a run artifact is suitable for persistence and later `tailtriage analyze` usage.
+///
+/// Persisted Run JSON artifacts must contain at least one completed request span-derived
+/// request event. In-memory snapshots may still legitimately have zero requests.
+///
+/// # Errors
+///
+/// Returns [`ImportError::ZeroRequestArtifact`] when `run.requests` is empty.
+pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result<(), ImportError> {
+    if run.requests.is_empty() {
+        return Err(ImportError::ZeroRequestArtifact {
+            guidance: "persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and timing fields (tt.started_at_unix_ms/tt.finished_at_unix_ms).".to_string(),
+        });
+    }
+    Ok(())
 }

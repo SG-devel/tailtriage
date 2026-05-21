@@ -53,24 +53,34 @@ use tracing_subscriber::prelude::*;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let session = TracingIntakeSession::builder("checkout-service")
-    .run_json_path("target/tailtriage-examples/checkout.run.json")
+    .completed_span_jsonl_path("target/tailtriage-examples/completed-spans.jsonl")
     .build()?;
 let subscriber = tracing_subscriber::registry().with(session.layer());
 tracing::subscriber::with_default(subscriber, || {
-    let _request = tracing::info_span!("request", tt.kind = "request", tt.request_id = "req-1", tt.route = "/checkout");
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let span = tracing::info_span!(
+            "request",
+            tt.kind = "request",
+            tt.request_id = "req-1",
+            tt.route = "/checkout",
+            tt.outcome = "ok"
+        );
+        async { /* request work */ }.instrument(span).await;
+    });
 });
 session.shutdown()?;
 # Ok(())
 # }
 ```
 
-Then analyze directly:
+Then import and analyze:
 
 ```bash
+tailtriage import tracing-json target/tailtriage-examples/completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout-service --output target/tailtriage-examples/checkout.run.json
 tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
-Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
+Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session. Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
 
 For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
 

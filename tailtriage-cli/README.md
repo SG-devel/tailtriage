@@ -66,12 +66,10 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 `--input-format` values:
 - `auto`
 - `tailtriage-span-jsonl`
-- `tracing-subscriber-fmt-json`
 
 Behavior:
 - `tailtriage-span-jsonl` enforces wrapper-only parsing.
-- `auto` keeps compatibility parsing for older normalized shapes and rejects likely ordinary `tracing_subscriber::fmt().json()` logs with setup guidance.
-- `tracing-subscriber-fmt-json` intentionally fails with setup guidance in the current product scope.
+- `auto` keeps compatibility parsing for older normalized shapes and rejects ordinary `tracing_subscriber::fmt().json()` logs unless they are completed tailtriage `tt.*` span JSONL with explicit unix-ms start/end timestamps.
 
 After import, run analysis separately:
 
