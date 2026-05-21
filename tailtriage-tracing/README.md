@@ -172,47 +172,13 @@ example the Tokio sampler).
 
 ## Optional Tokio runtime sampler coupling
 
-Enable the optional `tokio` feature when you want one standard run that combines:
+When the optional `tokio` feature is enabled, the crate exposes
+`tokio::TracingTokioSession` for applications that already run inside a Tokio
+runtime. This session combines tracing request/stage/queue evidence with
+tailtriage Tokio runtime snapshots in one standard run artifact.
 
-- tracing request/stage/queue evidence, and
-- Tokio runtime-pressure snapshots from `tailtriage-tokio::RuntimeSampler`.
-
-This is optional. Base `TracingRecorder` usage stays available without Tokio.
-
-```rust
-# #[cfg(feature = "tokio")]
-# {
-use std::time::Duration;
-use tailtriage_tracing::tokio::TracingTokioSession;
-use tracing_subscriber::prelude::*;
-
-# #[tokio::main(flavor = "current_thread")]
-# async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let session = TracingTokioSession::builder("checkout-service")
-    .service_version("1.2.3")
-    .sampler_interval(Duration::from_millis(200))
-    .max_runtime_snapshots(2_000)
-    .start()?;
-
-let subscriber = tracing_subscriber::registry().with(session.layer());
-tracing::subscriber::with_default(subscriber, || {
-    tracing::info_span!(
-        "http.request",
-        tt.kind = "request",
-        tt.request_id = "req-42",
-        tt.route = "/checkout"
-    )
-    .in_scope(|| {});
-});
-
-let imported = session.shutdown().await?;
-assert!(!imported.run().runtime_snapshots.is_empty());
-# Ok(())
-# }
-# }
-```
-
-This crate is still not an OTel/OTLP exporter and not a tracing backend.
+Base `TracingRecorder` usage remains available without Tokio. This crate is
+still not an OTel/OTLP exporter and not a tracing backend.
 
 ## Examples
 

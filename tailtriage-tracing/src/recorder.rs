@@ -555,6 +555,13 @@ mod tests {
     #[test]
     fn stage_span_collected() {
         with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(request);
             let span = tracing::info_span!(
                 "stage",
                 tt.kind = "stage",
@@ -570,6 +577,13 @@ mod tests {
     #[test]
     fn queue_span_collected() {
         with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(request);
             let span = tracing::info_span!(
                 "queue",
                 tt.kind = "queue",
