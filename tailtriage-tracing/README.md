@@ -94,6 +94,7 @@ describes the stable field contract used by import and live recording.
 ## Live tracing recorder
 
 ```rust
+use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 use tailtriage_tracing::TracingRecorder;
 
