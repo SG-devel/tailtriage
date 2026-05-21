@@ -63,7 +63,16 @@ enum ImportCommand {
         /// Fail on malformed/incomplete tailtriage spans.
         #[arg(long)]
         strict: bool,
+        /// Input format mode.
+        #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
+        input_format: TracingInputFormat,
     },
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum TracingInputFormat {
+    Auto,
+    TailtriageSpanJsonl,
+    TracingSubscriberFmtJson,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -84,6 +93,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 service_version,
                 run_id,
                 strict,
+                input_format,
             } => {
                 let mut options = ImportOptions::new(service).strict(strict);
                 if let Some(service_version) = service_version {
@@ -93,6 +103,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     options = options.run_id(run_id);
                 }
 
+                if matches!(input_format, TracingInputFormat::TracingSubscriberFmtJson) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "tracing-subscriber fmt JSON logs do not include completed-span start/end timestamps needed by tailtriage. Recommended path: configure tailtriage_tracing::TracingIntakeSession (or TracingRecorder layer) to emit completed-span JSONL, then run: tailtriage import tracing-json <spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run.json>").into());
+                }
                 let imported = import_jsonl_path(spans_jsonl, options)?;
                 for warning in imported.warnings() {
                     eprintln!("warning: {}", warning.message());
@@ -100,7 +113,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if imported.run().requests.is_empty() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        "tracing import produced zero request events; tailtriage analyze requires at least one request event",
+                        "tracing import produced zero request events; tailtriage requires completed tt.request spans (tt.kind=request, tt.request_id, tt.route) with start/end timestamps. Hint: use tailtriage_tracing::TracingIntakeSession and import completed-span JSONL.",
                     )
                     .into());
                 }

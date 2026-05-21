@@ -102,6 +102,17 @@ fn parse_record(
     strict: bool,
     warnings: &mut Vec<crate::ImportWarning>,
 ) -> Result<Option<SpanRecord>, ImportError> {
+    if let Ok(span) = serde_json::from_value::<SpanRecord>(value.clone()) {
+        if span.format_ref().is_none() || span.format_ref() == Some("tailtriage.tracing-span.v1") {
+            return Ok(Some(span));
+        }
+        let message = format!("line {line_no}: unsupported span format marker");
+        if strict {
+            return Err(ImportError::StrictViolation(message));
+        }
+        warnings.push(crate::ImportWarning::new(message));
+        return Ok(None);
+    }
     if let Some(field_name) = first_non_scalar_tailtriage_field(value) {
         let message = format!(
             "line {line_no}: invalid field '{field_name}': expected scalar tt.* value in JSONL record"

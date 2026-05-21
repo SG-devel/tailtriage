@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -18,6 +21,21 @@ pub struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
     limits: RecorderLimits,
+}
+/// High-level tracing intake session for first-time users.
+#[derive(Debug, Clone)]
+#[allow(missing_docs)]
+pub struct TracingIntakeSession {
+    recorder: TracingRecorder,
+    run_json_path: Option<PathBuf>,
+}
+/// Builder for [`TracingIntakeSession`].
+#[derive(Debug, Clone)]
+#[allow(missing_docs)]
+pub struct TracingIntakeSessionBuilder {
+    recorder_builder: TracingRecorderBuilder,
+    completed_span_jsonl_path: Option<PathBuf>,
+    run_json_path: Option<PathBuf>,
 }
 
 /// Builder for [`TracingRecorder`].
@@ -63,6 +81,8 @@ struct RecorderState {
     dropped_completed_spans: u64,
     closed_missing_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    writer_failure: Option<String>,
+    completed_span_writer: Option<BufWriter<std::fs::File>>,
 }
 
 #[derive(Debug)]
@@ -98,6 +118,7 @@ struct SnapshotStats {
     open_samples: Vec<OpenSpanSample>,
     closed_missing_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    writer_failure: Option<String>,
 }
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
@@ -158,6 +179,7 @@ impl TracingRecorder {
                     open_samples: samples,
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
                     closed_missing_kind_samples: state.closed_missing_kind_samples.clone(),
+                    writer_failure: state.writer_failure.clone(),
                 },
             )
         };
@@ -173,6 +195,120 @@ impl TracingRecorder {
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         self.snapshot_run()
+    }
+}
+
+#[allow(missing_docs)]
+impl TracingIntakeSession {
+    /// Creates a builder with required service name metadata.
+    pub fn builder(service_name: impl Into<String>) -> TracingIntakeSessionBuilder {
+        TracingIntakeSessionBuilder {
+            recorder_builder: TracingRecorder::builder(service_name),
+            completed_span_jsonl_path: None,
+            run_json_path: None,
+        }
+    }
+    #[must_use]
+    pub fn layer(&self) -> TailtriageLayer {
+        self.recorder.layer()
+    }
+    /// Returns a non-consuming imported snapshot of completed spans.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when strict conversion fails.
+    pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
+        self.recorder.snapshot_run()
+    }
+    /// Finalizes intake and optionally writes run JSON when configured.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when conversion fails or when configured run-json output cannot be written.
+    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
+        let imported = self.recorder.shutdown()?;
+        if let Some(path) = self.run_json_path {
+            let file = std::fs::File::create(&path).map_err(|err| ImportError::Io {
+                operation: "create run json path",
+                context: path.display().to_string(),
+                reason: err.to_string(),
+            })?;
+            serde_json::to_writer_pretty(file, imported.run()).map_err(|err| {
+                ImportError::InvalidField {
+                    field: "run_json_path",
+                    reason: err.to_string(),
+                }
+            })?;
+        }
+        Ok(imported)
+    }
+}
+#[allow(missing_docs)]
+impl TracingIntakeSessionBuilder {
+    #[must_use]
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.recorder_builder = self.recorder_builder.strict(strict);
+        self
+    }
+    #[must_use]
+    pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
+        self.recorder_builder = self.recorder_builder.service_version(service_version);
+        self
+    }
+    #[must_use]
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.recorder_builder = self.recorder_builder.run_id(run_id);
+        self
+    }
+    #[must_use]
+    pub fn limits(mut self, limits: RecorderLimits) -> Self {
+        self.recorder_builder = self.recorder_builder.limits(limits);
+        self
+    }
+    #[must_use]
+    pub fn max_open_spans(mut self, v: usize) -> Self {
+        self.recorder_builder = self.recorder_builder.max_open_spans(v);
+        self
+    }
+    #[must_use]
+    pub fn max_completed_spans(mut self, v: usize) -> Self {
+        self.recorder_builder = self.recorder_builder.max_completed_spans(v);
+        self
+    }
+    #[must_use]
+    pub fn completed_span_jsonl_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.completed_span_jsonl_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+    #[must_use]
+    pub fn run_json_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.run_json_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+    /// Builds a tracing intake session and opens optional outputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the completed-span JSONL path cannot be opened.
+    pub fn build(self) -> Result<TracingIntakeSession, ImportError> {
+        let recorder = self.recorder_builder.build();
+        if let Some(path) = self.completed_span_jsonl_path {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|err| ImportError::Io {
+                    operation: "open completed span jsonl path",
+                    context: path.display().to_string(),
+                    reason: err.to_string(),
+                })?;
+            let mut state = lock_state(&recorder.state);
+            state.completed_span_writer = Some(BufWriter::new(file));
+        }
+        Ok(TracingIntakeSession {
+            recorder,
+            run_json_path: self.run_json_path,
+        })
     }
 }
 
@@ -311,6 +447,20 @@ where
             for (k, v) in open.fields {
                 record = record.field(k, v);
             }
+            record = record.format("tailtriage.tracing-span.v1");
+            if let Some(writer) = state.completed_span_writer.as_mut() {
+                match serde_json::to_writer(&mut *writer, &record) {
+                    Ok(()) => match writer.write_all(b"\n") {
+                        Ok(()) => {}
+                        Err(err) => {
+                            state.writer_failure = Some(err.to_string());
+                        }
+                    },
+                    Err(err) => {
+                        state.writer_failure = Some(err.to_string());
+                    }
+                }
+            }
             if state.completed.len() >= self.limits.max_completed_spans {
                 state.dropped_completed_spans = state.dropped_completed_spans.saturating_add(1);
                 return;
@@ -356,6 +506,11 @@ fn push_strict_recorder_messages(
         messages.push(format!(
             "live recorder dropped {} completed span(s) because max_completed_spans={} was reached; raise max_completed_spans or reduce capture scope",
             stats.dropped_completed_spans, limits.max_completed_spans
+        ));
+    }
+    if let Some(reason) = &stats.writer_failure {
+        messages.push(format!(
+            "live recorder failed writing completed-span JSONL output: {reason}"
         ));
     }
 }
@@ -434,6 +589,11 @@ fn append_non_strict_drop_warnings(
     if stats.dropped_open_spans > 0 || stats.dropped_completed_spans > 0 {
         run.truncation.limits_hit = true;
     }
+    if let Some(reason) = &stats.writer_failure {
+        let msg = format!("live recorder failed writing completed-span JSONL output: {reason}");
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
 }
 
 fn imported_with_drop_warnings(
@@ -464,6 +624,7 @@ fn imported_with_drop_warnings(
         && stats.dropped_completed_spans == 0
         && stats.open_candidate_count == 0
         && stats.closed_missing_kind_spans == 0
+        && stats.writer_failure.is_none()
     {
         return Ok(imported);
     }
