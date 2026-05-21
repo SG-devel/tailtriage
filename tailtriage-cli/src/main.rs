@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use serde_json::Value;
+use std::io::BufRead;
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
@@ -45,6 +47,9 @@ enum Command {
 enum ImportCommand {
     /// Import completed tracing span records from JSONL into run JSON.
     TracingJson {
+        /// Input format selector for tracing import.
+        #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
+        input_format: TracingInputFormat,
         /// Path to newline-delimited JSON span records.
         #[arg(value_name = "SPANS_JSONL")]
         spans_jsonl: PathBuf,
@@ -72,6 +77,13 @@ enum OutputFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum TracingInputFormat {
+    Auto,
+    TailtriageSpanJsonl,
+    TracingSubscriberFmtJson,
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
@@ -84,7 +96,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 service_version,
                 run_id,
                 strict,
+                input_format,
             } => {
+                if matches!(input_format, TracingInputFormat::TracingSubscriberFmtJson) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        tracing_fmt_setup_hint(),
+                    )
+                    .into());
+                }
+                detect_and_guard_fmt_json(&spans_jsonl, input_format)?;
                 let mut options = ImportOptions::new(service).strict(strict);
                 if let Some(service_version) = service_version {
                     options = options.service_version(service_version);
@@ -100,7 +121,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if imported.run().requests.is_empty() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        "tracing import produced zero request events; tailtriage analyze requires at least one request event",
+                        "tracing import produced zero request events; tailtriage needs completed tt.* request spans with start/end timestamps. Configure TracingIntakeSession::builder(...).completed_span_jsonl_path(...), then import that JSONL via tailtriage import tracing-json <input> --input-format tailtriage-span-jsonl --service <service> --output <run-json>",
                     )
                     .into());
                 }
@@ -153,4 +174,38 @@ fn main() {
         eprintln!("{err}");
         std::process::exit(1);
     }
+}
+
+fn detect_and_guard_fmt_json(
+    path: &std::path::Path,
+    format: TracingInputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !matches!(format, TracingInputFormat::Auto) {
+        return Ok(());
+    }
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = String::new();
+    let _ = reader.read_line(&mut line)?;
+    if line.trim().is_empty() {
+        return Ok(());
+    }
+    let v: Value = match serde_json::from_str(&line) {
+        Ok(v) => v,
+        Err(_) => return Ok(()),
+    };
+    if v.get("span").is_none()
+        && (v.get("timestamp").is_some() || v.get("level").is_some() || v.get("fields").is_some())
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            tracing_fmt_setup_hint(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn tracing_fmt_setup_hint() -> String {
+    "tracing_subscriber fmt JSON logs are not a supported primary import format. tailtriage needs completed tt.* span records with start/end timestamps. Recommended setup: add tailtriage_tracing::TracingIntakeSession::builder(<service>) beside your existing tracing layer, configure completed_span_jsonl_path(...), then run: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>.".to_string()
 }
