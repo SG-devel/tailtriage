@@ -298,6 +298,31 @@ fn import_tracing_json_input_format_fmt_json_fails_with_guidance() {
 }
 
 #[test]
+fn import_tracing_json_auto_rejects_fmt_json_with_guidance() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("fmt.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"close"}}"#).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("tracing_subscriber::fmt().json()"));
+    assert!(stderr.contains("completed tt.*") || stderr.contains("completed tt.* span records"));
+    assert!(stderr.contains("TracingIntakeSession"));
+    assert!(stderr.contains("tailtriage-span-jsonl"));
+    assert!(!run_path.exists());
+}
+
+#[test]
 fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");

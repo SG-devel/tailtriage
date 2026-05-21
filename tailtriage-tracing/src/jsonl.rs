@@ -1098,6 +1098,56 @@ mod tests {
     }
 
     #[test]
+    fn wrapper_only_non_strict_unwrapped_warns_and_skips() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert!(!imported.warnings().is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("tailtriage.tracing-span.v1")));
+    }
+
+    #[test]
+    fn wrapper_only_unsupported_marker_strict_errors_and_non_strict_warns() {
+        let v2 = r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(v2),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("v2") || err.to_string().contains("unsupported"));
+
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(v2),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("v2") || w.message().contains("unsupported")));
+    }
+
+    #[test]
+    fn compatible_mode_accepts_old_normalized_shape() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported =
+            import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
     fn empty_service_name_is_rejected_for_jsonl_import() {
         let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));

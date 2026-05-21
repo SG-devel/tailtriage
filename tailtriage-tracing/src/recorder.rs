@@ -1568,4 +1568,161 @@ mod tests {
         let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 1);
     }
+
+    #[test]
+    fn intake_session_emits_wrapper_shape_and_round_trips_wrapper_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span);
+        });
+        session.snapshot_run().unwrap();
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+        let value: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(value["format"], "tailtriage.tracing-span.v1");
+        assert!(value["span"].is_object());
+        assert_eq!(value["span"]["name"], "request");
+        assert!(value["span"]["started_at_unix_ms"].is_number());
+        assert!(value["span"]["finished_at_unix_ms"].is_number());
+        assert!(value["span"]["duration_us"].is_number());
+        assert_eq!(value["span"]["fields"]["tt.kind"], "request");
+        assert_eq!(value["span"]["fields"]["tt.request_id"], "r1");
+        assert_eq!(value["span"]["fields"]["tt.route"], "/a");
+
+        let imported = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
+        assert_eq!(imported.run().requests[0].route, "/a");
+    }
+
+    #[test]
+    fn streaming_jsonl_is_independent_of_in_memory_completed_retention() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .max_completed_spans(1)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            ));
+        });
+        let snapshot = session.snapshot_run().unwrap();
+        assert_eq!(snapshot.run().requests.len(), 1);
+        assert!(snapshot
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped 1 completed spans")));
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 2);
+        let imported = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 2);
+        let ids: Vec<_> = imported
+            .run()
+            .requests
+            .iter()
+            .map(|r| r.request_id.as_str())
+            .collect();
+        assert!(ids.contains(&"r1"));
+        assert!(ids.contains(&"r2"));
+    }
+
+    #[test]
+    fn intake_session_build_writer_open_failure_returns_io() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad_path = dir.path().join("missing").join("spans.jsonl");
+        let err = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&bad_path)
+            .build()
+            .unwrap_err();
+        assert!(matches!(err, ImportError::Io { .. }));
+        assert!(err.to_string().contains("spans.jsonl"));
+    }
+
+    #[test]
+    fn intake_session_run_json_path_writes_valid_run_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+        session.shutdown().unwrap();
+        assert!(run_path.exists());
+        let run: tailtriage_core::Run =
+            serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
+        assert_eq!(run.requests.len(), 1);
+    }
+
+    #[test]
+    fn unrelated_spans_are_ignored_by_completed_span_jsonl_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!("unrelated", user = 1_u64));
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+        session.shutdown().unwrap();
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+        let line = lines[0];
+        assert!(line.contains("\"tt.request_id\":\"r1\""));
+        assert!(!line.contains("unrelated"));
+    }
 }
