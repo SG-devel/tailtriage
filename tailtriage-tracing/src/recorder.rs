@@ -1725,4 +1725,43 @@ mod tests {
         assert!(line.contains("\"tt.request_id\":\"r1\""));
         assert!(!line.contains("unrelated"));
     }
+
+    #[test]
+    fn intake_session_captures_request_stage_queue() {
+        let session = TracingIntakeSession::builder("svc").build().unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "req-1",
+                tt.route = "/checkout",
+                tt.outcome = "ok"
+            ));
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "req-1",
+                tt.stage = "db",
+                tt.success = true
+            ));
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "req-1",
+                tt.queue = "admission",
+                tt.depth_at_start = 7_u64
+            ));
+        });
+        let snapshot = session.snapshot_run().unwrap();
+        let run = snapshot.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+        assert!(run.runtime_snapshots.is_empty());
+        assert_eq!(run.requests[0].route, "/checkout");
+        assert_eq!(run.stages[0].stage, "db");
+        assert_eq!(run.queues[0].queue, "admission");
+        assert_eq!(run.queues[0].depth_at_start, Some(7));
+    }
 }

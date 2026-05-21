@@ -251,6 +251,38 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
 }
 
 #[test]
+fn import_tracing_json_input_format_tailtriage_wrapper_only_accepts_fixture() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--input-format")
+        .arg("tailtriage-span-jsonl")
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.stages.len(), 1);
+    assert_eq!(loaded.run.queues.len(), 1);
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    assert_eq!(report.request_count, 1);
+}
+
+#[test]
 fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");

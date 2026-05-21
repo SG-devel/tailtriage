@@ -1287,6 +1287,39 @@ mod tests {
     }
 
     #[test]
+    fn wrapper_fixture_imports_request_stage_queue() {
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(include_str!("../tests/fixtures/tailtriage-span-v1.jsonl")),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+        assert_eq!(run.requests[0].request_id, "req-1");
+        assert_eq!(run.requests[0].route, "/checkout");
+        assert_eq!(run.stages[0].stage, "db");
+        assert_eq!(run.queues[0].queue, "admission");
+        assert_eq!(run.queues[0].depth_at_start, Some(7));
+    }
+
+    #[test]
+    fn wrapper_fixture_preserves_duration_us() {
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(include_str!("../tests/fixtures/tailtriage-span-v1.jsonl")),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests[0].latency_us, 30_000);
+        assert_eq!(run.stages[0].latency_us, 10_000);
+        assert_eq!(run.queues[0].wait_us, 4_000);
+    }
+
+    #[test]
     fn empty_service_name_is_rejected_for_jsonl_import() {
         let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
