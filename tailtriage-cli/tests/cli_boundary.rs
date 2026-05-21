@@ -303,30 +303,8 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("tailtriage.tracing-span.v1") || stderr.contains("stable wrapper"));
+    assert!(!stderr.contains("ordinary tracing log JSON"));
     assert!(!run_path.exists());
-}
-
-#[test]
-fn import_tracing_json_input_format_fmt_json_fails_with_guidance() {
-    let dir = tempfile::tempdir().expect("tempdir should build");
-    let spans_path = dir.path().join("fmt.jsonl");
-    std::fs::write(&spans_path, r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"close"}}"#).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
-        .arg("import")
-        .arg("tracing-json")
-        .arg(&spans_path)
-        .arg("--input-format")
-        .arg("tracing-subscriber-fmt-json")
-        .arg("--service")
-        .arg("checkout")
-        .arg("--output")
-        .arg(dir.path().join("run.json"))
-        .output()
-        .expect("cli should run");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("TracingIntakeSession"));
-    assert!(stderr.contains("tailtriage-span-jsonl"));
 }
 
 #[test]
@@ -347,11 +325,27 @@ fn import_tracing_json_auto_rejects_fmt_json_with_guidance() {
         .expect("cli should run");
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("tracing_subscriber::fmt().json()"));
-    assert!(stderr.contains("completed tt.*") || stderr.contains("completed tt.* span records"));
+    assert!(stderr.contains("ordinary tracing log JSON"));
+    assert!(stderr.contains("literal dotted tt.* keys"));
+    assert!(stderr.contains("explicit unix-ms start/end timestamps"));
     assert!(stderr.contains("TracingIntakeSession"));
     assert!(stderr.contains("tailtriage-span-jsonl"));
     assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_help_shows_only_live_input_format_values() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg("--help")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("auto"));
+    assert!(stdout.contains("tailtriage-span-jsonl"));
+    assert!(!stdout.contains("tracing-subscriber-fmt-json"));
 }
 
 #[test]
