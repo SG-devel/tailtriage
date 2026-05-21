@@ -96,22 +96,42 @@ pub fn import_jsonl_path(
     import_jsonl_reader(file, options)
 }
 
+#[derive(serde::Deserialize)]
+struct WrappedSpanRecord {
+    format: String,
+    span: SpanRecord,
+}
+
 fn parse_record(
     line_no: usize,
     value: &Value,
     strict: bool,
     warnings: &mut Vec<crate::ImportWarning>,
 ) -> Result<Option<SpanRecord>, ImportError> {
-    if let Ok(span) = serde_json::from_value::<SpanRecord>(value.clone()) {
-        if span.format_ref().is_none() || span.format_ref() == Some("tailtriage.tracing-span.v1") {
-            return Ok(Some(span));
+    if let Ok(wrapped) = serde_json::from_value::<WrappedSpanRecord>(value.clone()) {
+        if wrapped.format == "tailtriage.tracing-span.v1" {
+            return Ok(Some(wrapped.span));
         }
+        let message = format!(
+            "line {line_no}: unsupported span format marker '{}'",
+            wrapped.format
+        );
+        if strict {
+            return Err(ImportError::StrictViolation(message));
+        }
+        warnings.push(crate::ImportWarning::new(message));
+        return Ok(None);
+    }
+    if value.get("format").is_some() && value.get("span").is_some() {
         let message = format!("line {line_no}: unsupported span format marker");
         if strict {
             return Err(ImportError::StrictViolation(message));
         }
         warnings.push(crate::ImportWarning::new(message));
         return Ok(None);
+    }
+    if let Ok(span) = serde_json::from_value::<SpanRecord>(value.clone()) {
+        return Ok(Some(span));
     }
     if let Some(field_name) = first_non_scalar_tailtriage_field(value) {
         let message = format!(

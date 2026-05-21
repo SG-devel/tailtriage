@@ -22,16 +22,26 @@ pub struct TracingRecorder {
     options: ImportOptions,
     limits: RecorderLimits,
 }
-/// High-level tracing intake session for first-time users.
+/// High-level tracing intake bridge for completed `tt.*` spans.
+///
+/// A session attaches to an existing `tracing_subscriber` registry via [`Self::layer`],
+/// captures completed `tt.*` spans, and converts them into standard `tailtriage_core::Run`
+/// artifacts through [`Self::snapshot_run`] or [`Self::shutdown`].
+///
+/// When configured, the session emits stable completed-span JSONL records in the
+/// wrapper form `{"format":"tailtriage.tracing-span.v1","span":{...}}` and can
+/// optionally write a Run JSON file on shutdown.
+///
+/// This API is intentionally a tracing intake bridge; it does not implement OTel/OTLP.
+/// Tracing-only evidence does not fabricate runtime-pressure snapshots, and suspects
+/// in resulting diagnosis reports remain triage leads rather than root-cause proof.
 #[derive(Debug, Clone)]
-#[allow(missing_docs)]
 pub struct TracingIntakeSession {
     recorder: TracingRecorder,
     run_json_path: Option<PathBuf>,
 }
 /// Builder for [`TracingIntakeSession`].
 #[derive(Debug, Clone)]
-#[allow(missing_docs)]
 pub struct TracingIntakeSessionBuilder {
     recorder_builder: TracingRecorderBuilder,
     completed_span_jsonl_path: Option<PathBuf>,
@@ -153,6 +163,7 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
+        self.flush_completed_span_writer()?;
         let (spans, stats) = {
             let state = lock_state(&self.state);
             let mut samples = Vec::new();
@@ -186,6 +197,18 @@ impl TracingRecorder {
         imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
     }
 
+    fn flush_completed_span_writer(&self) -> Result<(), ImportError> {
+        let mut state = lock_state(&self.state);
+        if let Some(writer) = state.completed_span_writer.as_mut() {
+            writer.flush().map_err(|err| ImportError::Io {
+                operation: "flush completed span jsonl writer",
+                context: "completed-span-jsonl".to_owned(),
+                reason: err.to_string(),
+            })?;
+        }
+        Ok(())
+    }
+
     /// Consumes this recorder handle and returns a final imported run snapshot.
     ///
     /// Span completion is driven by span close/drop, not enter/exit.
@@ -194,11 +217,11 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
+        self.flush_completed_span_writer()?;
         self.snapshot_run()
     }
 }
 
-#[allow(missing_docs)]
 impl TracingIntakeSession {
     /// Creates a builder with required service name metadata.
     pub fn builder(service_name: impl Into<String>) -> TracingIntakeSessionBuilder {
@@ -208,6 +231,10 @@ impl TracingIntakeSession {
             run_json_path: None,
         }
     }
+    /// Returns a `tracing_subscriber` layer for this intake session.
+    ///
+    /// Add this layer beside your existing subscriber layers; this does not replace
+    /// your tracing pipeline.
     #[must_use]
     pub fn layer(&self) -> TailtriageLayer {
         self.recorder.layer()
@@ -218,6 +245,7 @@ impl TracingIntakeSession {
     ///
     /// Returns an error when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
+        self.recorder.flush_completed_span_writer()?;
         self.recorder.snapshot_run()
     }
     /// Finalizes intake and optionally writes run JSON when configured.
@@ -243,44 +271,54 @@ impl TracingIntakeSession {
         Ok(imported)
     }
 }
-#[allow(missing_docs)]
 impl TracingIntakeSessionBuilder {
     #[must_use]
+    /// Enables or disables strict mode for conversion warnings.
     pub fn strict(mut self, strict: bool) -> Self {
         self.recorder_builder = self.recorder_builder.strict(strict);
         self
     }
     #[must_use]
+    /// Sets service version metadata for converted run output.
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.recorder_builder = self.recorder_builder.service_version(service_version);
         self
     }
     #[must_use]
+    /// Sets explicit run id metadata for converted run output.
     pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
         self.recorder_builder = self.recorder_builder.run_id(run_id);
         self
     }
     #[must_use]
+    /// Sets open/completed in-memory retention limits.
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.recorder_builder = self.recorder_builder.limits(limits);
         self
     }
     #[must_use]
+    /// Sets maximum concurrently tracked open candidate spans.
     pub fn max_open_spans(mut self, v: usize) -> Self {
         self.recorder_builder = self.recorder_builder.max_open_spans(v);
         self
     }
     #[must_use]
+    /// Sets maximum retained completed candidate spans in memory.
     pub fn max_completed_spans(mut self, v: usize) -> Self {
         self.recorder_builder = self.recorder_builder.max_completed_spans(v);
         self
     }
     #[must_use]
+    /// Enables completed-span JSONL output at the given path.
+    ///
+    /// Records are appended as spans close using the stable wrapper shape
+    /// `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
     pub fn completed_span_jsonl_path(mut self, path: impl AsRef<Path>) -> Self {
         self.completed_span_jsonl_path = Some(path.as_ref().to_path_buf());
         self
     }
     #[must_use]
+    /// Enables Run JSON output on shutdown at the given path.
     pub fn run_json_path(mut self, path: impl AsRef<Path>) -> Self {
         self.run_json_path = Some(path.as_ref().to_path_buf());
         self
@@ -315,6 +353,7 @@ impl TracingIntakeSessionBuilder {
 impl TracingRecorderBuilder {
     /// Sets service version metadata.
     #[must_use]
+    /// Sets service version metadata for converted run output.
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.options = self.options.service_version(service_version);
         self
@@ -322,6 +361,7 @@ impl TracingRecorderBuilder {
 
     /// Sets explicit run-id metadata.
     #[must_use]
+    /// Sets explicit run id metadata for converted run output.
     pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
         self.options = self.options.run_id(run_id);
         self
@@ -329,6 +369,7 @@ impl TracingRecorderBuilder {
 
     /// Enables or disables strict conversion mode.
     #[must_use]
+    /// Enables or disables strict mode for conversion warnings.
     pub fn strict(mut self, strict: bool) -> Self {
         self.options = self.options.strict(strict);
         self
@@ -345,6 +386,7 @@ impl TracingRecorderBuilder {
     }
     /// Sets both open/completed in-memory span retention limits.
     #[must_use]
+    /// Sets open/completed in-memory retention limits.
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.limits = limits;
         self
@@ -447,9 +489,12 @@ where
             for (k, v) in open.fields {
                 record = record.field(k, v);
             }
-            record = record.format("tailtriage.tracing-span.v1");
             if let Some(writer) = state.completed_span_writer.as_mut() {
-                match serde_json::to_writer(&mut *writer, &record) {
+                let wrapped = serde_json::json!({
+                    "format": "tailtriage.tracing-span.v1",
+                    "span": record,
+                });
+                match serde_json::to_writer(&mut *writer, &wrapped) {
                     Ok(()) => match writer.write_all(b"\n") {
                         Ok(()) => {}
                         Err(err) => {

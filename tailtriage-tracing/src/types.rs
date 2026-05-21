@@ -86,8 +86,6 @@ impl From<f64> for FieldValue {
 /// A tracing-shaped finished span record ready for intake conversion.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpanRecord {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    format: Option<String>,
     id: Option<String>,
     parent_id: Option<String>,
     name: String,
@@ -102,7 +100,6 @@ impl SpanRecord {
     /// Creates a new span record with required timing fields.
     pub fn new(name: impl Into<String>, started_at_unix_ms: u64, finished_at_unix_ms: u64) -> Self {
         Self {
-            format: None,
             id: None,
             parent_id: None,
             name: name.into(),
@@ -137,12 +134,6 @@ impl SpanRecord {
     #[must_use]
     pub fn duration_us(mut self, duration_us: u64) -> Self {
         self.duration_us = Some(duration_us);
-        self
-    }
-    /// Sets stable on-disk format marker.
-    #[must_use]
-    pub fn format(mut self, format: impl Into<String>) -> Self {
-        self.format = Some(format.into());
         self
     }
 
@@ -180,11 +171,6 @@ impl SpanRecord {
     #[must_use]
     pub fn duration_us_ref(&self) -> Option<u64> {
         self.duration_us
-    }
-    /// Returns optional format marker.
-    #[must_use]
-    pub fn format_ref(&self) -> Option<&str> {
-        self.format.as_deref()
     }
 }
 

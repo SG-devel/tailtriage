@@ -104,7 +104,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 if matches!(input_format, TracingInputFormat::TracingSubscriberFmtJson) {
-                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "tracing-subscriber fmt JSON logs do not include completed-span start/end timestamps needed by tailtriage. Recommended path: configure tailtriage_tracing::TracingIntakeSession (or TracingRecorder layer) to emit completed-span JSONL, then run: tailtriage import tracing-json <spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run.json>").into());
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        tracing_json_setup_guidance(),
+                    )
+                    .into());
+                }
+                if matches!(
+                    input_format,
+                    TracingInputFormat::Auto | TracingInputFormat::TailtriageSpanJsonl
+                ) && input_looks_like_tracing_fmt_json(&spans_jsonl)?
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        tracing_json_setup_guidance(),
+                    )
+                    .into());
                 }
                 let imported = import_jsonl_path(spans_jsonl, options)?;
                 for warning in imported.warnings() {
@@ -113,7 +128,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if imported.run().requests.is_empty() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        "tracing import produced zero request events; tailtriage requires completed tt.request spans (tt.kind=request, tt.request_id, tt.route) with start/end timestamps. Hint: use tailtriage_tracing::TracingIntakeSession and import completed-span JSONL.",
+                        "tracing import produced zero request events; tailtriage requires completed tt.request spans (tt.kind=request, tt.request_id, tt.route) with start/end timestamps. Configure TracingIntakeSession::builder(...).completed_span_jsonl_path(...) then run: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>",
                     )
                     .into());
                 }
@@ -159,6 +174,40 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn tracing_json_setup_guidance() -> &'static str {
+    "ordinary tracing_subscriber::fmt().json() logs are not the supported primary import format. tailtriage needs completed tt.* span records with start/end timestamps. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then import with: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>"
+}
+
+fn input_looks_like_tracing_fmt_json(path: &std::path::Path) -> Result<bool, std::io::Error> {
+    let contents = std::fs::read_to_string(path)?;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            let has_span_timestamps =
+                value
+                    .get("span")
+                    .and_then(|s| s.as_object())
+                    .is_some_and(|span| {
+                        span.contains_key("started_at_unix_ms")
+                            || span.contains_key("start_unix_ms")
+                            || span.contains_key("finished_at_unix_ms")
+                            || span.contains_key("end_unix_ms")
+                    });
+            let looks_like_fmt = value.get("timestamp").is_some()
+                && value.get("level").is_some()
+                && value.get("target").is_some();
+            if looks_like_fmt && !has_span_timestamps {
+                return Ok(true);
+            }
+        }
+        break;
+    }
+    Ok(false)
 }
 
 fn main() {
