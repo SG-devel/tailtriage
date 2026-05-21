@@ -684,10 +684,7 @@ fn valid_cli_artifact_with_empty_requests() -> &'static str {
 }
 
 fn complete_span_jsonl_fixture() -> &'static str {
-    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
-{"format":"tailtriage.tracing-span.v1","span":{"name":"db.stage","started_at_unix_ms":1002,"finished_at_unix_ms":1006,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db","tt.success":true}}}
-{"format":"tailtriage.tracing-span.v1","span":{"name":"admission.queue","started_at_unix_ms":1000,"finished_at_unix_ms":1002,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"admission"}}}
-"#
+    include_str!("../../tailtriage-tracing/tests/fixtures/tailtriage-span-v1.jsonl")
 }
 
 fn incomplete_tailtriage_span_fixture() -> &'static str {
