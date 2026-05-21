@@ -42,6 +42,57 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Import completed tracing span records from JSONL into Run JSON:
+
+```bash
+tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+```
+
+With optional metadata flags, strict validation, and explicit format:
+
+```bash
+tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+```
+
+
+`tailtriage import tracing-json` imports **completed tracing span records** into **Run JSON** (not Report JSON).
+
+Recommended stable input format is the tailtriage wrapper JSONL shape:
+
+```json
+{"format":"tailtriage.tracing-span.v1","span":{...}}
+```
+
+`--input-format` values:
+- `auto`
+- `tailtriage-span-jsonl`
+- `tracing-subscriber-fmt-json`
+
+Behavior:
+- `tailtriage-span-jsonl` enforces wrapper-only parsing.
+- `auto` keeps compatibility parsing for older normalized shapes and rejects likely ordinary `tracing_subscriber::fmt().json()` logs with setup guidance.
+- `tracing-subscriber-fmt-json` intentionally fails with setup guidance in the current product scope.
+
+After import, run analysis separately:
+
+```bash
+tailtriage analyze tailtriage-run.json
+```
+
+Zero-request imports fail by design (the CLI loader requires at least one request).
+
+When paths include spaces, quote them in shell usage:
+
+```bash
+tailtriage import tracing-json "fixtures/tracing spans.jsonl" --service checkout --output "runs/imported run.json"
+```
+
+The command imports completed tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
+Tracing-only imports provide request/stage/queue intake but do not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured (for example via Tokio runtime sampling).
+Malformed JSON input remains fatal. In non-strict mode, syntactically valid malformed/incomplete `tt.*` records are skipped with `warning: ...` lines.
+`--service` must not be empty or whitespace.
+Import fails when zero request events would be written (for example unrelated-only input or all-skipped malformed `tt.*` input), because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
+
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
 
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.

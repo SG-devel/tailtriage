@@ -32,6 +32,48 @@ cargo add tailtriage --features axum
 
 The `controller` and `tokio` namespaces are available with default features; `axum` remains opt-in.
 
+### Already using tracing?
+
+If you already instrument request/stage/queue work with Rust `tracing`, use `tailtriage-tracing` as an intake path into the same triage workflow.
+
+A) Completed-span JSONL intake path:
+
+```bash
+tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
+```
+
+`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific.
+
+B) Direct Run JSON path:
+
+```rust,no_run
+use tailtriage_tracing::TracingIntakeSession;
+use tracing_subscriber::prelude::*;
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let session = TracingIntakeSession::builder("checkout-service")
+    .run_json_path("target/tailtriage-examples/checkout.run.json")
+    .build()?;
+let subscriber = tracing_subscriber::registry().with(session.layer());
+tracing::subscriber::with_default(subscriber, || {
+    let _request = tracing::info_span!("request", tt.kind = "request", tt.request_id = "req-1", tt.route = "/checkout");
+});
+session.shutdown()?;
+# Ok(())
+# }
+```
+
+Then analyze directly:
+
+```bash
+tailtriage analyze target/tailtriage-examples/checkout.run.json
+```
+
+Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
+
+For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
+
 ## 2) Core workflow: capture -> analyze -> next check -> re-run
 
 ### Capture
@@ -68,6 +110,7 @@ Read output in this order:
 
 Then run one targeted check, change one thing, and re-run under comparable load.
 
+For services that already emit `tracing` spans, see “Using existing tracing spans” above for the JSONL import and live recorder paths.
 
 ## 3) In-process analysis (embedded Rust)
 

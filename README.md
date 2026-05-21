@@ -66,6 +66,19 @@ Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust c
 - `tailtriage-cli` consumes Run artifact JSON from disk.
 - `tailtriage-analyzer` produces typed `Report` values in process and renders **Report JSON** when you call analyzer renderers.
 
+### Already using tracing?
+
+If your service already emits `tracing` spans, use `tailtriage-tracing` as a narrow tracing intake bridge.
+
+- Offline JSONL import:
+  ```bash
+  tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+  tailtriage analyze tailtriage-run.json
+  ```
+- Live session path: add `tailtriage_tracing::TracingIntakeSession` and `session.layer()` beside your existing subscriber setup.
+
+Both paths convert tracing-shaped evidence into standard `tailtriage_core::Run` data and feed the same analyzer/report workflow (evidence-ranked suspects and next checks). Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
+
 ## Why not just tokio-console or tokio-metrics?
 
 Those tools are complementary building blocks. `tailtriage` fills a different gap: it turns request lifecycle timing plus optional runtime signals into a focused triage loop:
@@ -222,6 +235,15 @@ if let Some(finalized_run) = sink.take_run() {
 ```bash
 tailtriage analyze tailtriage-run.json --format json
 ```
+
+Import completed tracing span records (JSONL) into a Run artifact first when needed:
+
+```bash
+tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+```
+
+`tailtriage import tracing-json` writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr.
+Tracing-only imports can provide request/stage/queue evidence outside Tokio runtimes, but they do not fabricate runtime-pressure snapshots.
 
 Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).
 

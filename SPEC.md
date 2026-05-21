@@ -44,6 +44,7 @@ Current workspace members include:
 - `tailtriage-axum`
 - `tailtriage-analyzer`
 - `tailtriage-cli`
+- `tailtriage-tracing`
 - demos crates under `demos/`
 
 Supporting repository areas:
@@ -155,7 +156,23 @@ Analyzer configuration contract:
 - Analyzer tuning changes interpretation/ranking of already captured evidence; it does not change capture artifacts, capture limits, truncation, or what was collected.
 
 
-### 5.9 Analyzer CLI (`tailtriage-cli`)
+### 5.9 Optional tracing intake (`tailtriage-tracing`)
+
+`tailtriage-tracing` is an optional integration surface for services that already emit Rust `tracing` spans.
+
+- primary live path is `TracingIntakeSession` / `TracingIntakeSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
+- live session output can write standard Run JSON on shutdown via `run_json_path(...)`
+- live session output can stream stable completed-span JSONL as spans close via `completed_span_jsonl_path(...)`
+- stable completed-span JSONL wrapper format is:
+  `{"format":"tailtriage.tracing-span.v1","span":{...}}`
+- CLI imports that wrapper shape with:
+  `tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run.json>`
+- tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
+- `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
+- tracing-only intake does not fabricate runtime-pressure evidence without runtime snapshots / Tokio sampler coupling
+- OTel/OTLP and tracing backend behavior are out of scope
+
+### 5.10 Analyzer CLI (`tailtriage-cli`)
 
 `tailtriage-cli` owns artifact loading + command-line report emission and uses `tailtriage-analyzer` for analysis logic. CLI JSON output delegates to `tailtriage-analyzer`’s canonical pretty Report JSON renderer.
 

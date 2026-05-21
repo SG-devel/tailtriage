@@ -31,9 +31,18 @@ Normal CI keeps deterministic diagnostics and docs contracts as gates but does n
 | Deterministic corpus | Yes in normal CI and in `validation-snapshot.yml` | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
-| Runtime-cost measurement | Partially (non-blocking measure in CI) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
+| Runtime-cost measurement | Yes (bounded hard-gated smoke in CI) + manual/local deeper runs | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
 | Collector-limit stress | Yes (smoke profile + summary validation) | bounded drop/truncation/warning/downgrade behavior under stress | zero drops under all load |
 | Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
+
+Tracing-intake contract coverage is currently validated by unit/package tests and examples that exercise:
+- stable wrapper fixture (`tailtriage.tracing-span.v1`)
+- wrapper-only import mode and compatible-mode behavior
+- CLI `--input-format` guardrails
+- `TracingIntakeSession` request/stage/queue capture and conversion
+- example compile/run coverage under package example tests
+
+These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim arbitrary `tracing_subscriber::fmt().json()` import support, do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
 
 ## Deterministic corpus validation
 The deterministic benchmark validates:

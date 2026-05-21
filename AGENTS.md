@@ -233,6 +233,7 @@ Expected workspace members:
 - `tailtriage-axum`
 - `tailtriage-analyzer`
 - `tailtriage-cli`
+- `tailtriage-tracing`
 
 Possible directories:
 

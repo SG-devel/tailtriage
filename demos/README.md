@@ -8,6 +8,20 @@ The demos are educational scenario artifacts. They teach triage situations, whil
 
 Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
 
+## Instrumentation mode note (request/stage/queue parity phase)
+
+- `queue_service`, `downstream_service`, `mixed_contention_service`, `cold_start_burst_service`, `db_pool_saturation_service`, `shared_state_lock_service`, and `retry_storm_service` accept `--instrumentation native|tracing` (default `native`).
+- This validates native-vs-tracing parity for request/stage evidence and queue evidence where applicable while still producing standard Run JSON for CLI analysis.
+- Tracing inflight parity is out of scope for this phase.
+- `blocking_service` and `executor_pressure_service` also support `--instrumentation native|tracing`.
+- Runtime-sensitive tracing parity uses `TracingTokioSession` plus deterministic runtime snapshots recorded during workload execution.
+- CI-facing tracing parity coverage gates once on Ubuntu extended release via `python3 scripts/demo_tool.py validate-tracing-parity all --profile release`.
+- Tracing spans alone do not infer runtime pressure; runtime-sensitive parity relies on those recorded snapshots.
+- Demo parity is semantic parity (request/stage/queue evidence shape and diagnosis direction), not exact latency or suspect-score equality.
+- Tracing inflight remains out of scope unless explicitly implemented.
+- This tracing demo mode is not OTel/OTLP and not an observability backend.
+- Suspects in parity runs remain triage leads, not proof of root cause.
+
 ## Strongest public demonstration scenarios
 
 ### `queue_service`

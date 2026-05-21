@@ -167,6 +167,34 @@ Override limits with:
 - `capture_limits(...)` (full override)
 - `capture_limits_override(...)` (field-level override)
 
+## Advanced: assembling completed run artifacts
+
+Most users should use `Tailtriage::builder(...)` for live request instrumentation.
+Use `RunBuilder` only when you already have completed request, stage, queue, in-flight, or runtime evidence and need to assemble a standard `Run` artifact.
+
+`RunBuilder` is intended for import/conversion paths. It does not perform live lifecycle tracking. `RunBuilder::new` validates top-level run timestamp ordering. Each `push_*` call validates event/snapshot shape before retention is applied. It applies the same bounded retention/truncation semantics as live core capture, so events beyond configured `CaptureLimits` are dropped without error and `Run.truncation` counters are updated. `RunBuilder` does not validate cross-event correlation (for example a stage without a matching request) and does not synthesize lifecycle completions. For assembled/imported artifacts, host and pid default to `None`, and generated run IDs use the same core run-id semantics as live capture.
+
+```rust,no_run
+use tailtriage_core::{RequestEvent, RunBuilder, RunBuilderOptions};
+
+fn assemble_run() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = RunBuilder::new(RunBuilderOptions::new("checkout-service"))?;
+    builder.push_request(RequestEvent {
+        request_id: "req-1".into(),
+        route: "/test".into(),
+        kind: Some("http".into()),
+        started_at_unix_ms: 1,
+        finished_at_unix_ms: 2,
+        latency_us: 1_000,
+        outcome: "ok".into(),
+    })?;
+
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    Ok(())
+}
+```
+
 ## What this crate does not do
 
 This crate does not provide:

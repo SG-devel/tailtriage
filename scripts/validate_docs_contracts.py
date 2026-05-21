@@ -23,6 +23,7 @@ ANALYZER_DOC_PATHS = (
     USER_GUIDE_PATH,
     REPO_ROOT / "tailtriage-analyzer" / "README.md",
     REPO_ROOT / "tailtriage-cli" / "README.md",
+    REPO_ROOT / "tailtriage-tracing" / "README.md",
 )
 DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -50,6 +51,7 @@ USER_FACING_TERMINOLOGY_PATHS = (
     REPO_ROOT / "tailtriage-axum" / "README.md",
     REPO_ROOT / "tailtriage-analyzer" / "README.md",
     REPO_ROOT / "tailtriage-cli" / "README.md",
+    REPO_ROOT / "tailtriage-tracing" / "README.md",
     REPO_ROOT / "tailtriage" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage" / "Cargo.toml",
 )
@@ -129,6 +131,7 @@ RUSTDOC_INCLUDE_CRATE_LIBS = (
     REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage-analyzer" / "src" / "lib.rs",
     REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs",
+    REPO_ROOT / "tailtriage-tracing" / "src" / "lib.rs",
 )
 
 ANALYZER_GROUPS = (
@@ -775,6 +778,7 @@ def validate_cli_not_presented_as_library_analyzer_api() -> None:
         DIAGNOSTICS_PATH,
         ARCHITECTURE_PATH,
         REPO_ROOT / "tailtriage-cli" / "README.md",
+    REPO_ROOT / "tailtriage-tracing" / "README.md",
         REPO_ROOT / "tailtriage-analyzer" / "README.md",
     )
     banned_tokens = ("tailtriage_cli::analyze",)
