@@ -92,6 +92,7 @@ struct RecorderState {
     closed_missing_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
     writer_failure: Option<String>,
+    completed_span_writer_path: Option<PathBuf>,
     completed_span_writer: Option<BufWriter<std::fs::File>>,
 }
 
@@ -200,11 +201,24 @@ impl TracingRecorder {
     fn flush_completed_span_writer(&self) -> Result<(), ImportError> {
         let mut state = lock_state(&self.state);
         if let Some(writer) = state.completed_span_writer.as_mut() {
-            writer.flush().map_err(|err| ImportError::Io {
-                operation: "flush completed span jsonl writer",
-                context: "completed-span-jsonl".to_owned(),
-                reason: err.to_string(),
-            })?;
+            if let Err(err) = writer.flush() {
+                let msg = format_writer_failure(
+                    "flush",
+                    state.completed_span_writer_path.as_deref(),
+                    &err,
+                );
+                state.writer_failure = Some(msg.clone());
+                if self.options.strict_mode() {
+                    return Err(ImportError::Io {
+                        operation: "flush completed span jsonl writer",
+                        context: state.completed_span_writer_path.as_ref().map_or_else(
+                            || "completed-span-jsonl".to_owned(),
+                            |p| p.display().to_string(),
+                        ),
+                        reason: err.to_string(),
+                    });
+                }
+            }
         }
         Ok(())
     }
@@ -272,44 +286,44 @@ impl TracingIntakeSession {
     }
 }
 impl TracingIntakeSessionBuilder {
-    #[must_use]
     /// Enables or disables strict mode for conversion warnings.
+    #[must_use]
     pub fn strict(mut self, strict: bool) -> Self {
         self.recorder_builder = self.recorder_builder.strict(strict);
         self
     }
-    #[must_use]
     /// Sets service version metadata for converted run output.
+    #[must_use]
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.recorder_builder = self.recorder_builder.service_version(service_version);
         self
     }
-    #[must_use]
     /// Sets explicit run id metadata for converted run output.
+    #[must_use]
     pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
         self.recorder_builder = self.recorder_builder.run_id(run_id);
         self
     }
-    #[must_use]
     /// Sets open/completed in-memory retention limits.
+    #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.recorder_builder = self.recorder_builder.limits(limits);
         self
     }
-    #[must_use]
     /// Sets maximum concurrently tracked open candidate spans.
+    #[must_use]
     pub fn max_open_spans(mut self, v: usize) -> Self {
         self.recorder_builder = self.recorder_builder.max_open_spans(v);
         self
     }
-    #[must_use]
     /// Sets maximum retained completed candidate spans in memory.
+    #[must_use]
     pub fn max_completed_spans(mut self, v: usize) -> Self {
         self.recorder_builder = self.recorder_builder.max_completed_spans(v);
         self
     }
-    #[must_use]
     /// Enables completed-span JSONL output at the given path.
+    #[must_use]
     ///
     /// Records are appended as spans close using the stable wrapper shape
     /// `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
@@ -317,8 +331,8 @@ impl TracingIntakeSessionBuilder {
         self.completed_span_jsonl_path = Some(path.as_ref().to_path_buf());
         self
     }
-    #[must_use]
     /// Enables Run JSON output on shutdown at the given path.
+    #[must_use]
     pub fn run_json_path(mut self, path: impl AsRef<Path>) -> Self {
         self.run_json_path = Some(path.as_ref().to_path_buf());
         self
@@ -333,7 +347,8 @@ impl TracingIntakeSessionBuilder {
         if let Some(path) = self.completed_span_jsonl_path {
             let file = OpenOptions::new()
                 .create(true)
-                .append(true)
+                .write(true)
+                .truncate(true)
                 .open(&path)
                 .map_err(|err| ImportError::Io {
                     operation: "open completed span jsonl path",
@@ -342,6 +357,7 @@ impl TracingIntakeSessionBuilder {
                 })?;
             let mut state = lock_state(&recorder.state);
             state.completed_span_writer = Some(BufWriter::new(file));
+            state.completed_span_writer_path = Some(path);
         }
         Ok(TracingIntakeSession {
             recorder,
@@ -498,11 +514,19 @@ where
                     Ok(()) => match writer.write_all(b"\n") {
                         Ok(()) => {}
                         Err(err) => {
-                            state.writer_failure = Some(err.to_string());
+                            state.writer_failure = Some(format_writer_failure(
+                                "write newline",
+                                state.completed_span_writer_path.as_deref(),
+                                &err,
+                            ));
                         }
                     },
                     Err(err) => {
-                        state.writer_failure = Some(err.to_string());
+                        state.writer_failure = Some(format_writer_failure(
+                            "write span record",
+                            state.completed_span_writer_path.as_deref(),
+                            &err,
+                        ));
                     }
                 }
             }
@@ -519,6 +543,15 @@ fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
         .fields()
         .iter()
         .any(|f| f.name().starts_with("tt."))
+}
+
+fn format_writer_failure(
+    operation: &str,
+    path: Option<&Path>,
+    err: &dyn std::error::Error,
+) -> String {
+    let path_text = path.map_or_else(|| "<unknown>".to_owned(), |p| p.display().to_string());
+    format!("completed-span JSONL writer failed to {operation} at {path_text}: {err}")
 }
 fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
     fields.keys().any(|k| k.starts_with("tt."))

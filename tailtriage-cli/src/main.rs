@@ -4,7 +4,7 @@ use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
-use tailtriage_tracing::{import_jsonl_path, ImportOptions};
+use tailtriage_tracing::{import_jsonl_path_with_mode, ImportOptions, JsonlParseMode};
 
 #[derive(Debug, Parser)]
 #[command(name = "tailtriage")]
@@ -121,7 +121,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     )
                     .into());
                 }
-                let imported = import_jsonl_path(spans_jsonl, options)?;
+                let parse_mode = match input_format {
+                    TracingInputFormat::TailtriageSpanJsonl => {
+                        JsonlParseMode::TailtriageWrapperOnly
+                    }
+                    TracingInputFormat::Auto | TracingInputFormat::TracingSubscriberFmtJson => {
+                        JsonlParseMode::Compatible
+                    }
+                };
+                let imported = import_jsonl_path_with_mode(spans_jsonl, options, parse_mode)?;
                 for warning in imported.warnings() {
                     eprintln!("warning: {}", warning.message());
                 }

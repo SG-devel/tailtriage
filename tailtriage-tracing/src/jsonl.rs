@@ -24,6 +24,31 @@ pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
+    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
+}
+
+/// Parse mode for tracing JSONL import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonlParseMode {
+    /// Accept stable wrapper records plus compatibility legacy shapes.
+    Compatible,
+    /// Accept only the stable wrapper shape `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
+    TailtriageWrapperOnly,
+}
+
+/// Imports newline-delimited JSON records from a reader with an explicit parse mode.
+///
+/// # Errors
+///
+/// Returns [`ImportError::Io`] for reader I/O failures,
+/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
+/// and existing field/conversion errors for malformed tailtriage span records
+/// or strict conversion violations surfaced by [`run_from_span_records`].
+pub fn import_jsonl_reader_with_mode<R: Read>(
+    reader: R,
+    options: ImportOptions,
+    mode: JsonlParseMode,
+) -> Result<ImportedRun, ImportError> {
     let mut spans = Vec::new();
     let mut parse_warnings = Vec::new();
     let reader = BufReader::new(reader);
@@ -46,7 +71,7 @@ pub fn import_jsonl_reader<R: Read>(
                 reason: err.to_string(),
             })?;
 
-        if let Some(span) = parse_record(line_no + 1, &value, strict, &mut parse_warnings)? {
+        if let Some(span) = parse_record(line_no + 1, &value, strict, &mut parse_warnings, mode)? {
             spans.push(span);
         }
     }
@@ -87,13 +112,28 @@ pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
+    import_jsonl_path_with_mode(path, options, JsonlParseMode::Compatible)
+}
+
+/// Imports newline-delimited JSON records from a filesystem path with an explicit parse mode.
+///
+/// # Errors
+///
+/// Returns [`ImportError::Io`] for path open/read failures,
+/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSON lines,
+/// and strict/field errors for invalid span records.
+pub fn import_jsonl_path_with_mode(
+    path: impl AsRef<Path>,
+    options: ImportOptions,
+    mode: JsonlParseMode,
+) -> Result<ImportedRun, ImportError> {
     let path_ref = path.as_ref();
     let file = std::fs::File::open(path_ref).map_err(|err| ImportError::Io {
         operation: "open jsonl path",
         context: path_ref.display().to_string(),
         reason: err.to_string(),
     })?;
-    import_jsonl_reader(file, options)
+    import_jsonl_reader_with_mode(file, options, mode)
 }
 
 #[derive(serde::Deserialize)]
@@ -102,11 +142,13 @@ struct WrappedSpanRecord {
     span: SpanRecord,
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_record(
     line_no: usize,
     value: &Value,
     strict: bool,
     warnings: &mut Vec<crate::ImportWarning>,
+    mode: JsonlParseMode,
 ) -> Result<Option<SpanRecord>, ImportError> {
     if let Ok(wrapped) = serde_json::from_value::<WrappedSpanRecord>(value.clone()) {
         if wrapped.format == "tailtriage.tracing-span.v1" {
@@ -124,6 +166,16 @@ fn parse_record(
     }
     if value.get("format").is_some() && value.get("span").is_some() {
         let message = format!("line {line_no}: unsupported span format marker");
+        if strict {
+            return Err(ImportError::StrictViolation(message));
+        }
+        warnings.push(crate::ImportWarning::new(message));
+        return Ok(None);
+    }
+    if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
+        let message = format!(
+            "line {line_no}: expected stable wrapper shape {{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{{...}}}}"
+        );
         if strict {
             return Err(ImportError::StrictViolation(message));
         }
