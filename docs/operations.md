@@ -488,3 +488,14 @@ A practical production loop:
 Treat the workflow as iterative triage.
 
 Do not treat one report as final proof.
+
+
+## Tracing intake operations
+
+- Completed-span JSONL can grow with captured completed spans; size outputs accordingly.
+- `completed_span_jsonl_path(...)` output files are created or truncated when the session is built.
+- Configure `max_open_spans` and `max_completed_spans` to keep memory bounded.
+- Completed-span JSONL streaming happens before in-memory `max_completed_spans` retention, so the file can preserve spans beyond in-memory retained completed spans.
+- Import warnings and lifecycle warnings mean evidence may be incomplete and should be treated as triage caveats.
+- Tracing-only intake does not provide runtime-pressure evidence by itself; runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
+- Treat tracing-import output like all tailtriage output: evidence-ranked suspects and next checks are leads, not proof of root cause.
