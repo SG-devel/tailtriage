@@ -231,7 +231,6 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
-        self.flush_completed_span_writer()?;
         self.snapshot_run()
     }
 }
@@ -282,7 +281,6 @@ impl TracingIntakeSession {
     ///
     /// Returns an error when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
-        self.recorder.flush_completed_span_writer()?;
         self.recorder.snapshot_run()
     }
     /// Finalizes intake and optionally writes run JSON when configured.
