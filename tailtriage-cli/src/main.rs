@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use serde_json::Value;
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
@@ -63,6 +64,9 @@ enum ImportCommand {
         /// Fail on malformed/incomplete tailtriage spans.
         #[arg(long)]
         strict: bool,
+        /// Input format hint for tracing JSONL import.
+        #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
+        input_format: TracingInputFormat,
     },
 }
 
@@ -70,6 +74,12 @@ enum ImportCommand {
 enum OutputFormat {
     Text,
     Json,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum TracingInputFormat {
+    Auto,
+    TailtriageSpanJsonl,
+    TracingSubscriberFmtJson,
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -84,6 +94,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 service_version,
                 run_id,
                 strict,
+                input_format,
             } => {
                 let mut options = ImportOptions::new(service).strict(strict);
                 if let Some(service_version) = service_version {
@@ -93,6 +104,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     options = options.run_id(run_id);
                 }
 
+                validate_tracing_input_hint(&spans_jsonl, input_format)?;
                 let imported = import_jsonl_path(spans_jsonl, options)?;
                 for warning in imported.warnings() {
                     eprintln!("warning: {}", warning.message());
@@ -100,7 +112,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if imported.run().requests.is_empty() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
-                        "tracing import produced zero request events; tailtriage analyze requires at least one request event",
+                        "tracing import produced zero request events; configure TracingIntakeSession layer capture for completed tt.* spans, then import that completed-span JSONL",
                     )
                     .into());
                 }
@@ -145,6 +157,39 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    Ok(())
+}
+
+fn validate_tracing_input_hint(
+    path: &PathBuf,
+    format: TracingInputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if matches!(format, TracingInputFormat::TracingSubscriberFmtJson) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "input-format tracing-subscriber-fmt-json is not supported for import in this release; tailtriage requires completed span records with started_at_unix_ms and finished_at_unix_ms. Use TracingIntakeSession layer + completed_span_jsonl_path, then run: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run.json>",
+        ).into());
+    }
+    if matches!(
+        format,
+        TracingInputFormat::TailtriageSpanJsonl | TracingInputFormat::Auto
+    ) {
+        let sample = std::fs::read_to_string(path)?;
+        if let Some(line) = sample.lines().find(|l| !l.trim().is_empty()) {
+            let value: Value = serde_json::from_str(line)?;
+            let looks_fmt = value.get("timestamp").is_some()
+                && value.get("level").is_some()
+                && value.get("fields").is_some()
+                && value.get("span").is_none();
+            if looks_fmt {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "input looks like tracing_subscriber fmt JSON logs, which do not contain completed-span start/end records required by tailtriage import. Configure TracingIntakeSession::builder(...).completed_span_jsonl_path(...), capture completed tt.* spans, then import that JSONL.",
+                )
+                .into());
+            }
+        }
+    }
     Ok(())
 }
 

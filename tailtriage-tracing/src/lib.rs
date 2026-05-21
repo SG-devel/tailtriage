@@ -47,8 +47,8 @@ pub use convention::{
 pub use error::ImportError;
 pub use jsonl::{import_jsonl_path, import_jsonl_reader};
 pub use recorder::{
-    RecorderLimits, TailtriageLayer, TracingRecorder, TracingRecorderBuilder,
-    DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
+    RecorderLimits, TailtriageLayer, TracingIntakeSession, TracingIntakeSessionBuilder,
+    TracingRecorder, TracingRecorderBuilder, DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 

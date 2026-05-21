@@ -8,7 +8,7 @@ This crate is intentionally narrow:
 - It defines typed intake records and import option/result types.
 - It converts typed `SpanRecord` values with `run_from_span_records`.
 - It imports JSONL from readers/paths when records contain completed span timing (`import_jsonl_reader` / `import_jsonl_path`).
-- It provides an in-process `tracing_subscriber::Layer` recorder (`TracingRecorder`) for completed `tt.*` spans.
+- It provides an in-process `tracing_subscriber::Layer` session (`TracingIntakeSession`) for completed `tt.*` spans.
 - It optionally couples live tracing intake with Tokio runtime snapshots via `tokio::TracingTokioSession`.
 - It does **not** implement OpenTelemetry or OTLP.
 - It does **not** change `tailtriage-analyzer`.
@@ -22,13 +22,12 @@ Public APIs:
 - `import_jsonl_reader(reader, options)`
 - `import_jsonl_path(path, options)`
 
-### Canonical JSONL shape (stable authoring contract)
+### Canonical completed-span JSONL shape (stable authoring contract)
 
 Recommended normalized line shape for tests and integrations:
 
 ```json
-{
-  "span": {
+{ "format": "tailtriage.tracing-span.v1", "span": {
     "name": "http.request",
     "started_at_unix_ms": 1700000000000,
     "finished_at_unix_ms": 1700000000120,
@@ -39,8 +38,7 @@ Recommended normalized line shape for tests and integrations:
       "tt.route": "/checkout",
       "tt.outcome": "ok"
     }
-  }
-}
+  } }
 ```
 
 Notes:
@@ -55,7 +53,7 @@ Notes:
 - Malformed JSON line input is an import error in both strict and non-strict mode.
 - In non-strict mode, syntactically valid but malformed/incomplete `tt.*` records are skipped with warnings.
 - In strict mode, malformed/incomplete `tt.*` records are import errors.
-- Tolerant import of close-event-like records is best-effort compatibility only; it is not the preferred/stable authoring format.
+- Tolerant import of historical unmarked normalized lines remains supported for compatibility.
 
 CLI import for the same shape:
 
@@ -91,12 +89,12 @@ describes the stable field contract used by import and live recording.
 | `tt.depth_at_start` | queue (optional) | unsigned integer | omitted when unknown (no warning) | Queue depth snapshot when queued work started waiting. |
 
 
-## Live tracing recorder
+## Live tracing intake session
 
 ```rust,no_run
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
-use tailtriage_tracing::TracingRecorder;
+use tailtriage_tracing::TracingIntakeSession;
 
 async fn handle_request() {
     let request = tracing::info_span!(
@@ -114,18 +112,19 @@ async fn handle_request() {
 }
 
 # fn main() -> Result<(), tailtriage_tracing::ImportError> {
-let recorder = TracingRecorder::builder("checkout-service")
+let session = TracingIntakeSession::builder("checkout-service")
     .service_version("1.2.3")
     .run_id("run-42")
     .strict(false)
+    .run_json_path("tailtriage-run.json")
     .build();
 
-let subscriber = tracing_subscriber::registry().with(recorder.layer());
+let subscriber = tracing_subscriber::registry().with(session.layer());
 tracing::subscriber::with_default(subscriber, || {
     // run `handle_request()` on your async runtime
 });
 
-let imported = recorder.shutdown()?;
+let imported = session.shutdown()?;
 let run = imported.run();
 # let _ = run;
 # Ok(())
