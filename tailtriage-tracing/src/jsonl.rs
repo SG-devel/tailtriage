@@ -569,7 +569,8 @@ mod tests {
 
     #[test]
     fn close_event_shape_with_explicit_timestamps_is_supported() {
-        let input = r#"{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}},"started_at_unix_ms":5,"finished_at_unix_ms":8}"#;
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}},"started_at_unix_ms":5,"finished_at_unix_ms":8}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
@@ -590,7 +591,8 @@ mod tests {
 
     #[test]
     fn close_event_shape_with_nested_span_timestamps_is_supported() {
-        let input = r#"{"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
@@ -851,7 +853,8 @@ mod tests {
 
     #[test]
     fn normalized_stage_fields_import_from_outer_fields() {
-        let input = r#"{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}"#;
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
+{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
@@ -859,7 +862,8 @@ mod tests {
 
     #[test]
     fn normalized_stage_fields_import_from_top_level_tt_keys() {
-        let input = r#"{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"stage","tt.request_id":"r1","tt.stage":"cache"}"#;
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
+{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"stage","tt.request_id":"r1","tt.stage":"cache"}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "cache");
@@ -867,7 +871,8 @@ mod tests {
 
     #[test]
     fn normalized_queue_fields_import_from_outer_fields() {
-        let input = r#"{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}"#;
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
+{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].depth_at_start, Some(3));
@@ -875,7 +880,8 @@ mod tests {
 
     #[test]
     fn normalized_queue_fields_import_from_top_level_tt_keys() {
-        let input = r#"{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":7}"#;
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
+{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":7}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].depth_at_start, Some(7));

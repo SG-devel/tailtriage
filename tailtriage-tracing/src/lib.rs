@@ -36,6 +36,7 @@ mod recorder;
 pub mod tokio;
 mod types;
 
+use std::collections::BTreeSet;
 use tailtriage_core::{
     BuildError, CaptureMode, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
 };
@@ -227,6 +228,21 @@ where
         )));
     }
 
+    let capture_limits = CaptureMode::Light.core_defaults();
+    let retained_request_ids = retained_request_ids(&requests, capture_limits.max_requests);
+    filter_correlated_stages(
+        &mut stages,
+        &retained_request_ids,
+        options.strict_mode(),
+        &mut warnings,
+    )?;
+    filter_correlated_queues(
+        &mut queues,
+        &retained_request_ids,
+        options.strict_mode(),
+        &mut warnings,
+    )?;
+
     let started_at_unix_ms = min_start.unwrap_or_else(tailtriage_core::unix_time_ms);
     let finished_at_unix_ms = max_finish.unwrap_or(started_at_unix_ms);
     let run_id = options.run_id_ref().map_or_else(
@@ -237,7 +253,7 @@ where
     let mut builder_options = RunBuilderOptions::new(options.service_name())
         .run_id(run_id)
         .mode(CaptureMode::Light)
-        .capture_limits(CaptureMode::Light.core_defaults())
+        .capture_limits(capture_limits)
         .strict_lifecycle(false)
         .started_at_unix_ms(started_at_unix_ms)
         .finished_at_unix_ms(finished_at_unix_ms)
@@ -288,6 +304,64 @@ where
     attach_durable_conversion_warnings(&mut run, &warnings);
 
     Ok(ImportedRun::new(run, warnings))
+}
+
+fn retained_request_ids(requests: &[RequestEvent], max_requests: usize) -> BTreeSet<String> {
+    requests
+        .iter()
+        .take(max_requests)
+        .map(|request| request.request_id.clone())
+        .collect()
+}
+
+fn filter_correlated_stages(
+    stages: &mut Vec<StageEvent>,
+    retained_request_ids: &BTreeSet<String>,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<(), ImportError> {
+    let mut filtered = Vec::with_capacity(stages.len());
+    for stage in stages.drain(..) {
+        if retained_request_ids.contains(&stage.request_id) {
+            filtered.push(stage);
+        } else {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "skipped stage span for request_id '{}' because no retained request event was imported",
+                    stage.request_id
+                ),
+            )?;
+        }
+    }
+    *stages = filtered;
+    Ok(())
+}
+
+fn filter_correlated_queues(
+    queues: &mut Vec<QueueEvent>,
+    retained_request_ids: &BTreeSet<String>,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<(), ImportError> {
+    let mut filtered = Vec::with_capacity(queues.len());
+    for queue in queues.drain(..) {
+        if retained_request_ids.contains(&queue.request_id) {
+            filtered.push(queue);
+        } else {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "skipped queue span for request_id '{}' because no retained request event was imported",
+                    queue.request_id
+                ),
+            )?;
+        }
+    }
+    *queues = filtered;
+    Ok(())
 }
 
 fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
@@ -361,7 +435,7 @@ fn required_string(
 }
 
 fn is_durable_conversion_warning(message: &str) -> bool {
-    message.starts_with("skipped span")
+    message.starts_with("skipped ")
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
@@ -536,6 +610,129 @@ mod tests {
             .unwrap()
             .run()
             .clone();
+        assert_eq!(run.queues.len(), 1);
+    }
+
+    #[test]
+    fn non_strict_orphan_stage_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st", 102, 119)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r-orphan")
+                .field(TT_STAGE, "db"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 0);
+        let warning = "skipped stage span for request_id 'r-orphan' because no retained request event was imported";
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains(warning)));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains(warning)));
+    }
+
+    #[test]
+    fn strict_orphan_stage_fails() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st", 102, 119)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r-orphan")
+                .field(TT_STAGE, "db"),
+        ];
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("no retained request event"));
+            }
+            _ => panic!("expected StrictViolation"),
+        }
+    }
+
+    #[test]
+    fn non_strict_orphan_queue_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("q", 102, 119)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r-orphan")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().queues.len(), 0);
+        let warning = "skipped queue span for request_id 'r-orphan' because no retained request event was imported";
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains(warning)));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains(warning)));
+    }
+
+    #[test]
+    fn strict_orphan_queue_fails() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("q", 102, 119)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r-orphan")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("no retained request event"));
+            }
+            _ => panic!("expected StrictViolation"),
+        }
+    }
+
+    #[test]
+    fn matched_request_stage_queue_are_retained() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st", 105, 115)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q", 102, 103)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
         assert_eq!(run.queues.len(), 1);
     }
 
@@ -921,6 +1118,10 @@ mod tests {
     #[test]
     fn valid_optional_fields_are_applied() {
         let spans = vec![
+            SpanRecord::new("req", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
             SpanRecord::new("st", 10, 20)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
@@ -942,11 +1143,17 @@ mod tests {
 
     #[test]
     fn span_duration_us_is_used_for_stage_latency() {
-        let spans = vec![SpanRecord::new("stage", 100, 100)
-            .duration_us(123)
-            .field(TT_KIND, "stage")
-            .field(TT_REQUEST_ID, "r1")
-            .field(TT_STAGE, "db")];
+        let spans = vec![
+            SpanRecord::new("req", 99, 101)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("stage", 100, 100)
+                .duration_us(123)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
         let run = run_from_span_records(spans, ImportOptions::new("svc"))
             .unwrap()
             .run()
