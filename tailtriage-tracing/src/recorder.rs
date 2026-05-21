@@ -237,7 +237,30 @@ impl TracingRecorder {
 }
 
 impl TracingIntakeSession {
-    /// Creates a builder with required service name metadata.
+    /// Creates a tracing intake session builder with required service metadata.
+    ///
+    /// ```no_run
+    /// use tailtriage_tracing::TracingIntakeSession;
+    /// use tracing_subscriber::prelude::*;
+    ///
+    /// let session = TracingIntakeSession::builder("checkout")
+    ///     .completed_span_jsonl_path("completed-spans.jsonl")
+    ///     .build()
+    ///     .expect("session should build");
+    ///
+    /// let subscriber = tracing_subscriber::registry().with(session.layer());
+    /// tracing::subscriber::with_default(subscriber, || {
+    ///     let span = tracing::info_span!(
+    ///         "request",
+    ///         tt.kind = "request",
+    ///         tt.request_id = "r1",
+    ///         tt.route = "/checkout"
+    ///     );
+    ///     drop(span);
+    /// });
+    ///
+    /// let _ = session.shutdown().expect("shutdown should succeed");
+    /// ```
     pub fn builder(service_name: impl Into<String>) -> TracingIntakeSessionBuilder {
         TracingIntakeSessionBuilder {
             recorder_builder: TracingRecorder::builder(service_name),
@@ -323,10 +346,10 @@ impl TracingIntakeSessionBuilder {
         self
     }
     /// Enables completed-span JSONL output at the given path.
-    #[must_use]
     ///
-    /// Records are appended as spans close using the stable wrapper shape
-    /// `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
+    /// Writes completed spans as spans close using the stable wrapper shape.
+    /// The file is created or truncated when the session is built.
+    #[must_use]
     pub fn completed_span_jsonl_path(mut self, path: impl AsRef<Path>) -> Self {
         self.completed_span_jsonl_path = Some(path.as_ref().to_path_buf());
         self
@@ -367,25 +390,22 @@ impl TracingIntakeSessionBuilder {
 }
 
 impl TracingRecorderBuilder {
-    /// Sets service version metadata.
-    #[must_use]
     /// Sets service version metadata for converted run output.
+    #[must_use]
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.options = self.options.service_version(service_version);
         self
     }
 
-    /// Sets explicit run-id metadata.
-    #[must_use]
     /// Sets explicit run id metadata for converted run output.
+    #[must_use]
     pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
         self.options = self.options.run_id(run_id);
         self
     }
 
-    /// Enables or disables strict conversion mode.
-    #[must_use]
     /// Enables or disables strict mode for conversion warnings.
+    #[must_use]
     pub fn strict(mut self, strict: bool) -> Self {
         self.options = self.options.strict(strict);
         self
@@ -400,9 +420,8 @@ impl TracingRecorderBuilder {
             limits: self.limits,
         }
     }
-    /// Sets both open/completed in-memory span retention limits.
-    #[must_use]
     /// Sets open/completed in-memory retention limits.
+    #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.limits = limits;
         self
@@ -1517,5 +1536,36 @@ mod tests {
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));
         });
+    }
+
+    #[test]
+    fn intake_session_wrapper_jsonl_and_truncate_behavior() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        std::fs::write(
+            &spans_path,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"old","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"old","tt.route":"/old"}}}"#,
+        )
+        .unwrap();
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span);
+        });
+        let imported = session.shutdown().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        assert!(!raw.contains("\"old\""));
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
     }
 }

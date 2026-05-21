@@ -1077,6 +1077,27 @@ mod tests {
     }
 
     #[test]
+    fn wrapper_only_mode_accepts_wrapper_and_rejects_unwrapped() {
+        let wrapped = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(wrapped),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
     fn empty_service_name_is_rejected_for_jsonl_import() {
         let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
