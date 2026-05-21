@@ -93,10 +93,27 @@ describes the stable field contract used by import and live recording.
 
 ## Live tracing recorder
 
-```rust
+```rust,no_run
+use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 use tailtriage_tracing::TracingRecorder;
 
+async fn handle_request() {
+    let request = tracing::info_span!(
+        "http.request",
+        tt.kind = "request",
+        tt.request_id = "req-42",
+        tt.route = "/checkout",
+        tt.outcome = "ok"
+    );
+    async {
+        // request work goes here
+    }
+    .instrument(request)
+    .await;
+}
+
+# fn main() -> Result<(), tailtriage_tracing::ImportError> {
 let recorder = TracingRecorder::builder("checkout-service")
     .service_version("1.2.3")
     .run_id("run-42")
@@ -105,22 +122,14 @@ let recorder = TracingRecorder::builder("checkout-service")
 
 let subscriber = tracing_subscriber::registry().with(recorder.layer());
 tracing::subscriber::with_default(subscriber, || {
-    {
-        let request = tracing::info_span!(
-            "http.request",
-            tt.kind = "request",
-            tt.request_id = "req-42",
-            tt.route = "/checkout",
-            tt.outcome = "ok"
-        );
-        let _entered = request.enter();
-    }
+    // run `handle_request()` on your async runtime
 });
 
 let imported = recorder.shutdown()?;
 let run = imported.run();
-assert_eq!(run.requests.len(), 1);
-# Ok::<(), tailtriage_tracing::ImportError>(())
+# let _ = run;
+# Ok(())
+# }
 ```
 
 ## Live recorder tracking rule
@@ -151,6 +160,7 @@ The live recorder is bounded by default (`DEFAULT_MAX_OPEN_SPANS`, `DEFAULT_MAX_
 
 Use `#[tracing::instrument(fields(...))]` or `.instrument(...)` so span fields attach to async work correctly.
 Do not hold a manual entered-span guard across `.await`; async spans may enter/exit many times, and this recorder finalizes completed work on `on_close` (drop), not enter/exit transitions.
+Use `snapshot_run()` for non-consuming inspection, and `shutdown()` when finalizing via a consumed recorder handle.
 Live recorder latency/wait precision uses monotonic elapsed duration (`duration_us`) captured at close time.
 
 Tracing-only import/recording provides request, stage, and queue evidence. It

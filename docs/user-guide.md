@@ -47,27 +47,41 @@ tailtriage analyze tailtriage-run.json
 
 Live in-memory recorder:
 
-```rust
+```rust,no_run
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_tracing::TracingRecorder;
+use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 
-let recorder = TracingRecorder::builder("checkout-service").build();
-let subscriber = tracing_subscriber::registry().with(recorder.layer());
-
-tracing::subscriber::with_default(subscriber, || {
+async fn handle_request() {
     let request = tracing::info_span!(
         "http.request",
         tt.kind = "request",
         tt.request_id = "req-1",
         tt.route = "/checkout"
     );
-    let _entered = request.enter();
+    async {
+        // request work goes here
+    }
+    .instrument(request)
+    .await;
+}
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let recorder = TracingRecorder::builder("checkout-service").build();
+let subscriber = tracing_subscriber::registry().with(recorder.layer());
+
+tracing::subscriber::with_default(subscriber, || {
+    // run `handle_request()` on your async runtime
 });
 
 let imported = recorder.shutdown()?;
 let report = analyze_run(imported.run(), AnalyzeOptions::default());
+# let _ = report;
+# Ok(())
+# }
 ```
+Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` consumes the recorder handle for finalization.
 
 This live path supports in-process diagnosis without writing an intermediate Run file.
 
