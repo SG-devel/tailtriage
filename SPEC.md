@@ -160,11 +160,17 @@ Analyzer configuration contract:
 
 `tailtriage-tracing` is an optional integration surface for services that already emit Rust `tracing` spans.
 
-- converts tracing-shaped request/stage/queue evidence into standard `Run` values
-- supports offline JSONL import and a live in-memory `TracingRecorder`
-- reuses the same analyzer/report workflow as native capture artifacts
-- does not alter analyzer semantics
-- does not provide OTel/OTLP or a tracing backend
+- primary live path is `TracingIntakeSession` / `TracingIntakeSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
+- live session output can write standard Run JSON on shutdown via `run_json_path(...)`
+- live session output can stream stable completed-span JSONL as spans close via `completed_span_jsonl_path(...)`
+- stable completed-span JSONL wrapper format is:
+  `{"format":"tailtriage.tracing-span.v1","span":{...}}`
+- CLI imports that wrapper shape with:
+  `tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run.json>`
+- tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
+- `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
+- tracing-only intake does not fabricate runtime-pressure evidence without runtime snapshots / Tokio sampler coupling
+- OTel/OTLP and tracing backend behavior are out of scope
 
 ### 5.10 Analyzer CLI (`tailtriage-cli`)
 

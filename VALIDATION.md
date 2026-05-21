@@ -35,6 +35,15 @@ Normal CI keeps deterministic diagnostics and docs contracts as gates but does n
 | Collector-limit stress | Yes (smoke profile + summary validation) | bounded drop/truncation/warning/downgrade behavior under stress | zero drops under all load |
 | Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
 
+Tracing-intake contract coverage is currently validated by unit/package tests and examples that exercise:
+- stable wrapper fixture (`tailtriage.tracing-span.v1`)
+- wrapper-only import mode and compatible-mode behavior
+- CLI `--input-format` guardrails
+- `TracingIntakeSession` request/stage/queue capture and conversion
+- example compile/run coverage under package example tests
+
+These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim arbitrary `tracing_subscriber::fmt().json()` import support, do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
+
 ## Deterministic corpus validation
 The deterministic benchmark validates:
 - evidence-ranked suspect correctness against corpus labels
