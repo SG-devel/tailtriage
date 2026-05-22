@@ -58,16 +58,15 @@ let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .build()?;
 let subscriber = tracing_subscriber::registry().with(session.layer());
-tracing::subscriber::with_default(subscriber, || async {
-    let span = tracing::info_span!(
-        "request",
-        tt.kind = "request",
-        tt.request_id = "req-1",
-        tt.route = "/checkout",
-        tt.outcome = "ok",
-    );
-    work().instrument(span).await;
-}.await);
+let _guard = tracing::subscriber::set_default(subscriber);
+let span = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = "ok",
+);
+work().instrument(span).await;
 session.shutdown()?;
 # Ok(())
 }

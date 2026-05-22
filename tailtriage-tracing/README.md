@@ -16,28 +16,33 @@ It is **not**:
 
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;
+use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# async fn work() {}
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
 let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
     .build()?;
 
 let subscriber = tracing_subscriber::registry().with(session.layer());
-tracing::subscriber::with_default(subscriber, || {
-    let request = tracing::info_span!(
-        "request",
-        tt.kind = "request",
-        tt.request_id = "req-1",
-        tt.route = "/checkout",
-        tt.outcome = "ok"
-    );
-    let _entered = request.enter();
-});
+let _guard = tracing::subscriber::set_default(subscriber);
+let request = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = "ok"
+);
+work().instrument(request).await;
 
 session.shutdown()?;
 # Ok(())
+# }
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+#   let _ = run();
+#   Ok(())
 # }
 ```
 
@@ -72,6 +77,8 @@ Stable completed-span JSONL records use this wrapper:
 
 `format` is a wrapper-level field (not a `SpanRecord` field).
 
+Arbitrary `tracing_subscriber::fmt().json()` log JSON is rejected by import. Import does not guess span timing from line receive time: provide explicit unix-ms start/end timestamps on completed spans.
+
 ## `tt.*` field convention
 
 | Span kind | Required fields | Optional fields |
@@ -95,6 +102,7 @@ Stable completed-span JSONL records use this wrapper:
 ## Runtime-pressure limitation
 
 Tracing-only intake does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
+Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request span event. Library snapshots taken before completed requests may still be zero-request for inspection.
 
 ## Examples
 

@@ -492,6 +492,12 @@ Do not treat one report as final proof.
 
 ## Tracing intake operations
 
+- Import expects completed `tt.*` span JSONL input (stable wrapper format), not arbitrary tracing log JSON.
+- Arbitrary tracing log JSON (for example plain `tracing_subscriber::fmt().json()` output) is not import input.
+- Import writes Run JSON; analysis is a separate `tailtriage analyze` step.
+- Timing is not guessed from line receive time; completed span records must carry explicit unix-ms start/end timestamps.
+- Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event.
+- Library snapshots may still be zero-request when used for non-persisted inspection during active captures.
 - Completed-span JSONL can grow with captured completed spans; size outputs accordingly.
 - `completed_span_jsonl_path(...)` output files are created or truncated when the session is built.
 - Configure `max_open_spans` and `max_completed_spans` to keep memory bounded.

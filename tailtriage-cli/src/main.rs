@@ -183,20 +183,28 @@ fn input_looks_like_tracing_fmt_json(path: &std::path::Path) -> Result<bool, std
             continue;
         }
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            let has_span_timestamps =
-                value
+            let has_start = value.get("started_at_unix_ms").is_some()
+                || value.get("start_unix_ms").is_some()
+                || value
                     .get("span")
                     .and_then(|s| s.as_object())
                     .is_some_and(|span| {
                         span.contains_key("started_at_unix_ms")
                             || span.contains_key("start_unix_ms")
-                            || span.contains_key("finished_at_unix_ms")
-                            || span.contains_key("end_unix_ms")
                     });
+            let has_end = value.get("finished_at_unix_ms").is_some()
+                || value.get("end_unix_ms").is_some()
+                || value
+                    .get("span")
+                    .and_then(|s| s.as_object())
+                    .is_some_and(|span| {
+                        span.contains_key("finished_at_unix_ms") || span.contains_key("end_unix_ms")
+                    });
+            let has_completed_span_timing = has_start && has_end;
             let looks_like_fmt = value.get("timestamp").is_some()
                 && value.get("level").is_some()
                 && value.get("target").is_some();
-            if looks_like_fmt && !has_span_timestamps {
+            if looks_like_fmt && !has_completed_span_timing {
                 return Ok(true);
             }
         }
