@@ -292,6 +292,7 @@ Key constraints:
 - start inside an active Tokio runtime
 - one successful sampler start per run
 - runtime snapshot retention is bounded by core limits
+- Tokio tracing sessions use the same core `CaptureMode`/`CaptureLimits`/`CaptureLimitsOverride` model (no tracing-specific retention knob)
 - some runtime fields require `tokio_unstable`
 
 Sampler details: [tailtriage-tokio/README.md](../tailtriage-tokio/README.md)

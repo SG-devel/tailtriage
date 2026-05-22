@@ -418,6 +418,12 @@ impl TracingIntakeSessionBuilder {
 }
 
 impl TracingRecorderBuilder {
+    /// Returns capture limits resolved from configured mode/base/override settings.
+    #[must_use]
+    pub fn resolved_capture_limits(&self) -> CaptureLimits {
+        self.options.resolved_capture_limits()
+    }
+
     /// Sets service version metadata for converted run output.
     #[must_use]
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
