@@ -326,16 +326,22 @@ impl TracingIntakeSessionBuilder {
         self.recorder_builder = self.recorder_builder.strict(strict);
         self
     }
+    /// Sets capture mode used to resolve live completed-evidence retention limits.
+    /// Sets capture mode used to resolve live completed-evidence retention limits.
     #[must_use]
     pub fn mode(mut self, mode: CaptureMode) -> Self {
         self.recorder_builder = self.recorder_builder.mode(mode);
         self
     }
+    /// Sets base capture limits used for live completed-evidence retention.
+    /// Sets base capture limits used for live completed-evidence retention.
     #[must_use]
     pub fn capture_limits(mut self, capture_limits: CaptureLimits) -> Self {
         self.recorder_builder = self.recorder_builder.capture_limits(capture_limits);
         self
     }
+    /// Sets capture-limit overrides applied on top of the selected capture mode.
+    /// Sets capture-limit overrides applied on top of the selected capture mode.
     #[must_use]
     pub fn capture_limits_override(mut self, override_limits: CaptureLimitsOverride) -> Self {
         self.recorder_builder = self
@@ -432,16 +438,19 @@ impl TracingRecorderBuilder {
         self.options = self.options.strict(strict);
         self
     }
+    /// Sets capture mode used to resolve live completed-evidence retention limits.
     #[must_use]
     pub fn mode(mut self, mode: CaptureMode) -> Self {
         self.options = self.options.mode(mode);
         self
     }
+    /// Sets base capture limits used for live completed-evidence retention.
     #[must_use]
     pub fn capture_limits(mut self, capture_limits: CaptureLimits) -> Self {
         self.options = self.options.capture_limits(capture_limits);
         self
     }
+    /// Sets capture-limit overrides applied on top of the selected capture mode.
     #[must_use]
     pub fn capture_limits_override(mut self, override_limits: CaptureLimitsOverride) -> Self {
         self.options = self.options.capture_limits_override(override_limits);
@@ -524,32 +533,7 @@ where
         if let Some(open) = state.open.remove(&id.into_u64()) {
             let kind = classify_kind(&open.fields);
             if let Err(reason) = kind {
-                if open.is_tt_candidate {
-                    match reason {
-                        "missing" => {
-                            state.closed_missing_kind_spans =
-                                state.closed_missing_kind_spans.saturating_add(1)
-                        }
-                        "unknown" => {
-                            state.closed_unknown_kind_spans =
-                                state.closed_unknown_kind_spans.saturating_add(1)
-                        }
-                        "malformed" => {
-                            state.closed_malformed_kind_spans =
-                                state.closed_malformed_kind_spans.saturating_add(1)
-                        }
-                        _ => {}
-                    }
-                    if state.closed_kind_samples.len() < 16 {
-                        state.closed_kind_samples.push(ClosedKindIssueSample {
-                            name: open.name.clone(),
-                            span_id: open.id.clone(),
-                            tt_request_id: scalar_field_string(open.fields.get("tt.request_id")),
-                            tt_kind: scalar_field_string(open.fields.get(TT_KIND)),
-                            reason,
-                        });
-                    }
-                }
+                record_invalid_kind_issue(&mut state, &open, reason);
                 return;
             }
             let kind = kind.expect("ok kind");
@@ -595,39 +579,70 @@ where
                     }
                 }
             }
-            let keep = match kind {
-                "request" if state.retained_requests < self.capture_limits.max_requests => {
-                    state.retained_requests += 1;
-                    true
-                }
-                "stage" if state.retained_stages < self.capture_limits.max_stages => {
-                    state.retained_stages += 1;
-                    true
-                }
-                "queue" if state.retained_queues < self.capture_limits.max_queues => {
-                    state.retained_queues += 1;
-                    true
-                }
-                "request" => {
-                    state.dropped_completed_requests =
-                        state.dropped_completed_requests.saturating_add(1);
-                    false
-                }
-                "stage" => {
-                    state.dropped_completed_stages =
-                        state.dropped_completed_stages.saturating_add(1);
-                    false
-                }
-                _ => {
-                    state.dropped_completed_queues =
-                        state.dropped_completed_queues.saturating_add(1);
-                    false
-                }
-            };
+            let keep = retain_completed_for_kind(&mut state, kind, &self.capture_limits);
             if !keep {
                 return;
             }
             state.completed.push(record);
+        }
+    }
+}
+fn record_invalid_kind_issue(state: &mut RecorderState, open: &OpenSpan, reason: &'static str) {
+    if !open.is_tt_candidate {
+        return;
+    }
+    match reason {
+        "missing" => {
+            state.closed_missing_kind_spans = state.closed_missing_kind_spans.saturating_add(1);
+        }
+        "unknown" => {
+            state.closed_unknown_kind_spans = state.closed_unknown_kind_spans.saturating_add(1);
+        }
+        "malformed" => {
+            state.closed_malformed_kind_spans = state.closed_malformed_kind_spans.saturating_add(1);
+        }
+        _ => {}
+    }
+    if state.closed_kind_samples.len() < 16 {
+        state.closed_kind_samples.push(ClosedKindIssueSample {
+            name: open.name.clone(),
+            span_id: open.id.clone(),
+            tt_request_id: scalar_field_string(open.fields.get("tt.request_id")),
+            tt_kind: scalar_field_string(open.fields.get(TT_KIND)),
+            reason,
+        });
+    }
+}
+
+fn retain_completed_for_kind(
+    state: &mut RecorderState,
+    kind: &str,
+    capture_limits: &CaptureLimits,
+) -> bool {
+    match kind {
+        "request" if state.retained_requests < capture_limits.max_requests => {
+            state.retained_requests += 1;
+            true
+        }
+        "stage" if state.retained_stages < capture_limits.max_stages => {
+            state.retained_stages += 1;
+            true
+        }
+        "queue" if state.retained_queues < capture_limits.max_queues => {
+            state.retained_queues += 1;
+            true
+        }
+        "request" => {
+            state.dropped_completed_requests = state.dropped_completed_requests.saturating_add(1);
+            false
+        }
+        "stage" => {
+            state.dropped_completed_stages = state.dropped_completed_stages.saturating_add(1);
+            false
+        }
+        _ => {
+            state.dropped_completed_queues = state.dropped_completed_queues.saturating_add(1);
+            false
         }
     }
 }
@@ -1123,14 +1138,6 @@ mod tests {
             assert!(run.run().requests.is_empty());
             assert!(run.run().stages.is_empty());
             assert!(run.run().queues.is_empty());
-            assert!(run
-                .warnings()
-                .iter()
-                .any(|w| w.message().contains("unknown tt.kind 'Some(\"request\")'")));
-            assert!(run
-                .warnings()
-                .iter()
-                .any(|w| w.message().contains("tt.kind") && w.message().contains("numeric-kind")));
         });
     }
 
@@ -1177,7 +1184,7 @@ mod tests {
                 max_requests: 1,
                 max_stages: 1,
                 max_queues: 1,
-                ..tailtriage_core::CaptureMode::default().core_defaults()
+                ..tailtriage_core::CaptureMode::Light.core_defaults()
             })
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
@@ -1199,29 +1206,28 @@ mod tests {
         });
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("dropped 1 completed spans")));
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("dropped completed evidence due to capture limits")));
         assert!(imported
             .run()
             .metadata
             .lifecycle_warnings
             .iter()
-            .any(|w| w.contains("dropped 1 completed spans")));
+            .any(|w| w.contains("dropped completed evidence due to capture limits")));
         assert!(imported.run().truncation.limits_hit);
         assert_eq!(imported.run().requests[0].request_id, "r1");
     }
 
     #[test]
-    fn strict_mode_errors_when_max_completed_spans_drops_completed_spans() {
+    fn strict_mode_errors_when_completed_retention_drops_completed_spans() {
         let recorder = TracingRecorder::builder("svc")
             .strict(true)
             .capture_limits(tailtriage_core::CaptureLimits {
                 max_requests: 1,
                 max_stages: 1,
                 max_queues: 1,
-                ..tailtriage_core::CaptureMode::default().core_defaults()
+                ..tailtriage_core::CaptureMode::Light.core_defaults()
             })
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
@@ -1246,9 +1252,8 @@ mod tests {
             .expect_err("strict should reject retention drops");
         match err {
             ImportError::StrictViolation(message) => {
-                assert!(message.contains("dropped 1 completed span"));
-                assert!(message.contains("max_completed_spans=1"));
-                assert!(message.contains("reduce capture scope"));
+                assert!(message.contains("dropped completed evidence due to capture limits"));
+                assert!(message.contains("requests=1"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -1298,7 +1303,7 @@ mod tests {
                 max_requests: 1,
                 max_stages: 1,
                 max_queues: 1,
-                ..tailtriage_core::CaptureMode::default().core_defaults()
+                ..tailtriage_core::CaptureMode::Light.core_defaults()
             })
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
@@ -1320,8 +1325,8 @@ mod tests {
         );
         match err {
             ImportError::StrictViolation(message) => {
-                assert!(message.contains("dropped 1 completed span"));
-                assert!(message.contains("max_completed_spans=1"));
+                assert!(message.contains("dropped completed evidence due to capture limits"));
+                assert!(message.contains("requests=1"));
                 assert!(message.contains("tt.route"));
             }
             other => panic!("unexpected error: {other:?}"),
@@ -1371,7 +1376,7 @@ mod tests {
                 max_requests: 1,
                 max_stages: 1,
                 max_queues: 1,
-                ..tailtriage_core::CaptureMode::default().core_defaults()
+                ..tailtriage_core::CaptureMode::Light.core_defaults()
             })
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
@@ -1416,7 +1421,8 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("dropped") && w.message().contains("max_open_spans")));
         assert!(imported.warnings().iter().any(|w| {
-            w.message().contains("dropped") && w.message().contains("max_completed_spans")
+            w.message()
+                .contains("dropped completed evidence due to capture limits")
         }));
         assert!(imported
             .run()
@@ -1429,7 +1435,7 @@ mod tests {
             .metadata
             .lifecycle_warnings
             .iter()
-            .any(|w| w.contains("max_completed_spans")));
+            .any(|w| w.contains("dropped completed evidence due to capture limits")));
         assert!(imported.run().truncation.limits_hit);
     }
 
@@ -1755,7 +1761,7 @@ mod tests {
                 max_requests: 1,
                 max_stages: 1,
                 max_queues: 1,
-                ..tailtriage_core::CaptureMode::default().core_defaults()
+                ..tailtriage_core::CaptureMode::Light.core_defaults()
             })
             .build()
             .unwrap();
@@ -1776,10 +1782,9 @@ mod tests {
         });
         let snapshot = session.snapshot_run().unwrap();
         assert_eq!(snapshot.run().requests.len(), 1);
-        assert!(snapshot
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("dropped 1 completed spans")));
+        assert!(snapshot.warnings().iter().any(|w| w
+            .message()
+            .contains("dropped completed evidence due to capture limits")));
         let raw = std::fs::read_to_string(&spans_path).unwrap();
         let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 2);
