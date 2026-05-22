@@ -12,6 +12,15 @@ It is **not**:
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
+
+## Features
+
+- Default (`jsonl`): typed span records plus JSONL import APIs for offline conversion.
+- `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession` for live subscriber-layer recording.
+- `tokio`: enables `TracingTokioSession` (and includes `live`) for Tokio runtime sampler coupling.
+
+This split is dependency hygiene: CLI/offline JSONL import users do not need the live `tracing_subscriber` layer dependency path.
+
 ## Recommended live session setup
 
 ```rust,no_run
