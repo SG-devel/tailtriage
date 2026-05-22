@@ -14,7 +14,7 @@ use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
     ensure_persistable_run_has_requests, run_from_span_records, FieldValue, ImportError,
-    ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    ImportOptions, ImportedRun, SpanKind, SpanRecord, TT_KIND,
 };
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
@@ -65,7 +65,6 @@ pub struct TailtriageLayer {
 }
 /// Default maximum number of concurrently tracked open candidate spans.
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
-/// Default maximum number of retained completed candidate spans.
 pub const DEFAULT_MAX_COMPLETED_SPANS: usize = 10_000;
 /// Configurable in-memory limits for live tracing recorder retention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,14 +72,11 @@ pub const DEFAULT_MAX_COMPLETED_SPANS: usize = 10_000;
 pub struct RecorderLimits {
     /// Maximum number of concurrently tracked open candidate spans.
     pub max_open_spans: usize,
-    /// Maximum number of retained completed candidate spans.
-    pub max_completed_spans: usize,
 }
 impl Default for RecorderLimits {
     fn default() -> Self {
         Self {
             max_open_spans: DEFAULT_MAX_OPEN_SPANS,
-            max_completed_spans: DEFAULT_MAX_COMPLETED_SPANS,
         }
     }
 }
@@ -90,8 +86,12 @@ struct RecorderState {
     open: BTreeMap<u64, OpenSpan>,
     completed: Vec<SpanRecord>,
     dropped_open_spans: u64,
-    dropped_completed_spans: u64,
+    dropped_completed_requests: u64,
+    dropped_completed_stages: u64,
+    dropped_completed_queues: u64,
     closed_missing_kind_spans: u64,
+    closed_unknown_kind_spans: u64,
+    closed_malformed_kind_spans: u64,
     closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
     writer_failure: Option<String>,
     completed_span_writer_path: Option<PathBuf>,
@@ -126,7 +126,9 @@ struct ClosedMissingKindSample {
 
 struct SnapshotStats {
     dropped_open_spans: u64,
-    dropped_completed_spans: u64,
+    dropped_completed_requests: u64,
+    dropped_completed_stages: u64,
+    dropped_completed_queues: u64,
     open_candidate_count: u64,
     open_samples: Vec<OpenSpanSample>,
     closed_missing_kind_spans: u64,
@@ -188,7 +190,9 @@ impl TracingRecorder {
                 state.completed.clone(),
                 SnapshotStats {
                     dropped_open_spans: state.dropped_open_spans,
-                    dropped_completed_spans: state.dropped_completed_spans,
+                    dropped_completed_requests: state.dropped_completed_requests,
+                    dropped_completed_stages: state.dropped_completed_stages,
+                    dropped_completed_queues: state.dropped_completed_queues,
                     open_candidate_count: count,
                     open_samples: samples,
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
@@ -335,10 +339,24 @@ impl TracingIntakeSessionBuilder {
         self.recorder_builder = self.recorder_builder.max_open_spans(v);
         self
     }
-    /// Sets maximum retained completed candidate spans in memory.
     #[must_use]
-    pub fn max_completed_spans(mut self, v: usize) -> Self {
-        self.recorder_builder = self.recorder_builder.max_completed_spans(v);
+    pub fn mode(mut self, mode: tailtriage_core::CaptureMode) -> Self {
+        self.recorder_builder = self.recorder_builder.mode(mode);
+        self
+    }
+    #[must_use]
+    pub fn capture_limits(mut self, limits: tailtriage_core::CaptureLimits) -> Self {
+        self.recorder_builder = self.recorder_builder.capture_limits(limits);
+        self
+    }
+    #[must_use]
+    pub fn capture_limits_override(
+        mut self,
+        override_limits: tailtriage_core::CaptureLimitsOverride,
+    ) -> Self {
+        self.recorder_builder = self
+            .recorder_builder
+            .capture_limits_override(override_limits);
         self
     }
     /// Enables completed-span JSONL output at the given path.
@@ -428,10 +446,27 @@ impl TracingRecorderBuilder {
         self.limits.max_open_spans = max_open_spans;
         self
     }
-    /// Sets maximum number of retained completed candidate spans.
+    /// Sets capture mode for resolved core capture limits.
     #[must_use]
-    pub fn max_completed_spans(mut self, max_completed_spans: usize) -> Self {
-        self.limits.max_completed_spans = max_completed_spans;
+    pub fn mode(mut self, mode: tailtriage_core::CaptureMode) -> Self {
+        self.options = self.options.mode(mode);
+        self
+    }
+    /// Sets explicit capture limits.
+    #[must_use]
+    pub fn capture_limits(mut self, capture_limits: tailtriage_core::CaptureLimits) -> Self {
+        self.options = self.options.capture_limits(capture_limits);
+        self
+    }
+    /// Sets additive capture-limits override.
+    #[must_use]
+    pub fn capture_limits_override(
+        mut self,
+        capture_limits_override: tailtriage_core::CaptureLimitsOverride,
+    ) -> Self {
+        self.options = self
+            .options
+            .capture_limits_override(capture_limits_override);
         self
     }
 }
@@ -545,8 +580,66 @@ where
                     }
                 }
             }
-            if state.completed.len() >= self.limits.max_completed_spans {
-                state.dropped_completed_spans = state.dropped_completed_spans.saturating_add(1);
+            let capture_limits = ImportOptions::resolved_capture_limits(&ImportOptions::new("x"));
+            let tt_kind_value = scalar_field_string(record.fields().get(TT_KIND));
+            let Some(tt_kind_raw) = tt_kind_value else {
+                state.closed_missing_kind_spans = state.closed_missing_kind_spans.saturating_add(1);
+                if state.closed_missing_kind_samples.len() < 16 {
+                    state
+                        .closed_missing_kind_samples
+                        .push(ClosedMissingKindSample {
+                            name: record.name().to_owned(),
+                            span_id: record.id_ref().map(str::to_owned),
+                            tt_request_id: scalar_field_string(
+                                record.fields().get("tt.request_id"),
+                            ),
+                        });
+                }
+                return;
+            };
+            let Some(parsed_kind) = SpanKind::parse(tt_kind_raw.as_str()) else {
+                state.closed_unknown_kind_spans = state.closed_unknown_kind_spans.saturating_add(1);
+                if state.closed_missing_kind_samples.len() < 16 {
+                    state
+                        .closed_missing_kind_samples
+                        .push(ClosedMissingKindSample {
+                            name: record.name().to_owned(),
+                            span_id: record.id_ref().map(str::to_owned),
+                            tt_request_id: scalar_field_string(
+                                record.fields().get("tt.request_id"),
+                            ),
+                        });
+                }
+                return;
+            };
+            let cap = match parsed_kind {
+                SpanKind::Request => capture_limits.max_requests,
+                SpanKind::Stage => capture_limits.max_stages,
+                SpanKind::Queue => capture_limits.max_queues,
+            };
+            let kind_count = state
+                .completed
+                .iter()
+                .filter(|s| {
+                    scalar_field_string(s.fields().get(TT_KIND)).as_deref()
+                        == Some(tt_kind_raw.as_str())
+                })
+                .count();
+            if kind_count >= cap {
+                match parsed_kind {
+                    SpanKind::Request => {
+                        state.dropped_completed_requests =
+                            state.dropped_completed_requests.saturating_add(1)
+                    }
+                    SpanKind::Stage => {
+                        state.dropped_completed_stages =
+                            state.dropped_completed_stages.saturating_add(1)
+                    }
+                    SpanKind::Queue => {
+                        state.dropped_completed_queues =
+                            state.dropped_completed_queues.saturating_add(1)
+                    }
+                }
                 return;
             }
             state.completed.push(record);
@@ -595,10 +688,14 @@ fn push_strict_recorder_messages(
             stats.dropped_open_spans, limits.max_open_spans
         ));
     }
-    if stats.dropped_completed_spans > 0 {
+    let dropped_completed_total = stats
+        .dropped_completed_requests
+        .saturating_add(stats.dropped_completed_stages)
+        .saturating_add(stats.dropped_completed_queues);
+    if dropped_completed_total > 0 {
         messages.push(format!(
-            "live recorder dropped {} completed span(s) because max_completed_spans={} was reached; raise max_completed_spans or reduce capture scope",
-            stats.dropped_completed_spans, limits.max_completed_spans
+            "live recorder dropped {} completed span(s) because resolved capture limits were reached",
+            dropped_completed_total
         ));
     }
     if let Some(reason) = &stats.writer_failure {
@@ -671,15 +768,19 @@ fn append_non_strict_drop_warnings(
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
-    if stats.dropped_completed_spans > 0 {
+    let dropped_completed_total = stats
+        .dropped_completed_requests
+        .saturating_add(stats.dropped_completed_stages)
+        .saturating_add(stats.dropped_completed_queues);
+    if dropped_completed_total > 0 {
         let msg = format!(
-            "live recorder dropped {} completed spans because max_completed_spans was reached",
-            stats.dropped_completed_spans
+            "live recorder dropped {} completed spans because resolved capture limits were reached",
+            dropped_completed_total
         );
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
-    if stats.dropped_open_spans > 0 || stats.dropped_completed_spans > 0 {
+    if stats.dropped_open_spans > 0 || dropped_completed_total > 0 {
         run.truncation.limits_hit = true;
     }
     if let Some(reason) = &stats.writer_failure {
@@ -714,7 +815,9 @@ fn imported_with_drop_warnings(
     }
 
     if stats.dropped_open_spans == 0
-        && stats.dropped_completed_spans == 0
+        && stats.dropped_completed_requests == 0
+        && stats.dropped_completed_stages == 0
+        && stats.dropped_completed_queues == 0
         && stats.open_candidate_count == 0
         && stats.closed_missing_kind_spans == 0
         && stats.writer_failure.is_none()

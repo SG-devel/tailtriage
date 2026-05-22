@@ -147,9 +147,14 @@ impl TracingTokioSessionBuilder {
     /// Sets maximum number of retained completed candidate spans.
     #[must_use]
     pub fn max_completed_spans(mut self, max_completed_spans: usize) -> Self {
-        self.recorder_builder = self
-            .recorder_builder
-            .max_completed_spans(max_completed_spans);
+        self.recorder_builder = self.recorder_builder.capture_limits_override(
+            CaptureLimitsOverride {
+                max_requests: Some(max_completed_spans),
+                max_stages: Some(max_completed_spans),
+                max_queues: Some(max_completed_spans),
+                ..CaptureLimitsOverride::default()
+            },
+        );
         self
     }
     /// Sets runtime sampler interval.
