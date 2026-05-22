@@ -275,6 +275,9 @@ jobs:
       - name: Validate tracing parity across all demos
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: python3 scripts/demo_tool.py validate-tracing-parity all --profile release
+      - name: Validate tracing tiny-limit retention parity
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
+        run: python3 scripts/demo_tool.py validate-tracing-retention-parity --profile release
 
       - name: Validate runtime-cost script unit tests
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev' && matrix.extended

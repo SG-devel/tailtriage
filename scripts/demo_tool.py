@@ -764,6 +764,8 @@ def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
 
 PARITY_SCENARIOS = ["queue", "downstream", "mixed", "cold-start", "db-pool", "shared-lock", "retry-storm", "blocking", "executor", "all"]
 
+SHARED_PARITY_LIMITS = {"mode": "light", "max_requests": 3, "max_stages": 3, "max_queues": 3}
+
 def _artifact_prefix(mode: str, instrumentation: str) -> str:
     return f"{mode}-{instrumentation}"
 
@@ -771,6 +773,33 @@ def _artifact_prefix(mode: str, instrumentation: str) -> str:
 def _load_run(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _parity_fail(*, scenario: str, instrumentation: str, artifact_path: Path, field: str, expected: object, actual: object) -> None:
+    raise SystemExit(
+        f"parity check failed scenario={scenario} instrumentation={instrumentation} "
+        f"artifact={artifact_path} field={field} expected={expected!r} actual={actual!r}"
+    )
+
+
+def _assert_equal(
+    *,
+    scenario: str,
+    instrumentation: str,
+    artifact_path: Path,
+    field: str,
+    expected: object,
+    actual: object,
+) -> None:
+    if expected != actual:
+        _parity_fail(
+            scenario=scenario,
+            instrumentation=instrumentation,
+            artifact_path=artifact_path,
+            field=field,
+            expected=expected,
+            actual=actual,
+        )
 
 
 def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
@@ -889,7 +918,13 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
                 analysis_path,
                 mode_arg,
                 profile=profile,
-                extra_demo_args=["--instrumentation", instrumentation],
+                extra_demo_args=[
+                    "--instrumentation", instrumentation,
+                    "--capture-mode", SHARED_PARITY_LIMITS["mode"],
+                    "--max-requests", str(SHARED_PARITY_LIMITS["max_requests"]),
+                    "--max-stages", str(SHARED_PARITY_LIMITS["max_stages"]),
+                    "--max-queues", str(SHARED_PARITY_LIMITS["max_queues"]),
+                ],
             )
 
     expected_files = [
@@ -1028,6 +1063,48 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
         f"tracing parity validation passed for {scenario}: "
         f"baseline kind={expected_kind}, tracing p95 {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
     )
+
+
+def validate_tracing_retention_parity(root_dir: Path, *, profile: str = "dev") -> None:
+    scenario = "queue"
+    config = _tracing_parity_config(root_dir, scenario)
+    demo_manifest = config["demo_manifest"]
+    artifact_dir = config["artifact_dir"]
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+    for instrumentation in ("native", "tracing"):
+        run_path = artifact_dir / f"retention-{instrumentation}-run.json"
+        analysis_path = artifact_dir / f"retention-{instrumentation}-analysis.json"
+        run_and_analyze(
+            demo_manifest,
+            cli_manifest,
+            run_path,
+            analysis_path,
+            "baseline",
+            profile=profile,
+            extra_demo_args=[
+                "--instrumentation", instrumentation,
+                "--capture-mode", "light",
+                "--max-requests", "3",
+                "--max-stages", "3",
+                "--max-queues", "3",
+            ],
+        )
+    native_path = artifact_dir / "retention-native-run.json"
+    tracing_path = artifact_dir / "retention-tracing-run.json"
+    native = _load_run(native_path)
+    tracing = _load_run(tracing_path)
+    for field, n, t in (
+        ("requests.len", len(native.get("requests", [])), len(tracing.get("requests", []))),
+        ("stages.len", len(native.get("stages", [])), len(tracing.get("stages", []))),
+        ("queues.len", len(native.get("queues", [])), len(tracing.get("queues", []))),
+        ("truncation.dropped_requests", (native.get("truncation") or {}).get("dropped_requests"), (tracing.get("truncation") or {}).get("dropped_requests")),
+        ("truncation.dropped_stages", (native.get("truncation") or {}).get("dropped_stages"), (tracing.get("truncation") or {}).get("dropped_stages")),
+        ("truncation.dropped_queues", (native.get("truncation") or {}).get("dropped_queues"), (tracing.get("truncation") or {}).get("dropped_queues")),
+        ("truncation.limits_hit", sorted((native.get("truncation") or {}).get("limits_hit") or []), sorted((tracing.get("truncation") or {}).get("limits_hit") or [])),
+        ("metadata.effective_core_config", native.get("metadata", {}).get("effective_core_config"), tracing.get("metadata", {}).get("effective_core_config")),
+    ):
+        _assert_equal(scenario=scenario, instrumentation="tracing", artifact_path=tracing_path, field=field, expected=n, actual=t)
+    print("tracing retention parity validation passed")
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1096,6 +1173,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parity_parser.add_argument("scenario", choices=PARITY_SCENARIOS)
     parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
     parity_parser.add_argument("--release", action="store_const", const="release", dest="profile")
+    retention_parser = subparsers.add_parser(
+        "validate-tracing-retention-parity",
+        help="Run exact retention/truncation parity checks for tiny capture limits.",
+    )
+    retention_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    retention_parser.add_argument("--release", action="store_const", const="release", dest="profile")
 
     return parser.parse_args(argv)
 
@@ -1161,6 +1244,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "validate-tracing-parity":
         validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
+        return
+    if args.command == "validate-tracing-retention-parity":
+        validate_tracing_retention_parity(root_dir, profile=args.profile)
         return
 
     if args.scenario == "queue":

@@ -19,6 +19,8 @@ This repository includes an initial deterministic validation corpus for controll
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/run_mitigation_matrix.py` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
 | `scripts/run_operational_validation.py` | Runtime-cost and collector-limit operational validation | Manual/local; some narrower smoke checks exist elsewhere | No |
+| `scripts/demo_tool.py validate-tracing-parity all` | Native/tracing parity gate for artifact shape, route/evidence coverage, effective core config, and runtime-sampler metadata expectations | Yes (Ubuntu release extended CI leg) | No |
+| `scripts/demo_tool.py validate-tracing-retention-parity` | Tiny-limit native/tracing parity gate for exact retention and truncation behavior under shared core capture config | Yes (Ubuntu release extended CI leg) | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
 
 Normal CI keeps deterministic diagnostics and docs contracts as gates but does not publish durable scorecards. Durable scorecard publication remains limited to the manual/tag snapshot workflow.
@@ -43,6 +45,8 @@ Tracing-intake contract coverage is currently validated by unit/package tests an
 - example compile/run coverage under package example tests
 
 These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim arbitrary `tracing_subscriber::fmt().json()` import support, do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
+
+CI tracing parity gates enforce bounded parity semantics only: artifact shape, effective core capture config, expected evidence presence, runtime-sampler metadata for runtime-sensitive tracing scenarios, and exact tiny-limit truncation parity. They do not prove universal production performance or root-cause certainty.
 
 ## Deterministic corpus validation
 The deterministic benchmark validates:
