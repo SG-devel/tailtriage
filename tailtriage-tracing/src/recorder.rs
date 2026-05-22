@@ -754,10 +754,15 @@ fn append_non_strict_drop_warnings(
         warnings.push(crate::ImportWarning::new(msg));
     }
 
-    if stats.closed_missing_kind_spans > 0 {
+    let closed_invalid_kind_total = stats.closed_missing_kind_spans
+        + stats.closed_unknown_kind_spans
+        + stats.closed_malformed_kind_spans;
+    if closed_invalid_kind_total > 0 {
         let mut msg = format!(
-            "live recorder closed {} candidate span(s) missing tt.kind; closed candidate spans without tt.kind are not converted",
-            stats.closed_missing_kind_spans
+            "live recorder closed candidate spans with invalid tt.kind (missing={}, unknown={}, malformed={}); these spans are not converted",
+            stats.closed_missing_kind_spans,
+            stats.closed_unknown_kind_spans,
+            stats.closed_malformed_kind_spans
         );
         if !stats.closed_kind_samples.is_empty() {
             let sample_text = stats
@@ -848,6 +853,8 @@ fn imported_with_drop_warnings(
         && stats.dropped_completed_queues == 0
         && stats.open_candidate_count == 0
         && stats.closed_missing_kind_spans == 0
+        && stats.closed_unknown_kind_spans == 0
+        && stats.closed_malformed_kind_spans == 0
         && stats.writer_failure.is_none()
     {
         return Ok(imported);
@@ -1483,7 +1490,11 @@ mod tests {
             assert!(imported.run().queues.is_empty());
             assert_eq!(imported.warnings().len(), 1);
             let msg = imported.warnings()[0].message();
-            assert!(msg.contains("missing tt.kind"));
+            assert!(msg.contains("invalid tt.kind"));
+            assert!(msg.contains("missing=1"));
+            assert!(msg.contains("unknown=0"));
+            assert!(msg.contains("malformed=0"));
+            assert!(msg.contains("reason=missing"));
             assert!(msg.contains("http.request") || msg.contains("r1"));
             assert!(imported
                 .run()
@@ -1491,6 +1502,90 @@ mod tests {
                 .lifecycle_warnings
                 .iter()
                 .any(|w| w == msg));
+        });
+    }
+
+    #[test]
+    fn closed_candidate_unknown_tt_kind_warns_non_strict() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "http.request",
+                tt.kind = "bogus",
+                tt.request_id = "r-unknown",
+                tt.route = "/checkout"
+            );
+            drop(span);
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert!(imported.run().stages.is_empty());
+            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.warnings().len(), 1);
+            let msg = imported.warnings()[0].message();
+            assert!(msg.contains("invalid tt.kind"));
+            assert!(msg.contains("missing=0"));
+            assert!(msg.contains("unknown=1"));
+            assert!(msg.contains("malformed=0"));
+            assert!(msg.contains("reason=unknown"));
+            assert!(msg.contains("r-unknown"));
+        });
+    }
+
+    #[test]
+    fn closed_candidate_malformed_tt_kind_warns_non_strict() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "http.request",
+                tt.kind = 42_u64,
+                tt.request_id = "r-malformed",
+                tt.route = "/checkout"
+            );
+            drop(span);
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert!(imported.run().stages.is_empty());
+            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.warnings().len(), 1);
+            let msg = imported.warnings()[0].message();
+            assert!(msg.contains("invalid tt.kind"));
+            assert!(msg.contains("missing=0"));
+            assert!(msg.contains("unknown=0"));
+            assert!(msg.contains("malformed=1"));
+            assert!(msg.contains("reason=malformed"));
+            assert!(msg.contains("r-malformed"));
+        });
+    }
+
+    #[test]
+    fn invalid_kind_warning_aggregates_missing_unknown_and_malformed_counts() {
+        with_recorder(|recorder| {
+            drop(tracing::info_span!(
+                "missing.kind",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "r-missing"
+            ));
+            drop(tracing::info_span!(
+                "unknown.kind",
+                tt.kind = "bogus",
+                tt.request_id = "r-unknown"
+            ));
+            drop(tracing::info_span!(
+                "malformed.kind",
+                tt.kind = 7_u64,
+                tt.request_id = "r-malformed"
+            ));
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert!(imported.run().stages.is_empty());
+            assert!(imported.run().queues.is_empty());
+            assert_eq!(imported.warnings().len(), 1);
+            let msg = imported.warnings()[0].message();
+            assert!(msg.contains("invalid tt.kind"));
+            assert!(msg.contains("missing=1"));
+            assert!(msg.contains("unknown=1"));
+            assert!(msg.contains("malformed=1"));
+            assert!(msg.contains("reason=missing"));
+            assert!(msg.contains("reason=unknown"));
+            assert!(msg.contains("reason=malformed"));
         });
     }
 
