@@ -39,6 +39,13 @@ pub enum ImportError {
         /// Actionable setup guidance for creating a persistable run artifact.
         guidance: String,
     },
+    /// Failed to write run JSON output via core sink.
+    RunJsonWrite {
+        /// Target output path.
+        path: String,
+        /// Underlying sink failure reason.
+        reason: String,
+    },
 }
 
 impl fmt::Display for ImportError {
@@ -60,6 +67,9 @@ impl fmt::Display for ImportError {
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
             Self::InvalidRunEvent(message) => write!(f, "invalid run event: {message}"),
             Self::ZeroRequestArtifact { guidance } => write!(f, "{guidance}"),
+            Self::RunJsonWrite { path, reason } => {
+                write!(f, "failed to write run JSON at {path}: {reason}")
+            }
         }
     }
 }
