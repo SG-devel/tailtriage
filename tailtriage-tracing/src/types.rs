@@ -182,6 +182,9 @@ pub struct ImportOptions {
     service_version: Option<String>,
     run_id: Option<String>,
     strict: bool,
+    mode: tailtriage_core::CaptureMode,
+    capture_limits: Option<tailtriage_core::CaptureLimits>,
+    capture_limits_override: tailtriage_core::CaptureLimitsOverride,
 }
 
 impl ImportOptions {
@@ -192,6 +195,9 @@ impl ImportOptions {
             service_version: None,
             run_id: None,
             strict: false,
+            mode: tailtriage_core::CaptureMode::Light,
+            capture_limits: None,
+            capture_limits_override: tailtriage_core::CaptureLimitsOverride::default(),
         }
     }
 
@@ -214,6 +220,56 @@ impl ImportOptions {
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.service_version = Some(service_version.into());
         self
+    }
+    /// Sets capture mode.
+    #[must_use]
+    pub fn mode(mut self, mode: tailtriage_core::CaptureMode) -> Self {
+        self.mode = mode;
+        self
+    }
+    /// Sets full capture limits override.
+    #[must_use]
+    pub fn capture_limits(mut self, capture_limits: tailtriage_core::CaptureLimits) -> Self {
+        self.capture_limits = Some(capture_limits);
+        self
+    }
+    /// Sets additive capture limit overrides.
+    #[must_use]
+    pub fn capture_limits_override(
+        mut self,
+        capture_limits_override: tailtriage_core::CaptureLimitsOverride,
+    ) -> Self {
+        self.capture_limits_override = tailtriage_core::CaptureLimitsOverride {
+            max_requests: capture_limits_override
+                .max_requests
+                .or(self.capture_limits_override.max_requests),
+            max_stages: capture_limits_override
+                .max_stages
+                .or(self.capture_limits_override.max_stages),
+            max_queues: capture_limits_override
+                .max_queues
+                .or(self.capture_limits_override.max_queues),
+            max_runtime_snapshots: capture_limits_override
+                .max_runtime_snapshots
+                .or(self.capture_limits_override.max_runtime_snapshots),
+            max_inflight_snapshots: capture_limits_override
+                .max_inflight_snapshots
+                .or(self.capture_limits_override.max_inflight_snapshots),
+        };
+        self
+    }
+    /// Returns resolved capture limits.
+    #[must_use]
+    pub fn resolved_capture_limits(&self) -> tailtriage_core::CaptureLimits {
+        self.capture_limits.unwrap_or_else(|| {
+            self.capture_limits_override
+                .apply(self.mode.core_defaults())
+        })
+    }
+    /// Returns selected capture mode.
+    #[must_use]
+    pub fn mode_value(&self) -> tailtriage_core::CaptureMode {
+        self.mode
     }
 
     /// Returns service name.
@@ -344,12 +400,67 @@ mod tests {
         let options = ImportOptions::new("checkout-service")
             .service_version("1.2.3")
             .run_id("run-123")
-            .strict(true);
+            .strict(true)
+            .mode(tailtriage_core::CaptureMode::Investigation);
 
         assert_eq!(options.service_name(), "checkout-service");
         assert_eq!(options.service_version_ref(), Some("1.2.3"));
         assert_eq!(options.run_id_ref(), Some("run-123"));
         assert!(options.strict_mode());
+        assert_eq!(
+            options.mode_value(),
+            tailtriage_core::CaptureMode::Investigation
+        );
+    }
+
+    #[test]
+    fn import_options_defaults_resolve_light_defaults() {
+        let options = ImportOptions::new("svc");
+        assert_eq!(options.mode_value(), tailtriage_core::CaptureMode::Light);
+        assert_eq!(
+            options.resolved_capture_limits(),
+            tailtriage_core::CaptureMode::Light.core_defaults()
+        );
+    }
+
+    #[test]
+    fn import_options_full_capture_limits_override_wins() {
+        let full = tailtriage_core::CaptureLimits {
+            max_requests: 1,
+            max_stages: 2,
+            max_queues: 3,
+            max_runtime_snapshots: 4,
+            max_inflight_snapshots: 5,
+        };
+        let options = ImportOptions::new("svc")
+            .mode(tailtriage_core::CaptureMode::Investigation)
+            .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                max_requests: Some(1000),
+                max_stages: Some(1000),
+                max_queues: Some(1000),
+                max_runtime_snapshots: Some(1000),
+                max_inflight_snapshots: Some(1000),
+            })
+            .capture_limits(full);
+        assert_eq!(options.resolved_capture_limits(), full);
+    }
+
+    #[test]
+    fn import_options_additive_override_applies_on_mode_defaults() {
+        let options = ImportOptions::new("svc")
+            .mode(tailtriage_core::CaptureMode::Investigation)
+            .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                max_requests: Some(11),
+                max_stages: Some(22),
+                max_queues: Some(33),
+                max_runtime_snapshots: None,
+                max_inflight_snapshots: None,
+            });
+        let mut expected = tailtriage_core::CaptureMode::Investigation.core_defaults();
+        expected.max_requests = 11;
+        expected.max_stages = 22;
+        expected.max_queues = 33;
+        assert_eq!(options.resolved_capture_limits(), expected);
     }
 
     #[test]

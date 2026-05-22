@@ -66,10 +66,36 @@ enum ImportCommand {
         /// Fail on malformed/incomplete tailtriage spans.
         #[arg(long)]
         strict: bool,
+        /// Capture mode used to resolve default retention limits.
+        #[arg(long, value_enum, default_value_t = CliCaptureMode::Light)]
+        mode: CliCaptureMode,
+        /// Override maximum retained request events.
+        #[arg(long)]
+        max_requests: Option<usize>,
+        /// Override maximum retained stage events.
+        #[arg(long)]
+        max_stages: Option<usize>,
+        /// Override maximum retained queue events.
+        #[arg(long)]
+        max_queues: Option<usize>,
         /// Input format mode.
         #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
         input_format: TracingInputFormat,
     },
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliCaptureMode {
+    Light,
+    Investigation,
+}
+
+impl From<CliCaptureMode> for tailtriage_core::CaptureMode {
+    fn from(value: CliCaptureMode) -> Self {
+        match value {
+            CliCaptureMode::Light => tailtriage_core::CaptureMode::Light,
+            CliCaptureMode::Investigation => tailtriage_core::CaptureMode::Investigation,
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum TracingInputFormat {
@@ -95,9 +121,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 service_version,
                 run_id,
                 strict,
+                mode,
+                max_requests,
+                max_stages,
+                max_queues,
                 input_format,
             } => {
-                let mut options = ImportOptions::new(service).strict(strict);
+                let mut options = ImportOptions::new(service)
+                    .strict(strict)
+                    .mode(mode.into())
+                    .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                        max_requests,
+                        max_stages,
+                        max_queues,
+                        max_runtime_snapshots: None,
+                        max_inflight_snapshots: None,
+                    });
                 if let Some(service_version) = service_version {
                     options = options.service_version(service_version);
                 }

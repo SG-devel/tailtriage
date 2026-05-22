@@ -405,7 +405,70 @@ fn import_tracing_json_help_shows_only_live_input_format_values() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("auto"));
     assert!(stdout.contains("tailtriage-span-jsonl"));
+    assert!(stdout.contains("light"));
+    assert!(stdout.contains("investigation"));
+    assert!(stdout.contains("--max-requests"));
+    assert!(stdout.contains("--max-stages"));
+    assert!(stdout.contains("--max-queues"));
+    assert!(!stdout.contains("--max-runtime-snapshots"));
+    assert!(!stdout.contains("--max-inflight-snapshots"));
     assert!(!stdout.contains("tracing-subscriber-fmt-json"));
+}
+
+#[test]
+fn import_tracing_json_mode_investigation_sets_metadata_mode() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--mode")
+        .arg("investigation")
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    assert_eq!(
+        loaded.run.metadata.mode,
+        tailtriage_core::CaptureMode::Investigation
+    );
+}
+
+#[test]
+fn import_tracing_json_limit_overrides_set_effective_core_limits() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-requests")
+        .arg("7")
+        .arg("--max-stages")
+        .arg("8")
+        .arg("--max-queues")
+        .arg("9")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    let effective = loaded.run.metadata.effective_core_config.unwrap();
+    assert_eq!(effective.capture_limits.max_requests, 7);
+    assert_eq!(effective.capture_limits.max_stages, 8);
+    assert_eq!(effective.capture_limits.max_queues, 9);
 }
 
 #[test]

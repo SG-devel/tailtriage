@@ -40,7 +40,7 @@ mod types;
 
 use std::collections::BTreeSet;
 use tailtriage_core::{
-    BuildError, CaptureMode, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
+    BuildError, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
 };
 
 pub use convention::{
@@ -228,7 +228,8 @@ where
             }
         }
     }
-    let capture_limits = CaptureMode::Light.core_defaults();
+    let mode = options.mode_value();
+    let capture_limits = options.resolved_capture_limits();
     let request_outcome_default_count = parsed_requests
         .iter()
         .take(capture_limits.max_requests)
@@ -284,7 +285,7 @@ where
 
     let mut builder_options = RunBuilderOptions::new(options.service_name())
         .run_id(run_id)
-        .mode(CaptureMode::Light)
+        .mode(mode)
         .capture_limits(capture_limits)
         .strict_lifecycle(false)
         .started_at_unix_ms(started_at_unix_ms)
@@ -641,6 +642,7 @@ fn parse_depth_at_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tailtriage_core::{CaptureLimitsOverride, CaptureMode};
 
     #[test]
     fn span_kind_parser_accepts_supported_values_only() {
@@ -944,6 +946,76 @@ mod tests {
         assert_eq!(run.truncation.dropped_queues, 1);
         assert_eq!(run.metadata.started_at_unix_ms, 100);
         assert_eq!(run.metadata.finished_at_unix_ms, 120);
+    }
+
+    #[test]
+    fn run_from_span_records_uses_configured_mode_and_resolved_limits() {
+        let spans = vec![
+            SpanRecord::new("req-1", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a")
+                .field(TT_OUTCOME, "ok"),
+            SpanRecord::new("req-2", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r2")
+                .field(TT_ROUTE, "/b")
+                .field(TT_OUTCOME, "ok"),
+            SpanRecord::new("stage-1", 101, 110)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "s1")
+                .field(TT_SUCCESS, true),
+            SpanRecord::new("stage-2", 101, 110)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "s2")
+                .field(TT_SUCCESS, true),
+            SpanRecord::new("queue-1", 101, 110)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "q1"),
+            SpanRecord::new("queue-2", 101, 110)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "q2"),
+        ];
+        let options = ImportOptions::new("svc")
+            .mode(CaptureMode::Investigation)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(1),
+                max_stages: Some(1),
+                max_queues: Some(1),
+                max_runtime_snapshots: None,
+                max_inflight_snapshots: None,
+            });
+        let imported = run_from_span_records(spans, options).unwrap();
+        let run = imported.run();
+        assert_eq!(run.metadata.mode, CaptureMode::Investigation);
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+        assert_eq!(run.truncation.dropped_requests, 1);
+        assert_eq!(run.truncation.dropped_stages, 1);
+        assert_eq!(run.truncation.dropped_queues, 1);
+        assert_eq!(
+            run.metadata.effective_core_config.expect("effective core"),
+            tailtriage_core::EffectiveCoreConfig {
+                mode: CaptureMode::Investigation,
+                capture_limits: tailtriage_core::CaptureLimits {
+                    max_requests: 1,
+                    max_stages: 1,
+                    max_queues: 1,
+                    max_runtime_snapshots: CaptureMode::Investigation
+                        .core_defaults()
+                        .max_runtime_snapshots,
+                    max_inflight_snapshots: CaptureMode::Investigation
+                        .core_defaults()
+                        .max_inflight_snapshots,
+                },
+                strict_lifecycle: false,
+            }
+        );
     }
 
     #[test]

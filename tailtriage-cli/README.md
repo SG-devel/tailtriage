@@ -46,6 +46,9 @@ Import completed `tt.*` tracing span JSONL into Run JSON:
 
 ```bash
 tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+# investigation-mode defaults + request/stage/queue retention overrides
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json \
+  --mode investigation --max-requests 20000 --max-stages 120000 --max-queues 120000
 ```
 
 With optional metadata flags, strict validation, and explicit format:
@@ -56,6 +59,9 @@ tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl 
 
 
 `tailtriage import tracing-json` imports **completed `tt.*` tracing span JSONL** into **Run JSON** (not Report JSON).
+Import uses the same `CaptureMode` + `CaptureLimits` semantics as native capture for request/stage/queue retention, and imported run metadata records the selected mode plus resolved effective limits.
+Offline tracing import exposes `--max-requests`, `--max-stages`, and `--max-queues` because those evidence types are imported on this path.
+It intentionally does **not** expose runtime/in-flight snapshot limit flags for this path because offline tracing JSONL import does not import runtime snapshots or in-flight snapshots.
 
 Recommended stable input format is the tailtriage wrapper JSONL shape:
 

@@ -62,6 +62,8 @@ Use `run_json_path(...)` when you want to skip a separate import step:
 tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
+Offline tracing import uses the same `CaptureMode` and `CaptureLimits` semantics as native capture for request/stage/queue evidence retention, and imported run metadata records selected mode plus resolved effective limits.
+
 ## Completed-span JSONL path
 
 Use `completed_span_jsonl_path(...)` when you want an offline import workflow:

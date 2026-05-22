@@ -497,6 +497,10 @@ Do not treat one report as final proof.
 - Import expects completed `tt.*` span JSONL input (stable wrapper format), not arbitrary tracing log JSON.
 - Arbitrary tracing log JSON (for example plain `tracing_subscriber::fmt().json()` output) is not import input.
 - Import writes Run JSON; analysis is a separate `tailtriage analyze` step.
+- Tracing import and native capture use the same `CaptureMode` and `CaptureLimits` semantics for request/stage/queue evidence retention.
+- Offline CLI import exposes `--mode`, `--max-requests`, `--max-stages`, and `--max-queues` for imported evidence retention controls.
+- Offline CLI import does not expose runtime/in-flight snapshot limit flags on this path because tracing JSONL import does not import those evidence types.
+- Imported run metadata records selected mode and resolved effective limits for this path, with strict lifecycle retained as `false` for import semantics.
 - Timing is not guessed from line receive time; completed span records must carry explicit unix-ms start/end timestamps.
 - Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event.
 - Library snapshots may still be zero-request when used for non-persisted inspection during active captures.
