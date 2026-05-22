@@ -36,6 +36,8 @@ async fn main() -> anyhow::Result<()> {
         "downstream_service_demo",
         &output_path,
         args.instrumentation,
+        args.capture_mode,
+        args.capture_limits.clone(),
     )?);
 
     let offered_requests = 80_u64;

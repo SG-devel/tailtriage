@@ -15,6 +15,8 @@ async fn main() -> anyhow::Result<()> {
         "queue_service_demo",
         &args.output_path,
         args.instrumentation,
+        args.capture_mode,
+        args.capture_limits.clone(),
     )?);
 
     let (
