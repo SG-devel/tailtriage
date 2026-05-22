@@ -144,14 +144,6 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.max_open_spans(max_open_spans);
         self
     }
-    /// Sets maximum number of retained completed candidate spans.
-    #[must_use]
-    pub fn max_completed_spans(mut self, max_completed_spans: usize) -> Self {
-        self.recorder_builder = self
-            .recorder_builder
-            .max_completed_spans(max_completed_spans);
-        self
-    }
     /// Sets runtime sampler interval.
     #[must_use]
     pub fn sampler_interval(mut self, sampler_interval: Duration) -> Self {

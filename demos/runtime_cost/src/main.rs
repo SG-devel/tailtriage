@@ -288,7 +288,14 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
             } else {
                 let mut b = TracingRecorder::builder("runtime_cost_demo").strict(false);
                 if cli.mode.uses_drop_path_limits() {
-                    b = b.max_open_spans(64).max_completed_spans(64);
+                    b = b
+                        .max_open_spans(64)
+                        .capture_limits(tailtriage_core::CaptureLimits {
+                            max_requests: 64,
+                            max_stages: 64,
+                            max_queues: 64,
+                            ..tailtriage_core::CaptureMode::Light.core_defaults()
+                        });
                 }
                 let rec = b.build();
                 // One mode runs per process in this demo, so process-global subscriber init is acceptable.
