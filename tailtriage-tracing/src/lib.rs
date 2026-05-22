@@ -54,7 +54,7 @@ pub use jsonl::{
 #[cfg(feature = "live")]
 pub use recorder::{
     RecorderLimits, TailtriageLayer, TracingIntakeSession, TracingIntakeSessionBuilder,
-    TracingRecorder, TracingRecorderBuilder, DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
+    TracingRecorder, TracingRecorderBuilder, DEFAULT_MAX_OPEN_SPANS,
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
