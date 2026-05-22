@@ -38,7 +38,7 @@ mod recorder;
 pub mod tokio;
 mod types;
 
-use std::collections::BTreeSet;
+use std::collections::HashMap;
 use tailtriage_core::{
     BuildError, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
 };
@@ -244,16 +244,21 @@ where
         .into_iter()
         .map(|request| request.event)
         .collect();
-    let retained_request_ids = retained_request_ids(&requests, capture_limits.max_requests);
+    let request_intervals = retained_request_intervals(
+        &requests,
+        capture_limits.max_requests,
+        options.strict_mode(),
+        &mut warnings,
+    )?;
     filter_correlated_parsed_stages(
         &mut parsed_stages,
-        &retained_request_ids,
+        &request_intervals,
         options.strict_mode(),
         &mut warnings,
     )?;
     filter_correlated_queues(
         &mut queues,
-        &retained_request_ids,
+        &request_intervals,
         options.strict_mode(),
         &mut warnings,
     )?;
@@ -339,12 +344,40 @@ where
     Ok(ImportedRun::new(run, warnings))
 }
 
-fn retained_request_ids(requests: &[RequestEvent], max_requests: usize) -> BTreeSet<String> {
-    requests
-        .iter()
-        .take(max_requests)
-        .map(|request| request.request_id.clone())
-        .collect()
+#[derive(Clone, Copy)]
+struct RequestInterval {
+    started_at_unix_ms: u64,
+    finished_at_unix_ms: u64,
+}
+
+fn retained_request_intervals(
+    requests: &[RequestEvent],
+    max_requests: usize,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<HashMap<String, RequestInterval>, ImportError> {
+    let mut intervals = HashMap::new();
+    for request in requests.iter().take(max_requests) {
+        let interval = RequestInterval {
+            started_at_unix_ms: request.started_at_unix_ms,
+            finished_at_unix_ms: request.finished_at_unix_ms,
+        };
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            intervals.entry(request.request_id.clone())
+        {
+            entry.insert(interval);
+            continue;
+        }
+        strict_or_warn(
+            strict,
+            warnings,
+            format!(
+                "duplicate retained request_id '{}' encountered; keeping first retained interval [{}, {}]",
+                request.request_id, interval.started_at_unix_ms, interval.finished_at_unix_ms
+            ),
+        )?;
+    }
+    Ok(intervals)
 }
 
 struct ParsedStageEvent {
@@ -359,21 +392,39 @@ struct ParsedRequestEvent {
 
 fn filter_correlated_parsed_stages(
     stages: &mut Vec<ParsedStageEvent>,
-    retained_request_ids: &BTreeSet<String>,
+    request_intervals: &HashMap<String, RequestInterval>,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
 ) -> Result<(), ImportError> {
     let mut filtered = Vec::with_capacity(stages.len());
     for stage in stages.drain(..) {
-        if retained_request_ids.contains(&stage.event.request_id) {
-            filtered.push(stage);
-        } else {
+        let Some(request_interval) = request_intervals.get(&stage.event.request_id) else {
             strict_or_warn(
                 strict,
                 warnings,
                 format!(
                     "skipped stage span for request_id '{}' because no retained request event was imported",
                     stage.event.request_id
+                ),
+            )?;
+            continue;
+        };
+        if stage.event.started_at_unix_ms >= request_interval.started_at_unix_ms
+            && stage.event.finished_at_unix_ms <= request_interval.finished_at_unix_ms
+        {
+            filtered.push(stage);
+        } else {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "skipped stage span '{}' for request_id '{}' because interval [{}, {}] falls outside retained request interval [{}, {}]",
+                    stage.event.stage,
+                    stage.event.request_id,
+                    stage.event.started_at_unix_ms,
+                    stage.event.finished_at_unix_ms,
+                    request_interval.started_at_unix_ms,
+                    request_interval.finished_at_unix_ms
                 ),
             )?;
         }
@@ -384,21 +435,39 @@ fn filter_correlated_parsed_stages(
 
 fn filter_correlated_queues(
     queues: &mut Vec<QueueEvent>,
-    retained_request_ids: &BTreeSet<String>,
+    request_intervals: &HashMap<String, RequestInterval>,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
 ) -> Result<(), ImportError> {
     let mut filtered = Vec::with_capacity(queues.len());
     for queue in queues.drain(..) {
-        if retained_request_ids.contains(&queue.request_id) {
-            filtered.push(queue);
-        } else {
+        let Some(request_interval) = request_intervals.get(&queue.request_id) else {
             strict_or_warn(
                 strict,
                 warnings,
                 format!(
                     "skipped queue span for request_id '{}' because no retained request event was imported",
                     queue.request_id
+                ),
+            )?;
+            continue;
+        };
+        if queue.waited_from_unix_ms >= request_interval.started_at_unix_ms
+            && queue.waited_until_unix_ms <= request_interval.finished_at_unix_ms
+        {
+            filtered.push(queue);
+        } else {
+            strict_or_warn(
+                strict,
+                warnings,
+                format!(
+                    "skipped queue span '{}' for request_id '{}' because interval [{}, {}] falls outside retained request interval [{}, {}]",
+                    queue.queue,
+                    queue.request_id,
+                    queue.waited_from_unix_ms,
+                    queue.waited_until_unix_ms,
+                    request_interval.started_at_unix_ms,
+                    request_interval.finished_at_unix_ms
                 ),
             )?;
         }
@@ -495,6 +564,7 @@ fn required_string(
 
 fn is_durable_conversion_warning(message: &str) -> bool {
     message.starts_with("skipped ")
+        || message.starts_with("duplicate retained request_id")
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
@@ -833,6 +903,269 @@ mod tests {
     }
 
     #[test]
+    fn non_strict_stage_before_request_start_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage-early", 99, 110)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().stages.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("falls outside retained request interval")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("falls outside retained request interval")));
+    }
+
+    #[test]
+    fn non_strict_stage_after_request_finish_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage-late", 110, 121)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().stages.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("falls outside retained request interval")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("falls outside retained request interval")));
+    }
+
+    #[test]
+    fn non_strict_queue_before_request_start_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("queue-early", 99, 110)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().queues.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("falls outside retained request interval")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("falls outside retained request interval")));
+    }
+
+    #[test]
+    fn non_strict_queue_after_request_finish_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("queue-late", 110, 121)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().queues.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("falls outside retained request interval")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("falls outside retained request interval")));
+    }
+
+    #[test]
+    fn boundary_equal_stage_and_queue_spans_are_accepted() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage", 100, 120)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("queue", 100, 120)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+    }
+
+    #[test]
+    fn zero_duration_request_with_boundary_equal_stage_and_queue_is_accepted() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 100)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage", 100, 100)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("queue", 100, 100)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+        assert_eq!(run.requests[0].started_at_unix_ms, 100);
+        assert_eq!(run.requests[0].finished_at_unix_ms, 100);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+    }
+
+    #[test]
+    fn strict_mode_fails_for_out_of_window_stage_and_queue() {
+        let stage_err = run_from_span_records(
+            vec![
+                SpanRecord::new("req", 100, 120)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_ROUTE, "/a"),
+                SpanRecord::new("stage", 99, 110)
+                    .field(TT_KIND, "stage")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_STAGE, "db"),
+            ],
+            ImportOptions::new("svc").strict(true),
+        )
+        .unwrap_err();
+        assert!(matches!(stage_err, ImportError::StrictViolation(_)));
+        let queue_err = run_from_span_records(
+            vec![
+                SpanRecord::new("req", 100, 120)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_ROUTE, "/a"),
+                SpanRecord::new("queue", 99, 110)
+                    .field(TT_KIND, "queue")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_QUEUE, "permits"),
+            ],
+            ImportOptions::new("svc").strict(true),
+        )
+        .unwrap_err();
+        assert!(matches!(queue_err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn duplicate_retained_request_ids_warn_non_strict_and_fail_strict() {
+        let spans = vec![
+            SpanRecord::new("req1", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("req2", 101, 121)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/b"),
+        ];
+        let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("duplicate retained request_id 'dup'")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("duplicate retained request_id 'dup'")));
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn overflow_duplicate_request_ids_beyond_max_requests_do_not_warn() {
+        let limits = tailtriage_core::CaptureLimitsOverride {
+            max_requests: Some(1),
+            ..tailtriage_core::CaptureLimitsOverride::default()
+        };
+        let spans = vec![
+            SpanRecord::new("req1", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("req2", 101, 121)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/b"),
+        ];
+        let imported = run_from_span_records(
+            spans,
+            ImportOptions::new("svc").capture_limits_override(limits),
+        )
+        .unwrap();
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("duplicate retained request_id")));
+    }
+
+    #[test]
+    fn out_of_window_extreme_timestamps_do_not_alter_bounds_or_default_run_id() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage", 1, 1_000_000)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("queue", 1, 1_000_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let run = imported.run();
+        assert_eq!(run.stages.len(), 0);
+        assert_eq!(run.queues.len(), 0);
+        assert_eq!(run.metadata.started_at_unix_ms, 100);
+        assert_eq!(run.metadata.finished_at_unix_ms, 120);
+        assert_eq!(run.metadata.run_id, "tracing-import-100-120");
+    }
+
+    #[test]
     fn orphan_queue_does_not_affect_retained_bounds_or_default_run_id() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
@@ -902,7 +1235,7 @@ mod tests {
             );
         }
         spans.push(
-            SpanRecord::new("overflow-stage", 1, 1_000_000)
+            SpanRecord::new("overflow-stage", 101, 110)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_STAGE, "overflow-stage"),
@@ -935,7 +1268,7 @@ mod tests {
             );
         }
         spans.push(
-            SpanRecord::new("overflow-queue", 1, 1_000_000)
+            SpanRecord::new("overflow-queue", 101, 110)
                 .field(TT_KIND, "queue")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_QUEUE, "overflow-queue"),
@@ -1450,12 +1783,12 @@ mod tests {
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_ROUTE, "/"),
-            SpanRecord::new("st", 10, 20)
+            SpanRecord::new("st", 1, 2)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_STAGE, "db")
                 .field(TT_SUCCESS, "false"),
-            SpanRecord::new("q", 21, 30)
+            SpanRecord::new("q", 1, 2)
                 .field(TT_KIND, "queue")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_QUEUE, "permits")
