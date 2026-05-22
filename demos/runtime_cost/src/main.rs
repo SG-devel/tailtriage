@@ -276,9 +276,19 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
         }
         InstrumentationKind::Tracing => {
             if cli.mode.uses_runtime_sampler() {
-                let session = TracingTokioSession::builder("runtime_cost_demo")
-                    .strict(false)
-                    .start()?;
+                let mut session_builder =
+                    TracingTokioSession::builder("runtime_cost_demo").strict(false);
+                if cli.mode.uses_drop_path_limits() {
+                    session_builder =
+                        session_builder.capture_limits_override(CaptureLimitsOverride {
+                            max_requests: Some(64),
+                            max_stages: Some(64),
+                            max_queues: Some(64),
+                            max_inflight_snapshots: Some(64),
+                            max_runtime_snapshots: Some(64),
+                        });
+                }
+                let session = session_builder.start()?;
                 // One mode runs per process in this demo, so process-global subscriber init is acceptable.
                 tracing::subscriber::set_global_default(
                     tracing_subscriber::registry().with(session.layer()),
