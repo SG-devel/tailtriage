@@ -158,13 +158,15 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing-based imports can still provide useful request, stage, and queue evidence for triage.
+Tracing import expects completed `tt.*` span JSONL, not arbitrary `tracing_subscriber::fmt().json()` or ordinary tracing log JSON. Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
+
+Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event. Library snapshots may still be zero-request for inspection during active captures.
 
 Important limits for production interpretation:
 
-* tracing-only imports usually do not include runtime snapshots
+* tracing-only runs do not fabricate runtime snapshots
 * without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
-* use tailtriage Tokio runtime sampling when runtime-pressure evidence is required
+* runtime-pressure evidence remains Tokio-specific and requires runtime snapshots or Tokio sampler coupling
 
 Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
 

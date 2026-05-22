@@ -70,6 +70,8 @@ Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust c
 
 If your service already emits `tracing` spans, use `tailtriage-tracing` as a narrow tracing intake bridge.
 
+Offline import expects completed `tt.*` span JSONL (not arbitrary tracing log JSON), requires explicit unix-ms timing, and writes Run JSON before a separate `tailtriage analyze` step.
+
 - Offline JSONL import:
   ```bash
   tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
