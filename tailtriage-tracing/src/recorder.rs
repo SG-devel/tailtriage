@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
@@ -6,6 +7,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tailtriage_core::{CaptureLimits, CaptureLimitsOverride, CaptureMode};
 use tailtriage_core::{LocalJsonSink, RunSink};
 
 use tracing::field::{Field, Visit};
@@ -22,6 +24,7 @@ use crate::{
 pub struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
+    capture_limits: CaptureLimits,
     limits: RecorderLimits,
 }
 /// High-level tracing intake bridge for completed `tt.*` spans.
@@ -61,26 +64,22 @@ pub struct TracingRecorderBuilder {
 #[derive(Debug, Clone)]
 pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
+    capture_limits: CaptureLimits,
     limits: RecorderLimits,
 }
 /// Default maximum number of concurrently tracked open candidate spans.
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
-/// Default maximum number of retained completed candidate spans.
-pub const DEFAULT_MAX_COMPLETED_SPANS: usize = 10_000;
 /// Configurable in-memory limits for live tracing recorder retention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RecorderLimits {
     /// Maximum number of concurrently tracked open candidate spans.
     pub max_open_spans: usize,
-    /// Maximum number of retained completed candidate spans.
-    pub max_completed_spans: usize,
 }
 impl Default for RecorderLimits {
     fn default() -> Self {
         Self {
             max_open_spans: DEFAULT_MAX_OPEN_SPANS,
-            max_completed_spans: DEFAULT_MAX_COMPLETED_SPANS,
         }
     }
 }
@@ -90,9 +89,13 @@ struct RecorderState {
     open: BTreeMap<u64, OpenSpan>,
     completed: Vec<SpanRecord>,
     dropped_open_spans: u64,
-    dropped_completed_spans: u64,
+    dropped_completed_requests: u64,
+    dropped_completed_stages: u64,
+    dropped_completed_queues: u64,
     closed_missing_kind_spans: u64,
-    closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    closed_unknown_kind_spans: u64,
+    closed_malformed_kind_spans: u64,
+    closed_invalid_kind_samples: VecDeque<ClosedInvalidKindSample>,
     writer_failure: Option<String>,
     completed_span_writer_path: Option<PathBuf>,
     completed_span_writer: Option<BufWriter<std::fs::File>>,
@@ -115,22 +118,30 @@ struct OpenSpanSample {
     span_id: Option<String>,
     tt_kind: Option<String>,
     tt_request_id: Option<String>,
+    kind_issue: &'static str,
+    kind_value: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct ClosedMissingKindSample {
+struct ClosedInvalidKindSample {
     name: String,
     span_id: Option<String>,
     tt_request_id: Option<String>,
+    kind_issue: &'static str,
+    kind_value: Option<String>,
 }
 
 struct SnapshotStats {
     dropped_open_spans: u64,
-    dropped_completed_spans: u64,
+    dropped_completed_requests: u64,
+    dropped_completed_stages: u64,
+    dropped_completed_queues: u64,
     open_candidate_count: u64,
     open_samples: Vec<OpenSpanSample>,
     closed_missing_kind_spans: u64,
-    closed_missing_kind_samples: Vec<ClosedMissingKindSample>,
+    closed_unknown_kind_spans: u64,
+    closed_malformed_kind_spans: u64,
+    closed_invalid_kind_samples: Vec<ClosedInvalidKindSample>,
     writer_failure: Option<String>,
 }
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
@@ -154,6 +165,7 @@ impl TracingRecorder {
     pub fn layer(&self) -> TailtriageLayer {
         TailtriageLayer {
             state: Arc::clone(&self.state),
+            capture_limits: self.capture_limits,
             limits: self.limits,
         }
     }
@@ -188,11 +200,19 @@ impl TracingRecorder {
                 state.completed.clone(),
                 SnapshotStats {
                     dropped_open_spans: state.dropped_open_spans,
-                    dropped_completed_spans: state.dropped_completed_spans,
+                    dropped_completed_requests: state.dropped_completed_requests,
+                    dropped_completed_stages: state.dropped_completed_stages,
+                    dropped_completed_queues: state.dropped_completed_queues,
                     open_candidate_count: count,
                     open_samples: samples,
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
-                    closed_missing_kind_samples: state.closed_missing_kind_samples.clone(),
+                    closed_unknown_kind_spans: state.closed_unknown_kind_spans,
+                    closed_malformed_kind_spans: state.closed_malformed_kind_spans,
+                    closed_invalid_kind_samples: state
+                        .closed_invalid_kind_samples
+                        .iter()
+                        .cloned()
+                        .collect(),
                     writer_failure: state.writer_failure.clone(),
                 },
             )
@@ -323,6 +343,27 @@ impl TracingIntakeSessionBuilder {
         self.recorder_builder = self.recorder_builder.run_id(run_id);
         self
     }
+
+    /// Sets capture mode for resolved core retention limits.
+    #[must_use]
+    pub fn mode(mut self, mode: CaptureMode) -> Self {
+        self.recorder_builder = self.recorder_builder.mode(mode);
+        self
+    }
+
+    /// Sets explicit full core capture limits.
+    #[must_use]
+    pub fn capture_limits(mut self, limits: CaptureLimits) -> Self {
+        self.recorder_builder = self.recorder_builder.capture_limits(limits);
+        self
+    }
+
+    /// Sets additive core capture limit overrides.
+    #[must_use]
+    pub fn capture_limits_override(mut self, overrides: CaptureLimitsOverride) -> Self {
+        self.recorder_builder = self.recorder_builder.capture_limits_override(overrides);
+        self
+    }
     /// Sets open/completed in-memory retention limits.
     #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
@@ -333,12 +374,6 @@ impl TracingIntakeSessionBuilder {
     #[must_use]
     pub fn max_open_spans(mut self, v: usize) -> Self {
         self.recorder_builder = self.recorder_builder.max_open_spans(v);
-        self
-    }
-    /// Sets maximum retained completed candidate spans in memory.
-    #[must_use]
-    pub fn max_completed_spans(mut self, v: usize) -> Self {
-        self.recorder_builder = self.recorder_builder.max_completed_spans(v);
         self
     }
     /// Enables completed-span JSONL output at the given path.
@@ -407,12 +442,34 @@ impl TracingRecorderBuilder {
         self
     }
 
+    /// Sets capture mode for resolved core retention limits.
+    #[must_use]
+    pub fn mode(mut self, mode: CaptureMode) -> Self {
+        self.options = self.options.mode(mode);
+        self
+    }
+
+    /// Sets explicit full core capture limits.
+    #[must_use]
+    pub fn capture_limits(mut self, limits: CaptureLimits) -> Self {
+        self.options = self.options.capture_limits(limits);
+        self
+    }
+
+    /// Sets additive core capture limit overrides.
+    #[must_use]
+    pub fn capture_limits_override(mut self, overrides: CaptureLimitsOverride) -> Self {
+        self.options = self.options.capture_limits_override(overrides);
+        self
+    }
     /// Builds a recorder instance.
     #[must_use]
     pub fn build(self) -> TracingRecorder {
+        let capture_limits = self.options.resolved_capture_limits();
         TracingRecorder {
             state: Arc::new(Mutex::new(RecorderState::default())),
             options: self.options,
+            capture_limits,
             limits: self.limits,
         }
     }
@@ -426,12 +483,6 @@ impl TracingRecorderBuilder {
     #[must_use]
     pub fn max_open_spans(mut self, max_open_spans: usize) -> Self {
         self.limits.max_open_spans = max_open_spans;
-        self
-    }
-    /// Sets maximum number of retained completed candidate spans.
-    #[must_use]
-    pub fn max_completed_spans(mut self, max_completed_spans: usize) -> Self {
-        self.limits.max_completed_spans = max_completed_spans;
         self
     }
 }
@@ -545,14 +596,90 @@ where
                     }
                 }
             }
-            if state.completed.len() >= self.limits.max_completed_spans {
-                state.dropped_completed_spans = state.dropped_completed_spans.saturating_add(1);
+            let kind = match classify_tt_kind(&record.fields) {
+                Ok(kind) => kind,
+                Err((issue, value)) => {
+                    match issue {
+                        "missing" => {
+                            state.closed_missing_kind_spans =
+                                state.closed_missing_kind_spans.saturating_add(1)
+                        }
+                        "unknown" => {
+                            state.closed_unknown_kind_spans =
+                                state.closed_unknown_kind_spans.saturating_add(1)
+                        }
+                        _ => {
+                            state.closed_malformed_kind_spans =
+                                state.closed_malformed_kind_spans.saturating_add(1)
+                        }
+                    }
+                    push_invalid_kind_sample(
+                        &mut state,
+                        ClosedInvalidKindSample {
+                            name: record.name.clone(),
+                            span_id: record.id.clone(),
+                            tt_request_id: scalar_field_string(record.fields.get("tt.request_id")),
+                            kind_issue: issue,
+                            kind_value: value,
+                        },
+                    );
+                    return;
+                }
+            };
+            let cap = match kind {
+                "request" => self.capture_limits.max_requests,
+                "stage" => self.capture_limits.max_stages,
+                _ => self.capture_limits.max_queues,
+            };
+            let retained = state
+                .completed
+                .iter()
+                .filter(|r| matches!(classify_tt_kind(&r.fields), Ok(k) if k==kind))
+                .count();
+            if retained >= cap {
+                match kind {
+                    "request" => {
+                        state.dropped_completed_requests =
+                            state.dropped_completed_requests.saturating_add(1)
+                    }
+                    "stage" => {
+                        state.dropped_completed_stages =
+                            state.dropped_completed_stages.saturating_add(1)
+                    }
+                    _ => {
+                        state.dropped_completed_queues =
+                            state.dropped_completed_queues.saturating_add(1)
+                    }
+                }
                 return;
             }
             state.completed.push(record);
         }
     }
 }
+
+fn classify_tt_kind(
+    fields: &BTreeMap<String, FieldValue>,
+) -> Result<&'static str, (&'static str, Option<String>)> {
+    match fields.get(TT_KIND) {
+        None | Some(FieldValue::Null) => Err(("missing", None)),
+        Some(FieldValue::String(v)) => match v.as_str() {
+            "request" => Ok("request"),
+            "stage" => Ok("stage"),
+            "queue" => Ok("queue"),
+            _ => Err(("unknown", Some(v.clone()))),
+        },
+        Some(other) => Err(("malformed", Some(format!("{other:?}")))),
+    }
+}
+
+fn push_invalid_kind_sample(state: &mut RecorderState, sample: ClosedInvalidKindSample) {
+    if state.closed_invalid_kind_samples.len() >= 16 {
+        state.closed_invalid_kind_samples.pop_front();
+    }
+    state.closed_invalid_kind_samples.push_back(sample);
+}
+
 fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
     metadata
         .fields()
