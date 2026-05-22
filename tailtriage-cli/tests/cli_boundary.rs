@@ -340,7 +340,7 @@ fn import_tracing_json_auto_accepts_fmt_like_record_with_top_level_explicit_time
     let run_path = dir.path().join("run.json");
     std::fs::write(
         &spans_path,
-        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":2000,"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}"#,
+        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","event":"close","name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":2000,"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}"#,
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -353,13 +353,14 @@ fn import_tracing_json_auto_accepts_fmt_like_record_with_top_level_explicit_time
         .arg(&run_path)
         .output()
         .expect("cli should run");
-    assert!(
-        !output.status.success(),
-        "cli unexpectedly succeeded: {output:?}"
-    );
+    assert!(output.status.success(), "cli failed: {output:?}");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(!stderr.contains("ordinary tracing log JSON"));
-    assert!(stderr.contains("zero request events"));
+    assert!(run_path.exists(), "run json should be written");
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
 }
 
 #[test]
@@ -369,7 +370,7 @@ fn import_tracing_json_auto_accepts_fmt_like_record_with_nested_explicit_timesta
     let run_path = dir.path().join("run.json");
     std::fs::write(
         &spans_path,
-        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","span":{"started_at_unix_ms":1000,"finished_at_unix_ms":2000,"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}"#,
+        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","span":{"name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":2000,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}"#,
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -382,13 +383,14 @@ fn import_tracing_json_auto_accepts_fmt_like_record_with_nested_explicit_timesta
         .arg(&run_path)
         .output()
         .expect("cli should run");
-    assert!(
-        !output.status.success(),
-        "cli unexpectedly succeeded: {output:?}"
-    );
+    assert!(output.status.success(), "cli failed: {output:?}");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(!stderr.contains("ordinary tracing log JSON"));
-    assert!(stderr.contains("zero request events"));
+    assert!(run_path.exists(), "run json should be written");
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
 }
 
 #[test]

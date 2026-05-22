@@ -490,7 +490,7 @@ Treat the workflow as iterative triage.
 Do not treat one report as final proof.
 
 
-## Tracing intake operations
+## Operating with tracing-based runs
 
 - Import expects completed `tt.*` span JSONL input (stable wrapper format), not arbitrary tracing log JSON.
 - Arbitrary tracing log JSON (for example plain `tracing_subscriber::fmt().json()` output) is not import input.
@@ -503,5 +503,5 @@ Do not treat one report as final proof.
 - Configure `max_open_spans` and `max_completed_spans` to keep memory bounded.
 - Completed-span JSONL streaming happens before in-memory `max_completed_spans` retention, so the file can preserve spans beyond in-memory retained completed spans.
 - Import warnings and lifecycle warnings mean evidence may be incomplete and should be treated as triage caveats.
-- Tracing-only intake does not provide runtime-pressure evidence by itself; runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
+- Tracing-only runs do not fabricate runtime snapshots; runtime-pressure evidence remains Tokio-specific and requires runtime snapshots/Tokio sampler coupling.
 - Treat tracing-import output like all tailtriage output: evidence-ranked suspects and next checks are leads, not proof of root cause.
