@@ -160,12 +160,12 @@ pub struct RuntimeDemoInstrumentation {
 
 enum RuntimeDemoBackend {
     Native(Arc<Tailtriage>),
-    Tracing(TracingTokioSession),
+    Tracing(Box<TracingTokioSession>),
 }
 
 enum DemoInstrumentationBackend {
     Native(Arc<Tailtriage>),
-    Tracing(TracingState),
+    Tracing(Box<TracingState>),
 }
 
 pub struct DemoRequest {
@@ -215,7 +215,9 @@ impl DemoInstrumentation {
                 tracing::subscriber::set_global_default(subscriber)
                     .map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
                 Ok(Self {
-                    backend: DemoInstrumentationBackend::Tracing(TracingState { recorder }),
+                    backend: DemoInstrumentationBackend::Tracing(Box::new(TracingState {
+                        recorder,
+                    })),
                 })
             }
         }
@@ -309,7 +311,7 @@ impl RuntimeDemoInstrumentation {
                 tracing::subscriber::set_global_default(subscriber)
                     .map_err(|e| anyhow::anyhow!("failed to install tracing subscriber: {e}"))?;
                 Ok(Self {
-                    backend: RuntimeDemoBackend::Tracing(session),
+                    backend: RuntimeDemoBackend::Tracing(Box::new(session)),
                 })
             }
         }
