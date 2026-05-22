@@ -981,14 +981,18 @@ mod tests {
                 tt.request_id = "r1",
                 tt.route = "/a"
             );
-            drop(request);
+            let request_guard = request.enter();
             let span = tracing::info_span!(
                 "queue",
                 tt.kind = "queue",
                 tt.request_id = "r1",
                 tt.queue = "permits"
             );
+            let queue_guard = span.enter();
+            drop(queue_guard);
+            drop(request_guard);
             drop(span);
+            drop(request);
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().queues.len(), 1);
         });
