@@ -34,6 +34,13 @@ pub enum ImportError {
     EmptyServiceName,
     /// Imported run event failed `tailtriage-core` run-builder validation.
     InvalidRunEvent(String),
+    /// Writing run JSON output failed.
+    RunJsonWrite {
+        /// Target path.
+        path: String,
+        /// Underlying sink error text.
+        reason: String,
+    },
     /// Persistable run artifact is missing required completed request spans.
     ZeroRequestArtifact {
         /// Actionable setup guidance for creating a persistable run artifact.
@@ -59,6 +66,9 @@ impl fmt::Display for ImportError {
             Self::StrictViolation(message) => write!(f, "strict import violation: {message}"),
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
             Self::InvalidRunEvent(message) => write!(f, "invalid run event: {message}"),
+            Self::RunJsonWrite { path, reason } => {
+                write!(f, "failed to write run json at {path}: {reason}")
+            }
             Self::ZeroRequestArtifact { guidance } => write!(f, "{guidance}"),
         }
     }

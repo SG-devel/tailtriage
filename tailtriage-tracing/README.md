@@ -67,6 +67,15 @@ tailtriage import tracing-json target/tailtriage-examples/checkout.spans.jsonl \
 tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
+
+## Features
+
+- `default = ["jsonl"]`: typed intake types plus JSONL import APIs (`import_jsonl_reader`, `import_jsonl_path`, and strict/compatible parse mode helpers).
+- `live`: enables live tracing capture APIs (`TracingRecorder`, `TailtriageLayer`, `TracingIntakeSession`) and depends on `tracing` + `tracing-subscriber`.
+- `tokio`: enables `TracingTokioSession` runtime-sampler coupling on top of `live`.
+
+CLI offline import paths only need JSONL import support; they do not require the live `tracing_subscriber` layer dependency.
+
 ## Stable JSONL wrapper format
 
 Stable completed-span JSONL records use this wrapper:

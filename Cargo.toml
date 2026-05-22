@@ -44,5 +44,5 @@ tailtriage-analyzer = { version = "0.2.0", path = "tailtriage-analyzer" }
 tailtriage-controller = { version = "0.2.0", path = "tailtriage-controller" }
 tailtriage-tokio = { version = "0.2.0", path = "tailtriage-tokio" }
 tailtriage-axum = { version = "0.2.0", path = "tailtriage-axum" }
-tailtriage-tracing = { version = "0.2.0", path = "tailtriage-tracing" }
+tailtriage-tracing = { version = "0.2.0", path = "tailtriage-tracing", default-features = false }
 demo-support = { version = "0.2.0", path = "demos/demo_support" }
