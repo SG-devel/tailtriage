@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
+use tailtriage_core::{unix_time_ms, CaptureLimitsOverride, RuntimeSnapshot};
 use tailtriage_tokio::SamplerStartError;
 use tailtriage_tracing::tokio::{TracingTokioSession, TracingTokioSessionStartError};
 use tracing_subscriber::prelude::*;
@@ -244,7 +244,10 @@ async fn record_runtime_snapshot_does_not_alter_tracing_events() {
 #[tokio::test(flavor = "current_thread")]
 async fn runtime_snapshot_truncation_propagates_to_imported_run() {
     let session = TracingTokioSession::builder("svc")
-        .max_runtime_snapshots(1)
+        .capture_limits_override(CaptureLimitsOverride {
+            max_runtime_snapshots: Some(1),
+            ..CaptureLimitsOverride::default()
+        })
         .start()
         .expect("start session");
     session.record_runtime_snapshot(RuntimeSnapshot {
@@ -269,4 +272,44 @@ async fn runtime_snapshot_truncation_propagates_to_imported_run() {
     assert_eq!(run.runtime_snapshots.len(), 1);
     assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
     assert!(run.truncation.limits_hit);
+    assert_eq!(
+        run.metadata
+            .effective_tokio_sampler_config
+            .as_ref()
+            .expect("sampler metadata present")
+            .resolved_runtime_snapshot_retention,
+        1
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn capture_limits_override_caps_sampler_and_collector_together() {
+    let session = TracingTokioSession::builder("svc")
+        .capture_limits_override(CaptureLimitsOverride {
+            max_runtime_snapshots: Some(2),
+            ..CaptureLimitsOverride::default()
+        })
+        .start()
+        .expect("start session");
+    for i in 0..4_u64 {
+        session.record_runtime_snapshot(RuntimeSnapshot {
+            at_unix_ms: unix_time_ms().saturating_add(i),
+            alive_tasks: Some(i),
+            global_queue_depth: Some(i),
+            local_queue_depth: Some(i),
+            blocking_queue_depth: Some(i),
+            remote_schedule_count: Some(i),
+        });
+    }
+    let run = session.shutdown().await.expect("shutdown").run().clone();
+    assert!(run.runtime_snapshots.len() <= 2);
+    assert!(run.truncation.dropped_runtime_snapshots > 0);
+    assert_eq!(
+        run.metadata
+            .effective_tokio_sampler_config
+            .as_ref()
+            .expect("sampler metadata present")
+            .resolved_runtime_snapshot_retention,
+        2
+    );
 }
