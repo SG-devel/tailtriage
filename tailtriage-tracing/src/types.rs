@@ -182,6 +182,9 @@ pub struct ImportOptions {
     service_version: Option<String>,
     run_id: Option<String>,
     strict: bool,
+    mode: tailtriage_core::CaptureMode,
+    capture_limits: Option<tailtriage_core::CaptureLimits>,
+    capture_limits_override: tailtriage_core::CaptureLimitsOverride,
 }
 
 impl ImportOptions {
@@ -192,6 +195,9 @@ impl ImportOptions {
             service_version: None,
             run_id: None,
             strict: false,
+            mode: tailtriage_core::CaptureMode::Light,
+            capture_limits: None,
+            capture_limits_override: tailtriage_core::CaptureLimitsOverride::default(),
         }
     }
 
@@ -214,6 +220,45 @@ impl ImportOptions {
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.service_version = Some(service_version.into());
         self
+    }
+
+    /// Sets capture mode for import semantics.
+    #[must_use]
+    pub fn mode(mut self, mode: tailtriage_core::CaptureMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Sets full capture limits override.
+    #[must_use]
+    pub fn capture_limits(mut self, capture_limits: tailtriage_core::CaptureLimits) -> Self {
+        self.capture_limits = Some(capture_limits);
+        self
+    }
+
+    /// Sets additive capture limit overrides.
+    #[must_use]
+    pub fn capture_limits_override(
+        mut self,
+        capture_limits_override: tailtriage_core::CaptureLimitsOverride,
+    ) -> Self {
+        self.capture_limits_override = capture_limits_override;
+        self
+    }
+
+    /// Returns selected capture mode.
+    #[must_use]
+    pub fn mode_value(&self) -> tailtriage_core::CaptureMode {
+        self.mode
+    }
+
+    /// Returns resolved capture limits matching native resolution semantics.
+    #[must_use]
+    pub fn resolved_capture_limits(&self) -> tailtriage_core::CaptureLimits {
+        self.capture_limits.unwrap_or_else(|| {
+            self.capture_limits_override
+                .apply(self.mode.core_defaults())
+        })
     }
 
     /// Returns service name.
@@ -304,6 +349,7 @@ impl ImportedRun {
 mod tests {
     use super::*;
     use crate::{TT_DEPTH_AT_START, TT_KIND, TT_SUCCESS};
+    use tailtriage_core::{CaptureLimits, CaptureLimitsOverride, CaptureMode};
 
     #[test]
     fn span_record_builder_stores_fields() {
@@ -350,6 +396,50 @@ mod tests {
         assert_eq!(options.service_version_ref(), Some("1.2.3"));
         assert_eq!(options.run_id_ref(), Some("run-123"));
         assert!(options.strict_mode());
+    }
+
+    #[test]
+    fn import_options_capture_defaults_and_overrides() {
+        let defaults = ImportOptions::new("svc");
+        assert_eq!(defaults.mode_value(), CaptureMode::Light);
+        assert_eq!(
+            defaults.resolved_capture_limits(),
+            CaptureMode::Light.core_defaults()
+        );
+
+        let inv = ImportOptions::new("svc").mode(CaptureMode::Investigation);
+        assert_eq!(
+            inv.resolved_capture_limits(),
+            CaptureMode::Investigation.core_defaults()
+        );
+
+        let full = CaptureLimits {
+            max_requests: 1,
+            max_stages: 2,
+            max_queues: 3,
+            max_inflight_snapshots: 4,
+            max_runtime_snapshots: 5,
+        };
+        let full_wins = ImportOptions::new("svc")
+            .mode(CaptureMode::Investigation)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(999),
+                ..CaptureLimitsOverride::default()
+            })
+            .capture_limits(full);
+        assert_eq!(full_wins.resolved_capture_limits(), full);
+
+        let additive = ImportOptions::new("svc")
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(7),
+                max_stages: Some(8),
+                max_queues: Some(9),
+                ..CaptureLimitsOverride::default()
+            })
+            .resolved_capture_limits();
+        assert_eq!(additive.max_requests, 7);
+        assert_eq!(additive.max_stages, 8);
+        assert_eq!(additive.max_queues, 9);
     }
 
     #[test]

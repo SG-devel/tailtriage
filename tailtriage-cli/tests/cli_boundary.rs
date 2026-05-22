@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
-use tailtriage_core::Run;
+use tailtriage_core::{CaptureMode, Run};
 
 #[test]
 fn cli_json_output_is_valid_report_json() {
@@ -248,6 +248,83 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
         .expect("imported run should load in cli loader");
     let report = analyze_run(&loaded.run, AnalyzeOptions::default());
     assert_eq!(report.request_count, 1);
+}
+
+#[test]
+fn import_tracing_json_mode_investigation_sets_run_mode_metadata() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--mode")
+        .arg("investigation")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).expect("load run");
+    assert_eq!(loaded.run.metadata.mode, CaptureMode::Investigation);
+}
+
+#[test]
+fn import_tracing_json_limit_overrides_apply_to_retained_evidence() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        concat!(
+            "{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{\"name\":\"req1\",\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"r1\",\"tt.route\":\"/a\"}}}\n",
+            "{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{\"name\":\"req2\",\"started_at_unix_ms\":3,\"finished_at_unix_ms\":4,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"r2\",\"tt.route\":\"/b\"}}}\n",
+            "{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{\"name\":\"st1\",\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"fields\":{\"tt.kind\":\"stage\",\"tt.request_id\":\"r1\",\"tt.stage\":\"db\"}}}\n",
+            "{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{\"name\":\"st2\",\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"fields\":{\"tt.kind\":\"stage\",\"tt.request_id\":\"r1\",\"tt.stage\":\"cache\"}}}\n",
+            "{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{\"name\":\"q1\",\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"fields\":{\"tt.kind\":\"queue\",\"tt.request_id\":\"r1\",\"tt.queue\":\"permits\"}}}\n",
+            "{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{\"name\":\"q2\",\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"fields\":{\"tt.kind\":\"queue\",\"tt.request_id\":\"r1\",\"tt.queue\":\"dbpool\"}}}\n"
+        ),
+    )
+    .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--max-requests")
+        .arg("1")
+        .arg("--max-stages")
+        .arg("1")
+        .arg("--max-queues")
+        .arg("1")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).expect("load run");
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.stages.len(), 1);
+    assert_eq!(loaded.run.queues.len(), 1);
+}
+
+#[test]
+fn import_tracing_json_has_no_runtime_snapshot_limit_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg("--help")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8");
+    assert!(!stdout.contains("--max-runtime-snapshots"));
+    assert!(!stdout.contains("--max-inflight-snapshots"));
 }
 
 #[test]

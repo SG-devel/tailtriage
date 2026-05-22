@@ -70,6 +70,7 @@ Use `completed_span_jsonl_path(...)` when you want an offline import workflow:
 tailtriage import tracing-json target/tailtriage-examples/checkout.spans.jsonl \
   --input-format tailtriage-span-jsonl \
   --service checkout-service \
+  --mode light \
   --output target/tailtriage-examples/checkout.run.json
 
 tailtriage analyze target/tailtriage-examples/checkout.run.json
@@ -101,6 +102,13 @@ Arbitrary `tracing_subscriber::fmt().json()` log JSON is rejected by import. Imp
 - Non-strict mode: malformed/incomplete records are warned and skipped where implemented.
 
 ## Retention and drop behavior
+
+Offline tracing import resolves mode/limits with the same semantics as native capture:
+- mode selects the base `CaptureLimits` defaults,
+- explicit full `capture_limits` wins when set,
+- additive overrides apply on top of mode defaults when full limits are not set.
+
+CLI import exposes request/stage/queue overrides only (`--max-requests`, `--max-stages`, `--max-queues`) because offline JSONL import in this path imports those evidence types and does not import runtime or in-flight snapshots.
 
 - `max_open_spans` bounds in-flight span tracking.
 - `max_completed_spans` bounds in-memory completed-span retention.

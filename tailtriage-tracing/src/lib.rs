@@ -40,7 +40,7 @@ mod types;
 
 use std::collections::BTreeSet;
 use tailtriage_core::{
-    BuildError, CaptureMode, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
+    BuildError, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
 };
 
 pub use convention::{
@@ -228,7 +228,8 @@ where
             }
         }
     }
-    let capture_limits = CaptureMode::Light.core_defaults();
+    let mode = options.mode_value();
+    let capture_limits = options.resolved_capture_limits();
     let request_outcome_default_count = parsed_requests
         .iter()
         .take(capture_limits.max_requests)
@@ -284,7 +285,7 @@ where
 
     let mut builder_options = RunBuilderOptions::new(options.service_name())
         .run_id(run_id)
-        .mode(CaptureMode::Light)
+        .mode(mode)
         .capture_limits(capture_limits)
         .strict_lifecycle(false)
         .started_at_unix_ms(started_at_unix_ms)
@@ -641,6 +642,7 @@ fn parse_depth_at_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tailtriage_core::{CaptureLimits, CaptureMode};
 
     #[test]
     fn span_kind_parser_accepts_supported_values_only() {
@@ -659,6 +661,62 @@ mod tests {
             .field(TT_ROUTE, "/a")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).expect("ok");
         assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn run_from_span_records_uses_resolved_limits_and_mode_metadata() {
+        let spans = vec![
+            SpanRecord::new("req1", 100, 200)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("req2", 110, 210)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r2")
+                .field(TT_ROUTE, "/b"),
+            SpanRecord::new("st1", 120, 130)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("st2", 121, 131)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "cache"),
+            SpanRecord::new("q1", 140, 150)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+            SpanRecord::new("q2", 141, 151)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "dbpool"),
+        ];
+        let limits = CaptureLimits {
+            max_requests: 1,
+            max_stages: 1,
+            max_queues: 1,
+            max_inflight_snapshots: 1000,
+            max_runtime_snapshots: 1000,
+        };
+        let run = run_from_span_records(
+            spans,
+            ImportOptions::new("svc")
+                .mode(CaptureMode::Investigation)
+                .capture_limits(limits),
+        )
+        .unwrap()
+        .run()
+        .clone();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+        assert_eq!(run.truncation.dropped_requests, 1);
+        assert_eq!(run.truncation.dropped_stages, 1);
+        assert_eq!(run.truncation.dropped_queues, 1);
+        assert_eq!(run.metadata.mode, CaptureMode::Investigation);
+        let effective = run.metadata.effective_core_config.expect("effective core");
+        assert_eq!(effective.capture_limits, limits);
+        assert!(!effective.strict_lifecycle);
     }
 
     #[test]

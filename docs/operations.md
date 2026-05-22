@@ -159,6 +159,7 @@ Prefer moderate intervals and bounded runs before increasing density.
 ## Operating with tracing-based runs
 
 Tracing import expects completed `tt.*` span JSONL, not arbitrary `tracing_subscriber::fmt().json()` or ordinary tracing log JSON. Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
+Tracing import and native capture use the same `CaptureMode` and `CaptureLimits` semantics for request/stage/queue retention in the resulting Run metadata and drop accounting. Offline CLI tracing import exposes request/stage/queue override flags (`--max-requests`, `--max-stages`, `--max-queues`) because those are the imported evidence types. It intentionally does not expose runtime/in-flight snapshot limit flags because this path does not import runtime or in-flight snapshot evidence.
 
 Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event. Library snapshots may still be zero-request for inspection during active captures.
 

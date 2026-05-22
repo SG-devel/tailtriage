@@ -5,6 +5,7 @@ use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode};
 use tailtriage_tracing::{
     ensure_persistable_run_has_requests, import_jsonl_path_with_mode, ImportOptions, JsonlParseMode,
 };
@@ -69,12 +70,39 @@ enum ImportCommand {
         /// Input format mode.
         #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
         input_format: TracingInputFormat,
+        /// Capture mode for offline import retention semantics.
+        #[arg(long, value_enum, default_value_t = TracingImportMode::Light)]
+        mode: TracingImportMode,
+        /// Maximum retained request events.
+        #[arg(long)]
+        max_requests: Option<usize>,
+        /// Maximum retained stage events.
+        #[arg(long)]
+        max_stages: Option<usize>,
+        /// Maximum retained queue events.
+        #[arg(long)]
+        max_queues: Option<usize>,
     },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum TracingInputFormat {
     Auto,
     TailtriageSpanJsonl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum TracingImportMode {
+    Light,
+    Investigation,
+}
+
+impl From<TracingImportMode> for CaptureMode {
+    fn from(value: TracingImportMode) -> Self {
+        match value {
+            TracingImportMode::Light => CaptureMode::Light,
+            TracingImportMode::Investigation => CaptureMode::Investigation,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -96,8 +124,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 run_id,
                 strict,
                 input_format,
+                mode,
+                max_requests,
+                max_stages,
+                max_queues,
             } => {
-                let mut options = ImportOptions::new(service).strict(strict);
+                let mut options = ImportOptions::new(service)
+                    .strict(strict)
+                    .mode(mode.into())
+                    .capture_limits_override(CaptureLimitsOverride {
+                        max_requests,
+                        max_stages,
+                        max_queues,
+                        ..CaptureLimitsOverride::default()
+                    });
                 if let Some(service_version) = service_version {
                     options = options.service_version(service_version);
                 }

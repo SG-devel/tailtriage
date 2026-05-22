@@ -54,6 +54,13 @@ With optional metadata flags, strict validation, and explicit format:
 tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
 ```
 
+Choose import retention semantics and override request/stage/queue limits:
+
+```bash
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json \
+  --mode investigation --max-requests 5000 --max-stages 20000 --max-queues 20000
+```
+
 
 `tailtriage import tracing-json` imports **completed `tt.*` tracing span JSONL** into **Run JSON** (not Report JSON).
 
@@ -87,6 +94,7 @@ tailtriage import tracing-json "fixtures/tracing spans.jsonl" --service checkout
 
 The command imports completed `tt.*` tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
 Tracing-only imports provide request/stage/queue intake but do not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured (for example via Tokio runtime sampling).
+Tracing import and native capture use the same `CaptureMode` and `CaptureLimits` semantics for request/stage/queue evidence retention. Offline import exposes `--max-requests`, `--max-stages`, and `--max-queues` because those are the imported evidence types. Offline import intentionally does not expose runtime/in-flight snapshot limit flags because this path does not import those evidence types.
 Malformed JSON input remains fatal. In non-strict mode, syntactically valid malformed/incomplete `tt.*` records are skipped with `warning: ...` lines.
 `--service` must not be empty or whitespace.
 Import fails when zero request events would be written (for example unrelated-only input or all-skipped malformed `tt.*` input), because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
