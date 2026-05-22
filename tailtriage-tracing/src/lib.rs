@@ -54,6 +54,20 @@ pub use recorder::{
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
+/// Ensures a run is suitable for persisted Run JSON artifacts intended for CLI analysis.
+///
+/// # Errors
+///
+/// Returns [`ImportError::ZeroRequestArtifact`] when the run has no completed request events.
+pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result<(), ImportError> {
+    if run.requests.is_empty() {
+        return Err(ImportError::ZeroRequestArtifact {
+            guidance: "tracing import produced zero request events; persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and explicit unix-ms timing fields (started_at_unix_ms/finished_at_unix_ms).".to_owned(),
+        });
+    }
+    Ok(())
+}
+
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
 ///
 /// Spans without any `tt.*` fields are ignored silently. Spans with `tt.*`
@@ -495,6 +509,43 @@ fn attach_durable_conversion_warnings(run: &mut tailtriage_core::Run, warnings: 
         {
             run.metadata.lifecycle_warnings.push(message.to_owned());
         }
+    }
+}
+
+#[cfg(test)]
+mod persistable_tests {
+    use super::ensure_persistable_run_has_requests;
+    use crate::ImportError;
+    use tailtriage_core::{MemorySink, RequestEvent, Tailtriage};
+
+    #[test]
+    fn ensure_persistable_run_has_requests_accepts_non_empty_runs() {
+        let collector = Tailtriage::builder("svc")
+            .sink(MemorySink::new())
+            .build()
+            .unwrap();
+        let mut run = collector.snapshot();
+        run.requests.push(RequestEvent {
+            request_id: "r1".into(),
+            route: "/".into(),
+            kind: None,
+            started_at_unix_ms: 1,
+            finished_at_unix_ms: 2,
+            latency_us: 1_000,
+            outcome: "ok".into(),
+        });
+        assert!(ensure_persistable_run_has_requests(&run).is_ok());
+    }
+
+    #[test]
+    fn ensure_persistable_run_has_requests_rejects_empty_runs() {
+        let run = Tailtriage::builder("svc")
+            .sink(MemorySink::new())
+            .build()
+            .unwrap()
+            .snapshot();
+        let err = ensure_persistable_run_has_requests(&run).unwrap_err();
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
     }
 }
 
