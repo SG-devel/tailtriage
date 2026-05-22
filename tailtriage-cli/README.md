@@ -45,13 +45,13 @@ tailtriage analyze tailtriage-run.json --format json
 Import completed `tt.*` tracing span JSONL into Run JSON:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --mode light
 ```
 
 With optional metadata flags, strict validation, and explicit format:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --mode light --service-version v1 --run-id run-42 --strict --mode investigation --max-requests 2000 --max-stages 16000 --max-queues 16000
 ```
 
 
@@ -283,3 +283,6 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+
+Offline `tracing-json` import now uses the same `CaptureMode` and `CaptureLimits` semantics as native capture for request/stage/queue evidence retention. CLI import exposes `--mode <light|investigation>`, `--max-requests`, `--max-stages`, and `--max-queues`. It intentionally does not expose `--max-runtime-snapshots` or `--max-inflight-snapshots` because this offline tracing JSONL path does not import runtime snapshots or in-flight snapshots.

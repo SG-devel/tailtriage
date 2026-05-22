@@ -740,6 +740,75 @@ fn import_tracing_json_persists_optional_default_assumption_warnings_in_run_arti
     assert_eq!(report.request_count, 1);
 }
 
+#[test]
+fn import_tracing_json_accepts_mode_investigation() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, missing_optional_defaults_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .args(["import", "tracing-json"])
+        .arg(&spans_path)
+        .args(["--service", "checkout", "--output"])
+        .arg(&run_path)
+        .args(["--mode", "investigation"])
+        .output()
+        .expect("cli should run");
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    assert_eq!(
+        loaded.run.metadata.mode,
+        tailtriage_core::CaptureMode::Investigation
+    );
+}
+
+#[test]
+fn import_tracing_json_applies_request_stage_queue_limit_overrides() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, overflow_spans_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .args(["import", "tracing-json"])
+        .arg(&spans_path)
+        .args(["--service", "checkout", "--output"])
+        .arg(&run_path)
+        .args([
+            "--max-requests",
+            "1",
+            "--max-stages",
+            "1",
+            "--max-queues",
+            "1",
+        ])
+        .output()
+        .expect("cli should run");
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.stages.len(), 1);
+    assert_eq!(loaded.run.queues.len(), 1);
+}
+
+#[test]
+fn import_tracing_json_does_not_expose_runtime_or_inflight_limit_flags() {
+    for flag in ["--max-runtime-snapshots", "--max-inflight-snapshots"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+            .args(["import", "tracing-json", "--help"])
+            .output()
+            .expect("help should run");
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!stdout.contains(flag), "unexpected flag in help: {flag}");
+    }
+}
+
 fn valid_cli_artifact_with_requests() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
@@ -747,6 +816,16 @@ fn valid_cli_artifact_with_requests() -> &'static str {
 fn missing_optional_defaults_fixture() -> &'static str {
     r#"{"span":{"name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
 {"span":{"name":"stage","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
+"#
+}
+
+fn overflow_spans_fixture() -> &'static str {
+    r#"{"span":{"name":"request-1","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/a","tt.outcome":"ok"}}}
+{"span":{"name":"request-2","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/b","tt.outcome":"ok"}}}
+{"span":{"name":"stage-1","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db","tt.success":true}}}
+{"span":{"name":"stage-2","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"cache","tt.success":true}}}
+{"span":{"name":"queue-1","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"q1"}}}
+{"span":{"name":"queue-2","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"q2"}}}
 "#
 }
 

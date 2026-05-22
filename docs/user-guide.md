@@ -43,7 +43,7 @@ tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-s
 tailtriage analyze tailtriage-run.json
 ```
 
-`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific.
+`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific. Offline tracing import and native capture share the same `CaptureMode`/`CaptureLimits` semantics for request/stage/queue evidence retention (`--mode`, `--max-requests`, `--max-stages`, `--max-queues`). Offline tracing import does not expose runtime/in-flight snapshot limit flags because those evidence types are not imported in this path.
 
 B) Direct Run JSON path with async span instrumentation:
 

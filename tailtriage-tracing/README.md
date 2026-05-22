@@ -116,3 +116,6 @@ Persisted Run JSON artifacts intended for `tailtriage analyze` require at least 
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+
+
+`ImportOptions` uses the same core capture configuration semantics as native capture: select `CaptureMode` and optionally apply full `capture_limits(...)` or additive `capture_limits_override(...)`. For tracing import, those semantics apply to request/stage/queue evidence retention in imported runs.
