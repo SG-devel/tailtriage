@@ -53,18 +53,25 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("failed to build Tokio runtime")?;
 
-    runtime.block_on(run_demo(args.output_path, settings, args.instrumentation))
+    runtime.block_on(run_demo(
+        args.output_path,
+        settings,
+        args.instrumentation,
+        args.capture_config(),
+    ))
 }
 
 async fn run_demo(
     output_path: PathBuf,
     settings: ModeSettings,
     mode: demo_support::InstrumentationMode,
+    capture: demo_support::DemoCaptureConfig,
 ) -> anyhow::Result<()> {
     let instrumentation = Arc::new(RuntimeDemoInstrumentation::new(
         "executor_pressure_demo",
         &output_path,
         mode,
+        capture,
     )?);
     let measured_requests = settings.offered_requests;
 

@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
         "mixed_contention_service_demo",
         &args.output_path,
         args.instrumentation,
+        args.capture_config(),
     )?);
 
     let semaphore = Arc::new(Semaphore::new(settings.service_capacity));

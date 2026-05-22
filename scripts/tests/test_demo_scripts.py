@@ -161,6 +161,25 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "all")
 
+    def test_parse_args_accepts_validate_tracing_retention_parity(self) -> None:
+        args = parse_args(["validate-tracing-retention-parity", "--profile", "release"])
+        self.assertEqual(args.command, "validate-tracing-retention-parity")
+        self.assertEqual(args.profile, "release")
+
+    def test_parity_failure_message_contains_scenario_field_expected_actual(self) -> None:
+        with self.assertRaisesRegex(
+            SystemExit,
+            "scenario=queue.*field=metadata.mode.*expected='light'.*actual='investigation'",
+        ):
+            demo_tool._require_equal(
+                scenario="queue",
+                instrumentation="native",
+                artifact_path="artifact.json",
+                field="metadata.mode",
+                expected="light",
+                actual="investigation",
+            )
+
     def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
