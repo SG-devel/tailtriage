@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
-use tailtriage_core::Run;
+use tailtriage_core::{CaptureMode, Run};
 
 #[test]
 fn cli_json_output_is_valid_report_json() {
@@ -248,6 +248,104 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
         .expect("imported run should load in cli loader");
     let report = analyze_run(&loaded.run, AnalyzeOptions::default());
     assert_eq!(report.request_count, 1);
+}
+
+#[test]
+fn import_tracing_json_mode_investigation_sets_run_metadata_mode() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--mode")
+        .arg("investigation")
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    assert_eq!(loaded.run.metadata.mode, CaptureMode::Investigation);
+}
+
+#[test]
+fn import_tracing_json_capture_limit_overrides_apply() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, multi_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-requests")
+        .arg("1")
+        .arg("--max-stages")
+        .arg("1")
+        .arg("--max-queues")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.stages.len(), 1);
+    assert_eq!(loaded.run.queues.len(), 1);
+}
+
+#[test]
+fn import_tracing_json_rejects_inert_runtime_snapshot_flags() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-runtime-snapshots")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unexpected argument '--max-runtime-snapshots'"));
+}
+
+#[test]
+fn import_tracing_json_rejects_inert_inflight_snapshot_flags() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-inflight-snapshots")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unexpected argument '--max-inflight-snapshots'"));
 }
 
 #[test]
@@ -780,6 +878,16 @@ fn incomplete_tailtriage_span_fixture() -> &'static str {
 
 fn one_valid_request_span_fixture() -> &'static str {
     r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
+"#
+}
+
+fn multi_span_jsonl_fixture() -> &'static str {
+    r#"{"span":{"name":"req-1","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
+{"span":{"name":"req-2","started_at_unix_ms":1020,"finished_at_unix_ms":1030,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout"}}}
+{"span":{"name":"stage-1","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
+{"span":{"name":"stage-2","started_at_unix_ms":1021,"finished_at_unix_ms":1029,"fields":{"tt.kind":"stage","tt.request_id":"req-2","tt.stage":"cache"}}}
+{"span":{"name":"queue-1","started_at_unix_ms":1002,"finished_at_unix_ms":1008,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"permits"}}}
+{"span":{"name":"queue-2","started_at_unix_ms":1022,"finished_at_unix_ms":1028,"fields":{"tt.kind":"queue","tt.request_id":"req-2","tt.queue":"permits"}}}
 "#
 }
 

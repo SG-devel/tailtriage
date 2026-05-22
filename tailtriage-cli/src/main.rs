@@ -5,6 +5,7 @@ use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode};
 use tailtriage_tracing::{
     ensure_persistable_run_has_requests, import_jsonl_path_with_mode, ImportOptions, JsonlParseMode,
 };
@@ -69,12 +70,39 @@ enum ImportCommand {
         /// Input format mode.
         #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
         input_format: TracingInputFormat,
+        /// Import capture mode semantics for request/stage/queue retention.
+        #[arg(long, value_enum, default_value_t = ImportCaptureMode::Light)]
+        mode: ImportCaptureMode,
+        /// Override max retained request events for imported evidence.
+        #[arg(long)]
+        max_requests: Option<usize>,
+        /// Override max retained stage events for imported evidence.
+        #[arg(long)]
+        max_stages: Option<usize>,
+        /// Override max retained queue events for imported evidence.
+        #[arg(long)]
+        max_queues: Option<usize>,
     },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum TracingInputFormat {
     Auto,
     TailtriageSpanJsonl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ImportCaptureMode {
+    Light,
+    Investigation,
+}
+
+impl From<ImportCaptureMode> for CaptureMode {
+    fn from(value: ImportCaptureMode) -> Self {
+        match value {
+            ImportCaptureMode::Light => Self::Light,
+            ImportCaptureMode::Investigation => Self::Investigation,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -96,14 +124,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 run_id,
                 strict,
                 input_format,
+                mode,
+                max_requests,
+                max_stages,
+                max_queues,
             } => {
-                let mut options = ImportOptions::new(service).strict(strict);
+                let mut options = ImportOptions::new(service).strict(strict).mode(mode.into());
                 if let Some(service_version) = service_version {
                     options = options.service_version(service_version);
                 }
                 if let Some(run_id) = run_id {
                     options = options.run_id(run_id);
                 }
+                let mut capture_limits_override = CaptureLimitsOverride::default();
+                if let Some(max_requests) = max_requests {
+                    capture_limits_override.max_requests = Some(max_requests);
+                }
+                if let Some(max_stages) = max_stages {
+                    capture_limits_override.max_stages = Some(max_stages);
+                }
+                if let Some(max_queues) = max_queues {
+                    capture_limits_override.max_queues = Some(max_queues);
+                }
+                options = options.capture_limits_override(capture_limits_override);
 
                 if matches!(input_format, TracingInputFormat::Auto)
                     && input_looks_like_tracing_fmt_json(&spans_jsonl)?
