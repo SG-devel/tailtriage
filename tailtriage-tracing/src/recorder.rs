@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use tailtriage_core::{LocalJsonSink, RunSink};
 use tracing::field::{Field, Visit};
 use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
@@ -293,17 +294,12 @@ impl TracingIntakeSession {
         let imported = self.recorder.shutdown()?;
         if let Some(path) = self.run_json_path {
             ensure_persistable_run_has_requests(imported.run())?;
-            let file = std::fs::File::create(&path).map_err(|err| ImportError::Io {
-                operation: "create run json path",
-                context: path.display().to_string(),
-                reason: err.to_string(),
-            })?;
-            serde_json::to_writer_pretty(file, imported.run()).map_err(|err| {
-                ImportError::InvalidField {
-                    field: "run_json_path",
+            LocalJsonSink::new(&path)
+                .write(imported.run())
+                .map_err(|err| ImportError::RunJsonWrite {
+                    path: path.display().to_string(),
                     reason: err.to_string(),
-                }
-            })?;
+                })?;
         }
         Ok(imported)
     }

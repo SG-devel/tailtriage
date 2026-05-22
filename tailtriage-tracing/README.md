@@ -12,7 +12,15 @@ It is **not**:
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
-## Recommended live session setup
+## Feature flags
+
+- default (`jsonl`): typed span records plus JSONL import (`import_jsonl_reader`/`import_jsonl_path`).
+- `live`: enables live tracing capture (`TracingRecorder`, `TailtriageLayer`, `TracingIntakeSession`).
+- `tokio`: enables Tokio sampler coupling (`TracingTokioSession`).
+
+This keeps offline JSONL import paths (including CLI import usage) independent from the live `tracing_subscriber` layer dependency.
+
+## Recommended live session setup (`live` feature)
 
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;

@@ -3,10 +3,10 @@
 
 //! Tracing intake bridge types for tailtriage triage workflows.
 //!
-//! This crate provides semantic `tt.*` keys, typed [`SpanRecord`] intake,
-//! conversion to [`tailtriage_core::Run`] via [`run_from_span_records`],
-//! JSONL import via [`import_jsonl_reader`] and [`import_jsonl_path`], and
-//! live in-memory recording via [`TracingRecorder`] and [`TailtriageLayer`].
+//! This crate provides semantic `tt.*` keys, typed `SpanRecord` intake,
+//! conversion to `tailtriage_core::Run` via `run_from_span_records`,
+//! JSONL import via `import_jsonl_reader` and `import_jsonl_path` (`jsonl` feature),
+//! and live in-memory recording via `TracingRecorder` and `TailtriageLayer` (`live` feature).
 //! It does not implement OpenTelemetry/OTLP and does not change analyzer behavior.
 //!
 //! # Example
@@ -29,7 +29,9 @@
 
 mod convention;
 mod error;
+#[cfg(feature = "jsonl")]
 mod jsonl;
+#[cfg(feature = "live")]
 mod recorder;
 #[cfg(feature = "tokio")]
 /// Optional Tokio runtime sampler coupling for tracing sessions.
@@ -45,9 +47,11 @@ pub use convention::{
     TT_DEPTH_AT_START, TT_KIND, TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
 };
 pub use error::ImportError;
+#[cfg(feature = "jsonl")]
 pub use jsonl::{
     import_jsonl_path, import_jsonl_path_with_mode, import_jsonl_reader, JsonlParseMode,
 };
+#[cfg(feature = "live")]
 pub use recorder::{
     RecorderLimits, TailtriageLayer, TracingIntakeSession, TracingIntakeSessionBuilder,
     TracingRecorder, TracingRecorderBuilder, DEFAULT_MAX_COMPLETED_SPANS, DEFAULT_MAX_OPEN_SPANS,
