@@ -68,7 +68,7 @@ python3 scripts/validate_runtime_cost_summary.py \
   --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 ```
 
-This is a bounded diagnostic sanity check only. It enforces tracing/native parity hard checks (p95 <= 1.10x native and throughput >= 0.90x native), a 2% soft warning band (p95 > 1.02x or throughput < 0.98x), and required tracing evidence shape, not rigorous performance benchmarking. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. CI logs print compact runtime-cost tables by default, while full JSON remains in artifacts (`runtime-cost-summary.json`) and can be printed locally with `--print-json`. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
+This is a bounded diagnostic sanity check only. It enforces tracing/native parity hard checks (p95 <= 1.10x native and throughput >= 0.90x native), a 2% soft warning band (p95 > 1.02x or throughput < 0.98x), and required tracing evidence shape, not rigorous performance benchmarking. Runtime-cost tracing modes use the same core capture configuration model as native modes (`mode` + capture-limit overrides) so effective-core-config parity checks stay meaningful across backends. CI validates runtime-cost output in-place and does not upload runtime-cost artifacts by default. CI logs print compact runtime-cost tables by default, while full JSON remains in artifacts (`runtime-cost-summary.json`) and can be printed locally with `--print-json`. Full runtime-cost measurement remains a local/developer-run path via the canonical command above. Results remain machine/workload/profile scoped.
 
 ## Inputs and knobs
 

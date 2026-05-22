@@ -83,6 +83,8 @@ Key repeated-run metrics:
 
 Repeated-run validation remains manual/local for now (not mandatory CI), and results are machine-scoped and workload-scoped. It supports triage confidence checks and reproducibility inspection for controlled Tokio workloads.
 
+Native/tracing parity is CI-gated on the Ubuntu release extended leg via `scripts/demo_tool.py validate-tracing-parity all` and `scripts/demo_tool.py validate-tracing-retention-parity`. These gates enforce artifact-shape parity, effective core config parity, expected evidence presence, runtime-sampler metadata checks for runtime-sensitive tracing scenarios, and exact tiny-limit truncation parity (retained counts, dropped counters, and `limits_hit`). These checks support triage trust boundaries and do not prove universal production performance or root-cause certainty.
+
 Like all tool output, these results are evidence for triage and next checks; they do not prove root cause.
 
 ## Operational trust-boundary validation

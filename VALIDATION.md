@@ -15,6 +15,8 @@ This repository includes an initial deterministic validation corpus for controll
 |---|---|---:|---:|
 | `scripts/diagnostic_benchmark.py` | Deterministic diagnostics corpus gate for committed manifest/fixtures | Yes | No |
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
+| `scripts/demo_tool.py validate-tracing-parity all` | Native/tracing artifact-shape parity (scenario label, route coverage, evidence presence, metadata mode, effective core capture limits, runtime-sensitive sampler metadata) | Yes (Ubuntu release extended leg) | No |
+| `scripts/demo_tool.py validate-tracing-retention-parity` | Native/tracing tiny-limit exact truncation parity (retained counts, dropped counters, `limits_hit`, effective core config) | Yes (Ubuntu release extended leg) | No |
 | `.github/workflows/validation-snapshot.yml` | Versioned/manual diagnostic scorecard snapshot | Manual/tag | Yes |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/run_mitigation_matrix.py` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
@@ -101,6 +103,7 @@ Validation does not claim:
 - replacement for tracing, metrics, tokio-console, or tokio-metrics
 - real-service validation unless curated real-service artifacts exist
 - mitigation movement as formal causal proof
+- parity gates as universal production performance guarantees
 
 Demos teach scenarios; validation measures bounded diagnostic behavior.
 

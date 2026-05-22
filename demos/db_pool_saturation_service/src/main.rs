@@ -48,6 +48,8 @@ async fn main() -> anyhow::Result<()> {
         "db_pool_saturation_service_demo",
         &args.output_path,
         args.instrumentation,
+        args.capture_mode,
+        args.capture_limits_override,
     )?);
 
     let db_pool = Arc::new(Semaphore::new(settings.db_pool_size));

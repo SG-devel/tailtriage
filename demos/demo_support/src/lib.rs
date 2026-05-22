@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::Tailtriage;
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Tailtriage};
 use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
 use tokio::sync::Barrier;
 use tracing::Instrument;
@@ -62,6 +62,8 @@ pub struct DemoArgs {
     pub output_path: PathBuf,
     pub mode: DemoMode,
     pub instrumentation: InstrumentationMode,
+    pub capture_mode: CaptureMode,
+    pub capture_limits_override: CaptureLimitsOverride,
 }
 
 /// Parse demo CLI args for output path, mode, and instrumentation backend.
@@ -83,6 +85,8 @@ fn parse_demo_args_from(
     let mut output_path: Option<PathBuf> = None;
     let mut mode: Option<DemoMode> = None;
     let mut instrumentation: Option<InstrumentationMode> = None;
+    let mut capture_mode: CaptureMode = CaptureMode::Light;
+    let mut capture_limits_override = CaptureLimitsOverride::default();
 
     let mut idx = 0_usize;
     while idx < raw_args.len() {
@@ -93,6 +97,34 @@ fn parse_demo_args_from(
                 .map(String::as_str)
                 .ok_or_else(|| anyhow::anyhow!("missing value for --instrumentation"))?;
             instrumentation = Some(InstrumentationMode::from_arg(Some(value))?);
+            idx += 2;
+            continue;
+        }
+        if arg == "--mode" {
+            let value = raw_args
+                .get(idx + 1)
+                .map(String::as_str)
+                .ok_or_else(|| anyhow::anyhow!("missing value for --mode"))?;
+            capture_mode = match value {
+                "light" => CaptureMode::Light,
+                "investigation" => CaptureMode::Investigation,
+                other => anyhow::bail!("unsupported --mode '{other}', expected one of: light, investigation"),
+            };
+            idx += 2;
+            continue;
+        }
+        if arg == "--max-requests" || arg == "--max-stages" || arg == "--max-queues" {
+            let value = raw_args
+                .get(idx + 1)
+                .ok_or_else(|| anyhow::anyhow!("missing value for {arg}"))?
+                .parse::<usize>()
+                .map_err(|e| anyhow::anyhow!("invalid integer for {arg}: {e}"))?;
+            match arg.as_str() {
+                "--max-requests" => capture_limits_override.max_requests = Some(value),
+                "--max-stages" => capture_limits_override.max_stages = Some(value),
+                "--max-queues" => capture_limits_override.max_queues = Some(value),
+                _ => {}
+            }
             idx += 2;
             continue;
         }
@@ -121,6 +153,8 @@ fn parse_demo_args_from(
         output_path,
         mode,
         instrumentation,
+        capture_mode,
+        capture_limits_override,
     })
 }
 
@@ -198,16 +232,24 @@ impl DemoInstrumentation {
         service_name: &str,
         output_path: &Path,
         mode: InstrumentationMode,
+        capture_mode: CaptureMode,
+        capture_limits_override: CaptureLimitsOverride,
     ) -> anyhow::Result<Self> {
         match mode {
             InstrumentationMode::Native => Ok(Self {
                 backend: DemoInstrumentationBackend::Native(init_collector(
                     service_name,
                     output_path,
+                    capture_mode,
+                    capture_limits_override,
                 )?),
             }),
             InstrumentationMode::Tracing => {
-                let recorder = TracingRecorder::builder(service_name).strict(false).build();
+                let recorder = TracingRecorder::builder(service_name)
+                    .strict(false)
+                    .mode(capture_mode)
+                    .capture_limits_override(capture_limits_override)
+                    .build();
                 let subscriber = tracing_subscriber::registry().with(recorder.layer());
                 // Demo binaries run one instrumentation backend per process, so installing a
                 // global subscriber is acceptable here. Do not reuse this helper in libraries
@@ -295,14 +337,23 @@ impl RuntimeDemoInstrumentation {
         service_name: &str,
         output_path: &Path,
         mode: InstrumentationMode,
+        capture_mode: CaptureMode,
+        capture_limits_override: CaptureLimitsOverride,
     ) -> anyhow::Result<Self> {
         match mode {
             InstrumentationMode::Native => Ok(Self {
-                backend: RuntimeDemoBackend::Native(init_collector(service_name, output_path)?),
+                backend: RuntimeDemoBackend::Native(init_collector(
+                    service_name,
+                    output_path,
+                    capture_mode,
+                    capture_limits_override,
+                )?),
             }),
             InstrumentationMode::Tracing => {
                 let session = TracingTokioSession::builder(service_name)
                     .strict(false)
+                    .mode(capture_mode)
+                    .capture_limits_override(capture_limits_override)
                     .start()?;
                 let subscriber = tracing_subscriber::registry().with(session.layer());
                 // Demo binaries run one instrumentation backend per process, so installing a
@@ -453,10 +504,26 @@ impl DemoRequest {
 /// # Errors
 ///
 /// Returns an error when collector initialization fails.
-pub fn init_collector(service_name: &str, output_path: &Path) -> anyhow::Result<Arc<Tailtriage>> {
+pub fn init_collector(
+    service_name: &str,
+    output_path: &Path,
+    capture_mode: CaptureMode,
+    capture_limits_override: CaptureLimitsOverride,
+) -> anyhow::Result<Arc<Tailtriage>> {
     let collector = Tailtriage::builder(service_name)
         .output(output_path)
+        .light()
+        .capture_limits_override(capture_limits_override)
         .build()?;
+    let collector = if matches!(capture_mode, CaptureMode::Investigation) {
+        Tailtriage::builder(service_name)
+            .output(output_path)
+            .investigation()
+            .capture_limits_override(capture_limits_override)
+            .build()?
+    } else {
+        collector
+    };
     Ok(Arc::new(collector))
 }
 

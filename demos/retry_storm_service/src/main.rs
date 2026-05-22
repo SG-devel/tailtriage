@@ -138,6 +138,8 @@ async fn main() -> anyhow::Result<()> {
         "retry_storm_service_demo",
         &args.output_path,
         args.instrumentation,
+        args.capture_mode,
+        args.capture_limits_override,
     )?);
 
     let capacity = usize::try_from(mode_settings.offered_requests)?;

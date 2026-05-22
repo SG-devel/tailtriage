@@ -276,6 +276,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: python3 scripts/demo_tool.py validate-tracing-parity all --profile release
 
+      - name: Validate tracing retention parity tiny-limit gate
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
+        run: python3 scripts/demo_tool.py validate-tracing-retention-parity --profile release
+
       - name: Validate runtime-cost script unit tests
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev' && matrix.extended
         run: python3 -m unittest scripts.tests.test_measure_runtime_cost
