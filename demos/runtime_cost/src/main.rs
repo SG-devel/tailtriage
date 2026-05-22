@@ -278,6 +278,10 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
             if cli.mode.uses_runtime_sampler() {
                 let session = TracingTokioSession::builder("runtime_cost_demo")
                     .strict(false)
+                    .capture_limits_override(CaptureLimitsOverride {
+                        max_runtime_snapshots: Some(64),
+                        ..CaptureLimitsOverride::default()
+                    })
                     .start()?;
                 // One mode runs per process in this demo, so process-global subscriber init is acceptable.
                 tracing::subscriber::set_global_default(

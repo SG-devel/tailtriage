@@ -167,6 +167,7 @@ Important limits for production interpretation:
 * tracing-only runs do not fabricate runtime snapshots
 * without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
 * runtime-pressure evidence remains Tokio-specific and requires runtime snapshots or Tokio sampler coupling
+* `TracingTokioSession` runtime snapshot retention follows the same core capture-limit model as native Tokio sampling (no tracing-specific `max_runtime_snapshots(...)` session knob)
 
 Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
 

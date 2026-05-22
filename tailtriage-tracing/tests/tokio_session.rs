@@ -244,7 +244,10 @@ async fn record_runtime_snapshot_does_not_alter_tracing_events() {
 #[tokio::test(flavor = "current_thread")]
 async fn runtime_snapshot_truncation_propagates_to_imported_run() {
     let session = TracingTokioSession::builder("svc")
-        .max_runtime_snapshots(1)
+        .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+            max_runtime_snapshots: Some(1),
+            ..tailtriage_core::CaptureLimitsOverride::default()
+        })
         .start()
         .expect("start session");
     session.record_runtime_snapshot(RuntimeSnapshot {
@@ -269,4 +272,39 @@ async fn runtime_snapshot_truncation_propagates_to_imported_run() {
     assert_eq!(run.runtime_snapshots.len(), 1);
     assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
     assert!(run.truncation.limits_hit);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn runtime_snapshot_retention_uses_capture_limits_model_and_sampler_metadata() {
+    let session = TracingTokioSession::builder("svc")
+        .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+            max_runtime_snapshots: Some(2),
+            ..tailtriage_core::CaptureLimitsOverride::default()
+        })
+        .sampler_interval(Duration::from_millis(1))
+        .start()
+        .expect("start session");
+
+    for idx in 0..8_u64 {
+        session.record_runtime_snapshot(RuntimeSnapshot {
+            at_unix_ms: unix_time_ms().saturating_add(idx),
+            alive_tasks: Some(idx),
+            global_queue_depth: Some(idx),
+            local_queue_depth: Some(idx),
+            blocking_queue_depth: Some(idx),
+            remote_schedule_count: Some(idx),
+        });
+    }
+
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let imported = session.snapshot_run().expect("snapshot run");
+    let run = imported.run();
+    assert!(run.runtime_snapshots.len() <= 2);
+    assert!(run.truncation.dropped_runtime_snapshots > 0);
+    let cfg = run
+        .metadata
+        .effective_tokio_sampler_config
+        .as_ref()
+        .expect("sampler metadata present");
+    assert_eq!(cfg.resolved_runtime_snapshot_retention, 2);
 }

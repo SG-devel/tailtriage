@@ -106,6 +106,7 @@ Numbers are directional and machine/workload/profile scoped; this bounded smoke 
 - `CaptureMode` changes retention defaults; it does not auto-start the runtime sampler.
 - Tracing modes measure tailtriage semantic `tt.*` tracing spans (not OTel/OTLP export).
 - Tracing spans alone do not imply runtime-pressure evidence; runtime-pressure evidence requires Tokio-session runtime snapshots.
+- In tracing Tokio-session sampler mode, runtime snapshot retention is configured through shared core capture limits (`capture_limits_override`), not a tracing-only retention API.
 - Post-limit overhead improvements come from cheaper drop-path handling after limits are hit, while preserving drop counters and truncation visibility.
 
 ## Operational validation runner
