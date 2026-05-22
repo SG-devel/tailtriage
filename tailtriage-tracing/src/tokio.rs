@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{
-    BuildError, CaptureLimitsOverride, MemorySink, Run, RuntimeSnapshot, Tailtriage,
+    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, MemorySink, Run,
+    RuntimeSnapshot, Tailtriage,
 };
 use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
@@ -52,7 +53,6 @@ impl std::error::Error for TracingTokioSessionShutdownError {}
 pub struct TracingTokioSessionBuilder {
     recorder_builder: crate::TracingRecorderBuilder,
     sampler_interval: Option<Duration>,
-    max_runtime_snapshots: Option<usize>,
 }
 
 /// Combined tracing and Tokio runtime sampler session.
@@ -69,7 +69,6 @@ impl TracingTokioSession {
         TracingTokioSessionBuilder {
             recorder_builder: TracingRecorder::builder(service_name),
             sampler_interval: None,
-            max_runtime_snapshots: None,
         }
     }
 
@@ -132,7 +131,7 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.strict(strict);
         self
     }
-    /// Sets both open/completed in-memory span retention limits.
+    /// Sets tracing-specific recorder limits.
     #[must_use]
     pub fn recorder_limits(mut self, limits: RecorderLimits) -> Self {
         self.recorder_builder = self.recorder_builder.limits(limits);
@@ -144,24 +143,28 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.max_open_spans(max_open_spans);
         self
     }
-    /// Sets maximum number of retained completed candidate spans.
+    /// Sets capture mode for tracing import and runtime retention defaults.
     #[must_use]
-    pub fn max_completed_spans(mut self, max_completed_spans: usize) -> Self {
-        self.recorder_builder = self
-            .recorder_builder
-            .max_completed_spans(max_completed_spans);
+    pub fn mode(mut self, mode: CaptureMode) -> Self {
+        self.recorder_builder = self.recorder_builder.mode(mode);
+        self
+    }
+    /// Sets explicit core capture limits for tracing import and runtime retention.
+    #[must_use]
+    pub fn capture_limits(mut self, limits: CaptureLimits) -> Self {
+        self.recorder_builder = self.recorder_builder.capture_limits(limits);
+        self
+    }
+    /// Sets partial core capture-limit overrides for tracing import and runtime retention.
+    #[must_use]
+    pub fn capture_limits_override(mut self, ov: CaptureLimitsOverride) -> Self {
+        self.recorder_builder = self.recorder_builder.capture_limits_override(ov);
         self
     }
     /// Sets runtime sampler interval.
     #[must_use]
     pub fn sampler_interval(mut self, sampler_interval: Duration) -> Self {
         self.sampler_interval = Some(sampler_interval);
-        self
-    }
-    /// Sets runtime sampler retention cap for runtime snapshots.
-    #[must_use]
-    pub fn max_runtime_snapshots(mut self, max_runtime_snapshots: usize) -> Self {
-        self.max_runtime_snapshots = Some(max_runtime_snapshots);
         self
     }
 
@@ -174,7 +177,7 @@ impl TracingTokioSessionBuilder {
     pub fn start(self) -> Result<TracingTokioSession, TracingTokioSessionStartError> {
         let recorder = self.recorder_builder.build();
         let sink = MemorySink::new();
-        let mut builder = Tailtriage::builder("tailtriage-tracing-runtime")
+        let builder = Tailtriage::builder("tailtriage-tracing-runtime")
             .sink(sink)
             .strict_lifecycle(false);
         if let Some(interval) = self.sampler_interval {
@@ -184,12 +187,6 @@ impl TracingTokioSessionBuilder {
                 ));
             }
         }
-        if let Some(limit) = self.max_runtime_snapshots {
-            builder = builder.capture_limits_override(CaptureLimitsOverride {
-                max_runtime_snapshots: Some(limit),
-                ..CaptureLimitsOverride::default()
-            });
-        }
         let runtime_collector = Arc::new(
             builder
                 .build()
@@ -198,11 +195,6 @@ impl TracingTokioSessionBuilder {
         let sampler_builder = RuntimeSampler::builder(Arc::clone(&runtime_collector));
         let sampler_builder = if let Some(interval) = self.sampler_interval {
             sampler_builder.interval(interval)
-        } else {
-            sampler_builder
-        };
-        let sampler_builder = if let Some(limit) = self.max_runtime_snapshots {
-            sampler_builder.max_runtime_snapshots(limit)
         } else {
             sampler_builder
         };

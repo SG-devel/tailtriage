@@ -16,7 +16,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Inherits Light mode defaults from core, then overrides cadence/retention explicitly.
     let sampler = RuntimeSampler::builder(Arc::clone(&tailtriage))
         .interval(Duration::from_millis(200))
-        .max_runtime_snapshots(500)
+        .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+            max_runtime_snapshots: Some(500),
+            ..tailtriage_core::CaptureLimitsOverride::default()
+        })
         .start()?;
 
     let started = tailtriage.begin_request_with("/checkout", RequestOptions::new().kind("http"));

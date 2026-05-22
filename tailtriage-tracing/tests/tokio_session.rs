@@ -244,7 +244,7 @@ async fn record_runtime_snapshot_does_not_alter_tracing_events() {
 #[tokio::test(flavor = "current_thread")]
 async fn runtime_snapshot_truncation_propagates_to_imported_run() {
     let session = TracingTokioSession::builder("svc")
-        .max_runtime_snapshots(1)
+        .capture_limits_override(tailtriage_core::CaptureLimitsOverride { max_runtime_snapshots: Some(1), ..tailtriage_core::CaptureLimitsOverride::default() })
         .start()
         .expect("start session");
     session.record_runtime_snapshot(RuntimeSnapshot {
