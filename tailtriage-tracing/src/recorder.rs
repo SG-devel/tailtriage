@@ -457,6 +457,12 @@ impl TracingRecorderBuilder {
         self
     }
 
+    /// Returns capture limits resolved from mode/base/override configuration.
+    #[must_use]
+    pub fn resolved_capture_limits(&self) -> CaptureLimits {
+        self.options.resolved_capture_limits()
+    }
+
     /// Builds a recorder instance.
     #[must_use]
     pub fn build(self) -> TracingRecorder {

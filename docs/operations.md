@@ -409,7 +409,14 @@ Use:
 * longer sample intervals
 * lower runtime snapshot limits
 * shorter capture windows
+Use:
+
+* longer sample intervals
+* lower runtime snapshot limits
+* shorter capture windows
 * `light` mode instead of `investigation`
+
+For `TracingTokioSession`, configure runtime snapshot retention through shared capture limits (`mode`, `capture_limits`, `capture_limits_override`); tracing-only runs do not fabricate runtime snapshots without Tokio runtime sampler coupling.
 
 ### Strict lifecycle shutdown fails
 
