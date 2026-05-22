@@ -103,8 +103,7 @@ Arbitrary `tracing_subscriber::fmt().json()` log JSON is rejected by import. Imp
 ## Retention and drop behavior
 
 - `max_open_spans` bounds in-flight span tracking.
-- `max_completed_spans` bounds in-memory completed-span retention.
-- Completed-span JSONL streaming happens before in-memory completed-span retention is applied.
+- `- Completed-span JSONL streaming happens before in-memory completed-span retention is applied.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
 
 ## Runtime-pressure limitation
