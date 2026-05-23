@@ -797,6 +797,18 @@ def _require_equal(*, scenario: str, instrumentation: str, artifact_path: str, f
 def _capture_limits(run: dict) -> dict | None:
     return ((run.get("metadata") or {}).get("effective_core_config") or {}).get("capture_limits")
 
+
+RUNTIME_SENSITIVE_TRACING_SCENARIOS = {"blocking", "executor"}
+NON_RUNTIME_TRACING_SCENARIOS = {
+    "queue",
+    "downstream",
+    "mixed",
+    "cold-start",
+    "db-pool",
+    "shared-lock",
+    "retry-storm",
+}
+
 def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
     configs = {
         "queue": {
@@ -997,11 +1009,28 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
         if scenario == "retry-storm":
             if not any(name and name.startswith("downstream_attempt_") for name in tracing_stage_names):
                 raise SystemExit(f"expected tracing run {run_name} to include at least one downstream_attempt_* stage")
-        if scenario in {"blocking", "executor"}:
+        if scenario in RUNTIME_SENSITIVE_TRACING_SCENARIOS:
             if not run.get("runtime_snapshots"):
                 raise SystemExit(f"expected runtime snapshots in tracing run {run_name}")
             if run.get("metadata", {}).get("effective_tokio_sampler_config") is None:
                 raise SystemExit(f"expected effective_tokio_sampler_config in tracing run {run_name}")
+        if scenario in NON_RUNTIME_TRACING_SCENARIOS:
+            _require_equal(
+                scenario=scenario,
+                instrumentation="tracing",
+                artifact_path=run_name,
+                field="runtime_snapshots",
+                expected=[],
+                actual=run.get("runtime_snapshots") or [],
+            )
+            _require_equal(
+                scenario=scenario,
+                instrumentation="tracing",
+                artifact_path=run_name,
+                field="metadata.effective_tokio_sampler_config",
+                expected=None,
+                actual=(run.get("metadata") or {}).get("effective_tokio_sampler_config"),
+            )
         if scenario == "blocking":
             if not any(s.get("blocking_queue_depth") is not None for s in run.get("runtime_snapshots", [])):
                 raise SystemExit(f"expected blocking_queue_depth runtime evidence in {run_name}")
@@ -1086,10 +1115,10 @@ def validate_tracing_retention_parity(root_dir: Path, *, profile: str = "dev") -
             analysis_path,
             "baseline",
             profile=profile,
-            extra_demo_args=[
-                "--instrumentation", instrumentation, "--mode", "light",
-                "--max-requests", "2", "--max-stages", "2", "--max-queues", "2",
-            ],
+                extra_demo_args=[
+                    "--instrumentation", instrumentation, "--mode", "light",
+                    "--max-requests", "3", "--max-stages", "3", "--max-queues", "3",
+                ],
         )
     native_run = _load_run(artifact_dir / "tiny-native-run.json")
     tracing_run = _load_run(artifact_dir / "tiny-tracing-run.json")
