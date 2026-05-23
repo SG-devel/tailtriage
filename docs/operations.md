@@ -158,7 +158,7 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing import expects completed `tt.*` span JSONL, not arbitrary `tracing_subscriber::fmt().json()` or ordinary tracing log JSON. Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
+Tracing import expects completed `tt.*` span JSONL, not arbitrary `tracing_subscriber::fmt().json()` or ordinary tracing log JSON. Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps. Offline import and direct tracing session Run JSON writing both use the same robust Run JSON writer path.
 
 Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event. Library snapshots may still be zero-request for inspection during active captures.
 
@@ -168,7 +168,7 @@ Important limits for production interpretation:
 * without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
 * runtime-pressure evidence remains Tokio-specific and requires runtime snapshots or Tokio sampler coupling
 
-`TracingTokioSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`. Tracing-only runs still do not fabricate runtime snapshots, so runtime-pressure evidence requires Tokio session/runtime sampler coupling.
+`TracingTokioSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`. Tracing-only runs still do not fabricate runtime snapshots, so runtime-pressure evidence requires Tokio session/runtime sampler coupling. Persisted Run JSON artifacts intended for CLI analysis require at least one completed request event, while in-process/library snapshots may remain zero-request for inspection.
 
 Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
 

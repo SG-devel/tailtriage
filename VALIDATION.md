@@ -36,6 +36,7 @@ Normal CI keeps deterministic diagnostics and docs contracts as gates but does n
 | Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
 
 Tracing-intake contract coverage is currently validated by unit/package tests and examples that exercise:
+- temporal containment validation for imported stage/queue spans
 - stable wrapper fixture (`tailtriage.tracing-span.v1`)
 - wrapper-only import mode and compatible-mode behavior
 - CLI `--input-format` guardrails

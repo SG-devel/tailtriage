@@ -114,7 +114,7 @@ Numbers are directional and machine/workload/profile scoped; this bounded smoke 
 Use `python3 scripts/run_operational_validation.py --domain runtime-cost` for manual/local runtime-cost validation that emits JSONL records, stable summary JSON, and an optional scorecard. Results are machine/workload/profile scoped and should be treated as measurements, not universal guarantees. Missing metrics are emitted as `null` rather than guessed.
 
 
-Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 2% warning band are treated as parity, not as a reason to change the default recommendation.
+Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with completed `tt.*` tracing spans or preferring span-shaped instrumentation. Small wins/losses inside the 2% warning band are treated as parity, not as a reason to change the default recommendation.
 
 ## Parity guardrails
 CI release validation runs parity checks that enforce shared capture mode/limit semantics across native and tracing demo captures, including tiny-limit exact truncation parity. This validation is a bounded triage consistency check, not universal production overhead proof and not root-cause certainty.

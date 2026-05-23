@@ -56,7 +56,7 @@ session.shutdown()?;
 
 ## Direct Run JSON path
 
-Use `run_json_path(...)` when you want to skip a separate import step:
+Use `run_json_path(...)` when you want to skip a separate import step. This uses the same Run JSON writer path as native capture sinks:
 
 ```bash
 tailtriage analyze target/tailtriage-examples/checkout.run.json
@@ -64,7 +64,7 @@ tailtriage analyze target/tailtriage-examples/checkout.run.json
 
 ## Completed-span JSONL path
 
-Use `completed_span_jsonl_path(...)` when you want an offline import workflow:
+Use `completed_span_jsonl_path(...)` when you want an offline import workflow (import writes Run JSON first, then analyze separately):
 
 ```bash
 tailtriage import tracing-json target/tailtriage-examples/checkout.spans.jsonl \
