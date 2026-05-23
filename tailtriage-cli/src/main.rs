@@ -1,10 +1,14 @@
+use std::io::BufRead;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
-use tailtriage_tracing::{import_jsonl_path_with_mode, ImportOptions, JsonlParseMode};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode};
+use tailtriage_tracing::{
+    ensure_persistable_run_has_requests, import_jsonl_path_with_mode, ImportOptions, JsonlParseMode,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "tailtriage")]
@@ -43,7 +47,7 @@ enum Command {
 
 #[derive(Debug, clap::Subcommand)]
 enum ImportCommand {
-    /// Import completed tracing span records from JSONL into run JSON.
+    /// Import completed `tt.*` tracing span JSONL into Run JSON.
     TracingJson {
         /// Path to newline-delimited JSON span records.
         #[arg(value_name = "SPANS_JSONL")]
@@ -66,13 +70,39 @@ enum ImportCommand {
         /// Input format mode.
         #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
         input_format: TracingInputFormat,
+        /// Import capture mode semantics for request/stage/queue retention.
+        #[arg(long, value_enum, default_value_t = ImportCaptureMode::Light)]
+        mode: ImportCaptureMode,
+        /// Override max retained request events for imported evidence.
+        #[arg(long)]
+        max_requests: Option<usize>,
+        /// Override max retained stage events for imported evidence.
+        #[arg(long)]
+        max_stages: Option<usize>,
+        /// Override max retained queue events for imported evidence.
+        #[arg(long)]
+        max_queues: Option<usize>,
     },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum TracingInputFormat {
     Auto,
     TailtriageSpanJsonl,
-    TracingSubscriberFmtJson,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ImportCaptureMode {
+    Light,
+    Investigation,
+}
+
+impl From<ImportCaptureMode> for CaptureMode {
+    fn from(value: ImportCaptureMode) -> Self {
+        match value {
+            ImportCaptureMode::Light => Self::Light,
+            ImportCaptureMode::Investigation => Self::Investigation,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -94,26 +124,32 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 run_id,
                 strict,
                 input_format,
+                mode,
+                max_requests,
+                max_stages,
+                max_queues,
             } => {
-                let mut options = ImportOptions::new(service).strict(strict);
+                let mut options = ImportOptions::new(service).strict(strict).mode(mode.into());
                 if let Some(service_version) = service_version {
                     options = options.service_version(service_version);
                 }
                 if let Some(run_id) = run_id {
                     options = options.run_id(run_id);
                 }
-
-                if matches!(input_format, TracingInputFormat::TracingSubscriberFmtJson) {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        tracing_json_setup_guidance(),
-                    )
-                    .into());
+                let mut capture_limits_override = CaptureLimitsOverride::default();
+                if let Some(max_requests) = max_requests {
+                    capture_limits_override.max_requests = Some(max_requests);
                 }
-                if matches!(
-                    input_format,
-                    TracingInputFormat::Auto | TracingInputFormat::TailtriageSpanJsonl
-                ) && input_looks_like_tracing_fmt_json(&spans_jsonl)?
+                if let Some(max_stages) = max_stages {
+                    capture_limits_override.max_stages = Some(max_stages);
+                }
+                if let Some(max_queues) = max_queues {
+                    capture_limits_override.max_queues = Some(max_queues);
+                }
+                options = options.capture_limits_override(capture_limits_override);
+
+                if matches!(input_format, TracingInputFormat::Auto)
+                    && input_looks_like_tracing_fmt_json(&spans_jsonl)?
                 {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
@@ -125,21 +161,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     TracingInputFormat::TailtriageSpanJsonl => {
                         JsonlParseMode::TailtriageWrapperOnly
                     }
-                    TracingInputFormat::Auto | TracingInputFormat::TracingSubscriberFmtJson => {
-                        JsonlParseMode::Compatible
-                    }
+                    TracingInputFormat::Auto => JsonlParseMode::Compatible,
                 };
                 let imported = import_jsonl_path_with_mode(spans_jsonl, options, parse_mode)?;
                 for warning in imported.warnings() {
                     eprintln!("warning: {}", warning.message());
                 }
-                if imported.run().requests.is_empty() {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "tracing import produced zero request events; tailtriage requires completed tt.request spans (tt.kind=request, tt.request_id, tt.route) with start/end timestamps. Configure TracingIntakeSession::builder(...).completed_span_jsonl_path(...) then run: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>",
-                    )
-                    .into());
-                }
+                ensure_persistable_run_has_requests(imported.run())?;
 
                 let file = std::fs::File::create(&output)?;
                 serde_json::to_writer_pretty(file, imported.run())?;
@@ -185,31 +213,41 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn tracing_json_setup_guidance() -> &'static str {
-    "ordinary tracing_subscriber::fmt().json() logs are not the supported primary import format. tailtriage needs completed tt.* span records with start/end timestamps. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then import with: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>"
+    "the file looks like ordinary tracing log JSON, not completed tailtriage span JSONL. tailtriage requires completed spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>"
 }
 
 fn input_looks_like_tracing_fmt_json(path: &std::path::Path) -> Result<bool, std::io::Error> {
-    let contents = std::fs::read_to_string(path)?;
-    for line in contents.lines() {
+    let file = std::fs::File::open(path)?;
+    let reader = std::io::BufReader::new(file);
+    for line in reader.lines() {
+        let line = line?;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            let has_span_timestamps =
-                value
+            let has_start = value.get("started_at_unix_ms").is_some()
+                || value.get("start_unix_ms").is_some()
+                || value
                     .get("span")
                     .and_then(|s| s.as_object())
                     .is_some_and(|span| {
                         span.contains_key("started_at_unix_ms")
                             || span.contains_key("start_unix_ms")
-                            || span.contains_key("finished_at_unix_ms")
-                            || span.contains_key("end_unix_ms")
                     });
+            let has_end = value.get("finished_at_unix_ms").is_some()
+                || value.get("end_unix_ms").is_some()
+                || value
+                    .get("span")
+                    .and_then(|s| s.as_object())
+                    .is_some_and(|span| {
+                        span.contains_key("finished_at_unix_ms") || span.contains_key("end_unix_ms")
+                    });
+            let has_completed_span_timing = has_start && has_end;
             let looks_like_fmt = value.get("timestamp").is_some()
                 && value.get("level").is_some()
                 && value.get("target").is_some();
-            if looks_like_fmt && !has_span_timestamps {
+            if looks_like_fmt && !has_completed_span_timing {
                 return Ok(true);
             }
         }

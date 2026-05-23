@@ -773,6 +773,42 @@ def _load_run(path: Path) -> dict:
         return json.load(handle)
 
 
+
+
+def _parity_fail(*, scenario: str, instrumentation: str, artifact_path: str, field: str, expected: object, actual: object) -> None:
+    raise SystemExit(
+        f"parity check failed scenario={scenario} instrumentation={instrumentation} artifact={artifact_path} "
+        f"field={field} expected={expected!r} actual={actual!r}"
+    )
+
+
+def _require_equal(*, scenario: str, instrumentation: str, artifact_path: str, field: str, expected: object, actual: object) -> None:
+    if expected != actual:
+        _parity_fail(
+            scenario=scenario,
+            instrumentation=instrumentation,
+            artifact_path=artifact_path,
+            field=field,
+            expected=expected,
+            actual=actual,
+        )
+
+
+def _capture_limits(run: dict) -> dict | None:
+    return ((run.get("metadata") or {}).get("effective_core_config") or {}).get("capture_limits")
+
+
+RUNTIME_SENSITIVE_TRACING_SCENARIOS = {"blocking", "executor"}
+NON_RUNTIME_TRACING_SCENARIOS = {
+    "queue",
+    "downstream",
+    "mixed",
+    "cold-start",
+    "db-pool",
+    "shared-lock",
+    "retry-storm",
+}
+
 def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
     configs = {
         "queue": {
@@ -889,7 +925,7 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
                 analysis_path,
                 mode_arg,
                 profile=profile,
-                extra_demo_args=["--instrumentation", instrumentation],
+                extra_demo_args=["--instrumentation", instrumentation, "--mode", "light"],
             )
 
     expected_files = [
@@ -973,11 +1009,28 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
         if scenario == "retry-storm":
             if not any(name and name.startswith("downstream_attempt_") for name in tracing_stage_names):
                 raise SystemExit(f"expected tracing run {run_name} to include at least one downstream_attempt_* stage")
-        if scenario in {"blocking", "executor"}:
+        if scenario in RUNTIME_SENSITIVE_TRACING_SCENARIOS:
             if not run.get("runtime_snapshots"):
                 raise SystemExit(f"expected runtime snapshots in tracing run {run_name}")
             if run.get("metadata", {}).get("effective_tokio_sampler_config") is None:
                 raise SystemExit(f"expected effective_tokio_sampler_config in tracing run {run_name}")
+        if scenario in NON_RUNTIME_TRACING_SCENARIOS:
+            _require_equal(
+                scenario=scenario,
+                instrumentation="tracing",
+                artifact_path=run_name,
+                field="runtime_snapshots",
+                expected=[],
+                actual=run.get("runtime_snapshots") or [],
+            )
+            _require_equal(
+                scenario=scenario,
+                instrumentation="tracing",
+                artifact_path=run_name,
+                field="metadata.effective_tokio_sampler_config",
+                expected=None,
+                actual=(run.get("metadata") or {}).get("effective_tokio_sampler_config"),
+            )
         if scenario == "blocking":
             if not any(s.get("blocking_queue_depth") is not None for s in run.get("runtime_snapshots", [])):
                 raise SystemExit(f"expected blocking_queue_depth runtime evidence in {run_name}")
@@ -1024,10 +1077,68 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
                 f"expected_kind_present_tracing={expected_in_tracing}"
             )
 
+    for mode, native_run, tracing_run in (
+        ("before", before_native_run, before_tracing_run),
+        ("after", after_native_run, after_tracing_run),
+    ):
+        _require_equal(scenario=scenario, instrumentation="native/tracing", artifact_path=f"{mode}-run", field="scenario_label", expected=native_run.get("scenario_label"), actual=tracing_run.get("scenario_label"))
+        _require_equal(scenario=scenario, instrumentation="native/tracing", artifact_path=f"{mode}-run", field="metadata.mode", expected=(native_run.get("metadata") or {}).get("mode"), actual=(tracing_run.get("metadata") or {}).get("mode"))
+        _require_equal(scenario=scenario, instrumentation="native/tracing", artifact_path=f"{mode}-run", field="metadata.effective_core_config.capture_limits", expected=_capture_limits(native_run), actual=_capture_limits(tracing_run))
+        _require_equal(
+            scenario=scenario,
+            instrumentation="native/tracing",
+            artifact_path=f"{mode}-run",
+            field="route_coverage",
+            expected=sorted({r.get("route") for r in native_run.get("requests", [])}),
+            actual=sorted({r.get("route") for r in tracing_run.get("requests", [])}),
+        )
+
     print(
         f"tracing parity validation passed for {scenario}: "
         f"baseline kind={expected_kind}, tracing p95 {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
     )
+
+
+def validate_tracing_retention_parity(root_dir: Path, *, profile: str = "dev") -> None:
+    scenario = "queue"
+    config = _tracing_parity_config(root_dir, scenario)
+    demo_manifest = config["demo_manifest"]
+    artifact_dir = config["artifact_dir"]
+    cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
+    for instrumentation in ("native", "tracing"):
+        run_path = artifact_dir / f"tiny-{instrumentation}-run.json"
+        analysis_path = artifact_dir / f"tiny-{instrumentation}-analysis.json"
+        run_and_analyze(
+            demo_manifest,
+            cli_manifest,
+            run_path,
+            analysis_path,
+            "baseline",
+            profile=profile,
+                extra_demo_args=[
+                    "--instrumentation", instrumentation, "--mode", "light",
+                    "--max-requests", "3", "--max-stages", "3", "--max-queues", "3",
+                ],
+        )
+    native_run = _load_run(artifact_dir / "tiny-native-run.json")
+    tracing_run = _load_run(artifact_dir / "tiny-tracing-run.json")
+    pairs = [
+        ("retained_request_count", len(native_run.get("requests", [])), len(tracing_run.get("requests", []))),
+        ("retained_stage_count", len(native_run.get("stages", [])), len(tracing_run.get("stages", []))),
+        ("retained_queue_count", len(native_run.get("queues", [])), len(tracing_run.get("queues", []))),
+        ("truncation.dropped_requests", (native_run.get("truncation") or {}).get("dropped_requests"), (tracing_run.get("truncation") or {}).get("dropped_requests")),
+        ("truncation.dropped_stages", (native_run.get("truncation") or {}).get("dropped_stages"), (tracing_run.get("truncation") or {}).get("dropped_stages")),
+        ("truncation.dropped_queues", (native_run.get("truncation") or {}).get("dropped_queues"), (tracing_run.get("truncation") or {}).get("dropped_queues")),
+        (
+            "truncation.limits_hit",
+            (native_run.get("truncation") or {}).get("limits_hit"),
+            (tracing_run.get("truncation") or {}).get("limits_hit"),
+        ),
+        ("metadata.effective_core_config", (native_run.get("metadata") or {}).get("effective_core_config"), (tracing_run.get("metadata") or {}).get("effective_core_config")),
+    ]
+    for field, expected, actual in pairs:
+        _require_equal(scenario="tiny-limit", instrumentation="native/tracing", artifact_path="tiny-run", field=field, expected=expected, actual=actual)
+    print("tracing retention parity validation passed (tiny limits)")
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1097,6 +1208,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parity_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
     parity_parser.add_argument("--release", action="store_const", const="release", dest="profile")
 
+    tiny_parser = subparsers.add_parser("validate-tracing-retention-parity", help="Run exact retention/truncation parity checks with tiny capture limits.")
+    tiny_parser.add_argument("--profile", choices=PROFILE_CHOICES, default="dev")
+    tiny_parser.add_argument("--release", action="store_const", const="release", dest="profile")
+
     return parser.parse_args(argv)
 
 def _scenario_to_artifact_dir(root_dir: Path, scenario: str) -> Path:
@@ -1161,6 +1276,10 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "validate-tracing-parity":
         validate_tracing_parity(root_dir, args.scenario, profile=args.profile)
+        return
+
+    if args.command == "validate-tracing-retention-parity":
+        validate_tracing_retention_parity(root_dir, profile=args.profile)
         return
 
     if args.scenario == "queue":

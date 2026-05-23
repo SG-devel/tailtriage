@@ -42,7 +42,7 @@ Tracing-intake contract coverage is currently validated by unit/package tests an
 - `TracingIntakeSession` request/stage/queue capture and conversion
 - example compile/run coverage under package example tests
 
-These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim arbitrary `tracing_subscriber::fmt().json()` import support, do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
+These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim import support for ordinary tracing log JSON (`fmt().json` style output), do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
 
 ## Deterministic corpus validation
 The deterministic benchmark validates:
@@ -112,3 +112,7 @@ Snapshot artifacts include deterministic benchmark metrics, thresholds, git/ref 
 
 
 Optional manifest fields can validate expanded analyzer report surface on selected cases only: `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`. These checks are fixture-scoped and optional; cases that omit them continue to validate under the existing suspect/evidence/warning contract.
+
+## Tracing parity CI gates
+Native/tracing parity is CI-gated via `scripts/demo_tool.py validate-tracing-parity all --profile release` for artifact shape, expected evidence presence, route coverage, mode parity, and effective core capture-limit parity. Tiny-limit retention parity is CI-gated via `scripts/demo_tool.py validate-tracing-retention-parity --profile release` and requires exact retained counts, dropped counters, `truncation.limits_hit`, and `metadata.effective_core_config` equality between native and tracing artifacts. Runtime-sensitive tracing scenarios (Tokio session coupling) must include runtime snapshots plus sampler metadata; tracing-only scenarios must not fabricate runtime snapshots. These checks support triage consistency and do not prove universal production performance or root-cause certainty.
+

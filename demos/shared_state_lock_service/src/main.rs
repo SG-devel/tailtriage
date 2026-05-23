@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         "shared_state_lock_service_demo",
         &args.output_path,
         args.instrumentation,
+        args.capture_config(),
     )?);
 
     let shared_state = Arc::new(RwLock::new(0_u64));

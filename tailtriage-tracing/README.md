@@ -12,38 +12,51 @@ It is **not**:
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
-## Recommended live session setup
+## Feature flags
+
+- Default (`jsonl`): typed records plus JSONL import APIs.
+- `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession`.
+- `tokio`: enables `TracingTokioSession` (and includes `live`).
+
+CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
+
+## Recommended live session setup (`live` feature)
 
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;
+use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# async fn work() {}
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
 let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
     .build()?;
 
 let subscriber = tracing_subscriber::registry().with(session.layer());
-tracing::subscriber::with_default(subscriber, || {
-    let request = tracing::info_span!(
-        "request",
-        tt.kind = "request",
-        tt.request_id = "req-1",
-        tt.route = "/checkout",
-        tt.outcome = "ok"
-    );
-    let _entered = request.enter();
-});
+let _guard = tracing::subscriber::set_default(subscriber);
+let request = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = "ok"
+);
+work().instrument(request).await;
 
 session.shutdown()?;
 # Ok(())
+# }
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+#   let _ = run();
+#   Ok(())
 # }
 ```
 
 ## Direct Run JSON path
 
-Use `run_json_path(...)` when you want to skip a separate import step:
+Use `run_json_path(...)` when you want to skip a separate import step and write Run JSON through the same robust writer path used by native capture sinks:
 
 ```bash
 tailtriage analyze target/tailtriage-examples/checkout.run.json
@@ -72,6 +85,8 @@ Stable completed-span JSONL records use this wrapper:
 
 `format` is a wrapper-level field (not a `SpanRecord` field).
 
+Ordinary tracing log JSON (for example `fmt().json` output) is rejected by import. Import does not guess span timing from line receive time: provide explicit unix-ms start/end timestamps on completed spans.
+
 ## `tt.*` field convention
 
 | Span kind | Required fields | Optional fields |
@@ -88,15 +103,22 @@ Stable completed-span JSONL records use this wrapper:
 ## Retention and drop behavior
 
 - `max_open_spans` bounds in-flight span tracking.
-- `max_completed_spans` bounds in-memory completed-span retention.
 - Completed-span JSONL streaming happens before in-memory completed-span retention is applied.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
 
 ## Runtime-pressure limitation
 
-Tracing-only intake does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
+Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
+Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request span event. Library snapshots taken before completed requests may still be zero-request for inspection.
+
+For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model:
+
+- configure retention with `mode(...)`, `capture_limits(...)`, or `capture_limits_override(...)`
+- there is no tracing-specific `.max_runtime_snapshots(...)` session builder method
+- tracing-only runs still do not fabricate runtime snapshots
 
 ## Examples
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+

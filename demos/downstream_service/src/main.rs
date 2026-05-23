@@ -29,6 +29,7 @@ impl DownstreamSettings {
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/downstream_service/artifacts/downstream-run.json")?;
+    let capture_config = args.capture_config();
     let output_path = args.output_path;
     let settings = DownstreamSettings::for_mode(args.mode);
 
@@ -36,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         "downstream_service_demo",
         &output_path,
         args.instrumentation,
+        capture_config,
     )?);
 
     let offered_requests = 80_u64;

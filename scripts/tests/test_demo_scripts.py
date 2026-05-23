@@ -161,6 +161,101 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "all")
 
+    def test_parse_args_accepts_validate_tracing_retention_parity(self) -> None:
+        args = parse_args(["validate-tracing-retention-parity", "--profile", "release"])
+        self.assertEqual(args.command, "validate-tracing-retention-parity")
+        self.assertEqual(args.profile, "release")
+
+    @patch("demo_tool._require_equal")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_retention_parity_uses_tiny_limits_three(
+        self,
+        parity_config_mock,
+        run_and_analyze_mock,
+        load_run_mock,
+        require_equal_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+        }
+        load_run_mock.side_effect = [{}, {}]
+        demo_tool.validate_tracing_retention_parity(Path("/tmp/repo"), profile="release")
+
+        calls = run_and_analyze_mock.call_args_list
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            extra_args = call.kwargs["extra_demo_args"]
+            self.assertIn("--mode", extra_args)
+            self.assertIn("light", extra_args)
+            self.assertEqual(extra_args[extra_args.index("--max-requests") + 1], "3")
+            self.assertEqual(extra_args[extra_args.index("--max-stages") + 1], "3")
+            self.assertEqual(extra_args[extra_args.index("--max-queues") + 1], "3")
+        self.assertTrue(require_equal_mock.called)
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_non_runtime_artifact_rejects_runtime_snapshot_fabrication(
+        self,
+        parity_config_mock,
+        _run_and_analyze_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/queue-demo",
+            "expected_kind": "application_queue_saturation",
+            "queues": {"worker_permit"},
+            "stages": {"simulated_work"},
+            "require_p95_improvement": True,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report, report, report, report]
+        fake_run = {
+            "requests": [{"route": "/queue-demo"}],
+            "stages": [{"stage": "simulated_work"}],
+            "queues": [{"queue": "worker_permit", "depth_at_start": 1}],
+            "runtime_snapshots": [{"global_queue_depth": 1}],
+            "metadata": {
+                "mode": "light",
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+                "effective_tokio_sampler_config": None,
+            },
+            "scenario_label": "queue",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        with patch("demo_tool._load_run", side_effect=[fake_run, fake_run, fake_run, fake_run]), patch.object(
+            Path, "exists", return_value=True
+        ):
+            with self.assertRaisesRegex(
+                SystemExit,
+                r"scenario=queue.*instrumentation=tracing.*artifact=before-tracing-run\.json.*field=runtime_snapshots.*expected=\[\].*actual=\[\{'global_queue_depth': 1\}\]",
+            ):
+                demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
+
+    def test_parity_failure_message_contains_scenario_field_expected_actual(self) -> None:
+        with self.assertRaisesRegex(
+            SystemExit,
+            "scenario=queue.*field=metadata.mode.*expected='light'.*actual='investigation'",
+        ):
+            demo_tool._require_equal(
+                scenario="queue",
+                instrumentation="native",
+                artifact_path="artifact.json",
+                field="metadata.mode",
+                expected="light",
+                actual="investigation",
+            )
+
     def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},

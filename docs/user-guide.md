@@ -43,26 +43,40 @@ tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-s
 tailtriage analyze tailtriage-run.json
 ```
 
-`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific.
+`tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing import and native capture use the same `CaptureMode`/`CaptureLimits` semantics for request/stage/queue retention. Offline import exposes `--mode <light|investigation>` plus `--max-requests`, `--max-stages`, and `--max-queues` because those are the imported evidence types. It does not expose runtime/in-flight snapshot limit flags because those evidence types are not imported by this path. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific. Persisted Run JSON intended for CLI analysis must contain at least one request event; zero-request persisted artifacts are rejected by `tailtriage analyze`. Library snapshots may still be zero-request for local inspection/debugging.
 
-B) Direct Run JSON path:
+B) Direct Run JSON path with async span instrumentation:
 
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;
+use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# async fn work() {}
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
 let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .build()?;
 let subscriber = tracing_subscriber::registry().with(session.layer());
-tracing::subscriber::with_default(subscriber, || {
-    let _request = tracing::info_span!("request", tt.kind = "request", tt.request_id = "req-1", tt.route = "/checkout");
-});
+let _guard = tracing::subscriber::set_default(subscriber);
+let span = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = "ok",
+);
+work().instrument(span).await;
 session.shutdown()?;
 # Ok(())
+}
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+#   let _ = run();
+#   Ok(())
 # }
 ```
+
+Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
 
 Then analyze directly:
 
@@ -278,6 +292,7 @@ Key constraints:
 - start inside an active Tokio runtime
 - one successful sampler start per run
 - runtime snapshot retention is bounded by core limits
+- Tokio tracing sessions use the same core `CaptureMode`/`CaptureLimits`/`CaptureLimitsOverride` model (no tracing-specific retention knob)
 - some runtime fields require `tokio_unstable`
 
 Sampler details: [tailtriage-tokio/README.md](../tailtriage-tokio/README.md)
