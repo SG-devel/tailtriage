@@ -246,7 +246,7 @@ tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-s
 
 `tailtriage import tracing-json` writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr. Arbitrary `tracing_subscriber::fmt().json()` log JSON is not imported, and timing is not guessed from line receive time: completed spans must include explicit unix-ms start/end timestamps.
 Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event; in-process library snapshots may still be zero-request for inspection.
-Tracing-only imports can provide request/stage/queue evidence outside Tokio runtimes, but they do not fabricate runtime-pressure snapshots.
+Tracing-only imports can provide request/stage/queue evidence outside Tokio runtimes, but they do not fabricate runtime-pressure snapshots. Native capture remains the default path; tracing intake is a first-class bridge into the same Run artifact workflow when completed spans are already instrumented.
 
 Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).
 

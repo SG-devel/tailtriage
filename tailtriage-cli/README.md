@@ -77,7 +77,7 @@ After import, run analysis separately:
 tailtriage analyze tailtriage-run.json
 ```
 
-Zero-request imports fail by design (the CLI loader requires at least one request).
+Zero-request imports fail by design (the CLI loader requires at least one request in persisted Run artifacts).
 
 When paths include spaces, quote them in shell usage:
 
