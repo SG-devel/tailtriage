@@ -59,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
         "cold_start_burst_service_demo",
         &args.output_path,
         args.instrumentation,
+        args.capture_config(),
     )?);
 
     let semaphore = Arc::new(Semaphore::new(settings.service_capacity));
