@@ -1088,7 +1088,7 @@ def validate_tracing_retention_parity(root_dir: Path, *, profile: str = "dev") -
             profile=profile,
             extra_demo_args=[
                 "--instrumentation", instrumentation, "--mode", "light",
-                "--max-requests", "3", "--max-stages", "3", "--max-queues", "3",
+                "--max-requests", "2", "--max-stages", "2", "--max-queues", "2",
             ],
         )
     native_run = _load_run(artifact_dir / "tiny-native-run.json")
@@ -1100,7 +1100,11 @@ def validate_tracing_retention_parity(root_dir: Path, *, profile: str = "dev") -
         ("truncation.dropped_requests", (native_run.get("truncation") or {}).get("dropped_requests"), (tracing_run.get("truncation") or {}).get("dropped_requests")),
         ("truncation.dropped_stages", (native_run.get("truncation") or {}).get("dropped_stages"), (tracing_run.get("truncation") or {}).get("dropped_stages")),
         ("truncation.dropped_queues", (native_run.get("truncation") or {}).get("dropped_queues"), (tracing_run.get("truncation") or {}).get("dropped_queues")),
-        ("truncation.limits_hit", sorted((native_run.get("truncation") or {}).get("limits_hit") or []), sorted((tracing_run.get("truncation") or {}).get("limits_hit") or [])),
+        (
+            "truncation.limits_hit",
+            (native_run.get("truncation") or {}).get("limits_hit"),
+            (tracing_run.get("truncation") or {}).get("limits_hit"),
+        ),
         ("metadata.effective_core_config", (native_run.get("metadata") or {}).get("effective_core_config"), (tracing_run.get("metadata") or {}).get("effective_core_config")),
     ]
     for field, expected, actual in pairs:

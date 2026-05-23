@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
 
     let (
         service_capacity,
-        offered_requests,
+        mut offered_requests,
         work_duration,
         inter_arrival_pause_every,
         inter_arrival_delay,
@@ -40,6 +40,9 @@ async fn main() -> anyhow::Result<()> {
             Duration::from_millis(2),
         ),
     };
+    if let Some(limit) = args.max_requests {
+        offered_requests = offered_requests.min(u64::try_from(limit)?);
+    }
 
     let semaphore = Arc::new(Semaphore::new(service_capacity));
     let waiting_depth = Arc::new(AtomicU64::new(0));

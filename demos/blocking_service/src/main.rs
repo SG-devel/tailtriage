@@ -38,6 +38,7 @@ impl ModeSettings {
 
 fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/blocking_service/artifacts/blocking-run.json")?;
+    let capture_config = args.capture_config();
     let settings = ModeSettings::for_mode(args.mode);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -51,7 +52,7 @@ fn main() -> anyhow::Result<()> {
         args.output_path,
         settings,
         args.instrumentation,
-        args.capture_config(),
+        capture_config,
     ))
 }
 
