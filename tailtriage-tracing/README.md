@@ -56,7 +56,7 @@ session.shutdown()?;
 
 ## Direct Run JSON path
 
-Use `run_json_path(...)` when you want to skip a separate import step:
+Use `run_json_path(...)` when you want to skip a separate import step and write Run JSON through the same robust writer path used by native capture sinks:
 
 ```bash
 tailtriage analyze target/tailtriage-examples/checkout.run.json
@@ -85,7 +85,7 @@ Stable completed-span JSONL records use this wrapper:
 
 `format` is a wrapper-level field (not a `SpanRecord` field).
 
-Arbitrary `tracing_subscriber::fmt().json()` log JSON is rejected by import. Import does not guess span timing from line receive time: provide explicit unix-ms start/end timestamps on completed spans.
+Ordinary tracing log JSON (for example `fmt().json` output) is rejected by import. Import does not guess span timing from line receive time: provide explicit unix-ms start/end timestamps on completed spans.
 
 ## `tt.*` field convention
 
@@ -121,3 +121,6 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+
+
+Persisted Run JSON intended for CLI analysis must include at least one request event; zero-request persisted artifacts are rejected by `tailtriage analyze`. Library snapshots may still be zero-request for local inspection.
