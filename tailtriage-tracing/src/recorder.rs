@@ -327,20 +327,17 @@ impl TracingIntakeSessionBuilder {
         self
     }
     /// Sets capture mode used to resolve live completed-evidence retention limits.
-    /// Sets capture mode used to resolve live completed-evidence retention limits.
     #[must_use]
     pub fn mode(mut self, mode: CaptureMode) -> Self {
         self.recorder_builder = self.recorder_builder.mode(mode);
         self
     }
     /// Sets base capture limits used for live completed-evidence retention.
-    /// Sets base capture limits used for live completed-evidence retention.
     #[must_use]
     pub fn capture_limits(mut self, capture_limits: CaptureLimits) -> Self {
         self.recorder_builder = self.recorder_builder.capture_limits(capture_limits);
         self
     }
-    /// Sets capture-limit overrides applied on top of the selected capture mode.
     /// Sets capture-limit overrides applied on top of the selected capture mode.
     #[must_use]
     pub fn capture_limits_override(mut self, override_limits: CaptureLimitsOverride) -> Self {
