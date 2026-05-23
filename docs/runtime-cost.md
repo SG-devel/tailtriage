@@ -117,5 +117,5 @@ Use `python3 scripts/run_operational_validation.py --domain runtime-cost` for ma
 Native remains the default instrumentation path because it is direct, explicit, and complete. Tracing is a first-class intake bridge for teams already instrumented with tracing or preferring span-shaped instrumentation. Small wins/losses inside the 2% warning band are treated as parity, not as a reason to change the default recommendation.
 
 ## Parity guardrails
-CI release validation runs parity checks that enforce shared capture mode/limit semantics across native and tracing demo captures, including tiny-limit exact truncation parity. This validation is a bounded triage consistency check, not universal production overhead proof and not root-cause certainty.
+CI release validation runs parity checks that enforce shared capture mode/limit semantics across native and tracing demo captures, including tiny-limit exact truncation parity and CI-gated retention parity checks for truncation counters/limits-hit parity. This validation is a bounded triage consistency check, not universal production overhead proof and not root-cause certainty.
 

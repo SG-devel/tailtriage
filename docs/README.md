@@ -2,7 +2,7 @@
 
 This is the canonical user documentation index for `tailtriage`.
 
-`tailtriage` is a Rust toolkit for Tokio tail-latency triage. It helps turn one captured run into evidence-ranked suspects and targeted next checks. Suspects are triage leads, not proof of root cause.
+`tailtriage` is a Rust toolkit for Tokio tail-latency triage. Native capture is the default path; tracing is a first-class intake bridge into the same Run/analysis workflow. It helps turn one captured run into evidence-ranked suspects and targeted next checks. Suspects are triage leads, not proof of root cause.
 
 ## Start here
 
@@ -21,7 +21,7 @@ Most users should start with `tailtriage`.
 - [`tailtriage-axum`](../tailtriage-axum/README.md) — Axum middleware/extractor integration.
 - [`tailtriage-analyzer`](../tailtriage-analyzer/README.md) — in-process analysis of completed runs.
 - [`tailtriage-cli`](../tailtriage-cli/README.md) — command-line analysis of saved run artifacts.
-- [`tailtriage-tracing`](../tailtriage-tracing/README.md) — narrow tracing intake bridge built around `TracingIntakeSession`; writes Run JSON or stable completed-span JSONL (`{"format":"tailtriage.tracing-span.v1","span":{...}}`), converts tracing-shaped spans into standard `tailtriage_core::Run`, and intentionally does not support generic fmt JSON scraping or OTel/OTLP.
+- [`tailtriage-tracing`](../tailtriage-tracing/README.md) — narrow tracing intake bridge built around `TracingIntakeSession`; writes Run JSON or stable completed-span JSONL (`{"format":"tailtriage.tracing-span.v1","span":{...}}`), converts tracing-shaped spans into standard `tailtriage_core::Run`, and intentionally does not support ordinary tracing log JSON scraping or OTel/OTLP.
 
 ## Capture and analysis workflow
 

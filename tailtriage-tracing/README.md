@@ -18,7 +18,7 @@ It is **not**:
 - `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession`.
 - `tokio`: enables `TracingTokioSession` (and includes `live`).
 
-CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
+CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency. Live tracing dependencies remain feature-gated (`live`/`tokio`) so offline import users keep a smaller dependency surface.
 
 ## Recommended live session setup (`live` feature)
 
