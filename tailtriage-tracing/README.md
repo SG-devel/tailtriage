@@ -8,7 +8,7 @@ It helps existing `tracing` users produce standard `tailtriage_core::Run` artifa
 
 It is **not**:
 - an observability backend,
-- generic tracing log scraping,
+- generic tracing-log JSON scraping,
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
@@ -103,7 +103,7 @@ Arbitrary `tracing_subscriber::fmt().json()` log JSON is rejected by import. Imp
 ## Retention and drop behavior
 
 - `max_open_spans` bounds in-flight span tracking.
-- Completed-span JSONL streaming happens before in-memory completed-span retention is applied.
+- Completed-span JSONL streaming happens before in-memory capture-limit retention is applied.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
 
 ## Runtime-pressure limitation
