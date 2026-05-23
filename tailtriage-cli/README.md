@@ -69,7 +69,7 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 
 Behavior:
 - `tailtriage-span-jsonl` enforces wrapper-only parsing.
-- `auto` keeps compatibility parsing for older normalized shapes and rejects ordinary `tracing_subscriber::fmt().json()` logs early with setup guidance; timing is not guessed from JSONL line receive time.
+- `auto` keeps compatibility parsing for older normalized shapes and rejects ordinary tracing log JSON (including `fmt().json` output) early with setup guidance; timing is not guessed from JSONL line receive time.
 
 After import, run analysis separately:
 
@@ -283,3 +283,5 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+Persisted Run JSON intended for `tailtriage analyze` must include at least one request event. Zero-request persisted artifacts are rejected by CLI analysis; zero-request library snapshots remain valid for in-process inspection.

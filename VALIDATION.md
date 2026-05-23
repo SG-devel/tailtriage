@@ -42,7 +42,7 @@ Tracing-intake contract coverage is currently validated by unit/package tests an
 - `TracingIntakeSession` request/stage/queue capture and conversion
 - example compile/run coverage under package example tests
 
-These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim arbitrary `tracing_subscriber::fmt().json()` import support, do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
+These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim import support for ordinary tracing log JSON (`fmt().json` style output), do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
 
 ## Deterministic corpus validation
 The deterministic benchmark validates:

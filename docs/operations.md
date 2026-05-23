@@ -158,7 +158,7 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing import expects completed `tt.*` span JSONL, not arbitrary `tracing_subscriber::fmt().json()` or ordinary tracing log JSON. Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
+Tracing import expects completed `tt.*` span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Persisted Run JSON intended for CLI analysis must include at least one request event; zero-request persisted artifacts are rejected by CLI analysis, while library snapshots can still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
 
 Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event. Library snapshots may still be zero-request for inspection during active captures.
 
