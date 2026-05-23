@@ -131,7 +131,10 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.strict(strict);
         self
     }
-    /// Sets both open/completed in-memory span retention limits.
+    /// Sets tracing-recorder-specific live tracking limits (`max_open_spans`).
+    ///
+    /// Completed request/stage/queue retention is configured with [`Self::mode`],
+    /// [`Self::capture_limits`], or [`Self::capture_limits_override`].
     #[must_use]
     pub fn recorder_limits(mut self, limits: RecorderLimits) -> Self {
         self.recorder_builder = self.recorder_builder.limits(limits);

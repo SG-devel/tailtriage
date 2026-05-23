@@ -122,5 +122,3 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
 
-
-Persisted Run JSON intended for CLI analysis must include at least one request event; zero-request persisted artifacts are rejected by `tailtriage analyze`. Library snapshots may still be zero-request for local inspection.
