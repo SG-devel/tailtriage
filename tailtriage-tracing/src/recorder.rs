@@ -12,8 +12,8 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    ensure_persistable_run_has_requests, run_from_span_records, FieldValue, ImportError,
-    ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    duration_within_tolerance, ensure_persistable_run_has_requests, run_from_span_records,
+    FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
@@ -336,31 +336,42 @@ fn write_completed_span_jsonl_from_run(
 fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord> {
     let mut spans = Vec::new();
     for req in &run.requests {
-        let span = SpanRecord::new(
+        let mut span = SpanRecord::new(
             "tt.request",
             req.started_at_unix_ms,
             req.finished_at_unix_ms,
         )
-        .duration_us(req.latency_us)
         .field("tt.kind", "request")
         .field("tt.request_id", req.request_id.clone())
         .field("tt.route", req.route.clone())
         .field("tt.outcome", req.outcome.clone());
+        if duration_within_tolerance(
+            req.latency_us,
+            req.started_at_unix_ms,
+            req.finished_at_unix_ms,
+        ) {
+            span = span.duration_us(req.latency_us);
+        }
         spans.push(span);
     }
     for stage in &run.stages {
-        spans.push(
-            SpanRecord::new(
-                "tt.stage",
-                stage.started_at_unix_ms,
-                stage.finished_at_unix_ms,
-            )
-            .duration_us(stage.latency_us)
-            .field("tt.kind", "stage")
-            .field("tt.request_id", stage.request_id.clone())
-            .field("tt.stage", stage.stage.clone())
-            .field("tt.success", stage.success),
-        );
+        let mut span = SpanRecord::new(
+            "tt.stage",
+            stage.started_at_unix_ms,
+            stage.finished_at_unix_ms,
+        )
+        .field("tt.kind", "stage")
+        .field("tt.request_id", stage.request_id.clone())
+        .field("tt.stage", stage.stage.clone())
+        .field("tt.success", stage.success);
+        if duration_within_tolerance(
+            stage.latency_us,
+            stage.started_at_unix_ms,
+            stage.finished_at_unix_ms,
+        ) {
+            span = span.duration_us(stage.latency_us);
+        }
+        spans.push(span);
     }
     for queue in &run.queues {
         let mut span = SpanRecord::new(
@@ -368,10 +379,16 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
             queue.waited_from_unix_ms,
             queue.waited_until_unix_ms,
         )
-        .duration_us(queue.wait_us)
         .field("tt.kind", "queue")
         .field("tt.request_id", queue.request_id.clone())
         .field("tt.queue", queue.queue.clone());
+        if duration_within_tolerance(
+            queue.wait_us,
+            queue.waited_from_unix_ms,
+            queue.waited_until_unix_ms,
+        ) {
+            span = span.duration_us(queue.wait_us);
+        }
         if let Some(depth) = queue.depth_at_start {
             span = span.field("tt.depth_at_start", depth);
         }
@@ -896,12 +913,21 @@ impl Visit for FieldVisitor {
 mod tests {
     use super::*;
     use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
+    use tailtriage_core::{MemorySink, Tailtriage};
     use tracing_subscriber::prelude::*;
 
     fn with_recorder<T>(f: impl FnOnce(&TracingRecorder) -> T) -> T {
         let recorder = TracingRecorder::builder("svc").run_id("rid").build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || f(&recorder))
+    }
+
+    fn empty_run() -> tailtriage_core::Run {
+        Tailtriage::builder("svc")
+            .sink(MemorySink::new())
+            .build()
+            .expect("collector")
+            .snapshot()
     }
 
     #[test]
@@ -2324,6 +2350,99 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
+    }
+
+    #[test]
+    fn retained_request_stage_queue_omit_contradictory_duration_us() {
+        let mut run = empty_run();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/a".into(),
+            kind: None,
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            outcome: "ok".into(),
+        });
+        run.stages.push(tailtriage_core::StageEvent {
+            request_id: "r1".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            success: true,
+        });
+        run.queues.push(tailtriage_core::QueueEvent {
+            request_id: "r1".into(),
+            queue: "permits".into(),
+            waited_from_unix_ms: 100,
+            waited_until_unix_ms: 100,
+            wait_us: 50_000,
+            depth_at_start: None,
+        });
+        let spans = retained_span_records_from_run(&run);
+        assert_eq!(spans.len(), 3);
+        assert!(spans.iter().all(|span| span.duration_us_ref().is_none()));
+    }
+
+    #[test]
+    fn retained_jsonl_replays_in_strict_mode_when_contradictory_durations_omitted() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let mut run = empty_run();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/a".into(),
+            kind: None,
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            outcome: "ok".into(),
+        });
+        run.stages.push(tailtriage_core::StageEvent {
+            request_id: "r1".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            success: true,
+        });
+        run.queues.push(tailtriage_core::QueueEvent {
+            request_id: "r1".into(),
+            queue: "permits".into(),
+            waited_from_unix_ms: 100,
+            waited_until_unix_ms: 100,
+            wait_us: 50_000,
+            depth_at_start: None,
+        });
+        write_completed_span_jsonl_from_run(&run, &spans_path).unwrap();
+
+        let replay = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc").strict(true),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(replay.run().requests.len(), 1);
+        assert_eq!(replay.run().stages.len(), 1);
+        assert_eq!(replay.run().queues.len(), 1);
+    }
+
+    #[test]
+    fn retained_duration_us_preserved_when_within_tolerance() {
+        let mut run = empty_run();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/a".into(),
+            kind: None,
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 101,
+            latency_us: 1_500,
+            outcome: "ok".into(),
+        });
+        let spans = retained_span_records_from_run(&run);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].duration_us_ref(), Some(1_500));
     }
 
     #[test]
