@@ -145,7 +145,7 @@ fn parse_record(
     mode: JsonlParseMode,
 ) -> Result<Option<SpanRecord>, ImportError> {
     if let Some(obj) = value.as_object() {
-        if let (Some(format), Some(span_value)) = (obj.get("format"), obj.get("span")) {
+        if let Some(format) = obj.get("format") {
             let Some(format_marker) = format.as_str() else {
                 let message = format!(
                     "line {line_no}: invalid field 'format': expected string format marker"
@@ -166,6 +166,17 @@ fn parse_record(
                 warnings.push(crate::ImportWarning::new(message));
                 return Ok(None);
             }
+
+            let Some(span_value) = obj.get("span") else {
+                let message = format!(
+                    "line {line_no}: missing field 'span': expected completed span object for tailtriage.tracing-span.v1"
+                );
+                if strict {
+                    return Err(ImportError::StrictViolation(message));
+                }
+                warnings.push(crate::ImportWarning::new(message));
+                return Ok(None);
+            };
 
             let Some(_) = span_value.as_object() else {
                 let message = format!(
@@ -1262,6 +1273,74 @@ mod tests {
         .unwrap();
         assert_eq!(imported.run().requests.len(), 0);
         assert_eq!(imported.warnings().len(), 1);
+    }
+
+    #[test]
+    fn wrapper_v1_missing_span_warns_non_strict_and_errors_strict() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1"}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("line 1"));
+        assert!(err.to_string().contains("missing field 'span'"));
+
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(
+            |w| w.message().contains("line 1") && w.message().contains("missing field 'span'")
+        ));
+    }
+
+    #[test]
+    fn wrapper_v1_non_object_span_warns_non_strict_and_errors_strict() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":"nope"}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("line 1"));
+        assert!(err.to_string().contains("invalid field 'span'"));
+
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(
+            |w| w.message().contains("line 1") && w.message().contains("invalid field 'span'")
+        ));
+    }
+
+    #[test]
+    fn wrapper_with_non_string_format_warns_non_strict_and_errors_strict() {
+        let input = r#"{"format":false}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("line 1"));
+        assert!(err.to_string().contains("invalid field 'format'"));
+
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("line 1")
+                && w.message().contains("invalid field 'format'")));
+    }
+
+    #[test]
+    fn wrapper_with_unsupported_format_warns_non_strict_and_errors_strict() {
+        let input = r#"{"format":"tailtriage.tracing-span.v2"}"#;
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("line 1"));
+        assert!(err.to_string().contains("unsupported span format marker"));
+
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("line 1")
+                && w.message().contains("unsupported span format marker")));
     }
 
     #[test]
