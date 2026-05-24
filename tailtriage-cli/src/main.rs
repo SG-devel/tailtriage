@@ -5,7 +5,7 @@ use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
 use tailtriage_tracing::{
     ensure_persistable_run_has_requests, import_jsonl_path_with_mode, ImportOptions, JsonlParseMode,
 };
@@ -169,8 +169,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ensure_persistable_run_has_requests(imported.run())?;
 
-                let file = std::fs::File::create(&output)?;
-                serde_json::to_writer_pretty(file, imported.run())?;
+                LocalJsonSink::new(&output).write(imported.run())?;
             }
         },
         Command::Analyze {
