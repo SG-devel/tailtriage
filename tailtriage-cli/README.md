@@ -284,4 +284,4 @@ Use capture-side crates for that:
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
 
-Persisted Run JSON intended for `tailtriage analyze` must include at least one request event. Zero-request persisted artifacts are rejected by CLI analysis; zero-request library snapshots remain valid for in-process inspection.
+Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
