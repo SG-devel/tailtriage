@@ -323,46 +323,50 @@ fn write_completed_span_jsonl_from_run(
             context: temp_path.display().to_string(),
             reason: err.to_string(),
         })?;
-    let cleanup_temp_file = |operation: &'static str, context: String, reason: String| {
+
+    let write_result = (|| -> Result<(), ImportError> {
+        for span in retained_span_records_from_run(run) {
+            let wrapped =
+                serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
+
+            serde_json::to_writer(&mut file, &wrapped).map_err(|err| ImportError::Io {
+                operation: "write completed span jsonl record",
+                context: temp_path.display().to_string(),
+                reason: err.to_string(),
+            })?;
+
+            file.write_all(b"\n").map_err(|err| ImportError::Io {
+                operation: "write completed span jsonl newline",
+                context: temp_path.display().to_string(),
+                reason: err.to_string(),
+            })?;
+        }
+
+        file.flush().map_err(|err| ImportError::Io {
+            operation: "flush completed span jsonl file",
+            context: temp_path.display().to_string(),
+            reason: err.to_string(),
+        })?;
+
+        Ok(())
+    })();
+
+    drop(file);
+
+    if let Err(err) = write_result {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(err);
+    }
+
+    std::fs::rename(&temp_path, path).map_err(|err| {
         let _ = std::fs::remove_file(&temp_path);
         ImportError::Io {
-            operation,
-            context,
-            reason,
+            operation: "rename completed span jsonl temp file",
+            context: format!("{} -> {}", temp_path.display(), path.display()),
+            reason: err.to_string(),
         }
-    };
-    for span in retained_span_records_from_run(run) {
-        let wrapped = serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
-        serde_json::to_writer(&mut file, &wrapped).map_err(|err| {
-            cleanup_temp_file(
-                "write completed span jsonl record",
-                temp_path.display().to_string(),
-                err.to_string(),
-            )
-        })?;
-        file.write_all(b"\n").map_err(|err| {
-            cleanup_temp_file(
-                "write completed span jsonl newline",
-                temp_path.display().to_string(),
-                err.to_string(),
-            )
-        })?;
-    }
-    file.flush().map_err(|err| {
-        cleanup_temp_file(
-            "flush completed span jsonl file",
-            temp_path.display().to_string(),
-            err.to_string(),
-        )
     })?;
-    drop(file);
-    std::fs::rename(&temp_path, path).map_err(|err| {
-        cleanup_temp_file(
-            "rename completed span jsonl temp file",
-            format!("{} -> {}", temp_path.display(), path.display()),
-            err.to_string(),
-        )
-    })?;
+
     Ok(())
 }
 
