@@ -495,6 +495,12 @@ impl TracingIntakeSessionBuilder {
 }
 
 impl TracingRecorderBuilder {
+    /// Returns currently selected capture mode.
+    #[must_use]
+    pub fn selected_mode(&self) -> CaptureMode {
+        self.options.mode_value()
+    }
+
     /// Returns capture limits resolved from configured mode/base/override settings.
     #[must_use]
     pub fn resolved_capture_limits(&self) -> CaptureLimits {

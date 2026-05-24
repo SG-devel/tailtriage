@@ -196,16 +196,22 @@ impl TracingTokioSessionBuilder {
     /// when runtime collector build fails, when sampler interval is zero,
     /// or when there is no active Tokio runtime.
     pub fn start(self) -> Result<TracingTokioSession, TracingTokioSessionStartError> {
+        let selected_mode = self.recorder_builder.selected_mode();
         let resolved_limits = self.recorder_builder.resolved_capture_limits();
         let recorder = self
             .recorder_builder
             .build()
             .map_err(TracingTokioSessionStartError::Import)?;
         let sink = MemorySink::new();
-        let builder = Tailtriage::builder("tailtriage-tracing-runtime")
-            .sink(sink)
-            .strict_lifecycle(false)
-            .capture_limits(resolved_limits);
+        let builder = match selected_mode {
+            CaptureMode::Light => Tailtriage::builder("tailtriage-tracing-runtime").light(),
+            CaptureMode::Investigation => {
+                Tailtriage::builder("tailtriage-tracing-runtime").investigation()
+            }
+        }
+        .sink(sink)
+        .strict_lifecycle(false)
+        .capture_limits(resolved_limits);
         if let Some(interval) = self.sampler_interval {
             if interval.is_zero() {
                 return Err(TracingTokioSessionStartError::SamplerStart(
@@ -293,9 +299,11 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_runtime_data;
+    use std::time::Duration;
+
+    use super::{merge_runtime_data, TracingTokioSession};
     use crate::{ImportWarning, ImportedRun};
-    use tailtriage_core::{MemorySink, RuntimeSnapshot, Tailtriage};
+    use tailtriage_core::{CaptureMode, MemorySink, RuntimeSnapshot, Tailtriage};
 
     fn empty_run(service_name: &str) -> tailtriage_core::Run {
         Tailtriage::builder(service_name)
@@ -543,6 +551,72 @@ mod tests {
                 ImportWarning::new("existing-warning"),
                 ImportWarning::new("unique-warning"),
             ]
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tracing_tokio_session_investigation_mode_propagates_to_sampler_metadata() {
+        let session = TracingTokioSession::builder("svc")
+            .mode(CaptureMode::Investigation)
+            .sampler_interval(Duration::from_millis(5))
+            .start()
+            .expect("start session");
+        let (run, _warnings) = session
+            .shutdown()
+            .await
+            .expect("shutdown session")
+            .into_parts();
+        let effective_core_config = run
+            .metadata
+            .effective_core_config
+            .expect("effective core config");
+        let sampler_config = run
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("effective sampler config");
+
+        assert_eq!(run.metadata.mode, CaptureMode::Investigation);
+        assert_eq!(effective_core_config.mode, CaptureMode::Investigation);
+        assert_eq!(sampler_config.inherited_mode, CaptureMode::Investigation);
+        assert_eq!(sampler_config.resolved_mode, CaptureMode::Investigation);
+        assert_eq!(sampler_config.explicit_mode_override, None);
+        assert_eq!(sampler_config.resolved_sampler_cadence_ms, 5);
+        assert!(
+            sampler_config.resolved_runtime_snapshot_retention
+                <= effective_core_config.capture_limits.max_runtime_snapshots
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tracing_tokio_session_light_mode_sampler_metadata_stays_light() {
+        let session = TracingTokioSession::builder("svc")
+            .mode(CaptureMode::Light)
+            .sampler_interval(Duration::from_millis(5))
+            .start()
+            .expect("start session");
+        let (run, _warnings) = session
+            .shutdown()
+            .await
+            .expect("shutdown session")
+            .into_parts();
+        let effective_core_config = run
+            .metadata
+            .effective_core_config
+            .expect("effective core config");
+        let sampler_config = run
+            .metadata
+            .effective_tokio_sampler_config
+            .expect("effective sampler config");
+
+        assert_eq!(run.metadata.mode, CaptureMode::Light);
+        assert_eq!(effective_core_config.mode, CaptureMode::Light);
+        assert_eq!(sampler_config.inherited_mode, CaptureMode::Light);
+        assert_eq!(sampler_config.resolved_mode, CaptureMode::Light);
+        assert_eq!(sampler_config.explicit_mode_override, None);
+        assert_eq!(sampler_config.resolved_sampler_cadence_ms, 5);
+        assert!(
+            sampler_config.resolved_runtime_snapshot_retention
+                <= effective_core_config.capture_limits.max_runtime_snapshots
         );
     }
 }
