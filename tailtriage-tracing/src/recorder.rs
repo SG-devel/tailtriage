@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tailtriage_core::{CaptureLimits, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
 
 use tracing::field::{Field, Visit};
@@ -323,48 +323,60 @@ fn write_completed_span_jsonl_from_run(
             context: temp_path.display().to_string(),
             reason: err.to_string(),
         })?;
+    let cleanup_temp_file = |operation: &'static str, context: String, reason: String| {
+        let _ = std::fs::remove_file(&temp_path);
+        ImportError::Io {
+            operation,
+            context,
+            reason,
+        }
+    };
     for span in retained_span_records_from_run(run) {
         let wrapped = serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
-        serde_json::to_writer(&mut file, &wrapped).map_err(|err| ImportError::Io {
-            operation: "write completed span jsonl record",
-            context: temp_path.display().to_string(),
-            reason: err.to_string(),
+        serde_json::to_writer(&mut file, &wrapped).map_err(|err| {
+            cleanup_temp_file(
+                "write completed span jsonl record",
+                temp_path.display().to_string(),
+                err.to_string(),
+            )
         })?;
-        file.write_all(b"\n").map_err(|err| ImportError::Io {
-            operation: "write completed span jsonl newline",
-            context: temp_path.display().to_string(),
-            reason: err.to_string(),
+        file.write_all(b"\n").map_err(|err| {
+            cleanup_temp_file(
+                "write completed span jsonl newline",
+                temp_path.display().to_string(),
+                err.to_string(),
+            )
         })?;
     }
-    if let Err(err) = file.flush() {
-        let _ = std::fs::remove_file(&temp_path);
-        return Err(ImportError::Io {
-            operation: "flush completed span jsonl file",
-            context: temp_path.display().to_string(),
-            reason: err.to_string(),
-        });
-    }
+    file.flush().map_err(|err| {
+        cleanup_temp_file(
+            "flush completed span jsonl file",
+            temp_path.display().to_string(),
+            err.to_string(),
+        )
+    })?;
     drop(file);
-    if let Err(err) = std::fs::rename(&temp_path, path) {
-        let _ = std::fs::remove_file(&temp_path);
-        return Err(ImportError::Io {
-            operation: "rename completed span jsonl temp file",
-            context: format!("{} -> {}", temp_path.display(), path.display()),
-            reason: err.to_string(),
-        });
-    }
+    std::fs::rename(&temp_path, path).map_err(|err| {
+        cleanup_temp_file(
+            "rename completed span jsonl temp file",
+            format!("{} -> {}", temp_path.display(), path.display()),
+            err.to_string(),
+        )
+    })?;
     Ok(())
 }
 
 fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
     let file_name = path.file_name().map_or_else(
         || "completed-spans.jsonl".to_string(),
-        |n| n.to_string_lossy().into_owned(),
+        |name| name.to_string_lossy().into_owned(),
     );
+    let nanos_since_unix_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
     let temp_name = format!(
-        ".{file_name}.tailtriage-tmp-{}-{}",
+        ".{file_name}.tailtriage-tmp-{}-{nanos_since_unix_epoch}",
         std::process::id(),
-        tailtriage_core::unix_time_ms()
     );
     path.with_file_name(temp_name)
 }
