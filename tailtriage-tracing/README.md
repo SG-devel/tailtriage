@@ -4,7 +4,7 @@
 
 It helps existing `tracing` users produce standard `tailtriage_core::Run` artifacts by:
 - writing Run JSON on shutdown, and/or
-- streaming stable completed-span JSONL as spans close.
+- writing stable completed-span JSONL from retained valid evidence on shutdown.
 
 It is **not**:
 - an observability backend,
@@ -104,7 +104,7 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 ## Retention and drop behavior
 
 - `max_open_spans` bounds in-flight span tracking.
-- Completed-span JSONL streaming happens before in-memory completed-span retention is applied.
+- Completed-span JSONL is written on shutdown from the same retained, semantically valid request/stage/queue evidence present in the final imported Run.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
 
 ## Runtime-pressure limitation
