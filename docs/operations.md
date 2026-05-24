@@ -501,7 +501,7 @@ Do not treat one report as final proof.
 - Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 - Completed-span JSONL can grow with captured completed spans; size outputs accordingly.
 - `completed_span_jsonl_path(...)` writes retained valid completed-span JSONL on shutdown.
-- Configure `max_open_spans`` to keep memory bounded.
+- Configure `max_open_spans` to keep memory bounded.
 - Completed-span JSONL is replayable into the same retained request/stage/queue evidence when imported with matching service metadata.
 - Completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
 - Import warnings and lifecycle warnings mean evidence may be incomplete and should be treated as triage caveats.
