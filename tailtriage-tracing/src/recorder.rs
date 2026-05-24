@@ -12,8 +12,8 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    ensure_persistable_run_has_requests, run_from_span_records, FieldValue, ImportError,
-    ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    duration_within_tolerance, ensure_persistable_run_has_requests, run_from_span_records,
+    FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
@@ -336,31 +336,42 @@ fn write_completed_span_jsonl_from_run(
 fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord> {
     let mut spans = Vec::new();
     for req in &run.requests {
-        let span = SpanRecord::new(
+        let mut span = SpanRecord::new(
             "tt.request",
             req.started_at_unix_ms,
             req.finished_at_unix_ms,
         )
-        .duration_us(req.latency_us)
         .field("tt.kind", "request")
         .field("tt.request_id", req.request_id.clone())
         .field("tt.route", req.route.clone())
         .field("tt.outcome", req.outcome.clone());
+        if duration_within_tolerance(
+            req.latency_us,
+            req.started_at_unix_ms,
+            req.finished_at_unix_ms,
+        ) {
+            span = span.duration_us(req.latency_us);
+        }
         spans.push(span);
     }
     for stage in &run.stages {
-        spans.push(
-            SpanRecord::new(
-                "tt.stage",
-                stage.started_at_unix_ms,
-                stage.finished_at_unix_ms,
-            )
-            .duration_us(stage.latency_us)
-            .field("tt.kind", "stage")
-            .field("tt.request_id", stage.request_id.clone())
-            .field("tt.stage", stage.stage.clone())
-            .field("tt.success", stage.success),
-        );
+        let mut span = SpanRecord::new(
+            "tt.stage",
+            stage.started_at_unix_ms,
+            stage.finished_at_unix_ms,
+        )
+        .field("tt.kind", "stage")
+        .field("tt.request_id", stage.request_id.clone())
+        .field("tt.stage", stage.stage.clone())
+        .field("tt.success", stage.success);
+        if duration_within_tolerance(
+            stage.latency_us,
+            stage.started_at_unix_ms,
+            stage.finished_at_unix_ms,
+        ) {
+            span = span.duration_us(stage.latency_us);
+        }
+        spans.push(span);
     }
     for queue in &run.queues {
         let mut span = SpanRecord::new(
@@ -368,10 +379,16 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
             queue.waited_from_unix_ms,
             queue.waited_until_unix_ms,
         )
-        .duration_us(queue.wait_us)
         .field("tt.kind", "queue")
         .field("tt.request_id", queue.request_id.clone())
         .field("tt.queue", queue.queue.clone());
+        if duration_within_tolerance(
+            queue.wait_us,
+            queue.waited_from_unix_ms,
+            queue.waited_until_unix_ms,
+        ) {
+            span = span.duration_us(queue.wait_us);
+        }
         if let Some(depth) = queue.depth_at_start {
             span = span.field("tt.depth_at_start", depth);
         }
@@ -2324,6 +2341,152 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
+    }
+
+    #[test]
+    fn retained_jsonl_omits_non_plausible_duration_us_and_reimports_strict_wrapper_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let collector = tailtriage_core::Tailtriage::builder("svc")
+            .sink(tailtriage_core::MemorySink::new())
+            .build()
+            .unwrap();
+        let mut run = collector.snapshot();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "req-1".into(),
+            route: "/checkout".into(),
+            kind: None,
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            outcome: "ok".into(),
+        });
+        run.stages.push(tailtriage_core::StageEvent {
+            request_id: "req-1".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            success: true,
+        });
+        run.queues.push(tailtriage_core::QueueEvent {
+            request_id: "req-1".into(),
+            queue: "admission".into(),
+            waited_from_unix_ms: 100,
+            waited_until_unix_ms: 100,
+            wait_us: 50_000,
+            depth_at_start: None,
+        });
+        write_completed_span_jsonl_from_run(&run, &spans_path).unwrap();
+
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<serde_json::Value> = raw
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 3);
+        for line in &lines {
+            let kind = line["span"]["fields"]["tt.kind"].as_str().unwrap();
+            if matches!(kind, "request" | "stage" | "queue") {
+                assert!(
+                    line["span"].get("duration_us").is_none(),
+                    "duration_us should be omitted for non-plausible {kind} span: {line}"
+                );
+            }
+        }
+
+        let reimported = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc").strict(true),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(reimported.run().requests.len(), 1);
+        assert_eq!(reimported.run().stages.len(), 1);
+        assert_eq!(reimported.run().queues.len(), 1);
+    }
+
+    #[test]
+    fn retained_span_records_preserve_duration_us_when_within_tolerance() {
+        let collector = tailtriage_core::Tailtriage::builder("svc")
+            .sink(tailtriage_core::MemorySink::new())
+            .build()
+            .unwrap();
+        let mut run = collector.snapshot();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/a".into(),
+            kind: None,
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 1_500,
+            outcome: "ok".into(),
+        });
+        let retained = retained_span_records_from_run(&run);
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].duration_us_ref(), Some(1_500));
+    }
+
+    #[test]
+    fn retained_request_span_omits_duration_when_not_plausible() {
+        let collector = tailtriage_core::Tailtriage::builder("svc")
+            .sink(tailtriage_core::MemorySink::new())
+            .build()
+            .unwrap();
+        let mut run = collector.snapshot();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/a".into(),
+            kind: None,
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            outcome: "ok".into(),
+        });
+        let retained = retained_span_records_from_run(&run);
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].duration_us_ref(), None);
+    }
+
+    #[test]
+    fn retained_stage_span_omits_duration_when_not_plausible() {
+        let collector = tailtriage_core::Tailtriage::builder("svc")
+            .sink(tailtriage_core::MemorySink::new())
+            .build()
+            .unwrap();
+        let mut run = collector.snapshot();
+        run.stages.push(tailtriage_core::StageEvent {
+            request_id: "r1".into(),
+            stage: "db".into(),
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 100,
+            latency_us: 50_000,
+            success: true,
+        });
+        let retained = retained_span_records_from_run(&run);
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].duration_us_ref(), None);
+    }
+
+    #[test]
+    fn retained_queue_span_omits_duration_when_not_plausible() {
+        let collector = tailtriage_core::Tailtriage::builder("svc")
+            .sink(tailtriage_core::MemorySink::new())
+            .build()
+            .unwrap();
+        let mut run = collector.snapshot();
+        run.queues.push(tailtriage_core::QueueEvent {
+            request_id: "r1".into(),
+            queue: "admission".into(),
+            waited_from_unix_ms: 100,
+            waited_until_unix_ms: 100,
+            wait_us: 50_000,
+            depth_at_start: None,
+        });
+        let retained = retained_span_records_from_run(&run);
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].duration_us_ref(), None);
     }
 
     #[test]
