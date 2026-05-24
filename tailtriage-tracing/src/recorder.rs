@@ -1512,12 +1512,19 @@ mod tests {
     #[test]
     fn incomplete_stage_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
-            .max_completed_candidate_spans(1)
+            .max_completed_candidate_spans(2)
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
             drop(tracing::info_span!(
-                "stage-malformed",
+                "stage-missing-field",
                 tt.kind = "stage",
                 tt.request_id = "r1"
             ));
@@ -1529,11 +1536,18 @@ mod tests {
             ));
         });
         let imported = recorder.snapshot_run().unwrap();
-        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].request_id, "r1");
+        assert_eq!(imported.run().stages[0].stage, "db");
         assert!(imported
             .warnings()
             .iter()
             .any(|w| w.message().contains("incomplete required fields")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("missing required field tt.stage")));
         assert!(!imported
             .warnings()
             .iter()
@@ -1543,12 +1557,19 @@ mod tests {
     #[test]
     fn incomplete_queue_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
-            .max_completed_candidate_spans(1)
+            .max_completed_candidate_spans(2)
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
             drop(tracing::info_span!(
-                "queue-malformed",
+                "queue-missing-field",
                 tt.kind = "queue",
                 tt.request_id = "r1"
             ));
@@ -1560,11 +1581,18 @@ mod tests {
             ));
         });
         let imported = recorder.snapshot_run().unwrap();
-        assert_eq!(imported.run().queues.len(), 0);
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].request_id, "r1");
+        assert_eq!(imported.run().queues[0].queue, "db-pool");
         assert!(imported
             .warnings()
             .iter()
             .any(|w| w.message().contains("incomplete required fields")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("missing required field tt.queue")));
         assert!(!imported
             .warnings()
             .iter()
@@ -1607,10 +1635,17 @@ mod tests {
     #[test]
     fn invalid_numeric_stage_does_not_consume_completed_candidate_cap() {
         let recorder = TracingRecorder::builder("svc")
-            .max_completed_candidate_spans(1)
+            .max_completed_candidate_spans(2)
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
             drop(tracing::info_span!(
                 "stage-invalid",
                 tt.kind = "stage",
@@ -1625,7 +1660,9 @@ mod tests {
             ));
         });
         let imported = recorder.snapshot_run().unwrap();
-        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].stage, "db");
         assert!(imported
             .warnings()
             .iter()
@@ -1639,10 +1676,17 @@ mod tests {
     #[test]
     fn invalid_numeric_queue_does_not_consume_completed_candidate_cap() {
         let recorder = TracingRecorder::builder("svc")
-            .max_completed_candidate_spans(1)
+            .max_completed_candidate_spans(2)
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
             drop(tracing::info_span!(
                 "queue-invalid",
                 tt.kind = "queue",
@@ -1657,7 +1701,9 @@ mod tests {
             ));
         });
         let imported = recorder.snapshot_run().unwrap();
-        assert_eq!(imported.run().queues.len(), 0);
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].queue, "db-pool");
         assert!(imported
             .warnings()
             .iter()
