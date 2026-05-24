@@ -297,7 +297,9 @@ fn live_tracing_run() -> (Run, Vec<String>) {
 }
 
 fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
-    let recorder = TracingRecorder::builder("svc").build();
+    let recorder = TracingRecorder::builder("svc")
+        .build()
+        .expect("build recorder");
     let subscriber = tracing_subscriber::registry().with(recorder.layer());
     tracing::subscriber::with_default(subscriber, || {
         block_on(async {
