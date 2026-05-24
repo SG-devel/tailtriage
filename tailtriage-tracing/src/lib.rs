@@ -39,6 +39,7 @@ pub mod tokio;
 mod types;
 
 use std::collections::BTreeMap;
+const DURATION_TOLERANCE_US: u64 = 2_000;
 use tailtriage_core::{
     BuildError, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
 };
@@ -165,10 +166,11 @@ where
                             kind: None,
                             started_at_unix_ms: span.started_at_unix_ms(),
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            latency_us: span.duration_us_ref().unwrap_or(
-                                (span.finished_at_unix_ms() - span.started_at_unix_ms())
-                                    .saturating_mul(1000),
-                            ),
+                            latency_us: validated_duration_us(
+                                &span,
+                                options.strict_mode(),
+                                &mut warnings,
+                            )?,
                             outcome,
                         },
                         outcome_defaulted,
@@ -192,10 +194,11 @@ where
                             stage,
                             started_at_unix_ms: span.started_at_unix_ms(),
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            latency_us: span.duration_us_ref().unwrap_or(
-                                (span.finished_at_unix_ms() - span.started_at_unix_ms())
-                                    .saturating_mul(1000),
-                            ),
+                            latency_us: validated_duration_us(
+                                &span,
+                                options.strict_mode(),
+                                &mut warnings,
+                            )?,
                             success,
                         },
                         success_defaulted: matches!(success_field, OptionalField::Missing),
@@ -218,10 +221,11 @@ where
                         queue,
                         waited_from_unix_ms: span.started_at_unix_ms(),
                         waited_until_unix_ms: span.finished_at_unix_ms(),
-                        wait_us: span.duration_us_ref().unwrap_or(
-                            (span.finished_at_unix_ms() - span.started_at_unix_ms())
-                                .saturating_mul(1000),
-                        ),
+                        wait_us: validated_duration_us(
+                            &span,
+                            options.strict_mode(),
+                            &mut warnings,
+                        )?,
                         depth_at_start,
                     });
                 }
@@ -483,6 +487,32 @@ fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
     Ok(())
 }
 
+fn validated_duration_us(
+    span: &SpanRecord,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<u64, ImportError> {
+    let derived_us = (span.finished_at_unix_ms() - span.started_at_unix_ms()).saturating_mul(1000);
+    let Some(duration_us) = span.duration_us_ref() else {
+        return Ok(derived_us);
+    };
+    if duration_us.abs_diff(derived_us) <= DURATION_TOLERANCE_US {
+        return Ok(duration_us);
+    }
+    let message = format!(
+        "span '{}' duration_us mismatch: duration_us={} derived_us={} exceeds tolerance_us={}",
+        span.name(),
+        duration_us,
+        derived_us,
+        DURATION_TOLERANCE_US
+    );
+    if strict {
+        return Err(ImportError::StrictViolation(message));
+    }
+    warnings.push(ImportWarning::new(message));
+    Ok(derived_us)
+}
+
 fn retained_event_time_bounds(
     requests: &[RequestEvent],
     stages: &[StageEvent],
@@ -570,6 +600,7 @@ fn is_durable_conversion_warning(message: &str) -> bool {
         || message.starts_with("unknown tt.kind")
         || message.contains("missing optional 'tt.outcome'; assumed 'ok'")
         || message.contains("missing optional 'tt.success'; assumed true")
+        || message.contains("duration_us mismatch:")
 }
 
 fn attach_durable_conversion_warnings(run: &mut tailtriage_core::Run, warnings: &[ImportWarning]) {
@@ -1814,37 +1845,130 @@ mod tests {
     }
 
     #[test]
-    fn span_duration_us_is_used_for_stage_latency() {
+    fn contradictory_stage_duration_warns_and_uses_derived_us_non_strict() {
         let spans = vec![
             SpanRecord::new("req", 99, 101)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_ROUTE, "/"),
-            SpanRecord::new("stage", 100, 100)
-                .duration_us(123)
+            SpanRecord::new("stage", 100, 101)
+                .duration_us(6_000)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_STAGE, "db"),
         ];
-        let run = run_from_span_records(spans, ImportOptions::new("svc"))
-            .unwrap()
-            .run()
-            .clone();
-        assert_eq!(run.stages[0].latency_us, 123);
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let run = imported.run().clone();
+        assert_eq!(run.stages[0].latency_us, 1_000);
+        assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
+            warning.contains("span 'stage' duration_us mismatch: duration_us=6000 derived_us=1000")
+                && warning.contains("tolerance_us=2000")
+        }));
     }
 
     #[test]
-    fn span_duration_us_is_used_for_request_latency() {
-        let spans = vec![SpanRecord::new("req", 100, 100)
-            .duration_us(456)
+    fn contradictory_request_duration_warns_and_uses_derived_us_non_strict() {
+        let spans = vec![SpanRecord::new("req", 100, 101)
+            .duration_us(9_000)
             .field(TT_KIND, "request")
             .field(TT_REQUEST_ID, "r1")
             .field(TT_ROUTE, "/a")];
-        let run = run_from_span_records(spans, ImportOptions::new("svc"))
-            .unwrap()
-            .run()
-            .clone();
-        assert_eq!(run.requests[0].latency_us, 456);
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let run = imported.run().clone();
+        assert_eq!(run.requests[0].latency_us, 1_000);
+        assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
+            warning.contains("span 'req' duration_us mismatch: duration_us=9000 derived_us=1000")
+                && warning.contains("tolerance_us=2000")
+        }));
+    }
+
+    #[test]
+    fn contradictory_queue_duration_warns_and_uses_derived_us_non_strict() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 110)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("queue", 101, 103)
+                .duration_us(100_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let run = imported.run().clone();
+        assert_eq!(run.queues[0].wait_us, 2_000);
+        assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
+            warning
+                .contains("span 'queue' duration_us mismatch: duration_us=100000 derived_us=2000")
+                && warning.contains("tolerance_us=2000")
+        }));
+    }
+
+    #[test]
+    fn strict_mode_rejects_contradictory_request_duration() {
+        let spans = vec![SpanRecord::new("req", 100, 101)
+            .duration_us(9_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+        assert!(matches!(
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
+            Err(ImportError::StrictViolation(message)) if message.contains("duration_us mismatch")
+        ));
+    }
+
+    #[test]
+    fn strict_mode_rejects_contradictory_stage_duration() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 110)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage", 101, 102)
+                .duration_us(8_000)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
+        assert!(matches!(
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
+            Err(ImportError::StrictViolation(message)) if message.contains("duration_us mismatch")
+        ));
+    }
+
+    #[test]
+    fn strict_mode_rejects_contradictory_queue_duration() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 110)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("queue", 101, 103)
+                .duration_us(100_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        assert!(matches!(
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
+            Err(ImportError::StrictViolation(message)) if message.contains("duration_us mismatch")
+        ));
+    }
+
+    #[test]
+    fn duration_us_within_tolerance_is_accepted() {
+        let spans = vec![SpanRecord::new("req", 100, 101)
+            .duration_us(2_999)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].latency_us, 2_999);
+        assert!(imported
+            .warnings()
+            .iter()
+            .all(|warning| !warning.message().contains("duration_us mismatch")));
     }
 
     #[test]
