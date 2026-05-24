@@ -102,6 +102,9 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 
 ## Retention and drop behavior
 
+Duration fields are validated during conversion: `derived_us = (finished_at_unix_ms - started_at_unix_ms) * 1000`. If `duration_us` is absent, import uses `derived_us`. If `duration_us` differs by at most `2_000` microseconds, import keeps `duration_us`; otherwise non-strict mode warns and uses `derived_us`, while strict mode fails conversion.
+
+
 - `max_open_spans` bounds in-flight span tracking.
 - Completed-span JSONL streaming happens before in-memory completed-span retention is applied.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
