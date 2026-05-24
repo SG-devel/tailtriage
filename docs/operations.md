@@ -503,9 +503,9 @@ Do not treat one report as final proof.
 - Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event.
 - Library snapshots may still be zero-request when used for non-persisted inspection during active captures.
 - Completed-span JSONL can grow with captured completed spans; size outputs accordingly.
-- `completed_span_jsonl_path(...)` output files are created or truncated when the session is built.
+- `completed_span_jsonl_path(...)` output files are created/truncated and written at shutdown.
 - Configure `max_open_spans`` to keep memory bounded.
-- Completed-span JSONL streaming happens before in-memory core CaptureLimits retention, so the file can preserve spans beyond in-memory retained completed spans.
+- Completed-span JSONL is written from retained, semantically valid request/stage/queue evidence in the finalized Run, so the file reflects Run retention rather than a pre-retention stream.
 - Import warnings and lifecycle warnings mean evidence may be incomplete and should be treated as triage caveats.
 - Tracing import and native capture share `CaptureMode` and `CaptureLimits` semantics for request/stage/queue retention. Offline CLI tracing import exposes only request/stage/queue limit overrides because those are the evidence types imported on this path; runtime/in-flight snapshot limit flags are intentionally not exposed because these evidence types are not imported. Tracing-only runs do not fabricate runtime snapshots; runtime-pressure evidence remains Tokio-specific and requires runtime snapshots/Tokio sampler coupling.
 - Treat tracing-import output like all tailtriage output: evidence-ranked suspects and next checks are leads, not proof of root cause.
