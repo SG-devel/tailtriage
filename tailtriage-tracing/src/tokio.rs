@@ -15,6 +15,8 @@ use crate::{
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum TracingTokioSessionStartError {
+    /// Tracing recorder/import setup failed.
+    Import(ImportError),
     /// Underlying tracing recorder setup failed.
     Build(BuildError),
     /// Tokio runtime sampler failed to start.
@@ -24,6 +26,7 @@ pub enum TracingTokioSessionStartError {
 impl core::fmt::Display for TracingTokioSessionStartError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::Import(err) => write!(f, "invalid tracing recorder configuration: {err}"),
             Self::Build(err) => write!(f, "failed to build tailtriage runtime collector: {err}"),
             Self::SamplerStart(err) => write!(f, "failed to start Tokio runtime sampler: {err}"),
         }
@@ -189,11 +192,14 @@ impl TracingTokioSessionBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`TracingTokioSessionStartError`] when runtime collector build fails,
-    /// when sampler interval is zero, or when there is no active Tokio runtime.
+    /// Returns [`TracingTokioSessionStartError`] when tracing recorder/import metadata is invalid,
+    /// when runtime collector build fails, when sampler interval is zero, or when there is no active Tokio runtime.
     pub fn start(self) -> Result<TracingTokioSession, TracingTokioSessionStartError> {
         let resolved_limits = self.recorder_builder.resolved_capture_limits();
-        let recorder = self.recorder_builder.build();
+        let recorder = self
+            .recorder_builder
+            .build()
+            .map_err(TracingTokioSessionStartError::Import)?;
         let sink = MemorySink::new();
         let builder = Tailtriage::builder("tailtriage-tracing-runtime")
             .sink(sink)

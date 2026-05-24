@@ -9,7 +9,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .service_version("example")
         .run_id("live-recorder-example")
         .strict(false)
-        .build();
+        .build()
+        .expect("valid tracing recorder config");
 
     let subscriber = tracing_subscriber::registry().with(recorder.layer());
 

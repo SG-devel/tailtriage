@@ -282,7 +282,9 @@ impl DemoInstrumentation {
                         max_runtime_snapshots: None,
                     });
                 }
-                let recorder = builder.build();
+                let recorder = builder
+                    .build()
+                    .map_err(|err| anyhow::anyhow!("invalid tracing recorder config: {err}"))?;
                 let subscriber = tracing_subscriber::registry().with(recorder.layer());
                 // Demo binaries run one instrumentation backend per process, so installing a
                 // global subscriber is acceptable here. Do not reuse this helper in libraries
