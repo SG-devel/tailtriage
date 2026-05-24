@@ -5,6 +5,7 @@ use std::time::Duration;
 use tailtriage_core::{unix_time_ms, CaptureLimitsOverride, RuntimeSnapshot};
 use tailtriage_tokio::SamplerStartError;
 use tailtriage_tracing::tokio::{TracingTokioSession, TracingTokioSessionStartError};
+use tailtriage_tracing::ImportError;
 use tracing_subscriber::prelude::*;
 
 async fn wait_for_runtime_snapshot(session: &TracingTokioSession) {
@@ -81,6 +82,18 @@ fn start_outside_runtime_fails_clearly() {
     assert!(matches!(
         err,
         TracingTokioSessionStartError::SamplerStart(SamplerStartError::MissingRuntime)
+    ));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn tracing_tokio_session_start_rejects_blank_service_name() {
+    let err = TracingTokioSession::builder("   ")
+        .sampler_interval(Duration::from_millis(1))
+        .start()
+        .expect_err("blank service name must fail at start");
+    assert!(matches!(
+        err,
+        TracingTokioSessionStartError::Import(ImportError::EmptyServiceName)
     ));
 }
 
