@@ -12,8 +12,8 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    ensure_persistable_run_has_requests, run_from_span_records, FieldValue, ImportError,
-    ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    duration_within_tolerance, ensure_persistable_run_has_requests, run_from_span_records,
+    FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
@@ -336,31 +336,42 @@ fn write_completed_span_jsonl_from_run(
 fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord> {
     let mut spans = Vec::new();
     for req in &run.requests {
-        let span = SpanRecord::new(
+        let mut span = SpanRecord::new(
             "tt.request",
             req.started_at_unix_ms,
             req.finished_at_unix_ms,
         )
-        .duration_us(req.latency_us)
         .field("tt.kind", "request")
         .field("tt.request_id", req.request_id.clone())
         .field("tt.route", req.route.clone())
         .field("tt.outcome", req.outcome.clone());
+        if duration_within_tolerance(
+            req.latency_us,
+            req.started_at_unix_ms,
+            req.finished_at_unix_ms,
+        ) {
+            span = span.duration_us(req.latency_us);
+        }
         spans.push(span);
     }
     for stage in &run.stages {
-        spans.push(
-            SpanRecord::new(
-                "tt.stage",
-                stage.started_at_unix_ms,
-                stage.finished_at_unix_ms,
-            )
-            .duration_us(stage.latency_us)
-            .field("tt.kind", "stage")
-            .field("tt.request_id", stage.request_id.clone())
-            .field("tt.stage", stage.stage.clone())
-            .field("tt.success", stage.success),
-        );
+        let mut span = SpanRecord::new(
+            "tt.stage",
+            stage.started_at_unix_ms,
+            stage.finished_at_unix_ms,
+        )
+        .field("tt.kind", "stage")
+        .field("tt.request_id", stage.request_id.clone())
+        .field("tt.stage", stage.stage.clone())
+        .field("tt.success", stage.success);
+        if duration_within_tolerance(
+            stage.latency_us,
+            stage.started_at_unix_ms,
+            stage.finished_at_unix_ms,
+        ) {
+            span = span.duration_us(stage.latency_us);
+        }
+        spans.push(span);
     }
     for queue in &run.queues {
         let mut span = SpanRecord::new(
@@ -368,10 +379,16 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
             queue.waited_from_unix_ms,
             queue.waited_until_unix_ms,
         )
-        .duration_us(queue.wait_us)
         .field("tt.kind", "queue")
         .field("tt.request_id", queue.request_id.clone())
         .field("tt.queue", queue.queue.clone());
+        if duration_within_tolerance(
+            queue.wait_us,
+            queue.waited_from_unix_ms,
+            queue.waited_until_unix_ms,
+        ) {
+            span = span.duration_us(queue.wait_us);
+        }
         if let Some(depth) = queue.depth_at_start {
             span = span.field("tt.depth_at_start", depth);
         }
@@ -2324,6 +2341,132 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
+    }
+
+    #[test]
+    fn retained_span_records_omit_contradictory_duration_us() {
+        let session = TracingIntakeSession::builder("svc").build().unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let req = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "req-1",
+                tt.route = "/checkout",
+                tt.outcome = "ok"
+            );
+            let req_guard = req.enter();
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "req-1",
+                tt.stage = "db",
+                tt.success = true
+            ));
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "req-1",
+                tt.queue = "permits"
+            ));
+            drop(req_guard);
+        });
+        let mut run = session.snapshot_run().unwrap().run().clone();
+        run.requests[0].started_at_unix_ms = 100;
+        run.requests[0].finished_at_unix_ms = 100;
+        run.requests[0].latency_us = 50_000;
+        run.stages[0].started_at_unix_ms = 100;
+        run.stages[0].finished_at_unix_ms = 100;
+        run.stages[0].latency_us = 50_000;
+        run.queues[0].waited_from_unix_ms = 100;
+        run.queues[0].waited_until_unix_ms = 100;
+        run.queues[0].wait_us = 50_000;
+        let spans = retained_span_records_from_run(&run);
+        let request_span = spans.iter().find(|s| s.name() == "tt.request").unwrap();
+        let stage_span = spans.iter().find(|s| s.name() == "tt.stage").unwrap();
+        let queue_span = spans.iter().find(|s| s.name() == "tt.queue").unwrap();
+        assert_eq!(request_span.duration_us_ref(), None);
+        assert_eq!(stage_span.duration_us_ref(), None);
+        assert_eq!(queue_span.duration_us_ref(), None);
+    }
+
+    #[test]
+    fn completed_jsonl_strict_import_succeeds_when_retained_durations_omitted() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let req = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "req-1",
+                tt.route = "/checkout",
+                tt.outcome = "ok"
+            );
+            let req_guard = req.enter();
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "req-1",
+                tt.stage = "db",
+                tt.success = true
+            ));
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "req-1",
+                tt.queue = "permits"
+            ));
+            drop(req_guard);
+        });
+        let imported = session.shutdown().unwrap();
+        let mut run = imported.run().clone();
+        run.requests[0].started_at_unix_ms = 100;
+        run.requests[0].finished_at_unix_ms = 100;
+        run.requests[0].latency_us = 50_000;
+        run.stages[0].started_at_unix_ms = 100;
+        run.stages[0].finished_at_unix_ms = 100;
+        run.stages[0].latency_us = 50_000;
+        run.queues[0].waited_from_unix_ms = 100;
+        run.queues[0].waited_until_unix_ms = 100;
+        run.queues[0].wait_us = 50_000;
+        write_completed_span_jsonl_from_run(&run, &spans_path).unwrap();
+
+        let roundtrip = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc").strict(true),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(roundtrip.run().requests.len(), 1);
+        assert_eq!(roundtrip.run().stages.len(), 1);
+        assert_eq!(roundtrip.run().queues.len(), 1);
+    }
+
+    #[test]
+    fn retained_span_records_preserve_duration_within_tolerance() {
+        let session = TracingIntakeSession::builder("svc").build().unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok",
+                tt.outcome = "ok"
+            ));
+        });
+        let mut run = session.snapshot_run().unwrap().run().clone();
+        run.requests[0].started_at_unix_ms = 100;
+        run.requests[0].finished_at_unix_ms = 110;
+        run.requests[0].latency_us = 10_500;
+        let spans = retained_span_records_from_run(&run);
+        let request_span = spans.iter().find(|s| s.name() == "tt.request").unwrap();
+        assert_eq!(request_span.duration_us_ref(), Some(10_500));
     }
 
     #[test]
