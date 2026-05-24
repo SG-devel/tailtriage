@@ -145,7 +145,10 @@ fn parse_record(
     mode: JsonlParseMode,
 ) -> Result<Option<SpanRecord>, ImportError> {
     if let Some(obj) = value.as_object() {
-        if let (Some(format), Some(span_value)) = (obj.get("format"), obj.get("span")) {
+        if obj.contains_key("format") {
+            let format = obj
+                .get("format")
+                .expect("contains_key(format) guarantees format lookup");
             let Some(format_marker) = format.as_str() else {
                 let message = format!(
                     "line {line_no}: invalid field 'format': expected string format marker"
@@ -166,6 +169,17 @@ fn parse_record(
                 warnings.push(crate::ImportWarning::new(message));
                 return Ok(None);
             }
+
+            let Some(span_value) = obj.get("span") else {
+                let message = format!(
+                    "line {line_no}: missing field 'span': required for tailtriage.tracing-span.v1"
+                );
+                if strict {
+                    return Err(ImportError::StrictViolation(message));
+                }
+                warnings.push(crate::ImportWarning::new(message));
+                return Ok(None);
+            };
 
             let Some(_) = span_value.as_object() else {
                 let message = format!(
@@ -1242,6 +1256,34 @@ mod tests {
     }
 
     #[test]
+    fn wrapper_v1_with_missing_span_reports_missing_span_field() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1"}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(msg.contains("line 1"));
+        assert!(msg.contains("missing field 'span'"));
+
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0].message().contains("line 1"));
+        assert!(imported.warnings()[0]
+            .message()
+            .contains("missing field 'span'"));
+    }
+
+    #[test]
     fn wrapper_with_non_string_format_reports_invalid_format_field() {
         let input = r#"{"format":1,"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let err = import_jsonl_reader_with_mode(
@@ -1262,6 +1304,24 @@ mod tests {
         .unwrap();
         assert_eq!(imported.run().requests.len(), 0);
         assert_eq!(imported.warnings().len(), 1);
+    }
+
+    #[test]
+    fn compatible_mode_treats_format_without_span_as_wrapper_attempt() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","message":"ordinary log"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0].message().contains("line 1"));
+        assert!(imported.warnings()[0]
+            .message()
+            .contains("missing field 'span'"));
+
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("line 1"));
+        assert!(err.to_string().contains("missing field 'span'"));
     }
 
     #[test]
