@@ -7,7 +7,9 @@ use tailtriage_core::{
 };
 use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
-use crate::{ImportError, ImportedRun, RecorderLimits, TailtriageLayer, TracingRecorder};
+use crate::{
+    ImportError, ImportWarning, ImportedRun, RecorderLimits, TailtriageLayer, TracingRecorder,
+};
 
 /// Error returned when starting [`TracingTokioSession`].
 #[derive(Debug)]
@@ -229,7 +231,7 @@ impl TracingTokioSessionBuilder {
 }
 
 fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
-    let (mut tracing_run, warnings) = imported.into_parts();
+    let (mut tracing_run, mut warnings) = imported.into_parts();
     tracing_run
         .runtime_snapshots
         .clone_from(&runtime_run.runtime_snapshots);
@@ -272,6 +274,12 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
                 .lifecycle_warnings
                 .push(warning.clone());
         }
+        if !warnings
+            .iter()
+            .any(|existing| existing.message() == warning)
+        {
+            warnings.push(ImportWarning::new(warning.clone()));
+        }
     }
     ImportedRun::new(tracing_run, warnings)
 }
@@ -279,7 +287,7 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
 #[cfg(test)]
 mod tests {
     use super::merge_runtime_data;
-    use crate::ImportedRun;
+    use crate::{ImportWarning, ImportedRun};
     use tailtriage_core::{MemorySink, RuntimeSnapshot, Tailtriage};
 
     fn empty_run(service_name: &str) -> tailtriage_core::Run {
@@ -478,6 +486,39 @@ mod tests {
         assert_eq!(
             run.metadata.finalized_at_unix_ms,
             Some(run.metadata.finished_at_unix_ms)
+        );
+    }
+
+    #[test]
+    fn merge_runtime_data_runtime_lifecycle_warning_is_added_to_metadata_and_warnings() {
+        let tracing_run = empty_run("tracing");
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.metadata.lifecycle_warnings = vec!["runtime warning".into()];
+
+        let merged = merge_runtime_data(ImportedRun::new(tracing_run, vec![]), &runtime_run);
+        assert_eq!(
+            merged.run().metadata.lifecycle_warnings,
+            vec!["runtime warning".to_string()]
+        );
+        assert_eq!(merged.warnings(), &[ImportWarning::new("runtime warning")]);
+    }
+
+    #[test]
+    fn merge_runtime_data_deduplicates_warning_messages_in_imported_warnings() {
+        let tracing_run = empty_run("tracing");
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.metadata.lifecycle_warnings =
+            vec!["duplicate warning".into(), "duplicate warning".into()];
+        let imported = ImportedRun::new(tracing_run, vec![ImportWarning::new("duplicate warning")]);
+
+        let merged = merge_runtime_data(imported, &runtime_run);
+        assert_eq!(
+            merged.warnings(),
+            &[ImportWarning::new("duplicate warning")]
+        );
+        assert_eq!(
+            merged.run().metadata.lifecycle_warnings,
+            vec!["duplicate warning".to_string()]
         );
     }
 }
