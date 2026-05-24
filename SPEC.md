@@ -162,7 +162,7 @@ Analyzer configuration contract:
 
 - primary live path is `TracingIntakeSession` / `TracingIntakeSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
 - live session output can write standard Run JSON on shutdown via `run_json_path(...)`
-- live session output can stream stable completed-span JSONL as spans close via `completed_span_jsonl_path(...)`
+- live session output can write stable completed-span JSONL on shutdown via `completed_span_jsonl_path(...)`, using retained semantically valid request/stage/queue evidence
 - stable completed-span JSONL wrapper format is:
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:

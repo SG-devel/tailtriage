@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
-use std::fs::OpenOptions;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -40,6 +39,7 @@ pub struct TracingRecorder {
 #[derive(Debug, Clone)]
 pub struct TracingIntakeSession {
     recorder: TracingRecorder,
+    completed_span_jsonl_path: Option<PathBuf>,
     run_json_path: Option<PathBuf>,
 }
 /// Builder for [`TracingIntakeSession`].
@@ -100,8 +100,6 @@ struct RecorderState {
     closed_malformed_kind_spans: u64,
     closed_kind_samples: Vec<ClosedKindIssueSample>,
     writer_failure: Option<String>,
-    completed_span_writer_path: Option<PathBuf>,
-    completed_span_writer: Option<BufWriter<std::fs::File>>,
 }
 
 #[derive(Debug)]
@@ -176,7 +174,6 @@ impl TracingRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
-        self.flush_completed_span_writer()?;
         let (spans, stats) = {
             let state = lock_state(&self.state);
             let mut samples = Vec::new();
@@ -210,31 +207,6 @@ impl TracingRecorder {
             )
         };
         imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
-    }
-
-    fn flush_completed_span_writer(&self) -> Result<(), ImportError> {
-        let mut state = lock_state(&self.state);
-        if let Some(writer) = state.completed_span_writer.as_mut() {
-            if let Err(err) = writer.flush() {
-                let msg = format_writer_failure(
-                    "flush",
-                    state.completed_span_writer_path.as_deref(),
-                    &err,
-                );
-                state.writer_failure = Some(msg.clone());
-                if self.options.strict_mode() {
-                    return Err(ImportError::Io {
-                        operation: "flush completed span jsonl writer",
-                        context: state.completed_span_writer_path.as_ref().map_or_else(
-                            || "completed-span-jsonl".to_owned(),
-                            |p| p.display().to_string(),
-                        ),
-                        reason: err.to_string(),
-                    });
-                }
-            }
-        }
-        Ok(())
     }
 
     /// Consumes this recorder handle and returns a final imported run snapshot.
@@ -303,18 +275,112 @@ impl TracingIntakeSession {
     ///
     /// Returns an error when conversion fails or when configured run-json output cannot be written.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
+        let strict_mode = self.recorder.options.strict_mode();
         let imported = self.recorder.shutdown()?;
+        let (mut run, mut warnings) = imported.into_parts();
+        if let Some(path) = &self.completed_span_jsonl_path {
+            if let Err(err) = write_completed_span_jsonl_from_run(&run, path) {
+                if strict_mode {
+                    return Err(err);
+                }
+                let msg = err.to_string();
+                run.metadata.lifecycle_warnings.push(msg.clone());
+                warnings.push(crate::ImportWarning::new(msg));
+            }
+        }
         if let Some(path) = self.run_json_path {
-            ensure_persistable_run_has_requests(imported.run())?;
+            ensure_persistable_run_has_requests(&run)?;
             LocalJsonSink::new(&path)
-                .write(imported.run())
+                .write(&run)
                 .map_err(|err| ImportError::RunJsonWrite {
                     path: path.display().to_string(),
                     reason: err.to_string(),
                 })?;
         }
-        Ok(imported)
+        Ok(ImportedRun::new(run, warnings))
     }
+}
+
+fn write_completed_span_jsonl_from_run(
+    run: &tailtriage_core::Run,
+    path: &Path,
+) -> Result<(), ImportError> {
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|err| ImportError::Io {
+            operation: "open completed span jsonl path",
+            context: path.display().to_string(),
+            reason: err.to_string(),
+        })?;
+    for span in retained_span_records_from_run(run) {
+        let wrapped = serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
+        serde_json::to_writer(&mut file, &wrapped).map_err(|err| ImportError::Io {
+            operation: "write completed span jsonl record",
+            context: path.display().to_string(),
+            reason: err.to_string(),
+        })?;
+        file.write_all(b"\n").map_err(|err| ImportError::Io {
+            operation: "write completed span jsonl newline",
+            context: path.display().to_string(),
+            reason: err.to_string(),
+        })?;
+    }
+    file.flush().map_err(|err| ImportError::Io {
+        operation: "flush completed span jsonl file",
+        context: path.display().to_string(),
+        reason: err.to_string(),
+    })?;
+    Ok(())
+}
+
+fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord> {
+    let mut spans = Vec::new();
+    for req in &run.requests {
+        let span = SpanRecord::new(
+            "tt.request",
+            req.started_at_unix_ms,
+            req.finished_at_unix_ms,
+        )
+        .duration_us(req.latency_us)
+        .field("tt.kind", "request")
+        .field("tt.request_id", req.request_id.clone())
+        .field("tt.route", req.route.clone())
+        .field("tt.outcome", req.outcome.clone());
+        spans.push(span);
+    }
+    for stage in &run.stages {
+        spans.push(
+            SpanRecord::new(
+                "tt.stage",
+                stage.started_at_unix_ms,
+                stage.finished_at_unix_ms,
+            )
+            .duration_us(stage.latency_us)
+            .field("tt.kind", "stage")
+            .field("tt.request_id", stage.request_id.clone())
+            .field("tt.stage", stage.stage.clone())
+            .field("tt.success", stage.success),
+        );
+    }
+    for queue in &run.queues {
+        let mut span = SpanRecord::new(
+            "tt.queue",
+            queue.waited_from_unix_ms,
+            queue.waited_until_unix_ms,
+        )
+        .duration_us(queue.wait_us)
+        .field("tt.kind", "queue")
+        .field("tt.request_id", queue.request_id.clone())
+        .field("tt.queue", queue.queue.clone());
+        if let Some(depth) = queue.depth_at_start {
+            span = span.field("tt.depth_at_start", depth);
+        }
+        spans.push(span);
+    }
+    spans
 }
 impl TracingIntakeSessionBuilder {
     /// Enables or disables strict mode for conversion warnings.
@@ -378,8 +444,7 @@ impl TracingIntakeSessionBuilder {
     }
     /// Enables completed-span JSONL output at the given path.
     ///
-    /// Writes completed spans as spans close using the stable wrapper shape.
-    /// The file is created or truncated when the session is built.
+    /// Writes retained valid completed spans on shutdown using the stable wrapper shape.
     #[must_use]
     pub fn completed_span_jsonl_path(mut self, path: impl AsRef<Path>) -> Self {
         self.completed_span_jsonl_path = Some(path.as_ref().to_path_buf());
@@ -398,23 +463,9 @@ impl TracingIntakeSessionBuilder {
     /// Returns an error when the completed-span JSONL path cannot be opened.
     pub fn build(self) -> Result<TracingIntakeSession, ImportError> {
         let recorder = self.recorder_builder.build();
-        if let Some(path) = self.completed_span_jsonl_path {
-            let file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&path)
-                .map_err(|err| ImportError::Io {
-                    operation: "open completed span jsonl path",
-                    context: path.display().to_string(),
-                    reason: err.to_string(),
-                })?;
-            let mut state = lock_state(&recorder.state);
-            state.completed_span_writer = Some(BufWriter::new(file));
-            state.completed_span_writer_path = Some(path);
-        }
         Ok(TracingIntakeSession {
             recorder,
+            completed_span_jsonl_path: self.completed_span_jsonl_path,
             run_json_path: self.run_json_path,
         })
     }
@@ -569,31 +620,6 @@ where
             for (k, v) in open.fields {
                 record = record.field(k, v);
             }
-            if let Some(writer) = state.completed_span_writer.as_mut() {
-                let wrapped = serde_json::json!({
-                    "format": "tailtriage.tracing-span.v1",
-                    "span": record,
-                });
-                match serde_json::to_writer(&mut *writer, &wrapped) {
-                    Ok(()) => match writer.write_all(b"\n") {
-                        Ok(()) => {}
-                        Err(err) => {
-                            state.writer_failure = Some(format_writer_failure(
-                                "write newline",
-                                state.completed_span_writer_path.as_deref(),
-                                &err,
-                            ));
-                        }
-                    },
-                    Err(err) => {
-                        state.writer_failure = Some(format_writer_failure(
-                            "write span record",
-                            state.completed_span_writer_path.as_deref(),
-                            &err,
-                        ));
-                    }
-                }
-            }
             if state.completed.len() >= self.limits.max_completed_candidate_spans {
                 state.dropped_completed_candidate_spans =
                     state.dropped_completed_candidate_spans.saturating_add(1);
@@ -647,14 +673,6 @@ fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
         .any(|f| f.name().starts_with("tt."))
 }
 
-fn format_writer_failure(
-    operation: &str,
-    path: Option<&Path>,
-    err: &dyn std::error::Error,
-) -> String {
-    let path_text = path.map_or_else(|| "<unknown>".to_owned(), |p| p.display().to_string());
-    format!("completed-span JSONL writer failed to {operation} at {path_text}: {err}")
-}
 fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
     fields.keys().any(|k| k.starts_with("tt."))
 }
@@ -2066,14 +2084,16 @@ mod tests {
             );
             drop(span);
         });
-        session.snapshot_run().unwrap();
+        assert!(session.snapshot_run().is_ok());
+        assert!(!spans_path.exists());
+        let _ = session.shutdown().unwrap();
         let raw = std::fs::read_to_string(&spans_path).unwrap();
         let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 1);
         let value: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(value["format"], "tailtriage.tracing-span.v1");
         assert!(value["span"].is_object());
-        assert_eq!(value["span"]["name"], "request");
+        assert_eq!(value["span"]["name"], "tt.request");
         assert!(value["span"]["started_at_unix_ms"].is_number());
         assert!(value["span"]["finished_at_unix_ms"].is_number());
         assert!(value["span"]["duration_us"].is_number());
@@ -2093,7 +2113,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_jsonl_is_independent_of_in_memory_completed_retention() {
+    fn completed_jsonl_matches_retained_run_counts() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let session = TracingIntakeSession::builder("svc")
@@ -2124,34 +2144,28 @@ mod tests {
         let snapshot = session.snapshot_run().unwrap();
         assert_eq!(snapshot.run().requests.len(), 1);
         assert_eq!(snapshot.run().truncation.dropped_requests, 1);
-        let raw = std::fs::read_to_string(&spans_path).unwrap();
-        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert_eq!(lines.len(), 2);
+        session.shutdown().unwrap();
         let imported = crate::jsonl::import_jsonl_path_with_mode(
             &spans_path,
             ImportOptions::new("svc"),
             crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
         )
         .unwrap();
-        assert_eq!(imported.run().requests.len(), 2);
-        let ids: Vec<_> = imported
-            .run()
-            .requests
-            .iter()
-            .map(|r| r.request_id.as_str())
-            .collect();
-        assert!(ids.contains(&"r1"));
-        assert!(ids.contains(&"r2"));
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.run().queues.len(), 0);
     }
 
     #[test]
-    fn intake_session_build_writer_open_failure_returns_io() {
+    fn intake_session_write_failure_returns_io_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
         let bad_path = dir.path().join("missing").join("spans.jsonl");
-        let err = TracingIntakeSession::builder("svc")
+        let session = TracingIntakeSession::builder("svc")
             .completed_span_jsonl_path(&bad_path)
+            .strict(true)
             .build()
-            .unwrap_err();
+            .unwrap();
+        let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
         assert!(err.to_string().contains("spans.jsonl"));
     }
@@ -2235,17 +2249,67 @@ mod tests {
     }
 
     #[test]
+    fn completed_jsonl_excludes_malformed_and_orphan_stage_queue_spans() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "bad-kind",
+                tt.kind = tracing::field::Empty,
+                tt.request_id = "bad-1",
+                tt.route = "/bad"
+            ));
+            drop(tracing::info_span!(
+                "orphan-stage",
+                tt.kind = "stage",
+                tt.request_id = "missing-req",
+                tt.stage = "db",
+                tt.success = true
+            ));
+            drop(tracing::info_span!(
+                "orphan-queue",
+                tt.kind = "queue",
+                tt.request_id = "missing-req",
+                tt.queue = "permits"
+            ));
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok",
+                tt.outcome = "ok"
+            ));
+        });
+        let _ = session.shutdown().unwrap();
+        let imported = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.run().queues.len(), 0);
+    }
+
+    #[test]
     fn intake_session_captures_request_stage_queue() {
         let session = TracingIntakeSession::builder("svc").build().unwrap();
         let subscriber = tracing_subscriber::registry().with(session.layer());
         tracing::subscriber::with_default(subscriber, || {
-            drop(tracing::info_span!(
+            let req = tracing::info_span!(
                 "request",
                 tt.kind = "request",
                 tt.request_id = "req-1",
                 tt.route = "/checkout",
                 tt.outcome = "ok"
-            ));
+            );
+            let req_guard = req.enter();
             drop(tracing::info_span!(
                 "stage",
                 tt.kind = "stage",
@@ -2260,6 +2324,7 @@ mod tests {
                 tt.queue = "admission",
                 tt.depth_at_start = 7_u64
             ));
+            drop(req_guard);
         });
         let snapshot = session.snapshot_run().unwrap();
         let run = snapshot.run();
