@@ -38,7 +38,7 @@ mod recorder;
 pub mod tokio;
 mod types;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tailtriage_core::{
     BuildError, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
 };
@@ -244,16 +244,13 @@ where
             "{request_outcome_default_count} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'"
         )));
     }
-    let requests: Vec<RequestEvent> = parsed_requests
-        .into_iter()
-        .map(|request| request.event)
-        .collect();
-    let request_intervals = retained_request_intervals(
-        &requests,
+    let requests = dedupe_retained_requests(
+        parsed_requests,
         capture_limits.max_requests,
         options.strict_mode(),
         &mut warnings,
     )?;
+    let request_intervals = retained_request_intervals(&requests);
     filter_correlated_parsed_stages(
         &mut parsed_stages,
         &request_intervals,
@@ -354,25 +351,41 @@ struct RequestInterval {
     finished_at_unix_ms: u64,
 }
 
-fn retained_request_intervals(
-    requests: &[RequestEvent],
+fn dedupe_retained_requests(
+    parsed_requests: Vec<ParsedRequestEvent>,
     max_requests: usize,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
-) -> Result<BTreeMap<String, RequestInterval>, ImportError> {
-    let mut intervals = BTreeMap::new();
-    for request in requests.iter().take(max_requests) {
-        let request_id = request.request_id.as_str();
-        if intervals.contains_key(request_id) {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "duplicate retained request_id '{request_id}' encountered during import; using first retained request interval"
-                ),
-            )?;
+) -> Result<Vec<RequestEvent>, ImportError> {
+    let mut deduped = Vec::new();
+    let mut seen_ids = BTreeSet::new();
+    let mut retained_window_ids = BTreeSet::new();
+    for (index, request) in parsed_requests.into_iter().enumerate() {
+        let request_id = request.event.request_id.clone();
+        if seen_ids.contains(request_id.as_str()) {
+            if index < max_requests && retained_window_ids.contains(request_id.as_str()) {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "duplicate tt.request_id '{request_id}' is an input-quality problem; skipped later duplicate request span and retained first request interval; child stage/queue evidence outside the retained request interval may also be skipped"
+                    ),
+                )?;
+            }
             continue;
         }
+        if index < max_requests {
+            retained_window_ids.insert(request_id.clone());
+        }
+        seen_ids.insert(request_id);
+        deduped.push(request.event);
+    }
+    Ok(deduped)
+}
+
+fn retained_request_intervals(requests: &[RequestEvent]) -> BTreeMap<String, RequestInterval> {
+    let mut intervals = BTreeMap::new();
+    for request in requests {
         intervals.insert(
             request.request_id.clone(),
             RequestInterval {
@@ -381,7 +394,7 @@ fn retained_request_intervals(
             },
         );
     }
-    Ok(intervals)
+    intervals
 }
 
 struct ParsedStageEvent {
@@ -610,7 +623,7 @@ fn validated_duration_us(
 
 fn is_durable_conversion_warning(message: &str) -> bool {
     message.starts_with("skipped ")
-        || message.starts_with("duplicate retained request_id")
+        || message.starts_with("duplicate tt.request_id")
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
@@ -1140,7 +1153,54 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_retained_request_ids_warn_non_strict_and_fail_strict() {
+    fn non_strict_duplicate_request_id_skips_later_request() {
+        let spans = vec![
+            SpanRecord::new("req-1", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/first"),
+            SpanRecord::new("req-2", 200, 230)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/second"),
+            SpanRecord::new("stage-only-second", 205, 220)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_STAGE, "db"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.requests[0].route, "/first");
+        assert!(run.stages.is_empty());
+        assert_eq!(run.truncation.dropped_requests, 0);
+
+        let duplicate_warning = imported
+            .warnings()
+            .iter()
+            .find(|w| w.message().contains("duplicate tt.request_id 'dup'"))
+            .expect("duplicate warning expected")
+            .message()
+            .to_owned();
+        assert!(duplicate_warning.contains("input-quality problem"));
+        assert!(duplicate_warning.contains("skipped later duplicate request"));
+        assert!(duplicate_warning.contains(
+            "child stage/queue evidence outside the retained request interval may also be skipped"
+        ));
+
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("duplicate tt.request_id 'dup'")));
+        assert!(imported.warnings().iter().any(|w| w.message().contains(
+            "skipped stage span 'db' for request_id 'dup' because interval [205, 220] falls outside request interval [100, 120]"
+        )));
+    }
+
+    #[test]
+    fn strict_duplicate_request_id_fails() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 120)
                 .field(TT_KIND, "request")
@@ -1151,16 +1211,6 @@ mod tests {
                 .field(TT_REQUEST_ID, "dup")
                 .field(TT_ROUTE, "/b"),
         ];
-        let imported = run_from_span_records(spans.clone(), ImportOptions::new("svc")).unwrap();
-        assert!(imported.warnings().iter().any(|w| w
-            .message()
-            .contains("duplicate retained request_id 'dup' encountered during import")));
-        assert!(imported
-            .run()
-            .metadata
-            .lifecycle_warnings
-            .iter()
-            .any(|w| w.contains("duplicate retained request_id 'dup' encountered during import")));
 
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
