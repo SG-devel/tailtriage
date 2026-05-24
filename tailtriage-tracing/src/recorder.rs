@@ -65,17 +65,26 @@ pub struct TailtriageLayer {
 }
 /// Default maximum number of concurrently tracked open candidate spans.
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
+/// Default maximum number of closed raw completed candidate spans retained before conversion.
+pub const DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS: usize = 65_536;
 /// Configurable in-memory limits for live tracing recorder retention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RecorderLimits {
     /// Maximum number of concurrently tracked open candidate spans.
     pub max_open_spans: usize,
+    /// Maximum number of closed raw completed candidate spans retained before semantic conversion.
+    ///
+    /// This is a live recorder memory cap for raw closed candidates. Request/stage/queue
+    /// semantic retention remains controlled by [`CaptureMode`], [`CaptureLimits`], and
+    /// [`CaptureLimitsOverride`] during conversion.
+    pub max_completed_candidate_spans: usize,
 }
 impl Default for RecorderLimits {
     fn default() -> Self {
         Self {
             max_open_spans: DEFAULT_MAX_OPEN_SPANS,
+            max_completed_candidate_spans: DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS,
         }
     }
 }
@@ -85,6 +94,7 @@ struct RecorderState {
     open: BTreeMap<u64, OpenSpan>,
     completed: Vec<SpanRecord>,
     dropped_open_spans: u64,
+    dropped_completed_candidate_spans: u64,
     closed_missing_kind_spans: u64,
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
@@ -124,6 +134,7 @@ struct ClosedKindIssueSample {
 
 struct SnapshotStats {
     dropped_open_spans: u64,
+    dropped_completed_candidate_spans: u64,
     open_candidate_count: u64,
     open_samples: Vec<OpenSpanSample>,
     closed_missing_kind_spans: u64,
@@ -187,6 +198,7 @@ impl TracingRecorder {
                 state.completed.clone(),
                 SnapshotStats {
                     dropped_open_spans: state.dropped_open_spans,
+                    dropped_completed_candidate_spans: state.dropped_completed_candidate_spans,
                     open_candidate_count: count,
                     open_samples: samples,
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
@@ -355,6 +367,15 @@ impl TracingIntakeSessionBuilder {
         self.recorder_builder = self.recorder_builder.max_open_spans(v);
         self
     }
+    /// Sets maximum retained closed raw completed candidate spans before semantic conversion.
+    ///
+    /// This is a live recorder memory cap. Request/stage/queue semantic retention remains
+    /// controlled by [`CaptureMode`], [`CaptureLimits`], and [`CaptureLimitsOverride`].
+    #[must_use]
+    pub fn max_completed_candidate_spans(mut self, v: usize) -> Self {
+        self.recorder_builder = self.recorder_builder.max_completed_candidate_spans(v);
+        self
+    }
     /// Enables completed-span JSONL output at the given path.
     ///
     /// Writes completed spans as spans close using the stable wrapper shape.
@@ -466,6 +487,15 @@ impl TracingRecorderBuilder {
         self.limits.max_open_spans = max_open_spans;
         self
     }
+    /// Sets maximum retained closed raw completed candidate spans before semantic conversion.
+    ///
+    /// This is a live recorder memory cap. Request/stage/queue semantic retention remains
+    /// controlled by [`CaptureMode`], [`CaptureLimits`], and [`CaptureLimitsOverride`].
+    #[must_use]
+    pub fn max_completed_candidate_spans(mut self, max_completed_candidate_spans: usize) -> Self {
+        self.limits.max_completed_candidate_spans = max_completed_candidate_spans;
+        self
+    }
 }
 
 impl<S> Layer<S> for TailtriageLayer
@@ -564,7 +594,12 @@ where
                     }
                 }
             }
-            state.completed.push(record);
+            if state.completed.len() >= self.limits.max_completed_candidate_spans {
+                state.dropped_completed_candidate_spans =
+                    state.dropped_completed_candidate_spans.saturating_add(1);
+            } else {
+                state.completed.push(record);
+            }
         }
     }
 }
@@ -659,6 +694,12 @@ fn push_strict_recorder_messages(
             stats.dropped_open_spans, limits.max_open_spans
         ));
     }
+    if stats.dropped_completed_candidate_spans > 0 {
+        messages.push(format!(
+            "live recorder dropped {} completed candidate span(s) because max_completed_candidate_spans={} was reached; this is a raw closed-span memory cap before semantic conversion, not request/stage/queue CaptureLimits; raise max_completed_candidate_spans, snapshot/shutdown sooner, or reduce capture scope",
+            stats.dropped_completed_candidate_spans, limits.max_completed_candidate_spans
+        ));
+    }
     if let Some(reason) = &stats.writer_failure {
         messages.push(format!(
             "live recorder failed writing completed-span JSONL output: {reason}"
@@ -670,6 +711,7 @@ fn append_non_strict_drop_warnings(
     run: &mut tailtriage_core::Run,
     warnings: &mut Vec<crate::ImportWarning>,
     stats: &SnapshotStats,
+    limits: RecorderLimits,
 ) {
     if stats.open_candidate_count > 0 {
         let mut msg = format!(
@@ -736,7 +778,15 @@ fn append_non_strict_drop_warnings(
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
-    if stats.dropped_open_spans > 0 {
+    if stats.dropped_completed_candidate_spans > 0 {
+        let msg = format!(
+            "live recorder dropped {} completed candidate span(s) because max_completed_candidate_spans={} was reached; this is a raw closed-span memory cap before semantic conversion, not request/stage/queue CaptureLimits; raise max_completed_candidate_spans, snapshot/shutdown sooner, or reduce capture scope",
+            stats.dropped_completed_candidate_spans, limits.max_completed_candidate_spans
+        );
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
+    if stats.dropped_open_spans > 0 || stats.dropped_completed_candidate_spans > 0 {
         run.truncation.limits_hit = true;
     }
     if let Some(reason) = &stats.writer_failure {
@@ -771,6 +821,7 @@ fn imported_with_drop_warnings(
     }
 
     if stats.dropped_open_spans == 0
+        && stats.dropped_completed_candidate_spans == 0
         && stats.open_candidate_count == 0
         && stats.closed_missing_kind_spans == 0
         && stats.closed_unknown_kind_spans == 0
@@ -781,7 +832,7 @@ fn imported_with_drop_warnings(
     }
 
     let (mut run, mut warnings) = imported.into_parts();
-    append_non_strict_drop_warnings(&mut run, &mut warnings, stats);
+    append_non_strict_drop_warnings(&mut run, &mut warnings, stats, limits);
     Ok(ImportedRun::new(run, warnings))
 }
 
@@ -1107,14 +1158,9 @@ mod tests {
     }
 
     #[test]
-    fn completed_span_saturation_emits_warning_and_sets_limits_hit() {
+    fn completed_candidate_cap_emits_warning_and_sets_limits_hit_non_strict() {
         let recorder = TracingRecorder::builder("svc")
-            .capture_limits(tailtriage_core::CaptureLimits {
-                max_requests: 1,
-                max_stages: 1,
-                max_queues: 1,
-                ..tailtriage_core::CaptureMode::Light.core_defaults()
-            })
+            .max_completed_candidate_spans(1)
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -1135,21 +1181,27 @@ mod tests {
         });
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported.run().truncation.dropped_requests >= 1);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("max_completed_candidate_spans")));
         assert!(imported.run().truncation.limits_hit);
+        assert_eq!(imported.run().truncation.dropped_stages, 0);
+        assert_eq!(imported.run().truncation.dropped_queues, 0);
         assert_eq!(imported.run().requests[0].request_id, "r1");
     }
 
     #[test]
-    fn strict_mode_errors_when_completed_retention_drops_completed_spans() {
+    fn strict_mode_errors_when_completed_candidate_cap_drops_spans() {
         let recorder = TracingRecorder::builder("svc")
             .strict(true)
-            .capture_limits(tailtriage_core::CaptureLimits {
-                max_requests: 1,
-                max_stages: 1,
-                max_queues: 1,
-                ..tailtriage_core::CaptureMode::Light.core_defaults()
-            })
+            .max_completed_candidate_spans(1)
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -1168,9 +1220,46 @@ mod tests {
             );
             drop(span2);
         });
+        let err = recorder.snapshot_run().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("max_completed_candidate_spans"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn raw_completed_candidate_cap_is_separate_from_semantic_capture_limits() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(10)
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request-2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            ));
+        });
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported.run().truncation.dropped_requests >= 1);
+        assert_eq!(imported.run().truncation.dropped_requests, 1);
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
     #[test]

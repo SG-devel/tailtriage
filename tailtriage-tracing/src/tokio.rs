@@ -146,6 +146,17 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.max_open_spans(max_open_spans);
         self
     }
+    /// Sets maximum retained closed raw completed candidate spans before semantic conversion.
+    ///
+    /// This is a live recorder memory cap. Request/stage/queue semantic retention remains
+    /// controlled by [`Self::mode`], [`Self::capture_limits`], and [`Self::capture_limits_override`].
+    #[must_use]
+    pub fn max_completed_candidate_spans(mut self, max_completed_candidate_spans: usize) -> Self {
+        self.recorder_builder = self
+            .recorder_builder
+            .max_completed_candidate_spans(max_completed_candidate_spans);
+        self
+    }
     /// Sets capture mode used to resolve live completed-evidence retention limits.
     #[must_use]
     pub fn mode(mut self, mode: CaptureMode) -> Self {
