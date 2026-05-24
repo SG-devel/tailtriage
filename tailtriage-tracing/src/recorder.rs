@@ -98,7 +98,9 @@ struct RecorderState {
     closed_missing_kind_spans: u64,
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
+    closed_incomplete_candidate_spans: u64,
     closed_kind_samples: Vec<ClosedKindIssueSample>,
+    closed_incomplete_candidate_samples: Vec<ClosedKindIssueSample>,
 }
 
 #[derive(Debug)]
@@ -126,7 +128,7 @@ struct ClosedKindIssueSample {
     span_id: Option<String>,
     tt_request_id: Option<String>,
     tt_kind: Option<String>,
-    reason: &'static str,
+    reason: String,
 }
 
 struct SnapshotStats {
@@ -137,7 +139,9 @@ struct SnapshotStats {
     closed_missing_kind_spans: u64,
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
+    closed_incomplete_candidate_spans: u64,
     closed_kind_samples: Vec<ClosedKindIssueSample>,
+    closed_incomplete_candidate_samples: Vec<ClosedKindIssueSample>,
 }
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
@@ -199,7 +203,11 @@ impl TracingRecorder {
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
                     closed_unknown_kind_spans: state.closed_unknown_kind_spans,
                     closed_malformed_kind_spans: state.closed_malformed_kind_spans,
+                    closed_incomplete_candidate_spans: state.closed_incomplete_candidate_spans,
                     closed_kind_samples: state.closed_kind_samples.clone(),
+                    closed_incomplete_candidate_samples: state
+                        .closed_incomplete_candidate_samples
+                        .clone(),
                 },
             )
         };
@@ -617,6 +625,12 @@ where
                 record_invalid_kind_issue(&mut state, &open, reason);
                 return;
             }
+            if let Ok(kind) = kind {
+                if let Some(reason) = precheck_required_fields(kind, &open.fields) {
+                    record_incomplete_candidate_issue(&mut state, &open, kind, reason);
+                    return;
+                }
+            }
             let mut record = SpanRecord::new(
                 open.name,
                 open.started_at_unix_ms,
@@ -665,8 +679,52 @@ fn record_invalid_kind_issue(state: &mut RecorderState, open: &OpenSpan, reason:
             span_id: open.id.clone(),
             tt_request_id: scalar_field_string(open.fields.get("tt.request_id")),
             tt_kind: scalar_field_string(open.fields.get(TT_KIND)),
-            reason,
+            reason: reason.to_owned(),
         });
+    }
+}
+
+fn precheck_required_fields(
+    kind: &'static str,
+    fields: &BTreeMap<String, FieldValue>,
+) -> Option<String> {
+    let required = match kind {
+        "request" => ["tt.request_id", "tt.route"].as_slice(),
+        "stage" => ["tt.request_id", "tt.stage"].as_slice(),
+        "queue" => ["tt.request_id", "tt.queue"].as_slice(),
+        _ => return None,
+    };
+    for key in required {
+        match fields.get(*key) {
+            None => return Some(format!("missing required field {key}")),
+            Some(FieldValue::String(_)) => {}
+            Some(_) => return Some(format!("invalid required field {key}: expected string")),
+        }
+    }
+    None
+}
+
+fn record_incomplete_candidate_issue(
+    state: &mut RecorderState,
+    open: &OpenSpan,
+    kind: &'static str,
+    reason: String,
+) {
+    state.closed_incomplete_candidate_spans =
+        state.closed_incomplete_candidate_spans.saturating_add(1);
+    if state.closed_incomplete_candidate_samples.len() < 16 {
+        state
+            .closed_incomplete_candidate_samples
+            .push(ClosedKindIssueSample {
+                name: open.name.clone(),
+                span_id: open.id.clone(),
+                tt_request_id: match open.fields.get("tt.request_id") {
+                    Some(FieldValue::String(v)) => Some(v.clone()),
+                    _ => None,
+                },
+                tt_kind: Some(kind.to_owned()),
+                reason,
+            });
     }
 }
 
@@ -718,6 +776,12 @@ fn push_strict_recorder_messages(
         messages.push(format!(
             "live recorder closed {} candidate span(s) with malformed tt.kind; closed candidate spans with malformed tt.kind are not converted",
             stats.closed_malformed_kind_spans
+        ));
+    }
+    if stats.closed_incomplete_candidate_spans > 0 {
+        messages.push(format!(
+            "live recorder closed {} incomplete candidate span(s) with recognized tt.kind but missing/invalid required fields; these spans are not converted",
+            stats.closed_incomplete_candidate_spans
         ));
     }
     if stats.dropped_open_spans > 0 {
@@ -797,6 +861,7 @@ fn append_non_strict_drop_warnings(
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
+    push_incomplete_closed_candidate_warning(run, warnings, stats);
     if stats.dropped_open_spans > 0 {
         let msg = format!(
             "live recorder dropped {} candidate spans because max_open_spans was reached",
@@ -816,6 +881,40 @@ fn append_non_strict_drop_warnings(
     if stats.dropped_open_spans > 0 || stats.dropped_completed_candidate_spans > 0 {
         run.truncation.limits_hit = true;
     }
+}
+
+fn push_incomplete_closed_candidate_warning(
+    run: &mut tailtriage_core::Run,
+    warnings: &mut Vec<crate::ImportWarning>,
+    stats: &SnapshotStats,
+) {
+    if stats.closed_incomplete_candidate_spans == 0 {
+        return;
+    }
+    let mut msg = format!(
+        "live recorder closed {} incomplete candidate span(s) with recognized tt.kind but missing/invalid required fields; these spans are not converted",
+        stats.closed_incomplete_candidate_spans
+    );
+    if !stats.closed_incomplete_candidate_samples.is_empty() {
+        let sample_text = stats
+            .closed_incomplete_candidate_samples
+            .iter()
+            .map(|sample| {
+                format!(
+                    "reason={}, name={}, id={}, tt.kind={}, tt.request_id={}",
+                    sample.reason,
+                    sample.name,
+                    sample.span_id.as_deref().unwrap_or("-"),
+                    sample.tt_kind.as_deref().unwrap_or("-"),
+                    sample.tt_request_id.as_deref().unwrap_or("-")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let _ = write!(&mut msg, "; samples: {sample_text}");
+    }
+    run.metadata.lifecycle_warnings.push(msg.clone());
+    warnings.push(crate::ImportWarning::new(msg));
 }
 
 fn imported_with_drop_warnings(
@@ -848,6 +947,7 @@ fn imported_with_drop_warnings(
         && stats.closed_missing_kind_spans == 0
         && stats.closed_unknown_kind_spans == 0
         && stats.closed_malformed_kind_spans == 0
+        && stats.closed_incomplete_candidate_spans == 0
     {
         return Ok(imported);
     }
@@ -1359,7 +1459,7 @@ mod tests {
         );
         match err {
             ImportError::StrictViolation(message) => {
-                assert!(message.contains("tt.route"));
+                assert!(message.contains("incomplete candidate span"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -1368,6 +1468,7 @@ mod tests {
     #[test]
     fn malformed_request_does_not_consume_request_retention_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(1)
             .capture_limits(CaptureLimits {
                 max_requests: 1,
                 ..CaptureMode::Light.core_defaults()
@@ -1390,11 +1491,20 @@ mod tests {
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].request_id, "r-good");
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("incomplete candidate span")));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
     #[test]
     fn malformed_stage_does_not_consume_stage_retention_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(1)
             .capture_limits(CaptureLimits {
                 max_requests: 1,
                 max_stages: 1,
@@ -1425,11 +1535,20 @@ mod tests {
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].request_id, "r1");
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("incomplete candidate span")));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
     #[test]
     fn malformed_queue_does_not_consume_queue_retention_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(2)
             .capture_limits(CaptureLimits {
                 max_requests: 1,
                 max_queues: 1,
@@ -1460,6 +1579,51 @@ mod tests {
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].request_id, "r1");
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("incomplete candidate span")));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn invalid_numeric_required_request_field_does_not_consume_completed_candidate_cap() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(2)
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-invalid",
+                tt.kind = "request",
+                tt.request_id = "r-bad",
+                tt.route = 42_u64
+            ));
+            drop(tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r-good",
+                tt.route = "/ok"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r-good");
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("invalid required field tt.route")));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
     #[test]
@@ -1550,6 +1714,96 @@ mod tests {
     }
 
     #[test]
+    fn invalid_numeric_required_stage_field_does_not_consume_completed_candidate_cap() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(1)
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                max_stages: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
+            drop(tracing::info_span!(
+                "stage-invalid",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = 7_u64
+            ));
+            drop(tracing::info_span!(
+                "stage-valid",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].request_id, "r1");
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("invalid required field tt.stage")));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn invalid_numeric_required_queue_field_does_not_consume_completed_candidate_cap() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(1)
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                max_queues: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
+            drop(tracing::info_span!(
+                "queue-invalid",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = 9_u64
+            ));
+            drop(tracing::info_span!(
+                "queue-valid",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "db-pool"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].request_id, "r1");
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("invalid required field tt.queue")));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
     fn strict_mode_fails_for_malformed_stage_span() {
         let recorder = TracingRecorder::builder("svc").strict(true).build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
@@ -1594,6 +1848,23 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_fails_for_incomplete_closed_candidate_cases() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-missing-route",
+                tt.kind = "request",
+                tt.request_id = "r1"
+            ));
+        });
+        assert!(matches!(
+            recorder.snapshot_run().unwrap_err(),
+            ImportError::StrictViolation(_)
+        ));
+    }
+
+    #[test]
     fn strict_mode_fails_for_orphan_stage_span() {
         let recorder = TracingRecorder::builder("svc").strict(true).build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
@@ -1623,6 +1894,68 @@ mod tests {
         });
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn strict_mode_fails_for_invalid_numeric_required_fields() {
+        let request_recorder = TracingRecorder::builder("svc").strict(true).build();
+        let request_subscriber = tracing_subscriber::registry().with(request_recorder.layer());
+        tracing::subscriber::with_default(request_subscriber, || {
+            drop(tracing::info_span!(
+                "request-invalid-route",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = 1_u64
+            ));
+        });
+        assert!(matches!(
+            request_recorder.snapshot_run().unwrap_err(),
+            ImportError::StrictViolation(_)
+        ));
+
+        let stage_recorder = TracingRecorder::builder("svc").strict(true).build();
+        let stage_subscriber = tracing_subscriber::registry().with(stage_recorder.layer());
+        tracing::subscriber::with_default(stage_subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
+            drop(tracing::info_span!(
+                "stage-invalid-stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = 1_u64
+            ));
+        });
+        assert!(matches!(
+            stage_recorder.snapshot_run().unwrap_err(),
+            ImportError::StrictViolation(_)
+        ));
+
+        let queue_recorder = TracingRecorder::builder("svc").strict(true).build();
+        let queue_subscriber = tracing_subscriber::registry().with(queue_recorder.layer());
+        tracing::subscriber::with_default(queue_subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
+            drop(tracing::info_span!(
+                "queue-invalid-queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = 1_u64
+            ));
+        });
+        assert!(matches!(
+            queue_recorder.snapshot_run().unwrap_err(),
+            ImportError::StrictViolation(_)
+        ));
     }
 
     #[test]
