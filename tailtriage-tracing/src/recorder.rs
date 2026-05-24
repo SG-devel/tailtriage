@@ -99,6 +99,8 @@ struct RecorderState {
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
     closed_kind_samples: Vec<ClosedKindIssueSample>,
+    closed_incomplete_candidate_spans: u64,
+    closed_incomplete_candidate_samples: Vec<ClosedKindIssueSample>,
 }
 
 #[derive(Debug)]
@@ -126,7 +128,7 @@ struct ClosedKindIssueSample {
     span_id: Option<String>,
     tt_request_id: Option<String>,
     tt_kind: Option<String>,
-    reason: &'static str,
+    reason: String,
 }
 
 struct SnapshotStats {
@@ -138,6 +140,8 @@ struct SnapshotStats {
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
     closed_kind_samples: Vec<ClosedKindIssueSample>,
+    closed_incomplete_candidate_spans: u64,
+    closed_incomplete_candidate_samples: Vec<ClosedKindIssueSample>,
 }
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
@@ -200,6 +204,10 @@ impl TracingRecorder {
                     closed_unknown_kind_spans: state.closed_unknown_kind_spans,
                     closed_malformed_kind_spans: state.closed_malformed_kind_spans,
                     closed_kind_samples: state.closed_kind_samples.clone(),
+                    closed_incomplete_candidate_spans: state.closed_incomplete_candidate_spans,
+                    closed_incomplete_candidate_samples: state
+                        .closed_incomplete_candidate_samples
+                        .clone(),
                 },
             )
         };
@@ -613,8 +621,15 @@ where
         let mut state = lock_state(&self.state);
         if let Some(open) = state.open.remove(&id.into_u64()) {
             let kind = classify_kind(&open.fields);
-            if let Err(reason) = kind {
-                record_invalid_kind_issue(&mut state, &open, reason);
+            let kind = match kind {
+                Ok(kind) => kind,
+                Err(reason) => {
+                    record_invalid_kind_issue(&mut state, &open, reason);
+                    return;
+                }
+            };
+            if let Err(reason) = precheck_required_fields(kind, &open.fields) {
+                record_incomplete_candidate_issue(&mut state, &open, kind, reason);
                 return;
             }
             let mut record = SpanRecord::new(
@@ -665,7 +680,7 @@ fn record_invalid_kind_issue(state: &mut RecorderState, open: &OpenSpan, reason:
             span_id: open.id.clone(),
             tt_request_id: scalar_field_string(open.fields.get("tt.request_id")),
             tt_kind: scalar_field_string(open.fields.get(TT_KIND)),
-            reason,
+            reason: reason.to_owned(),
         });
     }
 }
@@ -678,6 +693,55 @@ fn classify_kind(fields: &BTreeMap<String, FieldValue>) -> Result<&'static str, 
         Some(FieldValue::String(v)) if v == "queue" => Ok("queue"),
         Some(FieldValue::String(_)) => Err("unknown"),
         Some(_) => Err("malformed"),
+    }
+}
+
+fn precheck_required_fields(
+    kind: &str,
+    fields: &BTreeMap<String, FieldValue>,
+) -> Result<(), String> {
+    let required_key = match kind {
+        "request" => "tt.route",
+        "stage" => "tt.stage",
+        "queue" => "tt.queue",
+        _ => return Ok(()),
+    };
+    required_string_field(fields, "tt.request_id")?;
+    required_string_field(fields, required_key)
+}
+
+fn required_string_field(
+    fields: &BTreeMap<String, FieldValue>,
+    key: &'static str,
+) -> Result<(), String> {
+    match fields.get(key) {
+        Some(FieldValue::String(_)) => Ok(()),
+        Some(_) => Err(format!("invalid required field {key}: expected string")),
+        None => Err(format!("missing required field {key}")),
+    }
+}
+
+fn record_incomplete_candidate_issue(
+    state: &mut RecorderState,
+    open: &OpenSpan,
+    kind: &'static str,
+    reason: String,
+) {
+    state.closed_incomplete_candidate_spans =
+        state.closed_incomplete_candidate_spans.saturating_add(1);
+    if state.closed_incomplete_candidate_samples.len() < 16 {
+        state
+            .closed_incomplete_candidate_samples
+            .push(ClosedKindIssueSample {
+                name: open.name.clone(),
+                span_id: open.id.clone(),
+                tt_request_id: match open.fields.get("tt.request_id") {
+                    Some(FieldValue::String(v)) => Some(v.clone()),
+                    _ => None,
+                },
+                tt_kind: Some(kind.to_owned()),
+                reason,
+            });
     }
 }
 fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
@@ -720,6 +784,12 @@ fn push_strict_recorder_messages(
             stats.closed_malformed_kind_spans
         ));
     }
+    if stats.closed_incomplete_candidate_spans > 0 {
+        messages.push(format!(
+            "live recorder closed {} incomplete candidate span(s) with recognized tt.kind but missing/invalid required fields; these spans are not converted",
+            stats.closed_incomplete_candidate_spans
+        ));
+    }
     if stats.dropped_open_spans > 0 {
         messages.push(format!(
             "live recorder dropped {} open candidate span(s) because max_open_spans={} was reached; raise max_open_spans or reduce capture scope",
@@ -746,26 +816,12 @@ fn append_non_strict_drop_warnings(
             stats.open_candidate_count
         );
         if !stats.open_samples.is_empty() {
-            let sample_text = stats
-                .open_samples
-                .iter()
-                .map(|sample| {
-                    format!(
-                        "name={}, id={}, tt.kind={}, tt.request_id={}",
-                        sample.name,
-                        sample.span_id.as_deref().unwrap_or("-"),
-                        sample.tt_kind.as_deref().unwrap_or("-"),
-                        sample.tt_request_id.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
+            let sample_text = format_open_samples(&stats.open_samples);
             let _ = write!(&mut msg, "; samples: {sample_text}");
         }
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
-
     let closed_invalid_kind_total = stats.closed_missing_kind_spans
         + stats.closed_unknown_kind_spans
         + stats.closed_malformed_kind_spans;
@@ -777,21 +833,19 @@ fn append_non_strict_drop_warnings(
             stats.closed_malformed_kind_spans
         );
         if !stats.closed_kind_samples.is_empty() {
-            let sample_text = stats
-                .closed_kind_samples
-                .iter()
-                .map(|sample| {
-                    format!(
-                        "reason={}, name={}, id={}, tt.kind={}, tt.request_id={}",
-                        sample.reason,
-                        sample.name,
-                        sample.span_id.as_deref().unwrap_or("-"),
-                        sample.tt_kind.as_deref().unwrap_or("-"),
-                        sample.tt_request_id.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
+            let sample_text = format_closed_samples(&stats.closed_kind_samples);
+            let _ = write!(&mut msg, "; samples: {sample_text}");
+        }
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
+    if stats.closed_incomplete_candidate_spans > 0 {
+        let mut msg = format!(
+            "live recorder closed {} incomplete candidate span(s) with recognized tt.kind but missing/invalid required fields; these spans are not converted",
+            stats.closed_incomplete_candidate_spans
+        );
+        if !stats.closed_incomplete_candidate_samples.is_empty() {
+            let sample_text = format_closed_samples(&stats.closed_incomplete_candidate_samples);
             let _ = write!(&mut msg, "; samples: {sample_text}");
         }
         run.metadata.lifecycle_warnings.push(msg.clone());
@@ -816,6 +870,39 @@ fn append_non_strict_drop_warnings(
     if stats.dropped_open_spans > 0 || stats.dropped_completed_candidate_spans > 0 {
         run.truncation.limits_hit = true;
     }
+}
+
+fn format_open_samples(samples: &[OpenSpanSample]) -> String {
+    samples
+        .iter()
+        .map(|sample| {
+            format!(
+                "name={}, id={}, tt.kind={}, tt.request_id={}",
+                sample.name,
+                sample.span_id.as_deref().unwrap_or("-"),
+                sample.tt_kind.as_deref().unwrap_or("-"),
+                sample.tt_request_id.as_deref().unwrap_or("-")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn format_closed_samples(samples: &[ClosedKindIssueSample]) -> String {
+    samples
+        .iter()
+        .map(|sample| {
+            format!(
+                "reason={}, name={}, id={}, tt.kind={}, tt.request_id={}",
+                sample.reason,
+                sample.name,
+                sample.span_id.as_deref().unwrap_or("-"),
+                sample.tt_kind.as_deref().unwrap_or("-"),
+                sample.tt_request_id.as_deref().unwrap_or("-")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn imported_with_drop_warnings(
@@ -848,6 +935,7 @@ fn imported_with_drop_warnings(
         && stats.closed_missing_kind_spans == 0
         && stats.closed_unknown_kind_spans == 0
         && stats.closed_malformed_kind_spans == 0
+        && stats.closed_incomplete_candidate_spans == 0
     {
         return Ok(imported);
     }
@@ -1359,7 +1447,8 @@ mod tests {
         );
         match err {
             ImportError::StrictViolation(message) => {
-                assert!(message.contains("tt.route"));
+                assert!(message.contains("incomplete candidate"));
+                assert!(message.contains("missing/invalid required fields"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -1623,6 +1712,132 @@ mod tests {
         });
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn incomplete_closed_request_does_not_consume_completed_candidate_cap() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(1)
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-missing-route",
+                tt.kind = "request",
+                tt.request_id = "r-bad"
+            ));
+            drop(tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r-good",
+                tt.route = "/ok"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r-good");
+        assert!(imported.warnings().iter().any(|w| {
+            w.message().contains("incomplete candidate")
+                && w.message().contains("missing required field tt.route")
+        }));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn strict_mode_fails_for_incomplete_closed_candidate_spans() {
+        let cases = [
+            ("request", "r1", "missing tt.route"),
+            ("stage", "r1", "missing tt.stage"),
+            ("queue", "r1", "missing tt.queue"),
+            ("request", "r1", "invalid tt.route"),
+            ("stage", "r1", "invalid tt.stage"),
+            ("queue", "r1", "invalid tt.queue"),
+        ];
+        for (kind, rid, expect) in cases {
+            let recorder = TracingRecorder::builder("svc").strict(true).build();
+            let subscriber = tracing_subscriber::registry().with(recorder.layer());
+            tracing::subscriber::with_default(subscriber, || match (kind, expect) {
+                ("request", "missing tt.route") => {
+                    drop(tracing::info_span!(
+                        "request-missing",
+                        tt.kind = "request",
+                        tt.request_id = rid
+                    ));
+                }
+                ("stage", "missing tt.stage") => {
+                    let request = tracing::info_span!(
+                        "request-valid",
+                        tt.kind = "request",
+                        tt.request_id = rid,
+                        tt.route = "/ok"
+                    );
+                    let _guard = request.enter();
+                    drop(tracing::info_span!(
+                        "stage-missing",
+                        tt.kind = "stage",
+                        tt.request_id = rid
+                    ));
+                }
+                ("queue", "missing tt.queue") => {
+                    let request = tracing::info_span!(
+                        "request-valid",
+                        tt.kind = "request",
+                        tt.request_id = rid,
+                        tt.route = "/ok"
+                    );
+                    let _guard = request.enter();
+                    drop(tracing::info_span!(
+                        "queue-missing",
+                        tt.kind = "queue",
+                        tt.request_id = rid
+                    ));
+                }
+                ("request", "invalid tt.route") => {
+                    drop(tracing::info_span!(
+                        "request-invalid",
+                        tt.kind = "request",
+                        tt.request_id = rid,
+                        tt.route = 7_u64
+                    ));
+                }
+                ("stage", "invalid tt.stage") => {
+                    let request = tracing::info_span!(
+                        "request-valid",
+                        tt.kind = "request",
+                        tt.request_id = rid,
+                        tt.route = "/ok"
+                    );
+                    let _guard = request.enter();
+                    drop(tracing::info_span!(
+                        "stage-invalid",
+                        tt.kind = "stage",
+                        tt.request_id = rid,
+                        tt.stage = 7_u64
+                    ));
+                }
+                ("queue", "invalid tt.queue") => {
+                    let request = tracing::info_span!(
+                        "request-valid",
+                        tt.kind = "request",
+                        tt.request_id = rid,
+                        tt.route = "/ok"
+                    );
+                    let _guard = request.enter();
+                    drop(tracing::info_span!(
+                        "queue-invalid",
+                        tt.kind = "queue",
+                        tt.request_id = rid,
+                        tt.queue = 7_u64
+                    ));
+                }
+                _ => unreachable!(),
+            });
+            let err = recorder.snapshot_run().unwrap_err();
+            assert!(matches!(err, ImportError::StrictViolation(_)));
+        }
     }
 
     #[test]
