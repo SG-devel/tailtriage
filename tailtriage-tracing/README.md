@@ -103,7 +103,10 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 
 ## Retention and drop behavior
 
+- `DEFAULT_MAX_OPEN_SPANS` and `DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS` are live-recorder memory caps for in-memory span tracking.
 - `max_open_spans` bounds in-flight span tracking.
+- `max_completed_candidate_spans` bounds retained raw completed candidate spans before semantic conversion.
+- Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
 - `completed_span_jsonl_path(...)` writes retained valid completed-span JSONL on shutdown.
 - The completed-span JSONL is replayable into the same retained request/stage/queue evidence when imported with matching service metadata.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
