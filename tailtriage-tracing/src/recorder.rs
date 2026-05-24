@@ -355,7 +355,7 @@ impl TracingIntakeSessionBuilder {
         self.recorder_builder = self.recorder_builder.run_id(run_id);
         self
     }
-    /// Sets open/completed in-memory retention limits.
+    /// Sets live recorder memory limits.
     #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.recorder_builder = self.recorder_builder.limits(limits);
@@ -475,7 +475,7 @@ impl TracingRecorderBuilder {
             limits: self.limits,
         }
     }
-    /// Sets open/completed in-memory retention limits.
+    /// Sets live recorder memory limits.
     #[must_use]
     pub fn limits(mut self, limits: RecorderLimits) -> Self {
         self.limits = limits;
@@ -1192,6 +1192,7 @@ mod tests {
             .iter()
             .any(|w| w.contains("max_completed_candidate_spans")));
         assert!(imported.run().truncation.limits_hit);
+        assert_eq!(imported.run().truncation.dropped_requests, 0);
         assert_eq!(imported.run().truncation.dropped_stages, 0);
         assert_eq!(imported.run().truncation.dropped_queues, 0);
         assert_eq!(imported.run().requests[0].request_id, "r1");
