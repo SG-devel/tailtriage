@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,7 +8,9 @@ use tailtriage_core::{
 };
 use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
-use crate::{ImportError, ImportedRun, RecorderLimits, TailtriageLayer, TracingRecorder};
+use crate::{
+    ImportError, ImportWarning, ImportedRun, RecorderLimits, TailtriageLayer, TracingRecorder,
+};
 
 /// Error returned when starting [`TracingTokioSession`].
 #[derive(Debug)]
@@ -229,7 +232,7 @@ impl TracingTokioSessionBuilder {
 }
 
 fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
-    let (mut tracing_run, warnings) = imported.into_parts();
+    let (mut tracing_run, mut warnings) = imported.into_parts();
     tracing_run
         .runtime_snapshots
         .clone_from(&runtime_run.runtime_snapshots);
@@ -265,12 +268,19 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
         runtime_run.truncation.dropped_runtime_snapshots;
     tracing_run.truncation.limits_hit =
         tracing_run.truncation.limits_hit || runtime_run.truncation.limits_hit;
+    let mut seen_warning_messages: HashSet<String> = warnings
+        .iter()
+        .map(|warning| warning.message().to_owned())
+        .collect();
     for warning in &runtime_run.metadata.lifecycle_warnings {
         if !tracing_run.metadata.lifecycle_warnings.contains(warning) {
             tracing_run
                 .metadata
                 .lifecycle_warnings
                 .push(warning.clone());
+        }
+        if seen_warning_messages.insert(warning.clone()) {
+            warnings.push(ImportWarning::new(warning.clone()));
         }
     }
     ImportedRun::new(tracing_run, warnings)
@@ -279,7 +289,7 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
 #[cfg(test)]
 mod tests {
     use super::merge_runtime_data;
-    use crate::ImportedRun;
+    use crate::{ImportWarning, ImportedRun};
     use tailtriage_core::{MemorySink, RuntimeSnapshot, Tailtriage};
 
     fn empty_run(service_name: &str) -> tailtriage_core::Run {
@@ -344,8 +354,13 @@ mod tests {
         runtime_run.truncation.limits_hit = true;
         runtime_run.metadata.lifecycle_warnings = vec!["shared".into(), "non-runtime".into()];
 
-        let merged =
-            merge_runtime_data(ImportedRun::new(tracing_run.clone(), vec![]), &runtime_run);
+        let merged = merge_runtime_data(
+            ImportedRun::new(
+                tracing_run.clone(),
+                vec![ImportWarning::new("existing-trace-warning")],
+            ),
+            &runtime_run,
+        );
         let run = merged.run();
         assert_eq!(run.requests, tracing_run.requests);
         assert_eq!(run.stages, tracing_run.stages);
@@ -361,7 +376,40 @@ mod tests {
             run.metadata.lifecycle_warnings,
             vec!["trace-warning", "shared", "non-runtime"]
         );
+        assert_eq!(
+            merged
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>(),
+            vec!["existing-trace-warning", "shared", "non-runtime"]
+        );
         assert_eq!(run.requests.len(), 1);
+    }
+
+    #[test]
+    fn merge_runtime_data_deduplicates_runtime_warnings_in_imported_run_warnings() {
+        let tracing_run = empty_run("tracing");
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.metadata.lifecycle_warnings =
+            vec!["runtime-warning".into(), "runtime-warning".into()];
+
+        let merged = merge_runtime_data(
+            ImportedRun::new(tracing_run, vec![ImportWarning::new("runtime-warning")]),
+            &runtime_run,
+        );
+        assert_eq!(
+            merged.run().metadata.lifecycle_warnings,
+            vec!["runtime-warning"]
+        );
+        assert_eq!(
+            merged
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>(),
+            vec!["runtime-warning"]
+        );
     }
 
     #[test]
