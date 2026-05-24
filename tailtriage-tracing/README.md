@@ -99,6 +99,7 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 
 - Strict mode: malformed/incomplete `tt.*` span records fail import/session conversion.
 - Non-strict mode: malformed/incomplete records are warned and skipped where implemented.
+- Duration consistency tolerance: when a completed span includes `duration_us`, import compares it to `(finished_at_unix_ms - started_at_unix_ms) * 1000`. Differences up to `2_000` microseconds use `duration_us`; larger mismatches warn and fall back to derived duration in non-strict mode, and fail import in strict mode.
 
 ## Retention and drop behavior
 
@@ -121,4 +122,3 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
-

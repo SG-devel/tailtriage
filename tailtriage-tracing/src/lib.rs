@@ -58,6 +58,8 @@ pub use recorder::{
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
+const DURATION_TOLERANCE_US: u64 = 2_000;
+
 /// Ensures a run is suitable for persisted Run JSON artifacts intended for CLI analysis.
 ///
 /// # Errors
@@ -165,10 +167,11 @@ where
                             kind: None,
                             started_at_unix_ms: span.started_at_unix_ms(),
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            latency_us: span.duration_us_ref().unwrap_or(
-                                (span.finished_at_unix_ms() - span.started_at_unix_ms())
-                                    .saturating_mul(1000),
-                            ),
+                            latency_us: validated_duration_us(
+                                &span,
+                                options.strict_mode(),
+                                &mut warnings,
+                            )?,
                             outcome,
                         },
                         outcome_defaulted,
@@ -192,10 +195,11 @@ where
                             stage,
                             started_at_unix_ms: span.started_at_unix_ms(),
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            latency_us: span.duration_us_ref().unwrap_or(
-                                (span.finished_at_unix_ms() - span.started_at_unix_ms())
-                                    .saturating_mul(1000),
-                            ),
+                            latency_us: validated_duration_us(
+                                &span,
+                                options.strict_mode(),
+                                &mut warnings,
+                            )?,
                             success,
                         },
                         success_defaulted: matches!(success_field, OptionalField::Missing),
@@ -218,10 +222,11 @@ where
                         queue,
                         waited_from_unix_ms: span.started_at_unix_ms(),
                         waited_until_unix_ms: span.finished_at_unix_ms(),
-                        wait_us: span.duration_us_ref().unwrap_or(
-                            (span.finished_at_unix_ms() - span.started_at_unix_ms())
-                                .saturating_mul(1000),
-                        ),
+                        wait_us: validated_duration_us(
+                            &span,
+                            options.strict_mode(),
+                            &mut warnings,
+                        )?,
                         depth_at_start,
                     });
                 }
@@ -532,6 +537,36 @@ fn span_has_tailtriage_field(span: &SpanRecord) -> bool {
     span.fields().keys().any(|key| key.starts_with("tt."))
 }
 
+fn validated_duration_us(
+    span: &SpanRecord,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<u64, ImportError> {
+    let derived_us = (span.finished_at_unix_ms() - span.started_at_unix_ms()).saturating_mul(1_000);
+    match span.duration_us_ref() {
+        None => Ok(derived_us),
+        Some(duration_us) => {
+            let delta = duration_us.abs_diff(derived_us);
+            if delta <= DURATION_TOLERANCE_US {
+                Ok(duration_us)
+            } else {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "duration_us mismatch for span '{}': duration_us={} derived_us={} tolerance_us={}",
+                        span.name(),
+                        duration_us,
+                        derived_us,
+                        DURATION_TOLERANCE_US
+                    ),
+                )?;
+                Ok(derived_us)
+            }
+        }
+    }
+}
+
 fn required_string(
     span: &SpanRecord,
     key: &'static str,
@@ -568,6 +603,7 @@ fn is_durable_conversion_warning(message: &str) -> bool {
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
+        || message.starts_with("duration_us mismatch for span")
         || message.contains("missing optional 'tt.outcome'; assumed 'ok'")
         || message.contains("missing optional 'tt.success'; assumed true")
 }
@@ -1814,37 +1850,130 @@ mod tests {
     }
 
     #[test]
-    fn span_duration_us_is_used_for_stage_latency() {
+    fn contradictory_request_duration_warns_and_uses_derived_us_non_strict() {
+        let spans = vec![SpanRecord::new("req", 100, 110)
+            .duration_us(1)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].latency_us, 10_000);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("duration_us mismatch for span 'req'")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("duration_us=1") && w.contains("derived_us=10000")));
+    }
+
+    #[test]
+    fn contradictory_stage_duration_warns_and_uses_derived_us_non_strict() {
         let spans = vec![
-            SpanRecord::new("req", 99, 101)
+            SpanRecord::new("req", 99, 120)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_ROUTE, "/"),
-            SpanRecord::new("stage", 100, 100)
-                .duration_us(123)
+            SpanRecord::new("stage", 100, 108)
+                .duration_us(1)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_STAGE, "db"),
         ];
-        let run = run_from_span_records(spans, ImportOptions::new("svc"))
-            .unwrap()
-            .run()
-            .clone();
-        assert_eq!(run.stages[0].latency_us, 123);
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().stages[0].latency_us, 8_000);
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("duration_us mismatch for span 'stage'")));
     }
 
     #[test]
-    fn span_duration_us_is_used_for_request_latency() {
-        let spans = vec![SpanRecord::new("req", 100, 100)
-            .duration_us(456)
+    fn contradictory_queue_duration_warns_and_uses_derived_us_non_strict() {
+        let spans = vec![
+            SpanRecord::new("req", 99, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("queue", 100, 107)
+                .duration_us(1)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().queues[0].wait_us, 7_000);
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("duration_us mismatch for span 'queue'")));
+    }
+
+    #[test]
+    fn strict_mode_rejects_contradictory_request_duration() {
+        let spans = vec![SpanRecord::new("req", 100, 110)
+            .duration_us(1)
             .field(TT_KIND, "request")
             .field(TT_REQUEST_ID, "r1")
             .field(TT_ROUTE, "/a")];
-        let run = run_from_span_records(spans, ImportOptions::new("svc"))
-            .unwrap()
-            .run()
-            .clone();
-        assert_eq!(run.requests[0].latency_us, 456);
+        assert!(matches!(
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
+            Err(ImportError::StrictViolation(message)) if message.contains("duration_us mismatch")
+        ));
+    }
+
+    #[test]
+    fn strict_mode_rejects_contradictory_stage_duration() {
+        let spans = vec![
+            SpanRecord::new("req", 99, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("stage", 100, 108)
+                .duration_us(1)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
+        assert!(matches!(
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
+            Err(ImportError::StrictViolation(message)) if message.contains("duration_us mismatch")
+        ));
+    }
+
+    #[test]
+    fn strict_mode_rejects_contradictory_queue_duration() {
+        let spans = vec![
+            SpanRecord::new("req", 99, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("queue", 100, 107)
+                .duration_us(1)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        assert!(matches!(
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)),
+            Err(ImportError::StrictViolation(message)) if message.contains("duration_us mismatch")
+        ));
+    }
+
+    #[test]
+    fn duration_us_within_tolerance_is_accepted() {
+        let spans = vec![SpanRecord::new("req", 100, 110)
+            .duration_us(11_500)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].latency_us, 11_500);
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("duration_us mismatch")));
     }
 
     #[test]
