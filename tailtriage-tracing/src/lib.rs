@@ -565,18 +565,31 @@ fn required_string(
     }
 }
 
+pub(crate) const DURATION_TOLERANCE_US: u64 = 2_000;
+
+pub(crate) fn duration_within_tolerance(
+    duration_us: u64,
+    started_at_unix_ms: u64,
+    finished_at_unix_ms: u64,
+) -> bool {
+    let derived_us = (finished_at_unix_ms - started_at_unix_ms).saturating_mul(1000);
+    duration_us.abs_diff(derived_us) <= DURATION_TOLERANCE_US
+}
+
 fn validated_duration_us(
     span: &SpanRecord,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
 ) -> Result<u64, ImportError> {
-    const DURATION_TOLERANCE_US: u64 = 2_000;
     let derived_us = (span.finished_at_unix_ms() - span.started_at_unix_ms()).saturating_mul(1000);
     let Some(duration_us) = span.duration_us_ref() else {
         return Ok(derived_us);
     };
-    let diff_us = duration_us.abs_diff(derived_us);
-    if diff_us <= DURATION_TOLERANCE_US {
+    if duration_within_tolerance(
+        duration_us,
+        span.started_at_unix_ms(),
+        span.finished_at_unix_ms(),
+    ) {
         return Ok(duration_us);
     }
     let message = format!(
