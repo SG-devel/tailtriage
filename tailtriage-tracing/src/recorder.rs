@@ -1273,50 +1273,62 @@ mod tests {
     }
 
     #[test]
-    fn malformed_and_orphan_spans_do_not_consume_stage_or_queue_retention_non_strict() {
+    fn malformed_stage_does_not_consume_stage_retention_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
             .capture_limits(CaptureLimits {
                 max_requests: 1,
                 max_stages: 1,
-                max_queues: 1,
                 ..CaptureMode::Light.core_defaults()
             })
             .build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
             drop(tracing::info_span!(
                 "stage-malformed",
                 tt.kind = "stage",
                 tt.request_id = "r1"
             ));
             drop(tracing::info_span!(
-                "queue-malformed",
-                tt.kind = "queue",
-                tt.request_id = "r1"
-            ));
-            drop(tracing::info_span!(
-                "stage-orphan",
-                tt.kind = "stage",
-                tt.request_id = "missing",
-                tt.stage = "db"
-            ));
-            drop(tracing::info_span!(
-                "queue-orphan",
-                tt.kind = "queue",
-                tt.request_id = "missing",
-                tt.queue = "db-pool"
-            ));
-            drop(tracing::info_span!(
-                "request-valid",
-                tt.kind = "request",
-                tt.request_id = "r1",
-                tt.route = "/ok"
-            ));
-            drop(tracing::info_span!(
                 "stage-valid",
                 tt.kind = "stage",
                 tt.request_id = "r1",
                 tt.stage = "db"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].request_id, "r1");
+    }
+
+    #[test]
+    fn malformed_queue_does_not_consume_queue_retention_in_non_strict_mode() {
+        let recorder = TracingRecorder::builder("svc")
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                max_queues: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
+            drop(tracing::info_span!(
+                "queue-malformed",
+                tt.kind = "queue",
+                tt.request_id = "r1"
             ));
             drop(tracing::info_span!(
                 "queue-valid",
@@ -1326,14 +1338,84 @@ mod tests {
             ));
         });
         let imported = recorder.snapshot_run().unwrap();
-        assert_eq!(imported.run().stages.len(), 1);
-        assert_eq!(imported.run().stages[0].request_id, "r1");
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].request_id, "r1");
     }
 
     #[test]
-    fn strict_mode_fails_for_malformed_and_orphan_tt_spans() {
+    fn orphan_stage_does_not_consume_stage_retention_in_non_strict_mode() {
+        let recorder = TracingRecorder::builder("svc")
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                max_stages: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "stage-orphan",
+                tt.kind = "stage",
+                tt.request_id = "missing",
+                tt.stage = "db"
+            ));
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
+            drop(tracing::info_span!(
+                "stage-valid",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].request_id, "r1");
+    }
+
+    #[test]
+    fn orphan_queue_does_not_consume_queue_retention_in_non_strict_mode() {
+        let recorder = TracingRecorder::builder("svc")
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                max_queues: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "queue-orphan",
+                tt.kind = "queue",
+                tt.request_id = "missing",
+                tt.queue = "db-pool"
+            ));
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
+            drop(tracing::info_span!(
+                "queue-valid",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "db-pool"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].request_id, "r1");
+    }
+
+    #[test]
+    fn strict_mode_fails_for_malformed_request_span() {
         let recorder = TracingRecorder::builder("svc").strict(true).build();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -1342,22 +1424,76 @@ mod tests {
                 tt.kind = "request",
                 tt.request_id = "r1"
             ));
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn strict_mode_fails_for_malformed_stage_span() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
             drop(tracing::info_span!(
                 "stage-malformed",
                 tt.kind = "stage",
                 tt.request_id = "r1"
             ));
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn strict_mode_fails_for_malformed_queue_span() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-valid",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            );
+            let _request_guard = request.enter();
             drop(tracing::info_span!(
                 "queue-malformed",
                 tt.kind = "queue",
                 tt.request_id = "r1"
             ));
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn strict_mode_fails_for_orphan_stage_span() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
             drop(tracing::info_span!(
                 "stage-orphan",
                 tt.kind = "stage",
                 tt.request_id = "missing",
                 tt.stage = "db"
             ));
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn strict_mode_fails_for_orphan_queue_span() {
+        let recorder = TracingRecorder::builder("svc").strict(true).build();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
             drop(tracing::info_span!(
                 "queue-orphan",
                 tt.kind = "queue",
