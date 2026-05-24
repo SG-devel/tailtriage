@@ -300,7 +300,9 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
                 if cli.mode.uses_drop_path_limits() {
                     b = b.max_open_spans(64);
                 }
-                let rec = b.build();
+                let rec = b
+                    .build()
+                    .map_err(|e| anyhow!("invalid tracing recorder config: {e}"))?;
                 // One mode runs per process in this demo, so process-global subscriber init is acceptable.
                 tracing::subscriber::set_global_default(
                     tracing_subscriber::registry().with(rec.layer()),

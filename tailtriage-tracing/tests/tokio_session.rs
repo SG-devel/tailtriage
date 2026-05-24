@@ -97,6 +97,17 @@ async fn zero_sampler_interval_fails_clearly() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn tracing_tokio_session_start_rejects_blank_service_name() {
+    let err = TracingTokioSession::builder("   ")
+        .start()
+        .expect_err("blank service name must fail before sampler setup");
+    assert!(matches!(
+        err,
+        TracingTokioSessionStartError::Import(tailtriage_tracing::ImportError::EmptyServiceName)
+    ));
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn runtime_merge_keeps_tracing_requests() {
     let session = TracingTokioSession::builder("svc")
         .sampler_interval(Duration::from_millis(1))
