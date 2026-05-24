@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tailtriage_core::{CaptureLimits, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
 
 use tracing::field::{Field, Visit};
@@ -283,6 +284,9 @@ impl TracingIntakeSession {
         let strict_mode = self.recorder.options.strict_mode();
         let imported = self.recorder.shutdown()?;
         let (mut run, mut warnings) = imported.into_parts();
+        if self.run_json_path.is_some() {
+            ensure_persistable_run_has_requests(&run)?;
+        }
         if let Some(path) = &self.completed_span_jsonl_path {
             if let Err(err) = write_completed_span_jsonl_from_run(&run, path) {
                 if strict_mode {
@@ -294,7 +298,6 @@ impl TracingIntakeSession {
             }
         }
         if let Some(path) = self.run_json_path {
-            ensure_persistable_run_has_requests(&run)?;
             LocalJsonSink::new(&path)
                 .write(&run)
                 .map_err(|err| ImportError::RunJsonWrite {
@@ -310,35 +313,61 @@ fn write_completed_span_jsonl_from_run(
     run: &tailtriage_core::Run,
     path: &Path,
 ) -> Result<(), ImportError> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let temp_path = temp_output_path(path, dir);
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(path)
+        .open(&temp_path)
         .map_err(|err| ImportError::Io {
-            operation: "open completed span jsonl path",
-            context: path.display().to_string(),
+            operation: "open temporary completed span jsonl path",
+            context: temp_path.display().to_string(),
             reason: err.to_string(),
         })?;
     for span in retained_span_records_from_run(run) {
         let wrapped = serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
         serde_json::to_writer(&mut file, &wrapped).map_err(|err| ImportError::Io {
-            operation: "write completed span jsonl record",
-            context: path.display().to_string(),
+            operation: "write completed span jsonl record to temporary file",
+            context: temp_path.display().to_string(),
             reason: err.to_string(),
         })?;
         file.write_all(b"\n").map_err(|err| ImportError::Io {
-            operation: "write completed span jsonl newline",
-            context: path.display().to_string(),
+            operation: "write completed span jsonl newline to temporary file",
+            context: temp_path.display().to_string(),
             reason: err.to_string(),
         })?;
     }
     file.flush().map_err(|err| ImportError::Io {
-        operation: "flush completed span jsonl file",
-        context: path.display().to_string(),
+        operation: "flush temporary completed span jsonl file",
+        context: temp_path.display().to_string(),
         reason: err.to_string(),
     })?;
+    drop(file);
+    if let Err(err) = std::fs::rename(&temp_path, path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(ImportError::Io {
+            operation: "rename temporary completed span jsonl file into final path",
+            context: format!("{} -> {}", temp_path.display(), path.display()),
+            reason: err.to_string(),
+        });
+    }
     Ok(())
+}
+
+fn temp_output_path(final_path: &Path, dir: &Path) -> PathBuf {
+    let file_name = final_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("tailtriage-completed-spans.jsonl");
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    dir.join(format!(
+        ".{file_name}.tailtriage.tmp-{}-{nanos}",
+        std::process::id()
+    ))
 }
 
 fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord> {
@@ -2688,6 +2717,52 @@ mod tests {
         let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert_eq!(std::fs::read_to_string(&run_path).unwrap(), "keep-me");
+    }
+
+    #[test]
+    fn shutdown_with_both_outputs_and_zero_requests_writes_no_final_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+
+        let err = session.shutdown().unwrap_err();
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
+        assert!(!spans_path.exists());
+        assert!(!run_path.exists());
+    }
+
+    #[test]
+    fn completed_span_jsonl_success_writes_final_wrapper_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+
+        session.shutdown().unwrap();
+        assert!(spans_path.exists());
+        let raw = std::fs::read_to_string(&spans_path).unwrap();
+        let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1);
+        let value: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(value["format"], "tailtriage.tracing-span.v1");
+        assert!(value["span"].is_object());
+        assert_eq!(value["span"]["fields"]["tt.request_id"], "r1");
     }
 
     #[test]
