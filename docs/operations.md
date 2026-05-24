@@ -158,9 +158,7 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing import expects completed `tt.*` span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Persisted Run JSON intended for CLI analysis must include at least one request event; zero-request persisted artifacts are rejected by CLI analysis, while library snapshots can still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
-
-Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event. Library snapshots may still be zero-request for inspection during active captures.
+Tracing import expects completed `tt.*` span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
 
 Important limits for production interpretation:
 
@@ -500,12 +498,12 @@ Do not treat one report as final proof.
 - Arbitrary tracing log JSON (for example plain `tracing_subscriber::fmt().json()` output) is not import input.
 - Import writes Run JSON; analysis is a separate `tailtriage analyze` step.
 - Timing is not guessed from line receive time; completed span records must carry explicit unix-ms start/end timestamps.
-- Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request event.
-- Library snapshots may still be zero-request when used for non-persisted inspection during active captures.
+- Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 - Completed-span JSONL can grow with captured completed spans; size outputs accordingly.
-- `completed_span_jsonl_path(...)` output files are created/truncated and written at shutdown.
+- `completed_span_jsonl_path(...)` writes retained valid completed-span JSONL on shutdown.
 - Configure `max_open_spans`` to keep memory bounded.
-- Completed-span JSONL is written from retained, semantically valid request/stage/queue evidence in the finalized Run, so the file reflects Run retention rather than a pre-retention stream.
+- Completed-span JSONL is replayable into the same retained request/stage/queue evidence when imported with matching service metadata.
+- Completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
 - Import warnings and lifecycle warnings mean evidence may be incomplete and should be treated as triage caveats.
 - Tracing import and native capture share `CaptureMode` and `CaptureLimits` semantics for request/stage/queue retention. Offline CLI tracing import exposes only request/stage/queue limit overrides because those are the evidence types imported on this path; runtime/in-flight snapshot limit flags are intentionally not exposed because these evidence types are not imported. Tracing-only runs do not fabricate runtime snapshots; runtime-pressure evidence remains Tokio-specific and requires runtime snapshots/Tokio sampler coupling.
 - Treat tracing-import output like all tailtriage output: evidence-ranked suspects and next checks are leads, not proof of root cause.
