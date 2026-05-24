@@ -54,7 +54,6 @@ With optional metadata flags, strict validation, and explicit format:
 tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
 ```
 
-
 `tailtriage import tracing-json` imports **completed `tt.*` tracing span JSONL** into **Run JSON** (not Report JSON).
 
 Recommended stable input format is the tailtriage wrapper JSONL shape:
@@ -89,7 +88,7 @@ The command imports completed `tt.*` tracing span records in the documented JSON
 Tracing import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline CLI tracing import exposes request/stage/queue limit overrides because those are the evidence types it imports. It intentionally does not expose runtime-snapshot or in-flight-snapshot limit flags because this import path does not ingest those evidence types. Tracing-only imports do not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured (for example via Tokio runtime sampling).
 Malformed JSON input remains fatal. In non-strict mode, syntactically valid malformed/incomplete `tt.*` records are skipped with `warning: ...` lines.
 `--service` must not be empty or whitespace.
-Import fails when zero request events would be written (for example unrelated-only input or all-skipped malformed `tt.*` input), because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
+Import fails when zero request events would be written (for example unrelated-only input or all-skipped malformed `tt.*` input). Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
 
@@ -224,7 +223,6 @@ Loader, parse, validation, and render errors return a non-zero process exit thro
 - unfinished lifecycle warnings printed by the CLI indicate some requests were not completed cleanly
 - `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`
 
-
 ## Scoring and warning behavior
 
 Suspect ranking uses deterministic, proportional, evidence-aware scoring (0-100), not fixed suspect priority.
@@ -284,4 +282,4 @@ Use capture-side crates for that:
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
 
-Persisted Run JSON intended for `tailtriage analyze` must include at least one request event. Zero-request persisted artifacts are rejected by CLI analysis; zero-request library snapshots remain valid for in-process inspection.
+Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.

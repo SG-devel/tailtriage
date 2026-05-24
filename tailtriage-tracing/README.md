@@ -104,13 +104,15 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 ## Retention and drop behavior
 
 - `max_open_spans` bounds in-flight span tracking.
-- Completed-span JSONL is written on shutdown from the same retained, semantically valid request/stage/queue evidence present in the finalized imported Run.
+- `completed_span_jsonl_path(...)` writes retained, semantically valid completed-span JSONL on shutdown.
+- The retained completed-span JSONL is replayable into the same retained request/stage/queue evidence when imported with matching service metadata.
+- Completed-span JSONL output is not a generic tracing log stream and is not OTel/OTLP.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
 
 ## Runtime-pressure limitation
 
 Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
-Persisted Run JSON artifacts intended for `tailtriage analyze` require at least one completed request span event. Library snapshots taken before completed requests may still be zero-request for inspection.
+Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
 For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model:
 
