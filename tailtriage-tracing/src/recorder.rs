@@ -99,7 +99,6 @@ struct RecorderState {
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
     closed_kind_samples: Vec<ClosedKindIssueSample>,
-    writer_failure: Option<String>,
 }
 
 #[derive(Debug)]
@@ -139,7 +138,6 @@ struct SnapshotStats {
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
     closed_kind_samples: Vec<ClosedKindIssueSample>,
-    writer_failure: Option<String>,
 }
 fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, RecorderState> {
     match state.lock() {
@@ -202,7 +200,6 @@ impl TracingRecorder {
                     closed_unknown_kind_spans: state.closed_unknown_kind_spans,
                     closed_malformed_kind_spans: state.closed_malformed_kind_spans,
                     closed_kind_samples: state.closed_kind_samples.clone(),
-                    writer_failure: state.writer_failure.clone(),
                 },
             )
         };
@@ -456,11 +453,11 @@ impl TracingIntakeSessionBuilder {
         self.run_json_path = Some(path.as_ref().to_path_buf());
         self
     }
-    /// Builds a tracing intake session and opens optional outputs.
+    /// Builds a tracing intake session.
     ///
     /// # Errors
     ///
-    /// Returns an error when the completed-span JSONL path cannot be opened.
+    /// Returns an error when required recorder configuration is invalid.
     pub fn build(self) -> Result<TracingIntakeSession, ImportError> {
         let recorder = self.recorder_builder.build();
         Ok(TracingIntakeSession {
@@ -718,11 +715,6 @@ fn push_strict_recorder_messages(
             stats.dropped_completed_candidate_spans, limits.max_completed_candidate_spans
         ));
     }
-    if let Some(reason) = &stats.writer_failure {
-        messages.push(format!(
-            "live recorder failed writing completed-span JSONL output: {reason}"
-        ));
-    }
 }
 
 fn append_non_strict_drop_warnings(
@@ -807,11 +799,6 @@ fn append_non_strict_drop_warnings(
     if stats.dropped_open_spans > 0 || stats.dropped_completed_candidate_spans > 0 {
         run.truncation.limits_hit = true;
     }
-    if let Some(reason) = &stats.writer_failure {
-        let msg = format!("live recorder failed writing completed-span JSONL output: {reason}");
-        run.metadata.lifecycle_warnings.push(msg.clone());
-        warnings.push(crate::ImportWarning::new(msg));
-    }
 }
 
 fn imported_with_drop_warnings(
@@ -844,7 +831,6 @@ fn imported_with_drop_warnings(
         && stats.closed_missing_kind_spans == 0
         && stats.closed_unknown_kind_spans == 0
         && stats.closed_malformed_kind_spans == 0
-        && stats.writer_failure.is_none()
     {
         return Ok(imported);
     }
@@ -2168,6 +2154,49 @@ mod tests {
         let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
         assert!(err.to_string().contains("spans.jsonl"));
+    }
+
+    #[test]
+    fn intake_session_non_strict_write_failure_adds_warning_and_keeps_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad_path = dir.path().join("missing").join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&bad_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            ));
+        });
+
+        let imported = session.shutdown().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
+
+        let warning = imported
+            .warnings()
+            .iter()
+            .map(crate::ImportWarning::message)
+            .find(|m| m.contains("completed span jsonl") || m.contains("spans.jsonl"))
+            .expect("non-strict shutdown should include completed-span JSONL write warning");
+        assert!(
+            warning.contains("completed span jsonl") || warning.contains("spans.jsonl"),
+            "warning should contain completed-span JSONL context: {warning}"
+        );
+        assert!(
+            imported
+                .run()
+                .metadata
+                .lifecycle_warnings
+                .iter()
+                .any(|m| m == warning),
+            "lifecycle warnings should contain the same completed-span JSONL write warning"
+        );
     }
 
     #[test]
