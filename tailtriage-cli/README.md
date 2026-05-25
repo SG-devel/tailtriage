@@ -45,13 +45,19 @@ tailtriage analyze tailtriage-run.json --format json
 Import completed `tt.*` tracing span JSONL into Run JSON:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
 ```
 
 With optional metadata flags, strict validation, and explicit format:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+```
+
+Compatibility-mode import for older normalized input shapes:
+
+```bash
+tailtriage import tracing-json spans.jsonl --input-format compatible --service checkout --output tailtriage-run.json
 ```
 
 
@@ -64,12 +70,12 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 ```
 
 `--input-format` values:
-- `auto`
-- `tailtriage-span-jsonl`
+- `tailtriage-span-jsonl` (default stable wrapper-only format)
+- `compatible`
 
 Behavior:
-- `tailtriage-span-jsonl` enforces wrapper-only parsing.
-- `auto` keeps compatibility parsing for older normalized shapes and rejects ordinary tracing log JSON (including `fmt().json` output) early with setup guidance; timing is not guessed from JSONL line receive time.
+- `tailtriage-span-jsonl` enforces wrapper-only parsing for `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
+- `compatible` keeps compatibility parsing for pre-stable/internal normalized shapes and rejects ordinary tracing log JSON (including `fmt().json` output) early with setup guidance; timing is not guessed from JSONL line receive time.
 
 After import, run analysis separately:
 
@@ -85,7 +91,7 @@ When paths include spaces, quote them in shell usage:
 tailtriage import tracing-json "fixtures/tracing spans.jsonl" --service checkout --output "runs/imported run.json"
 ```
 
-The command imports completed `tt.*` tracing span records in the documented JSONL shape and writes pretty Run JSON (`serde_json::to_writer_pretty`), not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
+The command imports completed `tt.*` tracing span records in the documented JSONL shape and writes Run JSON through the normal local JSON artifact writer, not Report JSON. Import warnings are printed to stderr as `warning: ...`. Analysis is a separate step: `tailtriage analyze tailtriage-run.json`.
 Tracing import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline CLI tracing import exposes request/stage/queue limit overrides because those are the evidence types it imports. It intentionally does not expose runtime-snapshot or in-flight-snapshot limit flags because this import path does not ingest those evidence types. Tracing-only imports do not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured (for example via Tokio runtime sampling).
 Malformed JSON input remains fatal. In non-strict mode, syntactically valid malformed/incomplete `tt.*` records are skipped with `warning: ...` lines.
 `--service` must not be empty or whitespace.

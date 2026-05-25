@@ -45,7 +45,7 @@ cargo add tailtriage-tracing
 A) Completed-span JSONL intake path:
 
 ```bash
-tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+tailtriage import tracing-json completed-spans.jsonl --service checkout --output tailtriage-run.json
 tailtriage analyze tailtriage-run.json
 ```
 
