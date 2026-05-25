@@ -1121,13 +1121,15 @@ mod tests {
     #[test]
     fn stage_span_collected() {
         with_recorder(|recorder| {
+            // Keep the request open so the stage interval is contained in the request interval.
             let request = tracing::info_span!(
                 "request",
                 tt.kind = "request",
                 tt.request_id = "r1",
                 tt.route = "/a"
-            );
-            drop(request);
+            )
+            .entered();
+
             let span = tracing::info_span!(
                 "stage",
                 tt.kind = "stage",
@@ -1135,6 +1137,9 @@ mod tests {
                 tt.stage = "db"
             );
             drop(span);
+
+            drop(request);
+
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().stages.len(), 1);
         });
