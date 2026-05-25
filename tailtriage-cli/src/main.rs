@@ -261,14 +261,21 @@ fn tracing_json_setup_guidance() -> &'static str {
 }
 
 fn should_append_wrapper_guidance(input_format: TracingInputFormat, err: &ImportError) -> bool {
-    matches!(input_format, TracingInputFormat::TailtriageSpanJsonl)
-        && matches!(
-            err,
-            ImportError::MissingField(_)
-                | ImportError::InvalidField { .. }
-                | ImportError::StrictViolation(_)
-                | ImportError::InvalidRunEvent(_)
-        )
+    if !matches!(input_format, TracingInputFormat::TailtriageSpanJsonl) {
+        return false;
+    }
+
+    match err {
+        ImportError::MissingField(field) => *field == "format" || *field == "span",
+        ImportError::InvalidField { field, reason } => {
+            (*field == "format" || *field == "span")
+                && (reason.contains("tailtriage.tracing-span.v1")
+                    || reason.contains("wrapper")
+                    || reason.contains("expected object")
+                    || reason.contains("expected string"))
+        }
+        _ => false,
+    }
 }
 
 fn wrapper_only_rejection_guidance() -> &'static str {
