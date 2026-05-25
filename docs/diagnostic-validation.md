@@ -108,5 +108,6 @@ Deterministic fixture metrics validate committed fixture behavior only. They do 
 
 Optional manifest fields can validate expanded analyzer report surface on selected cases only: `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`. These checks are fixture-scoped and optional; cases that omit them continue to validate under the existing suspect/evidence/warning contract.
 
-- Native/tracing parity checks (release CI): artifact shape + effective core config parity + evidence presence + runtime sampler metadata on runtime-sensitive tracing; tiny-limit exact truncation/retention parity (`validate-tracing-retention-parity`).
+- Broad tracing parity checks (release CI): scenario coverage + expected evidence presence + route coverage + mode parity + runtime/non-runtime semantics (`validate-tracing-parity`).
+- Queue tiny-limit retention parity gate (release CI): retained counts + dropped counters + `truncation.limits_hit` + `metadata.effective_core_config` (`validate-tracing-retention-parity`).
 

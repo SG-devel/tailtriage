@@ -158,15 +158,16 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing import expects completed `tt.*` span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
+Tracing import expects completed `tt.*` span JSONL, not ordinary tracing log JSON (`tracing_subscriber::fmt().json()` output is not supported). Import writes Run JSON (not Report JSON), and analysis is a separate step (`tailtriage analyze`) after import. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps.
 
 Important limits for production interpretation:
 
 * tracing-only runs do not fabricate runtime snapshots
 * without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
 * runtime-pressure evidence remains Tokio-specific and requires runtime snapshots or Tokio sampler coupling
+* OTel/OTLP import remains out of scope
 
-`TracingTokioSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. For `TracingTokioSession`, run metadata time bounds cover both retained tracing evidence and retained runtime snapshots. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`. Tracing-only runs still do not fabricate runtime snapshots, so runtime-pressure evidence requires Tokio session/runtime sampler coupling.
+`TracingTokioSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. For `TracingTokioSession`, run metadata time bounds cover both retained tracing evidence and retained runtime snapshots. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`.
 
 Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
 
