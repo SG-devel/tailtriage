@@ -48,8 +48,11 @@ let session = TracingIntakeSession::builder("checkout-service")
     .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
     .build()?;
 
-let subscriber = tracing_subscriber::registry().with(session.layer());
-let _guard = tracing::subscriber::set_default(subscriber);
+tracing_subscriber::registry()
+    // Keep existing layers (fmt/filter/telemetry) and add tailtriage beside them.
+    .with(session.layer())
+    .init(); // Startup-only in standalone binaries.
+
 let request = tracing::info_span!(
     "request",
     tt.kind = "request",
@@ -67,6 +70,10 @@ session.shutdown()?;
 #   Ok(())
 # }
 ```
+
+In reusable/library-style integration docs, compose `session.layer()` beside your existing subscriber layers and install the resulting subscriber in the application's normal process-wide setup (`.init()` at startup in standalone binaries, or `tracing::subscriber::set_global_default(...)` when startup needs explicit error handling).
+
+`set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
 
 ## Direct Run JSON path
 
