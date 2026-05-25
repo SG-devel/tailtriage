@@ -233,6 +233,8 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -261,6 +263,8 @@ fn import_tracing_json_writes_run_json_when_output_path_contains_spaces() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -309,6 +313,8 @@ fn import_tracing_json_capture_limit_overrides_apply() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -385,8 +391,6 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_accepts_fixture() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
-        .arg("--input-format")
-        .arg("tailtriage-span-jsonl")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -416,8 +420,6 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() 
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
-        .arg("--input-format")
-        .arg("tailtriage-span-jsonl")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -432,7 +434,7 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() 
 }
 
 #[test]
-fn import_tracing_json_auto_rejects_fmt_json_with_guidance() {
+fn import_tracing_json_default_wrapper_rejects_fmt_json_with_actionable_error() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("fmt.jsonl");
     let run_path = dir.path().join("run.json");
@@ -449,16 +451,12 @@ fn import_tracing_json_auto_rejects_fmt_json_with_guidance() {
         .expect("cli should run");
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("ordinary tracing log JSON"));
-    assert!(stderr.contains("literal dotted tt.* keys"));
-    assert!(stderr.contains("explicit unix-ms start/end timestamps"));
-    assert!(stderr.contains("TracingIntakeSession"));
-    assert!(stderr.contains("tailtriage-span-jsonl"));
+    assert!(stderr.contains("tailtriage.tracing-span.v1") || stderr.contains("stable wrapper"));
     assert!(!run_path.exists());
 }
 
 #[test]
-fn import_tracing_json_auto_accepts_fmt_like_record_with_top_level_explicit_timestamps() {
+fn import_tracing_json_compatible_accepts_fmt_like_record_with_top_level_explicit_timestamps() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
@@ -471,6 +469,8 @@ fn import_tracing_json_auto_accepts_fmt_like_record_with_top_level_explicit_time
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -488,7 +488,7 @@ fn import_tracing_json_auto_accepts_fmt_like_record_with_top_level_explicit_time
 }
 
 #[test]
-fn import_tracing_json_auto_accepts_fmt_like_record_with_nested_explicit_timestamps() {
+fn import_tracing_json_compatible_accepts_fmt_like_record_with_nested_explicit_timestamps() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
@@ -501,6 +501,8 @@ fn import_tracing_json_auto_accepts_fmt_like_record_with_nested_explicit_timesta
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -527,9 +529,40 @@ fn import_tracing_json_help_shows_only_live_input_format_values() {
         .expect("cli should run");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("auto"));
+    assert!(stdout.contains("compatible"));
     assert!(stdout.contains("tailtriage-span-jsonl"));
+    assert!(!stdout.contains("auto"));
     assert!(!stdout.contains("tracing-subscriber-fmt-json"));
+}
+
+#[test]
+fn import_tracing_json_rejects_auto_input_format_value() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg("--input-format")
+        .arg("auto")
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg("/tmp/out.json")
+        .arg("/tmp/in.jsonl")
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("invalid value") || stderr.contains("possible values"));
+}
+
+#[test]
+fn top_level_help_mentions_import_and_analyze_artifacts() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("--help")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Import and analyze tailtriage run artifacts"));
 }
 
 #[test]
@@ -544,6 +577,8 @@ fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -576,6 +611,8 @@ fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -605,6 +642,8 @@ fn import_tracing_json_writes_metadata_flags_into_run_json() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--service-version")
@@ -638,6 +677,8 @@ fn import_tracing_json_accepts_paths_with_spaces() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -731,6 +772,8 @@ fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -756,6 +799,8 @@ fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -793,6 +838,8 @@ fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")
@@ -829,6 +876,8 @@ fn import_tracing_json_persists_optional_default_assumption_warnings_in_run_arti
         .arg("import")
         .arg("tracing-json")
         .arg(&spans_path)
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--service")
         .arg("checkout")
         .arg("--output")

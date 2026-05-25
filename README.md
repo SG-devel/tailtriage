@@ -74,7 +74,7 @@ Offline import expects completed `tt.*` span JSONL (not arbitrary tracing log JS
 
 - Offline JSONL import:
   ```bash
-  tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+  tailtriage import tracing-json completed-spans.jsonl --service checkout --output tailtriage-run.json
   tailtriage analyze tailtriage-run.json
   ```
 - Live session path: first install `tailtriage-tracing` with `live` (`cargo add tailtriage-tracing --features live`), then add `tailtriage_tracing::TracingIntakeSession` and `session.layer()` beside your existing subscriber setup.
@@ -241,7 +241,7 @@ tailtriage analyze tailtriage-run.json --format json
 Import completed tracing span records (JSONL) into a Run artifact first when needed:
 
 ```bash
-tailtriage import tracing-json completed-spans.jsonl --input-format tailtriage-span-jsonl --service checkout --output tailtriage-run.json
+tailtriage import tracing-json completed-spans.jsonl --service checkout --output tailtriage-run.json
 ```
 
 `tailtriage import tracing-json` writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr. Arbitrary `tracing_subscriber::fmt().json()` log JSON is not imported, and timing is not guessed from line receive time: completed spans must include explicit unix-ms start/end timestamps. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
