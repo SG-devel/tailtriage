@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Tailtriage};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink, Tailtriage};
+use tailtriage_tracing::ensure_persistable_run_has_requests;
 use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
 use tokio::sync::Barrier;
 use tracing::Instrument;
@@ -352,9 +353,7 @@ impl DemoInstrumentation {
             }
             DemoInstrumentationBackend::Tracing(state) => {
                 let imported = state.recorder.shutdown()?;
-                let mut file = std::fs::File::create(output_path)?;
-                serde_json::to_writer_pretty(&mut file, imported.run())?;
-                Ok(())
+                write_persistable_demo_run(&imported, output_path)
             }
         }
     }
@@ -473,12 +472,21 @@ impl RuntimeDemoInstrumentation {
             }
             RuntimeDemoBackend::Tracing(s) => {
                 let imported = s.shutdown().await?;
-                let mut file = std::fs::File::create(output_path)?;
-                serde_json::to_writer_pretty(&mut file, imported.run())?;
-                Ok(())
+                write_persistable_demo_run(&imported, output_path)
             }
         }
     }
+}
+
+fn write_persistable_demo_run(
+    imported: &tailtriage_tracing::ImportedRun,
+    output_path: &Path,
+) -> anyhow::Result<()> {
+    ensure_persistable_run_has_requests(imported.run())?;
+    LocalJsonSink::new(output_path)
+        .write(imported.run())
+        .with_context(|| format!("failed to write run artifact to {}", output_path.display()))?;
+    Ok(())
 }
 
 impl DemoRequest {
@@ -608,8 +616,10 @@ pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_demo_args_from, DemoMode, InstrumentationMode};
-    use tailtriage_core::Outcome;
+    use super::{parse_demo_args_from, write_persistable_demo_run, DemoMode, InstrumentationMode};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tailtriage_core::{Outcome, RequestEvent, Run, RunBuilder, RunBuilderOptions};
+    use tailtriage_tracing::ImportedRun;
 
     #[test]
     fn demo_args_default_instrumentation_is_native() {
@@ -677,5 +687,58 @@ mod tests {
     fn outcome_other_preserves_custom_label() {
         let outcome = Outcome::Other("custom".to_string());
         assert_eq!(outcome.as_str(), "custom");
+    }
+
+    #[test]
+    fn tracing_shutdown_writer_rejects_zero_requests_without_writing() {
+        let output = unique_temp_output_path("empty-run");
+        let imported = ImportedRun::new(sample_run_without_requests(), Vec::new());
+
+        let err = write_persistable_demo_run(&imported, &output).expect_err("expected rejection");
+        assert!(err.to_string().contains("zero request events"));
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn tracing_shutdown_writer_persists_non_empty_run_json() {
+        let output = unique_temp_output_path("non-empty-run");
+        let run = sample_run_with_one_request();
+        let imported = ImportedRun::new(run, Vec::new());
+
+        write_persistable_demo_run(&imported, &output).expect("write artifact");
+        let raw = std::fs::read_to_string(&output).expect("read output");
+        let parsed: Run = serde_json::from_str(&raw).expect("parse run json");
+        assert_eq!(parsed.requests.len(), 1);
+        let _ = std::fs::remove_file(&output);
+    }
+
+    fn sample_run_without_requests() -> Run {
+        RunBuilder::new(RunBuilderOptions::new("demo-service"))
+            .expect("build run")
+            .finish()
+    }
+
+    fn sample_run_with_one_request() -> Run {
+        let mut builder = RunBuilder::new(RunBuilderOptions::new("demo-service")).expect("build");
+        builder
+            .push_request(RequestEvent {
+                request_id: "req-1".to_string(),
+                route: "route-a".to_string(),
+                kind: None,
+                started_at_unix_ms: 1,
+                finished_at_unix_ms: 2,
+                latency_us: 1_000,
+                outcome: Outcome::Ok.into_string(),
+            })
+            .expect("push request");
+        builder.finish()
+    }
+
+    fn unique_temp_output_path(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nanos}.json"))
     }
 }
