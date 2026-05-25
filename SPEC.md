@@ -166,7 +166,7 @@ Analyzer configuration contract:
 - stable completed-span JSONL wrapper format is:
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:
-  `tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run.json>`
+  `tailtriage import tracing-json <completed-spans.jsonl> --service <service> --output <run.json>`
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
 - tracing-only intake does not fabricate runtime-pressure evidence without runtime snapshots / Tokio sampler coupling
