@@ -36,6 +36,8 @@ cargo add tracing tracing-subscriber
 
 ## Recommended live session setup (`live` feature)
 
+Install the `tailtriage` tracing layer beside your existing subscriber layers, then install the composed subscriber in your application's normal process-wide/global subscriber setup during startup.
+
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;
 use tracing::Instrument as _;
@@ -48,8 +50,12 @@ let session = TracingIntakeSession::builder("checkout-service")
     .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
     .build()?;
 
-let subscriber = tracing_subscriber::registry().with(session.layer());
-let _guard = tracing::subscriber::set_default(subscriber);
+tracing_subscriber::registry()
+    .with(session.layer())
+    .init();
+
+// run service/workload here
+
 let request = tracing::info_span!(
     "request",
     tt.kind = "request",
@@ -59,7 +65,7 @@ let request = tracing::info_span!(
 );
 work().instrument(request).await;
 
-session.shutdown()?;
+let _imported = session.shutdown()?;
 # Ok(())
 # }
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,6 +73,8 @@ session.shutdown()?;
 #   Ok(())
 # }
 ```
+
+Use `.init()` only from startup-only binary code paths where no prior global subscriber is installed. `tailtriage` does not replace your tracing pipeline; it adds a layer beside your existing subscriber layers.
 
 ## Direct Run JSON path
 
