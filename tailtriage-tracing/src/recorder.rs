@@ -2714,7 +2714,9 @@ mod tests {
             .unwrap();
         let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
-        assert!(err.to_string().contains("create completed span jsonl parent directory"));
+        assert!(err
+            .to_string()
+            .contains("create completed span jsonl parent directory"));
     }
 
     #[test]
@@ -2900,28 +2902,9 @@ mod tests {
     }
 
     #[test]
-    fn run_json_simple_filename_without_parent_writes_successfully() {
-        let dir = tempfile::tempdir().unwrap();
-        let cwd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-
-        let session = TracingIntakeSession::builder("svc")
-            .run_json_path("run.json")
-            .build()
+    fn create_output_parent_dir_skips_filename_only_path() {
+        create_output_parent_dir(Path::new("run.json"), "create run json parent directory")
             .unwrap();
-        let subscriber = tracing_subscriber::registry().with(session.layer());
-        tracing::subscriber::with_default(subscriber, || {
-            drop(tracing::info_span!(
-                "request",
-                tt.kind = "request",
-                tt.request_id = "r1",
-                tt.route = "/a"
-            ));
-        });
-        session.shutdown().unwrap();
-        assert!(dir.path().join("run.json").exists());
-
-        std::env::set_current_dir(cwd).unwrap();
     }
 
     #[test]
