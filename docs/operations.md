@@ -166,7 +166,7 @@ Important limits for production interpretation:
 * without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
 * runtime-pressure evidence remains Tokio-specific and requires runtime snapshots or Tokio sampler coupling
 
-`TracingTokioSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`. Tracing-only runs still do not fabricate runtime snapshots, so runtime-pressure evidence requires Tokio session/runtime sampler coupling.
+`TracingTokioSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. For `TracingTokioSession`, run metadata time bounds cover both retained tracing evidence and retained runtime snapshots. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`. Tracing-only runs still do not fabricate runtime snapshots, so runtime-pressure evidence requires Tokio session/runtime sampler coupling.
 
 Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
 
@@ -506,4 +506,5 @@ Do not treat one report as final proof.
 - Completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
 - Import warnings and lifecycle warnings mean evidence may be incomplete and should be treated as triage caveats.
 - Tracing import and native capture share `CaptureMode` and `CaptureLimits` semantics for request/stage/queue retention. Offline CLI tracing import exposes only request/stage/queue limit overrides because those are the evidence types imported on this path; runtime/in-flight snapshot limit flags are intentionally not exposed because these evidence types are not imported. Tracing-only runs do not fabricate runtime snapshots; runtime-pressure evidence remains Tokio-specific and requires runtime snapshots/Tokio sampler coupling.
+- For `TracingTokioSession`, run metadata time bounds cover both retained tracing evidence and retained runtime snapshots.
 - Treat tracing-import output like all tailtriage output: evidence-ranked suspects and next checks are leads, not proof of root cause.
