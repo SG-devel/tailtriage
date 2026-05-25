@@ -118,6 +118,7 @@ Tracing intake import and native capture share the same CaptureMode/CaptureLimit
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
 For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model:
+Run metadata time bounds cover merged tracing evidence plus retained runtime snapshots, which helps bound triage interpretation without proving root cause.
 
 - configure retention with `mode(...)`, `capture_limits(...)`, or `capture_limits_override(...)`
 - there is no tracing-specific `.max_runtime_snapshots(...)` session builder method
