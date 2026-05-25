@@ -20,6 +20,20 @@ It is **not**:
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
+For live tracing intake sessions, `tailtriage-tracing` enables optional dependencies behind feature flags, but applications that call `tracing::...` or `tracing_subscriber::...` directly still need explicit app dependencies:
+
+```bash
+cargo add tailtriage-tracing --features live
+cargo add tracing tracing-subscriber
+```
+
+If you use Tokio runtime sampler coupling via `TracingTokioSession`, use:
+
+```bash
+cargo add tailtriage-tracing --features tokio
+cargo add tracing tracing-subscriber
+```
+
 ## Recommended live session setup (`live` feature)
 
 ```rust,no_run
