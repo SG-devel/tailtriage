@@ -47,6 +47,12 @@ tailtriage analyze tailtriage-run.json
 
 B) Direct Run JSON path with async span instrumentation:
 
+Install live tracing intake support:
+
+```bash
+cargo add tailtriage-tracing --features live
+```
+
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;
 use tracing::Instrument as _;
@@ -85,6 +91,12 @@ tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
 Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
+
+For Tokio runtime sampler coupling with `TracingTokioSession`, enable the Tokio feature:
+
+```bash
+cargo add tailtriage-tracing --features tokio
+```
 
 For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
 
