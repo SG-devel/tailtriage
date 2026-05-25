@@ -5,8 +5,6 @@ use tracing_subscriber::prelude::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let spans_path = std::path::PathBuf::from("target/tailtriage-examples/completed-spans.jsonl");
-    std::fs::create_dir_all(spans_path.parent().expect("parent path exists"))?;
-
     let session = TracingIntakeSession::builder("checkout-service")
         .completed_span_jsonl_path(&spans_path)
         .build()?;
@@ -21,22 +19,26 @@ fn main() -> Result<(), Box<dyn Error>> {
             tt.outcome = "ok"
         );
         let _request_guard = request.enter();
-        let _queue_guard = tracing::info_span!(
-            "admission.queue",
-            tt.kind = "queue",
-            tt.request_id = "req-1",
-            tt.queue = "admission",
-            tt.depth_at_start = 5_u64
-        )
-        .entered();
-        let _stage_guard = tracing::info_span!(
-            "db.stage",
-            tt.kind = "stage",
-            tt.request_id = "req-1",
-            tt.stage = "db",
-            tt.success = true
-        )
-        .entered();
+        {
+            let _queue_guard = tracing::info_span!(
+                "admission.queue",
+                tt.kind = "queue",
+                tt.request_id = "req-1",
+                tt.queue = "admission",
+                tt.depth_at_start = 5_u64
+            )
+            .entered();
+        }
+        {
+            let _stage_guard = tracing::info_span!(
+                "db.stage",
+                tt.kind = "stage",
+                tt.request_id = "req-1",
+                tt.stage = "db",
+                tt.success = true
+            )
+            .entered();
+        }
     });
 
     session.shutdown()?;
