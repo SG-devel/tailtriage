@@ -741,7 +741,21 @@ fn require_string_field(
             "tt.queue" => "missing required field tt.queue",
             _ => "missing required field",
         }),
-        Some(FieldValue::String(_)) => None,
+        Some(FieldValue::String(value)) => {
+            if value.trim().is_empty() {
+                Some(match field_name {
+                    "tt.request_id" => {
+                        "invalid required field tt.request_id: expected non-empty string"
+                    }
+                    "tt.route" => "invalid required field tt.route: expected non-empty string",
+                    "tt.stage" => "invalid required field tt.stage: expected non-empty string",
+                    "tt.queue" => "invalid required field tt.queue: expected non-empty string",
+                    _ => "invalid required field: expected non-empty string",
+                })
+            } else {
+                None
+            }
+        }
         Some(_) => Some(match field_name {
             "tt.request_id" => "invalid required field tt.request_id: expected string",
             "tt.route" => "invalid required field tt.route: expected string",
@@ -1709,6 +1723,38 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn whitespace_required_field_reports_incomplete_candidate_not_invalid_run_event() {
+        with_recorder(|recorder| {
+            let _bad = tracing::info_span!(
+                "bad",
+                tt.kind = "request",
+                tt.request_id = "r-bad",
+                tt.route = " "
+            )
+            .entered();
+            drop(_bad);
+            let _good = tracing::info_span!(
+                "good",
+                tt.kind = "request",
+                tt.request_id = "r-good",
+                tt.route = "/ok"
+            )
+            .entered();
+            drop(_good);
+            let imported = recorder.snapshot_run().unwrap();
+            assert_eq!(imported.run().requests.len(), 1);
+            assert!(imported
+                .warnings()
+                .iter()
+                .any(|w| w.message().contains("incomplete required fields")));
+            assert!(!imported
+                .warnings()
+                .iter()
+                .any(|w| w.message().contains("InvalidRunEvent")));
+        });
     }
 
     #[test]

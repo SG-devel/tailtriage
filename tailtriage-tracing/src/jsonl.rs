@@ -24,7 +24,7 @@ pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
+    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::TailtriageWrapperOnly)
 }
 
 /// Parse mode for tracing JSONL import.
@@ -112,7 +112,7 @@ pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    import_jsonl_path_with_mode(path, options, JsonlParseMode::Compatible)
+    import_jsonl_path_with_mode(path, options, JsonlParseMode::TailtriageWrapperOnly)
 }
 
 /// Imports newline-delimited JSON records from a filesystem path with an explicit parse mode.
@@ -585,7 +585,12 @@ mod tests {
     #[test]
     fn normalized_jsonl_request_only() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
     }
 
@@ -596,7 +601,12 @@ mod tests {
 {"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
 {"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().queues.len(), 1);
@@ -606,21 +616,35 @@ mod tests {
     #[test]
     fn unrelated_line_ignored() {
         let input = r#"{"message":"ordinary log","level":"info"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
     }
 
     #[test]
     fn empty_lines_ignored() {
         let input = "\n\n";
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
     }
 
     #[test]
     fn malformed_json_returns_malformed_json_line_error() {
-        let err =
-            import_jsonl_reader(Cursor::new("{not-json}"), ImportOptions::new("svc")).unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new("{not-json}"),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             ImportError::MalformedJsonLine { line: 1, .. }
@@ -630,7 +654,12 @@ mod tests {
     #[test]
     fn malformed_json_reports_correct_line_number() {
         let input = "{\"message\":\"ok\"}\n{not-json}";
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             ImportError::MalformedJsonLine { line: 2, .. }
@@ -640,7 +669,12 @@ mod tests {
     #[test]
     fn missing_required_fields_surface_conversion_warnings() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert_eq!(imported.warnings().len(), 1);
     }
@@ -648,8 +682,12 @@ mod tests {
     #[test]
     fn strict_mode_propagates_conversion_errors() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
@@ -658,7 +696,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("input.jsonl");
         std::fs::write(&path, r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#).unwrap();
-        let imported = import_jsonl_path(&path, ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_path_with_mode(
+            &path,
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
     }
 
@@ -666,7 +709,12 @@ mod tests {
     fn path_open_failure_returns_io_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing.jsonl");
-        let err = import_jsonl_path(&path, ImportOptions::new("svc")).unwrap_err();
+        let err = import_jsonl_path_with_mode(
+            &path,
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         match err {
             ImportError::Io {
                 operation, context, ..
@@ -688,7 +736,12 @@ mod tests {
 
     #[test]
     fn reader_error_returns_io_error() {
-        let err = import_jsonl_reader(BoomReader, ImportOptions::new("svc")).unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            BoomReader,
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(
             err,
             ImportError::Io {
@@ -702,7 +755,12 @@ mod tests {
     fn close_event_shape_with_explicit_timestamps_is_supported() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
 {"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}},"started_at_unix_ms":5,"finished_at_unix_ms":8}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
     }
@@ -710,13 +768,22 @@ mod tests {
     #[test]
     fn incomplete_normalized_tt_kind_span_warns_non_strict_and_errors_strict() {
         let input = r#"{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 0);
         assert_eq!(imported.warnings().len(), 1);
         assert!(imported.warnings()[0].message().contains("line 1"));
 
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
@@ -724,7 +791,12 @@ mod tests {
     fn close_event_shape_with_nested_span_timestamps_is_supported() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
 {"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
     }
@@ -732,7 +804,12 @@ mod tests {
     #[test]
     fn non_strict_normalized_tt_span_invalid_timestamp_warns_and_skips() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert_eq!(imported.warnings().len(), 1);
         assert!(imported.warnings()[0].message().contains("line 1"));
@@ -741,8 +818,12 @@ mod tests {
     #[test]
     fn strict_normalized_tt_span_invalid_timestamp_errors() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
@@ -753,7 +834,12 @@ mod tests {
 {"span":{"name":"other","parent_id":{},"started_at_unix_ms":1,"finished_at_unix_ms":2}}
 {"span":{"name":123,"started_at_unix_ms":1,"finished_at_unix_ms":2}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.warnings().is_empty());
     }
@@ -764,7 +850,12 @@ mod tests {
 {"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"broken","fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/broken"}}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.warnings().len(), 1);
         let warning_message = imported.warnings()[0].message();
@@ -783,7 +874,12 @@ mod tests {
 {"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"req2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2"}}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.warnings().len(), 1);
         let conversion_warning = imported.warnings()[0].message();
@@ -802,7 +898,12 @@ mod tests {
 {"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"unknown","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"mystery"}}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.warnings().len(), 1);
         let warning_message = "unknown tt.kind 'mystery' in span 'unknown'";
@@ -820,56 +921,92 @@ mod tests {
     #[test]
     fn tt_fields_without_kind_warn_non_strict_and_error_strict() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.request_id":"r1","tt.route":"/ok"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.warnings().iter().any(|w| w
             .message()
             .contains("missing required field 'tt.kind' in span 'req'")));
 
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
     fn non_scalar_span_fields_tt_kind_warns_non_strict_and_errors_strict() {
         let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":{"bad":true}}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported
             .warnings()
             .iter()
             .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
     fn non_scalar_outer_fields_tt_kind_warns_non_strict_and_errors_strict() {
         let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":{"bad":true}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported
             .warnings()
             .iter()
             .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
     fn non_scalar_top_level_tt_kind_warns_non_strict_and_errors_strict() {
         let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":{"bad":true}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported
             .warnings()
             .iter()
             .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
@@ -881,7 +1018,12 @@ mod tests {
 {"span":{"name":"st1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
 {"span":{"name":"st2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"cache"}}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         let msgs = imported
             .warnings()
             .iter()
@@ -907,7 +1049,12 @@ mod tests {
 {"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
 {"span":{"name":"other","id":123,"started_at_unix_ms":3,"finished_at_unix_ms":4}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert!(imported.warnings().is_empty());
         assert!(imported.run().metadata.lifecycle_warnings.is_empty());
@@ -916,8 +1063,12 @@ mod tests {
     #[test]
     fn strict_parse_warning_case_still_errors_without_run() {
         let input = r#"{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
@@ -929,13 +1080,20 @@ mod tests {
             r#"{"span":{"name":123,"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#,
         ];
         for line in malformed {
-            let imported =
-                import_jsonl_reader(Cursor::new(line), ImportOptions::new("svc")).unwrap();
+            let imported = import_jsonl_reader_with_mode(
+                Cursor::new(line),
+                ImportOptions::new("svc"),
+                JsonlParseMode::Compatible,
+            )
+            .unwrap();
             assert!(imported.run().requests.is_empty());
             assert_eq!(imported.warnings().len(), 1);
-            let err =
-                import_jsonl_reader(Cursor::new(line), ImportOptions::new("svc").strict(true))
-                    .unwrap_err();
+            let err = import_jsonl_reader_with_mode(
+                Cursor::new(line),
+                ImportOptions::new("svc").strict(true),
+                JsonlParseMode::Compatible,
+            )
+            .unwrap_err();
             assert!(matches!(err, ImportError::StrictViolation(_)));
         }
     }
@@ -947,7 +1105,12 @@ mod tests {
 {"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":1234,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
 {"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":1234,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests[0].latency_us, 10_000);
         assert_eq!(imported.run().stages[0].latency_us, 7_000);
         assert_eq!(imported.run().queues[0].wait_us, 1234);
@@ -963,7 +1126,12 @@ mod tests {
 {"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":0,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
 {"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":0,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
 "#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests[0].latency_us, 10_000);
         assert_eq!(imported.run().stages[0].latency_us, 7_000);
         assert_eq!(imported.run().queues[0].wait_us, 0);
@@ -972,7 +1140,12 @@ mod tests {
     #[test]
     fn normalized_request_fields_import_from_outer_fields() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].route, "/outer");
     }
@@ -980,7 +1153,12 @@ mod tests {
     #[test]
     fn normalized_request_fields_import_from_top_level_tt_keys() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"request","tt.request_id":"r1","tt.route":"/top"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].route, "/top");
     }
@@ -989,7 +1167,12 @@ mod tests {
     fn normalized_stage_fields_import_from_outer_fields() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
 {"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
     }
@@ -998,7 +1181,12 @@ mod tests {
     fn normalized_stage_fields_import_from_top_level_tt_keys() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
 {"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"stage","tt.request_id":"r1","tt.stage":"cache"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "cache");
     }
@@ -1007,7 +1195,12 @@ mod tests {
     fn normalized_queue_fields_import_from_outer_fields() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
 {"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].depth_at_start, Some(3));
     }
@@ -1016,7 +1209,12 @@ mod tests {
     fn normalized_queue_fields_import_from_top_level_tt_keys() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
 {"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":7}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].depth_at_start, Some(7));
     }
@@ -1024,7 +1222,12 @@ mod tests {
     #[test]
     fn normalized_span_fields_still_imports() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/span"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].route, "/span");
     }
@@ -1032,39 +1235,68 @@ mod tests {
     #[test]
     fn normalized_field_precedence_is_outer_then_span_then_top_level() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.route":"/span","tt.kind":"request","tt.request_id":"r1"}},"fields":{"tt.route":"/outer"},"tt.route":"/top"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests[0].route, "/top");
     }
 
     #[test]
     fn normalized_duration_us_from_outer_fields_uses_derived_when_outside_tolerance() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests[0].latency_us, 10_000);
     }
 
     #[test]
     fn normalized_duration_us_from_top_level_tt_keys_uses_derived_when_outside_tolerance() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"tt.kind":"request","tt.request_id":"r1","tt.route":"/top"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests[0].latency_us, 10_000);
     }
 
     #[test]
     fn invalid_duration_us_on_tt_span_warns_or_errors() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"duration_us":"bad","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert_eq!(imported.warnings().len(), 1);
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
     fn invalid_duration_us_on_unrelated_normalized_span_is_ignored() {
         let input = r#"{"span":{"name":"other","started_at_unix_ms":1,"finished_at_unix_ms":2,"duration_us":"bad"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.warnings().is_empty());
     }
@@ -1072,7 +1304,12 @@ mod tests {
     #[test]
     fn non_strict_close_event_like_tt_span_missing_timestamps_warns_and_skips() {
         let input = r#"{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().stages.is_empty());
         assert_eq!(imported.warnings().len(), 1);
         assert!(imported.warnings()[0].message().contains("line 1"));
@@ -1081,15 +1318,24 @@ mod tests {
     #[test]
     fn strict_close_event_like_tt_span_missing_timestamps_errors() {
         let input = r#"{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
     fn top_level_tt_record_without_span_shape_warns_non_strict() {
         let input = r#"{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
@@ -1108,8 +1354,12 @@ mod tests {
     #[test]
     fn top_level_tt_record_without_span_shape_errors_strict() {
         let input = r#"{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc").strict(true),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
         assert!(
             err.to_string().contains("normalized span shape")
@@ -1120,7 +1370,12 @@ mod tests {
     #[test]
     fn unrelated_top_level_json_record_still_ignored() {
         let input = r#"{"message":"ordinary log","level":"info","request_id":"r1"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
@@ -1205,8 +1460,12 @@ mod tests {
     #[test]
     fn compatible_mode_wrapper_marker_missing_span_warns_non_strict_and_errors_strict() {
         let missing_span = r#"{"format":"tailtriage.tracing-span.v1"}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(missing_span), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(missing_span),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
@@ -1227,10 +1486,37 @@ mod tests {
     }
 
     #[test]
+    fn default_reader_wrapper_only_behavior() {
+        let wrapped = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported =
+            import_jsonl_reader(Cursor::new(wrapped), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported_unwrapped =
+            import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+        assert!(imported_unwrapped.run().requests.is_empty());
+        assert!(imported_unwrapped
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("tailtriage.tracing-span.v1")));
+        let err = import_jsonl_reader(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc").strict(true),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+    }
+
+    #[test]
     fn compatible_mode_wrapper_marker_non_object_span_warns_non_strict_and_errors_strict() {
         let span_not_object = r#"{"format":"tailtriage.tracing-span.v1","span":"not an object"}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(span_not_object), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(span_not_object),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
@@ -1253,8 +1539,12 @@ mod tests {
     #[test]
     fn compatible_mode_wrapper_marker_non_string_format_warns_non_strict_and_errors_strict() {
         let format_not_string = r#"{"format":1,"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(format_not_string), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(format_not_string),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
@@ -1277,9 +1567,12 @@ mod tests {
     #[test]
     fn compatible_mode_wrapper_marker_unsupported_format_warns_non_strict_and_errors_strict() {
         let unsupported_format = r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(unsupported_format), ImportOptions::new("svc"))
-                .unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(unsupported_format),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
@@ -1405,8 +1698,12 @@ mod tests {
     #[test]
     fn compatible_mode_accepts_old_normalized_shape() {
         let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
     }
 
@@ -1445,7 +1742,12 @@ mod tests {
 
     #[test]
     fn empty_service_name_is_rejected_for_jsonl_import() {
-        let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(""),
+            ImportOptions::new(""),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
 }

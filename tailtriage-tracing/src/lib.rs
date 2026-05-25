@@ -577,7 +577,21 @@ fn required_string(
     warnings: &mut Vec<ImportWarning>,
 ) -> Result<Option<String>, ImportError> {
     match get_string_field_state(span, key) {
-        StringFieldState::Value(value) => Ok(Some(value.to_owned())),
+        StringFieldState::Value(value) => {
+            if value.trim().is_empty() {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "invalid field '{key}' in span '{}': required string must be non-empty",
+                        span.name()
+                    ),
+                )?;
+                Ok(None)
+            } else {
+                Ok(Some(value.to_owned()))
+            }
+        }
         StringFieldState::Missing => {
             strict_or_warn(
                 strict,
@@ -1640,6 +1654,84 @@ mod tests {
             .field(TT_KIND, "request")
             .field(TT_REQUEST_ID, "r1")];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn whitespace_only_required_fields_warn_and_skip_non_strict() {
+        let imported = run_from_span_records(
+            vec![SpanRecord::new("req", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, " ")
+                .field(TT_ROUTE, "/a")],
+            ImportOptions::new("svc"),
+        )
+        .unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings()[0].message().contains("tt.request_id"));
+
+        let imported = run_from_span_records(
+            vec![SpanRecord::new("req", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, " ")],
+            ImportOptions::new("svc"),
+        )
+        .unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings()[0].message().contains("tt.route"));
+
+        let imported = run_from_span_records(
+            vec![
+                SpanRecord::new("req", 1, 3)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_ROUTE, "/a"),
+                SpanRecord::new("st", 1, 2)
+                    .field(TT_KIND, "stage")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_STAGE, " "),
+            ],
+            ImportOptions::new("svc"),
+        )
+        .unwrap();
+        assert!(imported.run().stages.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("tt.stage")));
+
+        let imported = run_from_span_records(
+            vec![
+                SpanRecord::new("req", 1, 3)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_ROUTE, "/a"),
+                SpanRecord::new("q", 1, 2)
+                    .field(TT_KIND, "queue")
+                    .field(TT_REQUEST_ID, "r1")
+                    .field(TT_QUEUE, " "),
+            ],
+            ImportOptions::new("svc"),
+        )
+        .unwrap();
+        assert!(imported.run().queues.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("tt.queue")));
+    }
+
+    #[test]
+    fn whitespace_only_required_field_errors_in_strict() {
+        let err = run_from_span_records(
+            vec![SpanRecord::new("req", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, " ")
+                .field(TT_ROUTE, "/a")],
+            ImportOptions::new("svc").strict(true),
+        )
+        .unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
