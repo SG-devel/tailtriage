@@ -42,7 +42,7 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
-Import completed `tt.*` tracing span JSONL into Run JSON:
+Import completed `tt.*` tracing span JSONL into Run JSON (importable persisted artifacts require at least one completed request):
 
 ```bash
 tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json

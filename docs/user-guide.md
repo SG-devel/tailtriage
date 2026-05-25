@@ -42,7 +42,7 @@ Install for typed records plus JSONL import APIs (default feature set):
 cargo add tailtriage-tracing
 ```
 
-A) Completed-span JSONL intake path:
+A) Completed-span JSONL intake path (persisted JSONL requires at least one completed request):
 
 ```bash
 tailtriage import tracing-json completed-spans.jsonl --service checkout --output tailtriage-run.json
