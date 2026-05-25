@@ -431,14 +431,17 @@ fn filter_correlated_parsed_stages(
             )?;
             continue;
         };
-        if stage.event.started_at_unix_ms < interval.started_at_unix_ms
-            || stage.event.finished_at_unix_ms > interval.finished_at_unix_ms
-        {
+        if !interval_within_request_with_tolerance(
+            stage.event.started_at_unix_ms,
+            stage.event.finished_at_unix_ms,
+            interval.started_at_unix_ms,
+            interval.finished_at_unix_ms,
+        ) {
             strict_or_warn(
                 strict,
                 warnings,
                 format!(
-                    "skipped stage span '{}' for request_id '{}' because interval [{}, {}] falls outside request interval [{}, {}]",
+                    "skipped stage span '{}' for request_id '{}' because interval [{}, {}] falls outside request interval [{}, {}] beyond tolerance_ms={TRACE_TIME_TOLERANCE_MS}",
                     stage.event.stage,
                     stage.event.request_id,
                     stage.event.started_at_unix_ms,
@@ -474,14 +477,17 @@ fn filter_correlated_queues(
             )?;
             continue;
         };
-        if queue.waited_from_unix_ms < interval.started_at_unix_ms
-            || queue.waited_until_unix_ms > interval.finished_at_unix_ms
-        {
+        if !interval_within_request_with_tolerance(
+            queue.waited_from_unix_ms,
+            queue.waited_until_unix_ms,
+            interval.started_at_unix_ms,
+            interval.finished_at_unix_ms,
+        ) {
             strict_or_warn(
                 strict,
                 warnings,
                 format!(
-                    "skipped queue span '{}' for request_id '{}' because interval [{}, {}] falls outside request interval [{}, {}]",
+                    "skipped queue span '{}' for request_id '{}' because interval [{}, {}] falls outside request interval [{}, {}] beyond tolerance_ms={TRACE_TIME_TOLERANCE_MS}",
                     queue.queue,
                     queue.request_id,
                     queue.waited_from_unix_ms,
@@ -584,7 +590,19 @@ fn required_string(
     }
 }
 
-pub(crate) const DURATION_TOLERANCE_US: u64 = 2_000;
+pub(crate) const TRACE_TIME_TOLERANCE_US: u64 = 2_000;
+pub(crate) const TRACE_TIME_TOLERANCE_MS: u64 = TRACE_TIME_TOLERANCE_US / 1_000;
+pub(crate) const DURATION_TOLERANCE_US: u64 = TRACE_TIME_TOLERANCE_US;
+
+fn interval_within_request_with_tolerance(
+    child_start_ms: u64,
+    child_finish_ms: u64,
+    request_start_ms: u64,
+    request_finish_ms: u64,
+) -> bool {
+    child_start_ms.saturating_add(TRACE_TIME_TOLERANCE_MS) >= request_start_ms
+        && child_finish_ms <= request_finish_ms.saturating_add(TRACE_TIME_TOLERANCE_MS)
+}
 
 pub(crate) fn duration_within_tolerance(
     duration_us: u64,
@@ -985,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn non_strict_stage_before_request_start_is_skipped_and_warning_is_durable() {
+    fn non_strict_stage_starts_1ms_before_request_is_retained() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
                 .field(TT_KIND, "request")
@@ -997,8 +1015,24 @@ mod tests {
                 .field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+    }
+
+    #[test]
+    fn non_strict_stage_starts_3ms_before_request_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage", 97, 110)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().stages.is_empty());
-        let warning = "skipped stage span 'db' for request_id 'r1' because interval [99, 110] falls outside request interval [100, 120]";
+        let warning = "skipped stage span 'db' for request_id 'r1' because interval [97, 110] falls outside request interval [100, 120] beyond tolerance_ms=2";
         assert!(imported
             .warnings()
             .iter()
@@ -1018,14 +1052,14 @@ mod tests {
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_ROUTE, "/a"),
-            SpanRecord::new("stage", 110, 121)
+            SpanRecord::new("stage", 110, 123)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_STAGE, "db"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().stages.is_empty());
-        let warning = "skipped stage span 'db' for request_id 'r1' because interval [110, 121] falls outside request interval [100, 120]";
+        let warning = "skipped stage span 'db' for request_id 'r1' because interval [110, 123] falls outside request interval [100, 120] beyond tolerance_ms=2";
         assert!(imported
             .warnings()
             .iter()
@@ -1039,34 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn non_strict_queue_before_request_start_is_skipped_and_warning_is_durable() {
-        let spans = vec![
-            SpanRecord::new("req", 100, 120)
-                .field(TT_KIND, "request")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_ROUTE, "/a"),
-            SpanRecord::new("queue", 99, 110)
-                .field(TT_KIND, "queue")
-                .field(TT_REQUEST_ID, "r1")
-                .field(TT_QUEUE, "permits"),
-        ];
-        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().queues.is_empty());
-        let warning = "skipped queue span 'permits' for request_id 'r1' because interval [99, 110] falls outside request interval [100, 120]";
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains(warning)));
-        assert!(imported
-            .run()
-            .metadata
-            .lifecycle_warnings
-            .iter()
-            .any(|w| w.contains(warning)));
-    }
-
-    #[test]
-    fn non_strict_queue_after_request_finish_is_skipped_and_warning_is_durable() {
+    fn non_strict_queue_ends_1ms_after_request_is_retained() {
         let spans = vec![
             SpanRecord::new("req", 100, 120)
                 .field(TT_KIND, "request")
@@ -1078,8 +1085,24 @@ mod tests {
                 .field(TT_QUEUE, "permits"),
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().queues.len(), 1);
+    }
+
+    #[test]
+    fn non_strict_queue_ends_3ms_after_request_is_skipped_and_warning_is_durable() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("queue", 110, 123)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().queues.is_empty());
-        let warning = "skipped queue span 'permits' for request_id 'r1' because interval [110, 121] falls outside request interval [100, 120]";
+        let warning = "skipped queue span 'permits' for request_id 'r1' because interval [110, 123] falls outside request interval [100, 120] beyond tolerance_ms=2";
         assert!(imported
             .warnings()
             .iter()
@@ -1099,7 +1122,7 @@ mod tests {
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_ROUTE, "/a"),
-            SpanRecord::new("stage", 99, 110)
+            SpanRecord::new("stage", 97, 110)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_STAGE, "db"),
@@ -1115,7 +1138,7 @@ mod tests {
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_ROUTE, "/a"),
-            SpanRecord::new("queue", 99, 110)
+            SpanRecord::new("queue", 110, 123)
                 .field(TT_KIND, "queue")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_QUEUE, "permits"),
