@@ -36,6 +36,12 @@ The `controller` and `tokio` namespaces are available with default features; `ax
 
 If you already instrument request/stage/queue work with Rust `tracing`, use `tailtriage-tracing` as an intake path into the same triage workflow.
 
+Install for typed records plus JSONL import APIs (default feature set):
+
+```bash
+cargo add tailtriage-tracing
+```
+
 A) Completed-span JSONL intake path:
 
 ```bash
@@ -45,7 +51,12 @@ tailtriage analyze tailtriage-run.json
 
 `tailtriage import tracing-json` writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing import and native capture use the same `CaptureMode`/`CaptureLimits` semantics for request/stage/queue retention. Offline import exposes `--mode <light|investigation>` plus `--max-requests`, `--max-stages`, and `--max-queues` because those are the imported evidence types. It does not expose runtime/in-flight snapshot limit flags because those evidence types are not imported by this path. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
-B) Direct Run JSON path with async span instrumentation:
+B) Direct Run JSON path with async span instrumentation (`live` feature required):
+
+```bash
+cargo add tailtriage-tracing --features live
+```
+
 
 ```rust,no_run
 use tailtriage_tracing::TracingIntakeSession;
@@ -85,6 +96,12 @@ tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
 Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
+
+Tokio runtime sampler coupling via `TracingTokioSession` requires the `tokio` feature:
+
+```bash
+cargo add tailtriage-tracing --features tokio
+```
 
 For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
 
