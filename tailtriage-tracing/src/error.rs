@@ -19,6 +19,11 @@ pub enum ImportError {
         /// Underlying JSON parser error text.
         reason: String,
     },
+    /// JSONL input did not match the stable tailtriage wrapper shape required by wrapper-only mode.
+    ExpectedTailtriageWrapper {
+        /// Human-readable reason the wrapper shape was rejected.
+        reason: String,
+    },
     /// Required field or option is missing.
     MissingField(&'static str),
     /// Field value had an invalid type or invalid content.
@@ -58,6 +63,9 @@ impl fmt::Display for ImportError {
             } => write!(f, "io error while {operation} ({context}): {reason}"),
             Self::MalformedJsonLine { line, reason } => {
                 write!(f, "malformed JSONL at line {line}: {reason}")
+            }
+            Self::ExpectedTailtriageWrapper { reason } => {
+                write!(f, "expected tailtriage wrapper JSONL record: {reason}")
             }
             Self::MissingField(field) => write!(f, "missing required field: {field}"),
             Self::InvalidField { field, reason } => {
