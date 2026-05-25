@@ -82,7 +82,6 @@ Use `completed_span_jsonl_path(...)` when you want an offline import workflow:
 
 ```bash
 tailtriage import tracing-json target/tailtriage-examples/checkout.spans.jsonl \
-  --input-format tailtriage-span-jsonl \
   --service checkout-service \
   --output target/tailtriage-examples/checkout.run.json
 

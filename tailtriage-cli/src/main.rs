@@ -12,7 +12,7 @@ use tailtriage_tracing::{
 
 #[derive(Debug, Parser)]
 #[command(name = "tailtriage")]
-#[command(about = "Analyze tailtriage run artifacts", version)]
+#[command(about = "Import and analyze tailtriage run artifacts", version)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -67,8 +67,8 @@ enum ImportCommand {
         /// Fail on malformed/incomplete tailtriage spans.
         #[arg(long)]
         strict: bool,
-        /// Input format mode.
-        #[arg(long, value_enum, default_value_t = TracingInputFormat::Auto)]
+        /// Input format. Defaults to the stable tailtriage wrapper JSONL format.
+        #[arg(long, value_enum, default_value_t = TracingInputFormat::TailtriageSpanJsonl)]
         input_format: TracingInputFormat,
         /// Import capture mode semantics for request/stage/queue retention.
         #[arg(long, value_enum, default_value_t = ImportCaptureMode::Light)]
@@ -86,8 +86,10 @@ enum ImportCommand {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum TracingInputFormat {
-    Auto,
+    /// Stable wrapper-only format: {"format":"tailtriage.tracing-span.v1","span":{...}}.
     TailtriageSpanJsonl,
+    /// Compatibility parser for pre-stable/internal normalized completed-span shapes; not arbitrary tracing log JSON.
+    Compatible,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -128,49 +130,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 max_requests,
                 max_stages,
                 max_queues,
-            } => {
-                let mut options = ImportOptions::new(service).strict(strict).mode(mode.into());
-                if let Some(service_version) = service_version {
-                    options = options.service_version(service_version);
-                }
-                if let Some(run_id) = run_id {
-                    options = options.run_id(run_id);
-                }
-                let mut capture_limits_override = CaptureLimitsOverride::default();
-                if let Some(max_requests) = max_requests {
-                    capture_limits_override.max_requests = Some(max_requests);
-                }
-                if let Some(max_stages) = max_stages {
-                    capture_limits_override.max_stages = Some(max_stages);
-                }
-                if let Some(max_queues) = max_queues {
-                    capture_limits_override.max_queues = Some(max_queues);
-                }
-                options = options.capture_limits_override(capture_limits_override);
-
-                if matches!(input_format, TracingInputFormat::Auto)
-                    && input_looks_like_tracing_fmt_json(&spans_jsonl)?
-                {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        tracing_json_setup_guidance(),
-                    )
-                    .into());
-                }
-                let parse_mode = match input_format {
-                    TracingInputFormat::TailtriageSpanJsonl => {
-                        JsonlParseMode::TailtriageWrapperOnly
-                    }
-                    TracingInputFormat::Auto => JsonlParseMode::Compatible,
-                };
-                let imported = import_jsonl_path_with_mode(spans_jsonl, options, parse_mode)?;
-                for warning in imported.warnings() {
-                    eprintln!("warning: {}", warning.message());
-                }
-                ensure_persistable_run_has_requests(imported.run())?;
-
-                LocalJsonSink::new(&output).write(imported.run())?;
-            }
+            } => import_tracing_json(
+                spans_jsonl,
+                service,
+                &output,
+                service_version,
+                run_id,
+                strict,
+                input_format,
+                mode,
+                max_requests,
+                max_stages,
+                max_queues,
+            )?,
         },
         Command::Analyze {
             run_json,
@@ -211,8 +183,84 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn import_tracing_json(
+    spans_jsonl: PathBuf,
+    service: String,
+    output: &PathBuf,
+    service_version: Option<String>,
+    run_id: Option<String>,
+    strict: bool,
+    input_format: TracingInputFormat,
+    mode: ImportCaptureMode,
+    max_requests: Option<usize>,
+    max_stages: Option<usize>,
+    max_queues: Option<usize>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut options = ImportOptions::new(service).strict(strict).mode(mode.into());
+    if let Some(service_version) = service_version {
+        options = options.service_version(service_version);
+    }
+    if let Some(run_id) = run_id {
+        options = options.run_id(run_id);
+    }
+    let mut capture_limits_override = CaptureLimitsOverride::default();
+    if let Some(max_requests) = max_requests {
+        capture_limits_override.max_requests = Some(max_requests);
+    }
+    if let Some(max_stages) = max_stages {
+        capture_limits_override.max_stages = Some(max_stages);
+    }
+    if let Some(max_queues) = max_queues {
+        capture_limits_override.max_queues = Some(max_queues);
+    }
+    options = options.capture_limits_override(capture_limits_override);
+
+    if matches!(input_format, TracingInputFormat::Compatible)
+        && input_looks_like_tracing_fmt_json(&spans_jsonl)?
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            tracing_json_setup_guidance(),
+        )
+        .into());
+    }
+    let parse_mode = match input_format {
+        TracingInputFormat::TailtriageSpanJsonl => JsonlParseMode::TailtriageWrapperOnly,
+        TracingInputFormat::Compatible => JsonlParseMode::Compatible,
+    };
+    let imported =
+        import_jsonl_path_with_mode(spans_jsonl, options, parse_mode).map_err(|err| {
+            if matches!(input_format, TracingInputFormat::TailtriageSpanJsonl) {
+                let message = format!("{err}\n{}", wrapper_only_rejection_guidance());
+                Box::<dyn std::error::Error>::from(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    message,
+                ))
+            } else {
+                Box::<dyn std::error::Error>::from(err)
+            }
+        })?;
+    for warning in imported.warnings() {
+        eprintln!("warning: {}", warning.message());
+    }
+    if let Err(err) = ensure_persistable_run_has_requests(imported.run()) {
+        if matches!(input_format, TracingInputFormat::TailtriageSpanJsonl) {
+            let message = format!("{err}\n{}", wrapper_only_rejection_guidance());
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, message).into());
+        }
+        return Err(err.into());
+    }
+    LocalJsonSink::new(output).write(imported.run())?;
+    Ok(())
+}
+
 fn tracing_json_setup_guidance() -> &'static str {
-    "the file looks like ordinary tracing log JSON, not completed tailtriage span JSONL. tailtriage requires completed spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-json <completed-spans.jsonl> --input-format tailtriage-span-jsonl --service <service> --output <run-json>"
+    "the file looks like ordinary tracing log JSON, not completed tailtriage span JSONL. tailtriage requires completed spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Stable import expects wrapper JSONL records shaped like {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}. Ordinary tracing_subscriber::fmt().json() logs are unsupported. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-json <completed-spans.jsonl> --service <service> --output <run-json>"
+}
+
+fn wrapper_only_rejection_guidance() -> &'static str {
+    "stable import expects wrapper JSONL records shaped like {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}. Ordinary tracing_subscriber::fmt().json() logs are unsupported. Use --input-format compatible only for pre-stable/internal normalized completed-span shapes."
 }
 
 fn input_looks_like_tracing_fmt_json(path: &std::path::Path) -> Result<bool, std::io::Error> {
