@@ -117,7 +117,7 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
-For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model:
+For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model, and run metadata time bounds cover merged tracing evidence plus retained runtime snapshots (triage evidence, not root-cause proof):
 
 - configure retention with `mode(...)`, `capture_limits(...)`, or `capture_limits_override(...)`
 - there is no tracing-specific `.max_runtime_snapshots(...)` session builder method
