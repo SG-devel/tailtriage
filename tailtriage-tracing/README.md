@@ -20,6 +20,13 @@ It is **not**:
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
+If your application code uses `tracing::...` and `tracing_subscriber::...` directly, add those crates in addition to enabling `tailtriage-tracing` features:
+
+```bash
+cargo add tailtriage-tracing --features live
+cargo add tracing tracing-subscriber
+```
+
 ## Recommended live session setup (`live` feature)
 
 ```rust,no_run
@@ -118,6 +125,11 @@ Tracing intake import and native capture share the same CaptureMode/CaptureLimit
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
 For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model. Run metadata time bounds cover merged retained tracing evidence plus retained runtime snapshots, which supports triage interpretation but is not root-cause proof:
+
+```bash
+cargo add tailtriage-tracing --features tokio
+cargo add tracing tracing-subscriber
+```
 
 - configure retention with `mode(...)`, `capture_limits(...)`, or `capture_limits_override(...)`
 - there is no tracing-specific `.max_runtime_snapshots(...)` session builder method

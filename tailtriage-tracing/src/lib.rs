@@ -234,6 +234,12 @@ where
     }
     let mode = options.mode_value();
     let capture_limits = options.resolved_capture_limits();
+    dedupe_retained_parsed_requests(
+        &mut parsed_requests,
+        capture_limits.max_requests,
+        options.strict_mode(),
+        &mut warnings,
+    )?;
     let request_outcome_default_count = parsed_requests
         .iter()
         .take(capture_limits.max_requests)
@@ -244,16 +250,10 @@ where
             "{request_outcome_default_count} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'"
         )));
     }
-    let mut requests: Vec<RequestEvent> = parsed_requests
+    let requests: Vec<RequestEvent> = parsed_requests
         .into_iter()
         .map(|request| request.event)
         .collect();
-    dedupe_retained_requests(
-        &mut requests,
-        capture_limits.max_requests,
-        options.strict_mode(),
-        &mut warnings,
-    )?;
     let request_intervals = retained_request_intervals(&requests, capture_limits.max_requests);
     filter_correlated_parsed_stages(
         &mut parsed_stages,
@@ -355,8 +355,8 @@ struct RequestInterval {
     finished_at_unix_ms: u64,
 }
 
-fn dedupe_retained_requests(
-    requests: &mut Vec<RequestEvent>,
+fn dedupe_retained_parsed_requests(
+    requests: &mut Vec<ParsedRequestEvent>,
     max_requests: usize,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
@@ -368,13 +368,13 @@ fn dedupe_retained_requests(
             retained.push(request);
             continue;
         }
-        if !seen.insert(request.request_id.clone()) {
+        if !seen.insert(request.event.request_id.clone()) {
             strict_or_warn(
                 strict,
                 warnings,
                 format!(
                     "duplicate tt.request_id '{}' is an input-quality problem; skipped later duplicate request event; child stage/queue evidence outside the retained first request interval may also be skipped",
-                    request.request_id
+                    request.event.request_id
                 ),
             )?;
             continue;
@@ -1212,6 +1212,37 @@ mod tests {
         ];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn non_strict_skipped_duplicate_missing_outcome_does_not_warn_outcome_defaulted() {
+        let spans = vec![
+            SpanRecord::new("req-1", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/a")
+                .field(TT_OUTCOME, "ok"),
+            SpanRecord::new("req-2", 200, 260)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "dup")
+                .field(TT_ROUTE, "/b"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.requests[0].route, "/a");
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("duplicate tt.request_id 'dup' is an input-quality problem")));
+        assert!(!imported.warnings().iter().any(|w| w
+            .message()
+            .contains("missing optional 'tt.outcome'; assumed 'ok'")));
+        assert!(!imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("missing optional 'tt.outcome'; assumed 'ok'")));
     }
 
     #[test]
