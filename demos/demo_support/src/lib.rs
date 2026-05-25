@@ -4,8 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Tailtriage};
-use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink, Tailtriage};
+use tailtriage_tracing::{
+    ensure_persistable_run_has_requests, tokio::TracingTokioSession, TracingRecorder,
+};
 use tokio::sync::Barrier;
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
@@ -352,8 +354,7 @@ impl DemoInstrumentation {
             }
             DemoInstrumentationBackend::Tracing(state) => {
                 let imported = state.recorder.shutdown()?;
-                let mut file = std::fs::File::create(output_path)?;
-                serde_json::to_writer_pretty(&mut file, imported.run())?;
+                write_persistable_demo_run(imported.run(), output_path)?;
                 Ok(())
             }
         }
@@ -473,12 +474,22 @@ impl RuntimeDemoInstrumentation {
             }
             RuntimeDemoBackend::Tracing(s) => {
                 let imported = s.shutdown().await?;
-                let mut file = std::fs::File::create(output_path)?;
-                serde_json::to_writer_pretty(&mut file, imported.run())?;
+                write_persistable_demo_run(imported.run(), output_path)?;
                 Ok(())
             }
         }
     }
+}
+
+fn write_persistable_demo_run(
+    run: &tailtriage_core::Run,
+    output_path: &Path,
+) -> anyhow::Result<()> {
+    ensure_persistable_run_has_requests(run)?;
+    LocalJsonSink::new(output_path)
+        .write(run)
+        .with_context(|| format!("failed to write demo artifact to {}", output_path.display()))?;
+    Ok(())
 }
 
 impl DemoRequest {
@@ -609,13 +620,79 @@ pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
 #[cfg(test)]
 mod tests {
     use super::{parse_demo_args_from, DemoMode, InstrumentationMode};
-    use tailtriage_core::Outcome;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tailtriage_core::{
+        CaptureMode, Outcome, RequestEvent, Run, RunMetadata, TruncationSummary, UnfinishedRequests,
+    };
 
     #[test]
     fn demo_args_default_instrumentation_is_native() {
         let args = parse_demo_args_from(&["out.json".to_string()], "ignored").expect("parse args");
         assert_eq!(args.mode, DemoMode::Baseline);
         assert_eq!(args.instrumentation, InstrumentationMode::Native);
+    }
+
+    #[test]
+    fn tracing_artifact_write_rejects_empty_run() {
+        let temp =
+            std::env::temp_dir().join(format!("tailtriage-demo-empty-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&temp);
+        let run = test_run(Vec::new());
+        let err = super::write_persistable_demo_run(&run, &temp).expect_err("should reject");
+        assert!(!temp.exists(), "artifact should not be written");
+        assert!(err.to_string().contains("zero request events"));
+    }
+
+    #[test]
+    fn tracing_artifact_write_persists_non_empty_run() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let temp = std::env::temp_dir().join(format!("tailtriage-demo-non-empty-{unique}.json"));
+        let _ = std::fs::remove_file(&temp);
+        let run = test_run(vec![RequestEvent {
+            request_id: "req-1".to_string(),
+            route: "/demo".to_string(),
+            kind: None,
+            started_at_unix_ms: 1_000,
+            finished_at_unix_ms: 1_005,
+            latency_us: 5_000,
+            outcome: "ok".to_string(),
+        }]);
+        super::write_persistable_demo_run(&run, &temp).expect("write run");
+        let persisted = std::fs::read_to_string(&temp).expect("read artifact");
+        let parsed: Run = serde_json::from_str(&persisted).expect("valid run JSON");
+        assert_eq!(parsed.requests.len(), 1);
+        let _ = std::fs::remove_file(&temp);
+    }
+
+    fn test_run(requests: Vec<RequestEvent>) -> Run {
+        Run {
+            schema_version: 1,
+            metadata: RunMetadata {
+                run_id: "run-1".to_string(),
+                service_name: "demo".to_string(),
+                service_version: None,
+                started_at_unix_ms: 1_000,
+                finished_at_unix_ms: 2_000,
+                finalized_at_unix_ms: Some(2_000),
+                mode: CaptureMode::Light,
+                effective_core_config: None,
+                effective_tokio_sampler_config: None,
+                host: None,
+                pid: None,
+                lifecycle_warnings: Vec::new(),
+                unfinished_requests: UnfinishedRequests::default(),
+                run_end_reason: None,
+            },
+            requests,
+            stages: Vec::new(),
+            queues: Vec::new(),
+            inflight: Vec::new(),
+            runtime_snapshots: Vec::new(),
+            truncation: TruncationSummary::default(),
+        }
     }
 
     #[test]
