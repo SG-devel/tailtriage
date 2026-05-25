@@ -235,11 +235,24 @@ fn import_tracing_json(
     }
     options = options.capture_limits_override(capture_limits_override);
 
-    if matches!(
+    let looks_like_fmt_json = if matches!(
         input_format,
         TracingInputFormat::TailtriageSpanJsonl | TracingInputFormat::Compatible
-    ) && input_looks_like_tracing_fmt_json(&spans_jsonl)?
-    {
+    ) {
+        input_looks_like_tracing_fmt_json(&spans_jsonl).map_err(|err| {
+            std::io::Error::new(
+                err.kind(),
+                format!(
+                    "failed to inspect tracing JSON input '{}': {err}",
+                    spans_jsonl.display()
+                ),
+            )
+        })?
+    } else {
+        false
+    };
+
+    if looks_like_fmt_json {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             tracing_json_setup_guidance(),

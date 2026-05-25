@@ -583,10 +583,7 @@ fn import_tracing_json_default_wrapper_mode_missing_input_does_not_append_wrappe
         .expect("cli should run");
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        stderr.contains(&missing_spans_path.display().to_string())
-            || stderr.contains("No such file")
-    );
+    assert!(stderr.contains(&missing_spans_path.display().to_string()));
     assert!(!stderr.contains("tailtriage.tracing-span.v1"));
     assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
 }
