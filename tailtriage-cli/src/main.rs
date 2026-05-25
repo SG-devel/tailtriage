@@ -7,7 +7,8 @@ use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
 use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
 use tailtriage_tracing::{
-    ensure_persistable_run_has_requests, import_jsonl_path_with_mode, ImportOptions, JsonlParseMode,
+    ensure_persistable_run_has_requests, import_jsonl_path_with_mode, ImportError, ImportOptions,
+    JsonlParseMode,
 };
 
 #[derive(Debug, Parser)]
@@ -231,7 +232,7 @@ fn import_tracing_json(
     };
     let imported =
         import_jsonl_path_with_mode(spans_jsonl, options, parse_mode).map_err(|err| {
-            if matches!(input_format, TracingInputFormat::TailtriageSpanJsonl) {
+            if should_append_wrapper_guidance(input_format, &err) {
                 let message = format!("{err}\n{}", wrapper_only_rejection_guidance());
                 Box::<dyn std::error::Error>::from(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
@@ -257,6 +258,17 @@ fn import_tracing_json(
 
 fn tracing_json_setup_guidance() -> &'static str {
     "the file looks like ordinary tracing log JSON, not completed tailtriage span JSONL. tailtriage requires completed spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Stable import expects wrapper JSONL records shaped like {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}. Ordinary tracing_subscriber::fmt().json() logs are unsupported. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-json <completed-spans.jsonl> --service <service> --output <run-json>"
+}
+
+fn should_append_wrapper_guidance(input_format: TracingInputFormat, err: &ImportError) -> bool {
+    matches!(input_format, TracingInputFormat::TailtriageSpanJsonl)
+        && matches!(
+            err,
+            ImportError::MissingField(_)
+                | ImportError::InvalidField { .. }
+                | ImportError::StrictViolation(_)
+                | ImportError::InvalidRunEvent(_)
+        )
 }
 
 fn wrapper_only_rejection_guidance() -> &'static str {

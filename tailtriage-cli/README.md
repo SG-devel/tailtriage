@@ -45,13 +45,13 @@ tailtriage analyze tailtriage-run.json --format json
 Import completed `tt.*` tracing span JSONL into Run JSON:
 
 ```bash
-tailtriage import tracing-json spans.jsonl  --service checkout --output tailtriage-run.json
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json
 ```
 
 With optional metadata flags, strict validation, and explicit format:
 
 ```bash
-tailtriage import tracing-json spans.jsonl  --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
 ```
 
 
