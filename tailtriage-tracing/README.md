@@ -48,8 +48,10 @@ let session = TracingIntakeSession::builder("checkout-service")
     .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
     .build()?;
 
-let subscriber = tracing_subscriber::registry().with(session.layer());
-let _guard = tracing::subscriber::set_default(subscriber);
+tracing_subscriber::registry()
+    .with(session.layer())
+    .init(); // startup-only: global subscriber installation for this process
+
 let request = tracing::info_span!(
     "request",
     tt.kind = "request",
@@ -58,8 +60,8 @@ let request = tracing::info_span!(
     tt.outcome = "ok"
 );
 work().instrument(request).await;
-
-session.shutdown()?;
+let imported = session.shutdown()?;
+# let _ = imported;
 # Ok(())
 # }
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,6 +69,12 @@ session.shutdown()?;
 #   Ok(())
 # }
 ```
+
+Install the tailtriage layer beside your existing tracing layers in the application's normal process-wide subscriber setup; tailtriage augments your tracing pipeline rather than replacing it.
+
+If your service already builds a subscriber in startup code, compose `session.layer()` onto that subscriber and install it once with your normal global install path (for example `.init()` during binary startup, or `tracing::subscriber::set_global_default(...)` with explicit error handling when needed).
+
+`set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
 
 ## Direct Run JSON path
 

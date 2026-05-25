@@ -69,8 +69,9 @@ use tracing_subscriber::prelude::*;
 let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .build()?;
-let subscriber = tracing_subscriber::registry().with(session.layer());
-let _guard = tracing::subscriber::set_default(subscriber);
+tracing_subscriber::registry()
+    .with(session.layer())
+    .init(); // startup-only: global subscriber installation for this process
 let span = tracing::info_span!(
     "request",
     tt.kind = "request",
@@ -79,7 +80,8 @@ let span = tracing::info_span!(
     tt.outcome = "ok",
 );
 work().instrument(span).await;
-session.shutdown()?;
+let imported = session.shutdown()?;
+# let _ = imported;
 # Ok(())
 }
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -89,6 +91,8 @@ session.shutdown()?;
 ```
 
 Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
+
+In service code, add `session.layer()` beside your existing tracing layers and install the resulting subscriber in the application's normal process-wide/global subscriber setup. `set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
 
 Then analyze directly:
 
