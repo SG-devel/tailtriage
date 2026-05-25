@@ -115,6 +115,7 @@ Missing request `tt.outcome` defaults to `ok` with a warning.
 - Strict mode: malformed/incomplete `tt.*` span records fail import/session conversion.
 - Non-strict mode: malformed/incomplete records are warned and skipped where implemented.
 - Duration consistency rule: conversion derives duration from wall-clock bounds as `(finished_at_unix_ms - started_at_unix_ms) * 1000`. If optional `duration_us` differs by more than `2_000` microseconds, non-strict conversion warns and uses the derived duration, while strict conversion fails.
+- Child stage/queue containment rule: correlated child intervals are retained when they fall within the retained request interval with a fixed `2 ms` tolerance for exported timestamp precision and close-order skew. This tolerance is not configurable in this release.
 
 ## Retention and drop behavior
 
