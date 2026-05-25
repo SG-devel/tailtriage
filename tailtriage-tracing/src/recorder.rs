@@ -283,7 +283,7 @@ impl TracingIntakeSession {
         let strict_mode = self.recorder.options.strict_mode();
         let imported = self.recorder.shutdown()?;
         let (mut run, mut warnings) = imported.into_parts();
-        if self.run_json_path.is_some() {
+        if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
             ensure_persistable_run_has_requests(&run)?;
         }
         if let Some(path) = &self.completed_span_jsonl_path {
@@ -2712,6 +2712,15 @@ mod tests {
             .strict(true)
             .build()
             .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
         let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
         assert!(err
@@ -2834,6 +2843,26 @@ mod tests {
         let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert_eq!(std::fs::read_to_string(&run_path).unwrap(), "keep-me");
+    }
+
+    #[test]
+    fn completed_span_jsonl_path_rejects_zero_requests_without_creating_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let err = session.shutdown().unwrap_err();
+        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
+        assert!(!spans_path.exists());
+    }
+
+    #[test]
+    fn shutdown_with_no_persisted_paths_and_zero_requests_still_succeeds() {
+        let session = TracingIntakeSession::builder("svc").build().unwrap();
+        let imported = session.shutdown().unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
     }
 
     #[test]

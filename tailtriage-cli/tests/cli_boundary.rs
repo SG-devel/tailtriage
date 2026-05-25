@@ -632,9 +632,9 @@ fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
         .expect("cli should run");
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("stable wrapper shape"));
-    assert!(stderr.contains("tailtriage.tracing-span.v1"));
+    assert!(stderr.contains("ordinary tracing log JSON"));
     assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
+    assert!(!stderr.contains("line 1: expected stable wrapper shape"));
     assert!(!run_path.exists());
 }
 
@@ -910,6 +910,37 @@ fn import_tracing_json_fails_when_only_unrelated_lines_are_present() {
     assert!(stderr.contains("zero request events"));
     assert!(stderr.contains("tailtriage.tracing-span.v1") || stderr.contains("stable wrapper"));
     assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
+    assert!(!run_path.exists(), "run output should not be written");
+}
+
+#[test]
+fn import_tracing_json_default_format_fails_fast_on_ordinary_fmt_json() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("fmt.jsonl");
+    let run_path = dir.path().join("run.json");
+    let payload = [
+        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"first"}}"#,
+        r#"{"timestamp":"2026-01-01T00:00:01Z","level":"INFO","target":"svc","fields":{"message":"second"}}"#,
+    ]
+    .join("\n");
+    std::fs::write(&spans_path, payload).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
+    assert!(!stderr.contains("line 1: expected stable wrapper shape"));
+    assert!(!stderr.contains("line 2: expected stable wrapper shape"));
     assert!(!run_path.exists(), "run output should not be written");
 }
 

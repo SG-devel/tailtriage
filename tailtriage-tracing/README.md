@@ -139,6 +139,7 @@ Missing stage `tt.success` defaults to `true` with a warning.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
 - `completed_span_jsonl_path(...)` writes retained valid completed-span JSONL on shutdown.
 - The completed-span JSONL is replayable into the same retained request/stage/queue evidence when imported with matching service metadata.
+- Persisted completed-span JSONL requires at least one completed request event; zero-request sessions remain available only for in-process inspection.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
 
