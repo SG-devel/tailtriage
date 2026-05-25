@@ -906,6 +906,96 @@ fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
 }
 
 #[test]
+fn import_tracing_json_invalid_outcome_non_strict_warns_and_fails_zero_request_artifact() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--input-format")
+        .arg("compatible")
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains(
+        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
+    ));
+    assert!(stderr.contains("zero request events"));
+    assert!(!run_path.exists(), "run output should not be written");
+}
+
+#[test]
+fn import_tracing_json_invalid_outcome_strict_fails_with_invalid_outcome_message() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--strict")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--input-format")
+        .arg("compatible")
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains(
+        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
+    ));
+    assert!(!run_path.exists(), "run output should not be written");
+}
+
+#[test]
+fn import_tracing_json_valid_outcomes_import_successfully() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, all_valid_outcomes_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--input-format")
+        .arg("compatible")
+        .output()
+        .expect("cli should run");
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    let outcomes: Vec<&str> = loaded
+        .run
+        .requests
+        .iter()
+        .map(|request| request.outcome.as_str())
+        .collect();
+    assert_eq!(
+        outcomes,
+        vec!["ok", "error", "timeout", "cancelled", "rejected"]
+    );
+}
+
+#[test]
 fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
@@ -1070,6 +1160,20 @@ fn incomplete_tailtriage_span_fixture() -> &'static str {
 
 fn one_valid_request_span_fixture() -> &'static str {
     r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
+"#
+}
+
+fn invalid_outcome_only_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"sucess"}}}
+"#
+}
+
+fn all_valid_outcomes_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1011,"finished_at_unix_ms":1020,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"error"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1021,"finished_at_unix_ms":1030,"fields":{"tt.kind":"request","tt.request_id":"req-3","tt.route":"/checkout","tt.outcome":"timeout"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1031,"finished_at_unix_ms":1040,"fields":{"tt.kind":"request","tt.request_id":"req-4","tt.route":"/checkout","tt.outcome":"cancelled"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1041,"finished_at_unix_ms":1050,"fields":{"tt.kind":"request","tt.request_id":"req-5","tt.route":"/checkout","tt.outcome":"rejected"}}}
 "#
 }
 

@@ -108,6 +108,9 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 | stage | `tt.kind="stage"`, `tt.request_id`, `tt.stage` | `tt.success` |
 | queue | `tt.kind="queue"`, `tt.request_id`, `tt.queue` | `tt.depth_at_start` |
 
+Request `tt.outcome` accepts only: `ok`, `error`, `timeout`, `cancelled`, `rejected`.
+Missing `tt.outcome` defaults to `ok` with a warning.
+
 ## Strict vs non-strict
 
 - Strict mode: malformed/incomplete `tt.*` span records fail import/session conversion.

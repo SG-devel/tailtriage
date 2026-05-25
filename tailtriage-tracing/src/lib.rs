@@ -585,6 +585,8 @@ fn required_string(
 }
 
 pub(crate) const DURATION_TOLERANCE_US: u64 = 2_000;
+const ACCEPTED_OUTCOME_LABELS: [&str; 5] = ["ok", "error", "timeout", "cancelled", "rejected"];
+const ACCEPTED_OUTCOME_LABELS_CSV: &str = "ok,error,timeout,cancelled,rejected";
 
 pub(crate) fn duration_within_tolerance(
     duration_us: u64,
@@ -708,7 +710,21 @@ fn parse_outcome(
 ) -> Result<Option<(String, bool)>, ImportError> {
     match get_string_field_state(span, TT_OUTCOME) {
         StringFieldState::Missing => Ok(Some(("ok".to_owned(), true))),
-        StringFieldState::Value(value) => Ok(Some((value.to_owned(), false))),
+        StringFieldState::Value(value) => {
+            if ACCEPTED_OUTCOME_LABELS.contains(&value) {
+                Ok(Some((value.to_owned(), false)))
+            } else {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "invalid field '{TT_OUTCOME}' in span '{}': expected one of {ACCEPTED_OUTCOME_LABELS_CSV}, got '{value}'",
+                        span.name()
+                    ),
+                )?;
+                Ok(None)
+            }
+        }
         StringFieldState::InvalidType => {
             strict_or_warn(
                 strict,
@@ -1834,6 +1850,97 @@ mod tests {
             run_from_span_records(vec![bad_outcome], ImportOptions::new("svc").strict(true))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn request_outcome_accepts_only_supported_values() {
+        for outcome in ACCEPTED_OUTCOME_LABELS {
+            let spans = vec![SpanRecord::new("req", 1, 2)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/")
+                .field(TT_OUTCOME, outcome)];
+            let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+            assert_eq!(imported.run().requests.len(), 1);
+            assert_eq!(imported.run().requests[0].outcome, outcome);
+        }
+    }
+
+    #[test]
+    fn missing_request_outcome_defaults_to_ok_with_warning() {
+        let spans = vec![SpanRecord::new("req", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests[0].outcome, "ok");
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("missing optional 'tt.outcome'; assumed 'ok'")));
+    }
+
+    #[test]
+    fn invalid_outcome_non_strict_warns_and_skips_request() {
+        let bad = SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, "sucess");
+        let imported = run_from_span_records(vec![bad], ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| w.message().contains(
+            "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
+        )));
+    }
+
+    #[test]
+    fn invalid_outcome_strict_fails() {
+        let bad = SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, "bad");
+        let err =
+            run_from_span_records(vec![bad], ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(
+            matches!(err, ImportError::StrictViolation(message) if message.contains("invalid field 'tt.outcome'"))
+        );
+    }
+
+    #[test]
+    fn invalid_outcome_with_whitespace_is_rejected() {
+        let bad = SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, "ok ");
+        let imported = run_from_span_records(vec![bad], ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("got 'ok '")));
+    }
+
+    #[test]
+    fn invalid_outcome_request_causes_child_spans_to_skip_via_correlation_behavior() {
+        let spans = vec![
+            SpanRecord::new("http.request", 10, 20)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/")
+                .field(TT_OUTCOME, "sucess"),
+            SpanRecord::new("stage", 11, 12)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.run().stages.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("no retained request event was imported")));
     }
 
     #[test]
