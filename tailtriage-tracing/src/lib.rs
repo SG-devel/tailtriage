@@ -701,6 +701,9 @@ fn strict_or_warn(
     Ok(())
 }
 
+const ACCEPTED_OUTCOME_LABELS: [&str; 5] = ["ok", "error", "timeout", "cancelled", "rejected"];
+const ACCEPTED_OUTCOME_LABELS_CSV: &str = "ok,error,timeout,cancelled,rejected";
+
 fn parse_outcome(
     span: &SpanRecord,
     strict: bool,
@@ -708,7 +711,21 @@ fn parse_outcome(
 ) -> Result<Option<(String, bool)>, ImportError> {
     match get_string_field_state(span, TT_OUTCOME) {
         StringFieldState::Missing => Ok(Some(("ok".to_owned(), true))),
-        StringFieldState::Value(value) => Ok(Some((value.to_owned(), false))),
+        StringFieldState::Value(value) => {
+            if ACCEPTED_OUTCOME_LABELS.contains(&value) {
+                Ok(Some((value.to_owned(), false)))
+            } else {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "invalid field '{TT_OUTCOME}' in span '{}': expected one of {ACCEPTED_OUTCOME_LABELS_CSV}, got '{value}'",
+                        span.name()
+                    ),
+                )?;
+                Ok(None)
+            }
+        }
         StringFieldState::InvalidType => {
             strict_or_warn(
                 strict,
@@ -1834,6 +1851,115 @@ mod tests {
             run_from_span_records(vec![bad_outcome], ImportOptions::new("svc").strict(true))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn accepted_request_outcomes_are_retained_exactly() {
+        let spans = ACCEPTED_OUTCOME_LABELS
+            .iter()
+            .enumerate()
+            .map(|(idx, outcome)| {
+                SpanRecord::new("req", idx as u64 + 1, idx as u64 + 2)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, format!("r{idx}"))
+                    .field(TT_ROUTE, "/")
+                    .field(TT_OUTCOME, *outcome)
+            })
+            .collect::<Vec<_>>();
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        let retained = imported
+            .run()
+            .requests
+            .iter()
+            .map(|request| request.outcome.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(retained, ACCEPTED_OUTCOME_LABELS);
+    }
+
+    #[test]
+    fn missing_outcome_defaults_ok_and_warns() {
+        let spans = vec![SpanRecord::new("req", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].outcome, "ok");
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("missing optional 'tt.outcome'; assumed 'ok'")));
+    }
+
+    #[test]
+    fn invalid_outcome_non_strict_skips_request_and_warns() {
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, "sucess")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| w.message().contains(
+            "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
+        )));
+    }
+
+    #[test]
+    fn invalid_outcome_strict_fails() {
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, "sucess")];
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains(
+            "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
+        ));
+    }
+
+    #[test]
+    fn invalid_outcome_with_whitespace_is_rejected() {
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, "ok ")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| w.message().contains(
+            "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'ok '"
+        )));
+    }
+
+    #[test]
+    fn invalid_outcome_skips_child_spans_via_existing_correlation_logic() {
+        let spans = vec![
+            SpanRecord::new("http.request", 1_000, 2_000)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/")
+                .field(TT_OUTCOME, "sucess"),
+            SpanRecord::new("db.stage", 1_100, 1_200)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db")
+                .field(TT_SUCCESS, true),
+            SpanRecord::new("worker.queue", 1_300, 1_350)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "worker"),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.run().stages.is_empty());
+        assert!(imported.run().queues.is_empty());
+        assert!(imported.warnings().iter().any(|w| w.message().contains(
+            "skipped stage span for request_id 'r1' because no retained request event was imported"
+        )));
+        assert!(imported.warnings().iter().any(|w| w.message().contains(
+            "skipped queue span for request_id 'r1' because no retained request event was imported"
+        )));
     }
 
     #[test]
