@@ -117,7 +117,7 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 | stage | `tt.kind="stage"`, `tt.request_id`, `tt.stage` | `tt.success` |
 | queue | `tt.kind="queue"`, `tt.request_id`, `tt.queue` | `tt.depth_at_start` |
 
-Missing request `tt.outcome` defaults to `ok` with a warning.
+Missing request `tt.outcome` defaults to `ok` with a warning. Missing stage `tt.success` defaults to `true` with a warning.
 
 ## Strict vs non-strict
 
