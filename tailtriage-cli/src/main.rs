@@ -235,8 +235,10 @@ fn import_tracing_json(
     }
     options = options.capture_limits_override(capture_limits_override);
 
-    if matches!(input_format, TracingInputFormat::Compatible)
-        && input_looks_like_tracing_fmt_json(&spans_jsonl)?
+    if matches!(
+        input_format,
+        TracingInputFormat::TailtriageSpanJsonl | TracingInputFormat::Compatible
+    ) && input_looks_like_tracing_fmt_json(&spans_jsonl)?
     {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

@@ -89,7 +89,7 @@ The command imports completed `tt.*` tracing span records in the documented JSON
 Tracing import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline CLI tracing import exposes request/stage/queue limit overrides because those are the evidence types it imports. It intentionally does not expose runtime-snapshot or in-flight-snapshot limit flags because this import path does not ingest those evidence types. Tracing-only imports do not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured (for example via Tokio runtime sampling).
 Malformed JSON input remains fatal. In non-strict mode, syntactically valid malformed/incomplete `tt.*` records are skipped with `warning: ...` lines.
 `--service` must not be empty or whitespace.
-Import fails when zero request events would be written (for example unrelated-only input or all-skipped malformed `tt.*` input), because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
+Import fails when zero request events would be written (for example unrelated-only input or all-skipped malformed `tt.*` input), because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts. The same non-empty-request rule applies before persisting completed-span JSONL artifacts in tracing intake sessions.
 
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
 

@@ -619,7 +619,17 @@ fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("fmt.jsonl");
     let run_path = dir.path().join("run.json");
-    std::fs::write(&spans_path, r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"close"}}"#).unwrap();
+    std::fs::write(
+        &spans_path,
+        [
+            r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"close-1"}}"#,
+            r#"{"timestamp":"2026-01-01T00:00:01Z","level":"INFO","target":"svc","fields":{"message":"close-2"}}"#,
+            r#"{"timestamp":"2026-01-01T00:00:02Z","level":"INFO","target":"svc","fields":{"message":"close-3"}}"#,
+        ]
+        .join("
+"),
+    )
+    .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
         .arg("tracing-json")
@@ -632,9 +642,10 @@ fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
         .expect("cli should run");
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("stable wrapper shape"));
     assert!(stderr.contains("tailtriage.tracing-span.v1"));
     assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
+    assert!(!stderr.contains("line 1: expected stable wrapper shape"));
+    assert!(!stderr.contains("line 2: expected stable wrapper shape"));
     assert!(!run_path.exists());
 }
 
