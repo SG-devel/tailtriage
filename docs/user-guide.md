@@ -56,6 +56,7 @@ B) Direct Run JSON path with async span instrumentation (`live` feature required
 ```bash
 cargo add tailtriage-tracing --features live
 cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
 ```
 
 
@@ -64,30 +65,33 @@ use tailtriage_tracing::TracingIntakeSession;
 use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
-# async fn work() {}
-# async fn run() -> Result<(), Box<dyn std::error::Error>> {
-let session = TracingIntakeSession::builder("checkout-service")
-    .run_json_path("target/tailtriage-examples/checkout.run.json")
-    .build()?;
-tracing_subscriber::registry()
-    .with(session.layer())
-    .init(); // startup-only: global subscriber installation for this process
-let span = tracing::info_span!(
-    "request",
-    tt.kind = "request",
-    tt.request_id = "req-1",
-    tt.route = "/checkout",
-    tt.outcome = "ok",
-);
-work().instrument(span).await;
-let imported = session.shutdown()?;
-# let _ = imported;
-# Ok(())
+async fn work() {
+    // Your request work goes here.
 }
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
-#   let _ = run();
-#   Ok(())
-# }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let session = TracingIntakeSession::builder("checkout-service")
+        .run_json_path("target/tailtriage-examples/checkout.run.json")
+        .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
+        .build()?;
+    tracing_subscriber::registry()
+        .with(session.layer())
+        .init(); // startup-only: global subscriber installation for this process
+
+    let span = tracing::info_span!(
+        "request",
+        tt.kind = "request",
+        tt.request_id = "req-1",
+        tt.route = "/checkout",
+        tt.outcome = "ok",
+    );
+    work().instrument(span).await;
+
+    let imported = session.shutdown()?;
+    let _ = imported;
+    Ok(())
+}
 ```
 
 Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
