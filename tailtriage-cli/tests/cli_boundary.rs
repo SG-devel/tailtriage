@@ -436,7 +436,7 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("tailtriage.tracing-span.v1") || stderr.contains("stable wrapper"));
-    assert!(!stderr.contains("ordinary tracing log JSON"));
+    assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
     assert!(!run_path.exists());
 }
 
@@ -509,6 +509,86 @@ fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
     assert!(stderr.contains("stable wrapper shape"));
     assert!(stderr.contains("tailtriage.tracing-span.v1"));
     assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_default_wrapper_mode_wrong_wrapper_format_shows_wrapper_guidance() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("wrong-format.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}"#,
+    )
+    .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("tailtriage.tracing-span.v1") || stderr.contains("stable wrapper"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_default_wrapper_mode_strict_missing_route_does_not_append_wrapper_guidance()
+{
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("missing-route.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, strict_wrapper_missing_route_fixture())
+        .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--strict")
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("strict violation") || stderr.contains("missing required field"));
+    assert!(!stderr.contains("tailtriage.tracing-span.v1"));
+    assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_json_default_wrapper_mode_strict_invalid_kind_type_does_not_append_wrapper_guidance(
+) {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("invalid-kind.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, strict_wrapper_invalid_kind_type_fixture())
+        .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--strict")
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("strict violation") || stderr.contains("invalid field"));
+    assert!(!stderr.contains("tailtriage.tracing-span.v1"));
+    assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
     assert!(!run_path.exists());
 }
 
@@ -1041,4 +1121,12 @@ fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
     r#"{"span":{"name":"unknown","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.kind":"mystery"}}}
 {"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
+}
+
+fn strict_wrapper_missing_route_fixture() -> &'static str {
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}"#
+}
+
+fn strict_wrapper_invalid_kind_type_fixture() -> &'static str {
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":42,"tt.request_id":"req-1","tt.route":"/checkout"}}}"#
 }
