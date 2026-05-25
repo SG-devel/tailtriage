@@ -297,6 +297,7 @@ impl TracingIntakeSession {
             }
         }
         if let Some(path) = self.run_json_path {
+            create_output_parent_dir(&path, "create run json parent directory")?;
             LocalJsonSink::new(&path)
                 .write(&run)
                 .map_err(|err| ImportError::RunJsonWrite {
@@ -312,6 +313,7 @@ fn write_completed_span_jsonl_from_run(
     run: &tailtriage_core::Run,
     path: &Path,
 ) -> Result<(), ImportError> {
+    create_output_parent_dir(path, "create completed span jsonl parent directory")?;
     let temp_path = completed_span_jsonl_temp_path(path);
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -368,6 +370,20 @@ fn write_completed_span_jsonl_from_run(
     })?;
 
     Ok(())
+}
+
+fn create_output_parent_dir(path: &Path, operation: &'static str) -> Result<(), ImportError> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(parent).map_err(|err| ImportError::Io {
+        operation,
+        context: parent.display().to_string(),
+        reason: err.to_string(),
+    })
 }
 
 fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
@@ -2688,7 +2704,9 @@ mod tests {
     #[test]
     fn intake_session_write_failure_returns_io_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
-        let bad_path = dir.path().join("missing").join("spans.jsonl");
+        let parent_file = dir.path().join("missing");
+        std::fs::write(&parent_file, "not-a-directory").unwrap();
+        let bad_path = parent_file.join("spans.jsonl");
         let session = TracingIntakeSession::builder("svc")
             .completed_span_jsonl_path(&bad_path)
             .strict(true)
@@ -2696,13 +2714,15 @@ mod tests {
             .unwrap();
         let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
-        assert!(err.to_string().contains("spans.jsonl"));
+        assert!(err.to_string().contains("create completed span jsonl parent directory"));
     }
 
     #[test]
     fn intake_session_non_strict_write_failure_adds_warning_and_keeps_run() {
         let dir = tempfile::tempdir().unwrap();
-        let bad_path = dir.path().join("missing").join("spans.jsonl");
+        let parent_file = dir.path().join("missing");
+        std::fs::write(&parent_file, "not-a-directory").unwrap();
+        let bad_path = parent_file.join("spans.jsonl");
         let session = TracingIntakeSession::builder("svc")
             .completed_span_jsonl_path(&bad_path)
             .build()
@@ -2764,6 +2784,27 @@ mod tests {
         let run: tailtriage_core::Run =
             serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
         assert_eq!(run.requests.len(), 1);
+    }
+
+    #[test]
+    fn intake_session_run_json_path_creates_nested_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("nested/out/run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+        session.shutdown().unwrap();
+        assert!(run_path.exists());
     }
 
     #[test]
@@ -2835,6 +2876,52 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(value["format"], "tailtriage.tracing-span.v1");
         assert!(value["span"].is_object());
+    }
+
+    #[test]
+    fn completed_span_jsonl_path_creates_nested_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("nested/out/spans.jsonl");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+        session.shutdown().unwrap();
+        assert!(spans_path.exists());
+    }
+
+    #[test]
+    fn run_json_simple_filename_without_parent_writes_successfully() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path("run.json")
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+        });
+        session.shutdown().unwrap();
+        assert!(dir.path().join("run.json").exists());
+
+        std::env::set_current_dir(cwd).unwrap();
     }
 
     #[test]
