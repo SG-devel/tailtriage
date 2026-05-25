@@ -4,8 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, Tailtriage};
-use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
+use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink, Tailtriage};
+use tailtriage_tracing::{
+    ensure_persistable_run_has_requests, tokio::TracingTokioSession, ImportedRun, TracingRecorder,
+};
 use tokio::sync::Barrier;
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
@@ -352,9 +354,7 @@ impl DemoInstrumentation {
             }
             DemoInstrumentationBackend::Tracing(state) => {
                 let imported = state.recorder.shutdown()?;
-                let mut file = std::fs::File::create(output_path)?;
-                serde_json::to_writer_pretty(&mut file, imported.run())?;
-                Ok(())
+                write_persistable_demo_run(&imported, output_path)
             }
         }
     }
@@ -473,12 +473,22 @@ impl RuntimeDemoInstrumentation {
             }
             RuntimeDemoBackend::Tracing(s) => {
                 let imported = s.shutdown().await?;
-                let mut file = std::fs::File::create(output_path)?;
-                serde_json::to_writer_pretty(&mut file, imported.run())?;
-                Ok(())
+                write_persistable_demo_run(&imported, output_path)
             }
         }
     }
+}
+
+fn write_persistable_demo_run(imported: &ImportedRun, output_path: &Path) -> anyhow::Result<()> {
+    ensure_persistable_run_has_requests(imported.run())?;
+    LocalJsonSink::new(output_path)
+        .write(imported.run())
+        .with_context(|| {
+            format!(
+                "failed to write persisted demo run to {}",
+                output_path.display()
+            )
+        })
 }
 
 impl DemoRequest {
@@ -610,6 +620,8 @@ pub async fn run_warmup_then_measured<Warmup, WarmupFut, Measured, MeasuredFut>(
 mod tests {
     use super::{parse_demo_args_from, DemoMode, InstrumentationMode};
     use tailtriage_core::Outcome;
+    use tailtriage_core::{CaptureMode, RequestEvent, Run, RunMetadata, UnfinishedRequests};
+    use tailtriage_tracing::ImportedRun;
 
     #[test]
     fn demo_args_default_instrumentation_is_native() {
@@ -677,5 +689,79 @@ mod tests {
     fn outcome_other_preserves_custom_label() {
         let outcome = Outcome::Other("custom".to_string());
         assert_eq!(outcome.as_str(), "custom");
+    }
+
+    #[test]
+    fn tracing_persistable_write_rejects_zero_request_runs() {
+        let temp = fresh_temp_dir("zero-request");
+        let output = temp.join("run.json");
+        let imported = ImportedRun::new(sample_run_with_requests(0), Vec::new());
+
+        let err = super::write_persistable_demo_run(&imported, &output)
+            .expect_err("expected zero-request artifact rejection");
+        assert!(err.to_string().contains("zero request"));
+        assert!(
+            !output.exists(),
+            "should not write artifact when guard fails"
+        );
+    }
+
+    #[test]
+    fn tracing_persistable_write_writes_valid_run_json() {
+        let temp = fresh_temp_dir("one-request");
+        let output = temp.join("run.json");
+        let expected = sample_run_with_requests(1);
+        let imported = ImportedRun::new(expected.clone(), Vec::new());
+
+        super::write_persistable_demo_run(&imported, &output).expect("write persisted run");
+
+        let data = std::fs::read_to_string(&output).expect("read artifact");
+        let parsed: Run = serde_json::from_str(&data).expect("parse run json");
+        assert_eq!(parsed, expected);
+    }
+
+    fn fresh_temp_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tailtriage-demo-support-{label}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    fn sample_run_with_requests(requests: usize) -> Run {
+        let mut run = Run::new(sample_metadata());
+        for idx in 0..requests {
+            run.requests.push(RequestEvent {
+                request_id: format!("req-{idx}"),
+                route: "/demo".to_string(),
+                kind: None,
+                started_at_unix_ms: 1_700_000_000_000 + idx as u64,
+                finished_at_unix_ms: 1_700_000_000_010 + idx as u64,
+                latency_us: 10_000,
+                outcome: "ok".to_string(),
+            });
+        }
+        run
+    }
+
+    fn sample_metadata() -> RunMetadata {
+        RunMetadata {
+            run_id: "run-1".to_string(),
+            service_name: "demo".to_string(),
+            service_version: None,
+            started_at_unix_ms: 1_700_000_000_000,
+            finished_at_unix_ms: 1_700_000_000_100,
+            finalized_at_unix_ms: Some(1_700_000_000_100),
+            mode: CaptureMode::Light,
+            effective_core_config: None,
+            effective_tokio_sampler_config: None,
+            host: None,
+            pid: None,
+            lifecycle_warnings: Vec::new(),
+            unfinished_requests: UnfinishedRequests::default(),
+            run_end_reason: None,
+        }
     }
 }
