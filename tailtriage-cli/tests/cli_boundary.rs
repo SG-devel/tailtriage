@@ -513,6 +513,33 @@ fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
 }
 
 #[test]
+fn import_tracing_json_default_wrapper_mode_wrong_top_level_format_includes_wrapper_guidance() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("wrong-format.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        r#"{"format":"wrong.format.marker","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("tailtriage.tracing-span.v1"));
+    assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
+    assert!(!run_path.exists(), "run output should not be written");
+}
+
+#[test]
 fn import_tracing_json_compatible_accepts_fmt_like_record_with_top_level_explicit_timestamps() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
@@ -641,6 +668,70 @@ fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
         !run_path.exists(),
         "run output should not exist on strict failure"
     );
+}
+
+#[test]
+fn import_tracing_json_wrapper_mode_strict_missing_route_does_not_append_wrapper_guidance() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("missing-route.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1"}}}"#,
+    )
+    .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--strict")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("missing required field"),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains("stable wrapper"));
+    assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
+}
+
+#[test]
+fn import_tracing_json_wrapper_mode_strict_invalid_kind_type_does_not_append_wrapper_guidance() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("invalid-kind-type.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":7,"tt.request_id":"r1","tt.route":"/ok"}}}"#,
+    )
+    .expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--strict")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("invalid field 'tt.kind'"),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains("stable wrapper"));
+    assert!(!stderr.contains("tracing_subscriber::fmt().json()"));
 }
 
 #[test]
