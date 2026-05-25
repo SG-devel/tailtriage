@@ -25,6 +25,7 @@ For live tracing intake sessions, `tailtriage-tracing` enables optional dependen
 ```bash
 cargo add tailtriage-tracing --features live
 cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
 ```
 
 If you use Tokio runtime sampler coupling via `TracingTokioSession`, use:
@@ -41,8 +42,12 @@ use tailtriage_tracing::TracingIntakeSession;
 use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
-# async fn work() {}
-# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn work() {
+    // Your request work goes here.
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
 let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
@@ -61,13 +66,9 @@ let request = tracing::info_span!(
 );
 work().instrument(request).await;
 let imported = session.shutdown()?;
-# let _ = imported;
-# Ok(())
-# }
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
-#   let _ = run();
-#   Ok(())
-# }
+let _ = imported;
+Ok(())
+}
 ```
 
 Install the tailtriage layer beside your existing tracing layers in the application's normal process-wide subscriber setup; tailtriage augments your tracing pipeline rather than replacing it.

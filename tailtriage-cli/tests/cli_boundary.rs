@@ -277,6 +277,70 @@ fn import_tracing_json_writes_run_json_when_output_path_contains_spaces() {
 }
 
 #[test]
+fn import_tracing_json_creates_missing_output_parent_directories() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("missing-parent/run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert!(
+        run_path.exists(),
+        "expected output to exist at {run_path:?}"
+    );
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load from nested output path");
+    assert_eq!(loaded.run.requests.len(), 1);
+}
+
+#[test]
+fn import_tracing_json_fails_when_output_parent_is_file() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let not_a_dir = dir.path().join("not-a-dir");
+    let run_path = not_a_dir.join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+    std::fs::write(&not_a_dir, "x").expect("marker file should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("failed to create output parent directory")
+            || stderr.contains(not_a_dir.to_string_lossy().as_ref())
+    );
+    assert!(
+        !run_path.exists(),
+        "output unexpectedly exists at {run_path:?}"
+    );
+}
+
+#[test]
 fn import_tracing_json_mode_investigation_sets_run_metadata_mode() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");

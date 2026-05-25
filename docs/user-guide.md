@@ -56,6 +56,7 @@ B) Direct Run JSON path with async span instrumentation (`live` feature required
 ```bash
 cargo add tailtriage-tracing --features live
 cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
 ```
 
 
@@ -64,8 +65,12 @@ use tailtriage_tracing::TracingIntakeSession;
 use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
-# async fn work() {}
-# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn work() {
+    // Your request work goes here.
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
 let session = TracingIntakeSession::builder("checkout-service")
     .run_json_path("target/tailtriage-examples/checkout.run.json")
     .build()?;
@@ -81,13 +86,9 @@ let span = tracing::info_span!(
 );
 work().instrument(span).await;
 let imported = session.shutdown()?;
-# let _ = imported;
-# Ok(())
+let _ = imported;
+Ok(())
 }
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
-#   let _ = run();
-#   Ok(())
-# }
 ```
 
 Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
