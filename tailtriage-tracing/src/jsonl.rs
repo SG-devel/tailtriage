@@ -12,7 +12,7 @@ use crate::{
 ///
 /// This parser accepts only the stable wrapper shape
 /// `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
-/// Use [`import_jsonl_reader_with_mode`] with [`JsonlParseMode::Compatible`]
+/// Use [`crate::import_jsonl_reader_with_mode`] with [`JsonlParseMode::Compatible`]
 /// for explicit compatibility parsing.
 ///
 /// # Errors

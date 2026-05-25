@@ -49,7 +49,8 @@ pub use convention::{
 pub use error::ImportError;
 #[cfg(feature = "jsonl")]
 pub use jsonl::{
-    import_jsonl_path, import_jsonl_path_with_mode, import_jsonl_reader, JsonlParseMode,
+    import_jsonl_path, import_jsonl_path_with_mode, import_jsonl_reader,
+    import_jsonl_reader_with_mode, JsonlParseMode,
 };
 #[cfg(feature = "live")]
 pub use recorder::{
