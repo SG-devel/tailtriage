@@ -137,7 +137,7 @@ Missing stage `tt.success` defaults to `true` with a warning.
 - `max_open_spans` bounds in-flight span tracking.
 - `max_completed_candidate_spans` bounds retained raw completed candidate spans before semantic conversion.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
-- `completed_span_jsonl_path(...)` writes retained valid completed-span JSONL on shutdown.
+- `completed_span_jsonl_path(...)` writes retained valid completed-span JSONL on shutdown only when at least one completed request is retained.
 - The completed-span JSONL is replayable into the same retained request/stage/queue evidence when imported with matching service metadata.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
 - Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
@@ -145,7 +145,7 @@ Missing stage `tt.success` defaults to `true` with a warning.
 ## Runtime-pressure limitation
 
 Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
-Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
+Persisted artifacts intended for offline `tailtriage analyze` workflows (Run JSON and completed-span JSONL export) must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
 For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model. Run metadata time bounds cover merged retained tracing evidence plus retained runtime snapshots, which supports triage interpretation but is not root-cause proof:
 
