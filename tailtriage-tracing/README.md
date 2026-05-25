@@ -105,6 +105,7 @@ Stable completed-span JSONL records use this wrapper:
 ```
 
 `format` is a wrapper-level field (not a `SpanRecord` field).
+The simple library import APIs (`import_jsonl_reader` / `import_jsonl_path`) also default to this wrapper-only mode. Use `*_with_mode(..., JsonlParseMode::Compatible)` only when explicit legacy-shape compatibility parsing is required.
 
 Ordinary tracing log JSON (for example `fmt().json` output) is rejected by import. Import does not guess span timing from line receive time: provide explicit unix-ms start/end timestamps on completed spans.
 

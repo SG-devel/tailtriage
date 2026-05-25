@@ -10,9 +10,10 @@ use crate::{
 
 /// Imports newline-delimited JSON records from a reader into a converted run.
 ///
-/// This parser accepts a normalized `{"span": {...}}` shape and a tolerant
-/// close-event shape when explicit `started_at_unix_ms` and `finished_at_unix_ms`
-/// (or `start_unix_ms`/`end_unix_ms`) are present.
+/// This parser accepts only the stable wrapper shape
+/// `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
+/// Use [`crate::import_jsonl_reader_with_mode`] with [`JsonlParseMode::Compatible`]
+/// for explicit compatibility parsing.
 ///
 /// # Errors
 ///
@@ -24,7 +25,7 @@ pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
+    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::TailtriageWrapperOnly)
 }
 
 /// Parse mode for tracing JSONL import.
@@ -112,7 +113,7 @@ pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    import_jsonl_path_with_mode(path, options, JsonlParseMode::Compatible)
+    import_jsonl_path_with_mode(path, options, JsonlParseMode::TailtriageWrapperOnly)
 }
 
 /// Imports newline-delimited JSON records from a filesystem path with an explicit parse mode.
@@ -580,7 +581,14 @@ fn parse_u64(v: &Value, field: &'static str) -> Result<u64, ImportError> {
 mod tests {
     use super::*;
     use crate::ImportOptions;
-    use std::io::Cursor;
+    use std::io::{Cursor, Read};
+
+    fn import_jsonl_reader<R: Read>(
+        reader: R,
+        options: ImportOptions,
+    ) -> Result<ImportedRun, ImportError> {
+        super::import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
+    }
 
     #[test]
     fn normalized_jsonl_request_only() {
@@ -658,7 +666,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("input.jsonl");
         std::fs::write(&path, r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#).unwrap();
-        let imported = import_jsonl_path(&path, ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_path_with_mode(
+            &path,
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().requests.len(), 1);
     }
 
@@ -1405,8 +1418,56 @@ mod tests {
     #[test]
     fn compatible_mode_accepts_old_normalized_shape() {
         let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn import_jsonl_reader_accepts_wrapper_by_default() {
+        let wrapped = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let imported =
-            import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+            super::import_jsonl_reader(Cursor::new(wrapped), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn import_jsonl_reader_unwrapped_non_strict_warns_and_skips_by_default() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported =
+            super::import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 0);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("expected stable wrapper shape")));
+    }
+
+    #[test]
+    fn import_jsonl_reader_unwrapped_strict_rejects_with_expected_wrapper_error() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = super::import_jsonl_reader(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc").strict(true),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+    }
+
+    #[test]
+    fn import_jsonl_path_accepts_wrapper_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wrapped.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#,
+        )
+        .unwrap();
+        let imported = super::import_jsonl_path(&path, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
     }
 

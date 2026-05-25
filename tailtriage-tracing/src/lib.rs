@@ -49,7 +49,8 @@ pub use convention::{
 pub use error::ImportError;
 #[cfg(feature = "jsonl")]
 pub use jsonl::{
-    import_jsonl_path, import_jsonl_path_with_mode, import_jsonl_reader, JsonlParseMode,
+    import_jsonl_path, import_jsonl_path_with_mode, import_jsonl_reader,
+    import_jsonl_reader_with_mode, JsonlParseMode,
 };
 #[cfg(feature = "live")]
 pub use recorder::{
@@ -577,7 +578,21 @@ fn required_string(
     warnings: &mut Vec<ImportWarning>,
 ) -> Result<Option<String>, ImportError> {
     match get_string_field_state(span, key) {
-        StringFieldState::Value(value) => Ok(Some(value.to_owned())),
+        StringFieldState::Value(value) => {
+            if value.trim().is_empty() {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "invalid field '{key}' in span '{}': required string cannot be empty or whitespace",
+                        span.name()
+                    ),
+                )?;
+                Ok(None)
+            } else {
+                Ok(Some(value.to_owned()))
+            }
+        }
         StringFieldState::Missing => {
             strict_or_warn(
                 strict,
@@ -1900,6 +1915,91 @@ mod tests {
             run_from_span_records(vec![bad_outcome], ImportOptions::new("svc").strict(true))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn whitespace_only_request_id_non_strict_skips_request_and_warns() {
+        let spans = vec![SpanRecord::new("req", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "   ")
+            .field(TT_ROUTE, "/")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("invalid field 'tt.request_id' in span 'req'")
+                && w.message().contains("cannot be empty or whitespace")
+        }));
+    }
+
+    #[test]
+    fn whitespace_only_route_non_strict_skips_request_and_warns() {
+        let spans = vec![SpanRecord::new("req", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "  \t")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("invalid field 'tt.route' in span 'req'")
+                && w.message().contains("cannot be empty or whitespace")
+        }));
+    }
+
+    #[test]
+    fn whitespace_only_stage_non_strict_skips_stage_and_warns() {
+        let spans = vec![
+            SpanRecord::new("req", 1, 3)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("stage", 1, 2)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "   "),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().stages.is_empty());
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("invalid field 'tt.stage' in span 'stage'")
+                && w.message().contains("cannot be empty or whitespace")
+        }));
+    }
+
+    #[test]
+    fn whitespace_only_queue_non_strict_skips_queue_and_warns() {
+        let spans = vec![
+            SpanRecord::new("req", 1, 3)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/"),
+            SpanRecord::new("queue", 1, 2)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, " "),
+        ];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().queues.is_empty());
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("invalid field 'tt.queue' in span 'queue'")
+                && w.message().contains("cannot be empty or whitespace")
+        }));
+    }
+
+    #[test]
+    fn whitespace_only_required_field_strict_returns_strict_violation() {
+        let spans = vec![SpanRecord::new("req", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, " ")
+            .field(TT_ROUTE, "/")];
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err
+            .to_string()
+            .contains("invalid field 'tt.request_id' in span 'req'"));
     }
 
     #[test]

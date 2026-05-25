@@ -741,7 +741,27 @@ fn require_string_field(
             "tt.queue" => "missing required field tt.queue",
             _ => "missing required field",
         }),
-        Some(FieldValue::String(_)) => None,
+        Some(FieldValue::String(value)) => {
+            if value.trim().is_empty() {
+                Some(match field_name {
+                    "tt.request_id" => {
+                        "invalid required field tt.request_id: required string cannot be empty or whitespace"
+                    }
+                    "tt.route" => {
+                        "invalid required field tt.route: required string cannot be empty or whitespace"
+                    }
+                    "tt.stage" => {
+                        "invalid required field tt.stage: required string cannot be empty or whitespace"
+                    }
+                    "tt.queue" => {
+                        "invalid required field tt.queue: required string cannot be empty or whitespace"
+                    }
+                    _ => "invalid required field: required string cannot be empty or whitespace",
+                })
+            } else {
+                None
+            }
+        }
         Some(_) => Some(match field_name {
             "tt.request_id" => "invalid required field tt.request_id: expected string",
             "tt.route" => "invalid required field tt.route: expected string",
@@ -1709,6 +1729,40 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn whitespace_only_required_field_reports_incomplete_candidate_not_invalid_run_event() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(2)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-whitespace",
+                tt.kind = "request",
+                tt.request_id = " ",
+                tt.route = "/bad"
+            ));
+            drop(tracing::info_span!(
+                "request-good",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            ));
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported.warnings().iter().any(|w| {
+            w.message().contains("incomplete required fields")
+                && w.message()
+                    .contains("required string cannot be empty or whitespace")
+        }));
+        assert!(!imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("InvalidRunEvent")));
     }
 
     #[test]

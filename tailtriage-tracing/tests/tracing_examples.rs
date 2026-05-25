@@ -1,7 +1,10 @@
 use std::{fs::File, path::PathBuf};
 
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
-use tailtriage_tracing::{import_jsonl_path, import_jsonl_reader, ImportOptions};
+use tailtriage_tracing::{
+    import_jsonl_path, import_jsonl_reader, import_jsonl_reader_with_mode, ImportOptions,
+    JsonlParseMode,
+};
 
 #[test]
 fn jsonl_fixture_imports_completed_span_shape() {
@@ -74,4 +77,18 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
     );
     let report = analyze_run(run, AnalyzeOptions::default());
     assert_eq!(report.request_count, 1);
+}
+
+#[test]
+fn compatible_reader_api_is_reachable_from_crate_root() {
+    let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+
+    let imported = import_jsonl_reader_with_mode(
+        std::io::Cursor::new(input),
+        ImportOptions::new("svc"),
+        JsonlParseMode::Compatible,
+    )
+    .expect("compatible import should work");
+
+    assert_eq!(imported.run().requests.len(), 1);
 }
