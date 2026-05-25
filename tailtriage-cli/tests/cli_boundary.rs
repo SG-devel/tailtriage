@@ -235,6 +235,8 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--output")
         .arg(&run_path)
         .output()
@@ -263,6 +265,8 @@ fn import_tracing_json_writes_run_json_when_output_path_contains_spaces() {
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--output")
         .arg(&run_path)
         .output()
@@ -342,6 +346,8 @@ fn import_tracing_json_rejects_inert_runtime_snapshot_flags() {
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
+        .arg("--input-format")
+        .arg("compatible")
         .arg("--output")
         .arg(&run_path)
         .arg("--max-runtime-snapshots")
@@ -879,6 +885,94 @@ fn import_tracing_json_fails_when_non_strict_skips_all_malformed_tt_spans() {
 }
 
 #[test]
+fn import_tracing_json_non_strict_invalid_outcome_warns_and_zero_request_artifact_fails() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--input-format")
+        .arg("compatible")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("invalid field 'tt.outcome'"));
+    assert!(stderr.contains("expected one of ok,error,timeout,cancelled,rejected"));
+    assert!(stderr.contains("zero request events"));
+    assert!(!run_path.exists(), "run output should not be written");
+}
+
+#[test]
+fn import_tracing_json_strict_invalid_outcome_fails_with_message() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--input-format")
+        .arg("compatible")
+        .arg("--strict")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("invalid field 'tt.outcome'"));
+    assert!(stderr.contains("expected one of ok,error,timeout,cancelled,rejected"));
+    assert!(!run_path.exists(), "run output should not be written");
+}
+
+#[test]
+fn import_tracing_json_accepts_all_valid_outcomes() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, all_valid_outcomes_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--input-format")
+        .arg("compatible")
+        .arg("--output")
+        .arg(&run_path)
+        .output()
+        .expect("cli should run");
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    let outcomes: Vec<&str> = loaded
+        .run
+        .requests
+        .iter()
+        .map(|request| request.outcome.as_str())
+        .collect();
+    assert_eq!(
+        outcomes,
+        vec!["ok", "error", "timeout", "cancelled", "rejected"]
+    );
+}
+
+#[test]
 fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
@@ -1103,6 +1197,18 @@ fn only_missing_kind_tailtriage_spans_fixture() -> &'static str {
     r#"{"span":{"name":"oops-1","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
 {"span":{"name":"oops-2","started_at_unix_ms":1010,"finished_at_unix_ms":1015,"fields":{"tt.request_id":"req-1","tt.route":"/oops2"}}}
 "#
+}
+
+fn invalid_outcome_only_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"sucess"}}}"#
+}
+
+fn all_valid_outcomes_fixture() -> &'static str {
+    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-ok","tt.route":"/checkout","tt.outcome":"ok"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1011,"finished_at_unix_ms":1020,"fields":{"tt.kind":"request","tt.request_id":"req-error","tt.route":"/checkout","tt.outcome":"error"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1021,"finished_at_unix_ms":1030,"fields":{"tt.kind":"request","tt.request_id":"req-timeout","tt.route":"/checkout","tt.outcome":"timeout"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1031,"finished_at_unix_ms":1040,"fields":{"tt.kind":"request","tt.request_id":"req-cancelled","tt.route":"/checkout","tt.outcome":"cancelled"}}}
+{"span":{"name":"http.request","started_at_unix_ms":1041,"finished_at_unix_ms":1050,"fields":{"tt.kind":"request","tt.request_id":"req-rejected","tt.route":"/checkout","tt.outcome":"rejected"}}}"#
 }
 
 fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
