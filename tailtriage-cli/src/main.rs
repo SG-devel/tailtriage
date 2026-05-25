@@ -184,6 +184,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn create_output_parent_dir(path: &std::path::Path) -> Result<(), std::io::Error> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(parent).map_err(|err| {
+        std::io::Error::new(
+            err.kind(),
+            format!(
+                "failed to create output parent directory '{}': {err}",
+                parent.display()
+            ),
+        )
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn import_tracing_json(
     spans_jsonl: PathBuf,
@@ -252,6 +270,7 @@ fn import_tracing_json(
         }
         return Err(err.into());
     }
+    create_output_parent_dir(output.as_path())?;
     LocalJsonSink::new(output).write(imported.run())?;
     Ok(())
 }
