@@ -24,7 +24,7 @@ pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
+    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::TailtriageWrapperOnly)
 }
 
 /// Parse mode for tracing JSONL import.
@@ -112,7 +112,7 @@ pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    import_jsonl_path_with_mode(path, options, JsonlParseMode::Compatible)
+    import_jsonl_path_with_mode(path, options, JsonlParseMode::TailtriageWrapperOnly)
 }
 
 /// Imports newline-delimited JSON records from a filesystem path with an explicit parse mode.
@@ -581,6 +581,20 @@ mod tests {
     use super::*;
     use crate::ImportOptions;
     use std::io::Cursor;
+
+    fn import_jsonl_reader<R: std::io::Read>(
+        reader: R,
+        options: ImportOptions,
+    ) -> Result<ImportedRun, ImportError> {
+        super::import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
+    }
+
+    fn import_jsonl_path(
+        path: impl AsRef<std::path::Path>,
+        options: ImportOptions,
+    ) -> Result<ImportedRun, ImportError> {
+        super::import_jsonl_path_with_mode(path, options, JsonlParseMode::Compatible)
+    }
 
     #[test]
     fn normalized_jsonl_request_only() {
@@ -1406,7 +1420,47 @@ mod tests {
     fn compatible_mode_accepts_old_normalized_shape() {
         let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let imported =
-            import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+            super::import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn default_import_jsonl_reader_accepts_wrapper_only() {
+        let wrapped = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported =
+            super::import_jsonl_reader(Cursor::new(wrapped), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn default_import_jsonl_reader_unwrapped_warns_non_strict() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported =
+            super::import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("tailtriage wrapper")));
+    }
+
+    #[test]
+    fn default_import_jsonl_reader_unwrapped_strict_errors_expected_wrapper() {
+        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err = super::import_jsonl_reader(
+            Cursor::new(unwrapped),
+            ImportOptions::new("svc").strict(true),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+    }
+
+    #[test]
+    fn default_import_jsonl_path_accepts_wrapper() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wrapper.jsonl");
+        std::fs::write(&path, "{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{\"name\":\"req\",\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"fields\":{\"tt.kind\":\"request\",\"tt.request_id\":\"r1\",\"tt.route\":\"/a\"}}}\n").unwrap();
+        let imported = super::import_jsonl_path(&path, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
     }
 

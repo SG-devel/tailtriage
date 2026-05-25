@@ -741,7 +741,14 @@ fn require_string_field(
             "tt.queue" => "missing required field tt.queue",
             _ => "missing required field",
         }),
-        Some(FieldValue::String(_)) => None,
+        Some(FieldValue::String(value)) if !value.trim().is_empty() => None,
+        Some(FieldValue::String(_)) => Some(match field_name {
+            "tt.request_id" => "invalid required field tt.request_id: value must not be blank",
+            "tt.route" => "invalid required field tt.route: value must not be blank",
+            "tt.stage" => "invalid required field tt.stage: value must not be blank",
+            "tt.queue" => "invalid required field tt.queue: value must not be blank",
+            _ => "invalid required field: value must not be blank",
+        }),
         Some(_) => Some(match field_name {
             "tt.request_id" => "invalid required field tt.request_id: expected string",
             "tt.route" => "invalid required field tt.route: expected string",
