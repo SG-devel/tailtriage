@@ -55,6 +55,7 @@ B) Direct Run JSON path with async span instrumentation (`live` feature required
 
 ```bash
 cargo add tailtriage-tracing --features live
+cargo add tracing tracing-subscriber
 ```
 
 
@@ -101,6 +102,7 @@ Tokio runtime sampler coupling via `TracingTokioSession` requires the `tokio` fe
 
 ```bash
 cargo add tailtriage-tracing --features tokio
+cargo add tracing tracing-subscriber
 ```
 
 For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
