@@ -17,7 +17,7 @@ It is **not**:
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
 - Default (`jsonl`): JSONL import APIs and stable wrapper parsing.
 - `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession`.
-- `tokio`: enables `TracingTokioSession` runtime-sampler coupling and includes `live`.
+- `tokio`: enables `TracingTokioSession` runtime-sampler coupling (enabled by default, disable-able for deterministic/manual snapshots) and includes `live`.
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
@@ -82,7 +82,7 @@ If your service already builds a subscriber in startup code, compose `session.la
 
 ## Direct Run JSON path
 
-Use `run_json_path(...)` when you want to skip a separate import step and write Run JSON through the same robust writer path used by native capture sinks:
+Use `run_json_path(...)` when you want to skip a separate import step and write Run JSON during `TracingTokioSession::shutdown()` through the same robust writer path used by native capture sinks:
 
 ```bash
 tailtriage analyze target/tailtriage-examples/checkout.run.json
@@ -157,8 +157,11 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 - configure retention with `mode(...)`, `capture_limits(...)`, or `capture_limits_override(...)`
 - there is no tracing-specific `.max_runtime_snapshots(...)` session builder method
 - tracing-only runs still do not fabricate runtime snapshots
+- deterministic demos/validation can call `.disable_background_sampler()` and inject snapshots with `record_runtime_snapshot(...)`
+- if background sampling is disabled, lifecycle warnings explicitly mark runtime evidence as manual
 
 ## Examples
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+- `tailtriage-tracing/examples/tokio_session_to_run.rs`
