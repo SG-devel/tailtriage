@@ -348,6 +348,103 @@ class DemoWrapperTests(unittest.TestCase):
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
 
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_runtime_sensitive_accepts_manual_disabled_sampler_warning(
+        self,
+        parity_config_mock,
+        _run_and_analyze_mock,
+        load_run_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/blocking-demo",
+            "expected_kind": "blocking_pool_pressure",
+            "queues": {"dispatch_overhead"},
+            "stages": {"spawn_blocking_path"},
+            "require_p95_improvement": False,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "blocking_pool_pressure", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        light_run = {
+            "requests": [{"route": "/blocking-demo"}],
+            "stages": [{"stage": "spawn_blocking_path"}],
+            "queues": [{"queue": "dispatch_overhead", "depth_at_start": 1}],
+            "runtime_snapshots": [{"blocking_queue_depth": 1}],
+            "metadata": {
+                "mode": "light",
+                "lifecycle_warnings": [
+                    "tailtriage-tracing session ran with background runtime sampling disabled; runtime snapshots rely on manual record_runtime_snapshot(...) calls"
+                ],
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+            },
+            "scenario_label": "blocking",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        investigation_run = {**light_run, "metadata": {**light_run["metadata"], "mode": "investigation"}}
+        load_run_mock.side_effect = ([light_run] * 4) + ([investigation_run] * 4)
+        with patch.object(Path, "exists", return_value=True):
+            demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_runtime_sensitive_rejects_sampler_metadata_without_disabled_warning(
+        self,
+        parity_config_mock,
+        _run_and_analyze_mock,
+        load_run_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/blocking-demo",
+            "expected_kind": "blocking_pool_pressure",
+            "queues": {"dispatch_overhead"},
+            "stages": {"spawn_blocking_path"},
+            "require_p95_improvement": False,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "blocking_pool_pressure", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        light_run = {
+            "requests": [{"route": "/blocking-demo"}],
+            "stages": [{"stage": "spawn_blocking_path"}],
+            "queues": [{"queue": "dispatch_overhead", "depth_at_start": 1}],
+            "runtime_snapshots": [{"blocking_queue_depth": 1}],
+            "metadata": {
+                "mode": "light",
+                "lifecycle_warnings": [],
+                "effective_tokio_sampler_config": {"interval_ms": 10},
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+            },
+            "scenario_label": "blocking",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        investigation_run = {**light_run, "metadata": {**light_run["metadata"], "mode": "investigation"}}
+        load_run_mock.side_effect = ([light_run] * 4) + ([investigation_run] * 4)
+        with patch.object(Path, "exists", return_value=True):
+            with self.assertRaisesRegex(
+                SystemExit,
+                r"expected disabled-background-sampler lifecycle warning in deterministic runtime-sensitive tracing run before-light-tracing-run\.json",
+            ):
+                demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
+
     def test_parity_failure_message_contains_scenario_field_expected_actual(self) -> None:
         with self.assertRaisesRegex(
             SystemExit,
