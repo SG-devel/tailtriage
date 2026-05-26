@@ -246,7 +246,9 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.capture_limits_override(overrides);
         self
     }
-    /// Sets runtime sampler interval.
+    /// Sets runtime sampler interval when background sampling is enabled.
+    ///
+    /// Ignored when [`Self::disable_background_sampler`] is enabled.
     #[must_use]
     pub fn sampler_interval(mut self, sampler_interval: Duration) -> Self {
         self.sampler_interval = Some(sampler_interval);
@@ -269,7 +271,8 @@ impl TracingTokioSessionBuilder {
     /// # Errors
     ///
     /// Returns [`TracingTokioSessionStartError`] when tracing service metadata is invalid,
-    /// when runtime collector build fails, when sampler interval is zero,
+    /// when runtime collector build fails, when sampler interval is zero while
+    /// background runtime sampling is enabled,
     /// or when there is no active Tokio runtime.
     pub fn start(self) -> Result<TracingTokioSession, TracingTokioSessionStartError> {
         let mode = self.recorder_builder.selected_mode();
@@ -287,13 +290,6 @@ impl TracingTokioSessionBuilder {
             CaptureMode::Light => builder.light(),
             CaptureMode::Investigation => builder.investigation(),
         };
-        if let Some(interval) = self.sampler_interval {
-            if interval.is_zero() {
-                return Err(TracingTokioSessionStartError::SamplerStart(
-                    SamplerStartError::ZeroInterval,
-                ));
-            }
-        }
         let runtime_collector = Arc::new(
             builder
                 .build()
@@ -302,6 +298,13 @@ impl TracingTokioSessionBuilder {
         let sampler = if self.disable_background_sampler {
             None
         } else {
+            if let Some(interval) = self.sampler_interval {
+                if interval.is_zero() {
+                    return Err(TracingTokioSessionStartError::SamplerStart(
+                        SamplerStartError::ZeroInterval,
+                    ));
+                }
+            }
             let sampler_builder = RuntimeSampler::builder(Arc::clone(&runtime_collector));
             let sampler_builder = if let Some(interval) = self.sampler_interval {
                 sampler_builder.interval(interval)
