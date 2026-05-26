@@ -410,13 +410,12 @@ fn dedupe_retained_requests(
 fn all_valid_request_intervals(requests: &[RequestEvent]) -> BTreeMap<String, RequestInterval> {
     let mut intervals = BTreeMap::new();
     for request in requests {
-        intervals.insert(
-            request.request_id.clone(),
-            RequestInterval {
+        intervals
+            .entry(request.request_id.clone())
+            .or_insert(RequestInterval {
                 started_at_unix_ms: request.started_at_unix_ms,
                 finished_at_unix_ms: request.finished_at_unix_ms,
-            },
-        );
+            });
     }
     intervals
 }
@@ -2176,6 +2175,154 @@ mod tests {
         )));
     }
 
+    #[test]
+    fn strict_mode_duplicate_request_id_overflow_keeps_retained_children() {
+        let spans = vec![
+            SpanRecord::new("req-1", 100, 200)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st-1", 120, 150)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q-1", 130, 140)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+            SpanRecord::new("req-2", 300, 400)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+        ];
+        let imported = run_from_span_records(
+            spans,
+            ImportOptions::new("checkout")
+                .strict(true)
+                .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                    max_requests: Some(1),
+                    max_stages: None,
+                    max_queues: None,
+                    ..tailtriage_core::CaptureLimitsOverride::default()
+                }),
+        )
+        .expect("strict import should keep children that match retained request interval");
+
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
+        assert_eq!(imported.run().requests[0].started_at_unix_ms, 100);
+        assert_eq!(imported.run().requests[0].finished_at_unix_ms, 200);
+        assert_eq!(imported.run().stages.len(), 1);
+        assert_eq!(imported.run().stages[0].request_id, "r1");
+        assert_eq!(imported.run().stages[0].started_at_unix_ms, 120);
+        assert_eq!(imported.run().stages[0].finished_at_unix_ms, 150);
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].request_id, "r1");
+        assert_eq!(imported.run().queues[0].waited_from_unix_ms, 130);
+        assert_eq!(imported.run().queues[0].waited_until_unix_ms, 140);
+        assert_eq!(imported.run().truncation.dropped_requests, 1);
+        assert_eq!(imported.run().truncation.dropped_stages, 0);
+        assert_eq!(imported.run().truncation.dropped_queues, 0);
+    }
+
+    #[test]
+    fn strict_mode_duplicate_request_id_overflow_only_children_fail_outside_interval() {
+        let spans = vec![
+            SpanRecord::new("req-1", 100, 200)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("req-2", 300, 400)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st-1", 320, 350)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q-1", 330, 340)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let err = run_from_span_records(
+            spans,
+            ImportOptions::new("checkout")
+                .strict(true)
+                .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                    max_requests: Some(1),
+                    max_stages: None,
+                    max_queues: None,
+                    ..tailtriage_core::CaptureLimitsOverride::default()
+                }),
+        )
+        .expect_err("strict import should fail when child only matches overflow duplicate request");
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        let msg = err.to_string();
+        assert!(msg.contains("falls outside request interval"));
+        assert!(!msg.contains("valid but not retained due to max_requests"));
+    }
+
+    #[test]
+    fn non_strict_duplicate_request_id_overflow_only_children_warn_outside_interval() {
+        let spans = vec![
+            SpanRecord::new("req-1", 100, 200)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("req-2", 300, 400)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st-1", 320, 350)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q-1", 330, 340)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(
+            spans,
+            ImportOptions::new("checkout").capture_limits_override(
+                tailtriage_core::CaptureLimitsOverride {
+                    max_requests: Some(1),
+                    max_stages: None,
+                    max_queues: None,
+                    ..tailtriage_core::CaptureLimitsOverride::default()
+                },
+            ),
+        )
+        .expect("non-strict import should succeed with warnings");
+
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().stages.len(), 0);
+        assert_eq!(imported.run().queues.len(), 0);
+        assert_eq!(imported.run().truncation.dropped_requests, 1);
+        assert_eq!(imported.run().truncation.dropped_stages, 0);
+        assert_eq!(imported.run().truncation.dropped_queues, 0);
+
+        let warning_msgs: Vec<&str> = imported
+            .warnings()
+            .iter()
+            .map(ImportWarning::message)
+            .collect();
+        assert!(warning_msgs
+            .iter()
+            .any(|msg| msg.contains("falls outside request interval")));
+        assert!(warning_msgs
+            .iter()
+            .all(|msg| !msg.contains("valid but not retained due to max_requests")));
+
+        let lifecycle_warnings = &imported.run().metadata.lifecycle_warnings;
+        assert!(lifecycle_warnings
+            .iter()
+            .any(|msg| msg.contains("falls outside request interval")));
+        assert!(lifecycle_warnings
+            .iter()
+            .all(|msg| !msg.contains("valid but not retained due to max_requests")));
+    }
     #[test]
     fn strict_mode_max_requests_overflow_children_are_retention_fallout() {
         let spans = vec![
