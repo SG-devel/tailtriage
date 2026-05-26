@@ -912,202 +912,215 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
 
     cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
 
-    for mode in ("before", "after"):
-        mode_arg = "baseline" if mode == "before" else "mitigated"
-        for instrumentation in ("native", "tracing"):
-            prefix = _artifact_prefix(mode, instrumentation)
-            run_path = artifact_dir / f"{prefix}-run.json"
-            analysis_path = artifact_dir / f"{prefix}-analysis.json"
-            run_and_analyze(
-                demo_manifest,
-                cli_manifest,
-                run_path,
-                analysis_path,
-                mode_arg,
-                profile=profile,
-                extra_demo_args=["--instrumentation", instrumentation, "--mode", "light"],
+    for capture_mode in ("light", "investigation"):
+        artifacts: dict[tuple[str, str], dict[str, Path]] = {}
+        for mode in ("before", "after"):
+            mode_arg = "baseline" if mode == "before" else "mitigated"
+            for instrumentation in ("native", "tracing"):
+                prefix = f"{mode}-{capture_mode}-{instrumentation}"
+                run_path = artifact_dir / f"{prefix}-run.json"
+                analysis_path = artifact_dir / f"{prefix}-analysis.json"
+                run_and_analyze(
+                    demo_manifest,
+                    cli_manifest,
+                    run_path,
+                    analysis_path,
+                    mode_arg,
+                    profile=profile,
+                    extra_demo_args=["--instrumentation", instrumentation, "--mode", capture_mode],
+                )
+                artifacts[(mode, instrumentation)] = {"run": run_path, "analysis": analysis_path}
+
+        before_native_run_path = artifacts[("before", "native")]["run"]
+        before_tracing_run_path = artifacts[("before", "tracing")]["run"]
+        after_native_run_path = artifacts[("after", "native")]["run"]
+        after_tracing_run_path = artifacts[("after", "tracing")]["run"]
+        before_native_analysis_path = artifacts[("before", "native")]["analysis"]
+        before_tracing_analysis_path = artifacts[("before", "tracing")]["analysis"]
+        after_native_analysis_path = artifacts[("after", "native")]["analysis"]
+        after_tracing_analysis_path = artifacts[("after", "tracing")]["analysis"]
+
+        expected_files = [
+            before_native_run_path.name,
+            before_tracing_run_path.name,
+            before_native_analysis_path.name,
+            before_tracing_analysis_path.name,
+            after_native_run_path.name,
+            after_tracing_run_path.name,
+            after_native_analysis_path.name,
+            after_tracing_analysis_path.name,
+        ]
+        missing = [name for name in expected_files if not (artifact_dir / name).exists()]
+        if missing:
+            raise SystemExit(
+                f"missing parity artifacts for scenario={scenario} capture_mode={capture_mode}: {', '.join(missing)}"
             )
 
-    expected_files = [
-        "before-native-run.json",
-        "before-tracing-run.json",
-        "before-native-analysis.json",
-        "before-tracing-analysis.json",
-        "after-native-run.json",
-        "after-tracing-run.json",
-        "after-native-analysis.json",
-        "after-tracing-analysis.json",
-    ]
-    missing = [name for name in expected_files if not (artifact_dir / name).exists()]
-    if missing:
-        raise SystemExit(f"missing parity artifacts: {', '.join(missing)}")
+        before_native_run = _load_run(before_native_run_path)
+        before_tracing_run = _load_run(before_tracing_run_path)
+        after_native_run = _load_run(after_native_run_path)
+        after_tracing_run = _load_run(after_tracing_run_path)
 
-    before_native_run = _load_run(artifact_dir / "before-native-run.json")
-    before_tracing_run = _load_run(artifact_dir / "before-tracing-run.json")
-    after_native_run = _load_run(artifact_dir / "after-native-run.json")
-    after_tracing_run = _load_run(artifact_dir / "after-tracing-run.json")
+        before_native = load_report_json(before_native_analysis_path)
+        before_tracing = load_report_json(before_tracing_analysis_path)
+        after_native = load_report_json(after_native_analysis_path)
+        after_tracing = load_report_json(after_tracing_analysis_path)
 
-    before_native = load_report_json(artifact_dir / "before-native-analysis.json")
-    before_tracing = load_report_json(artifact_dir / "before-tracing-analysis.json")
-    after_native = load_report_json(artifact_dir / "after-native-analysis.json")
-    after_tracing = load_report_json(artifact_dir / "after-tracing-analysis.json")
+        for label, report in (
+            (f"before-{capture_mode}-native", before_native),
+            (f"before-{capture_mode}-tracing", before_tracing),
+            (f"after-{capture_mode}-native", after_native),
+            (f"after-{capture_mode}-tracing", after_tracing),
+        ):
+            if report["request_count"] <= 0:
+                raise SystemExit(f"expected non-zero request count in {label}")
+            if report["p95_latency_us"] <= 0:
+                raise SystemExit(f"expected non-zero p95 latency in {label}")
 
-    for label, report in (
-        ("before-native", before_native),
-        ("before-tracing", before_tracing),
-        ("after-native", after_native),
-        ("after-tracing", after_tracing),
-    ):
-        if report["request_count"] <= 0:
-            raise SystemExit(f"expected non-zero request count in {label}")
-        if report["p95_latency_us"] <= 0:
-            raise SystemExit(f"expected non-zero p95 latency in {label}")
-
-    for label, run in (
-        ("before-native", before_native_run),
-        ("before-tracing", before_tracing_run),
-        ("after-native", after_native_run),
-        ("after-tracing", after_tracing_run),
-    ):
-        if len(run.get("requests", [])) == 0:
-            raise SystemExit(f"expected non-zero requests in {label} run artifact")
-        if scenario != "executor" and len(run.get("stages", [])) == 0:
-            raise SystemExit(f"expected non-zero stages in {label} run artifact")
-        routes = {r.get("route") for r in run.get("requests", [])}
-        if config["route"] not in routes:
-            raise SystemExit(f"expected route {config['route']} in {label} run artifact")
-
-    if config["queues"]:
         for label, run in (
-            ("before-native", before_native_run),
-            ("before-tracing", before_tracing_run),
-            ("after-native", after_native_run),
-            ("after-tracing", after_tracing_run),
+            (f"before-{capture_mode}-native", before_native_run),
+            (f"before-{capture_mode}-tracing", before_tracing_run),
+            (f"after-{capture_mode}-native", after_native_run),
+            (f"after-{capture_mode}-tracing", after_tracing_run),
         ):
-            if len(run.get("queues", [])) == 0:
-                raise SystemExit(f"expected non-zero queues in {label} run artifact")
+            if len(run.get("requests", [])) == 0:
+                raise SystemExit(f"expected non-zero requests in {label} run artifact")
+            if scenario != "executor" and len(run.get("stages", [])) == 0:
+                raise SystemExit(f"expected non-zero stages in {label} run artifact")
+            routes = {r.get("route") for r in run.get("requests", [])}
+            if config["route"] not in routes:
+                raise SystemExit(f"expected route {config['route']} in {label} run artifact")
 
-        for run_name, run in (
-            ("before-tracing-run.json", before_tracing_run),
-            ("after-tracing-run.json", after_tracing_run),
-        ):
-            queue_names = {q.get("queue") for q in run.get("queues", [])}
-            if not config["queues"].issubset(queue_names):
-                raise SystemExit(
-                    f"expected queue tracing artifact {run_name} to include queues {sorted(config['queues'])}"
+        if config["queues"]:
+            for label, run in (
+                (f"before-{capture_mode}-native", before_native_run),
+                (f"before-{capture_mode}-tracing", before_tracing_run),
+                (f"after-{capture_mode}-native", after_native_run),
+                (f"after-{capture_mode}-tracing", after_tracing_run),
+            ):
+                if len(run.get("queues", [])) == 0:
+                    raise SystemExit(f"expected non-zero queues in {label} run artifact")
+
+            for run_path, run in ((before_tracing_run_path, before_tracing_run), (after_tracing_run_path, after_tracing_run)):
+                queue_names = {q.get("queue") for q in run.get("queues", [])}
+                if not config["queues"].issubset(queue_names):
+                    raise SystemExit(
+                        f"expected queue tracing artifact scenario={scenario} capture_mode={capture_mode} "
+                        f"instrumentation=tracing artifact={run_path.name} to include queues {sorted(config['queues'])}"
+                    )
+                if not any(q.get("depth_at_start") is not None for q in run.get("queues", [])):
+                    raise SystemExit(
+                        f"expected queue tracing queue events scenario={scenario} capture_mode={capture_mode} "
+                        f"instrumentation=tracing artifact={run_path.name} to include non-null depth_at_start"
+                    )
+
+        for run_path, run in ((before_tracing_run_path, before_tracing_run), (after_tracing_run_path, after_tracing_run)):
+            tracing_stage_names = {s.get("stage") for s in run.get("stages", [])}
+            for stage in config["stages"]:
+                if stage not in tracing_stage_names:
+                    raise SystemExit(f"expected tracing run {run_path.name} to include stage '{stage}'")
+            if scenario == "retry-storm":
+                if not any(name and name.startswith("downstream_attempt_") for name in tracing_stage_names):
+                    raise SystemExit(f"expected tracing run {run_path.name} to include at least one downstream_attempt_* stage")
+            if scenario in RUNTIME_SENSITIVE_TRACING_SCENARIOS:
+                if not run.get("runtime_snapshots"):
+                    raise SystemExit(f"expected runtime snapshots in tracing run {run_path.name}")
+                metadata = run.get("metadata", {})
+                sampler_cfg = metadata.get("effective_tokio_sampler_config")
+                lifecycle_warnings = metadata.get("lifecycle_warnings") or []
+                manual_disabled = any(
+                    warning.startswith(
+                        "tailtriage-tracing session ran with background runtime sampling disabled"
+                    )
+                    for warning in lifecycle_warnings
                 )
-            if not any(q.get("depth_at_start") is not None for q in run.get("queues", [])):
+                if sampler_cfg is None and not manual_disabled:
+                    raise SystemExit(
+                        f"expected effective_tokio_sampler_config or disabled-sampler warning in tracing run {run_path.name}"
+                    )
+            if scenario in NON_RUNTIME_TRACING_SCENARIOS:
+                _require_equal(
+                    scenario=scenario,
+                    instrumentation=f"tracing capture_mode={capture_mode}",
+                    artifact_path=run_path.name,
+                    field="runtime_snapshots",
+                    expected=[],
+                    actual=run.get("runtime_snapshots") or [],
+                )
+                _require_equal(
+                    scenario=scenario,
+                    instrumentation=f"tracing capture_mode={capture_mode}",
+                    artifact_path=run_path.name,
+                    field="metadata.effective_tokio_sampler_config",
+                    expected=None,
+                    actual=(run.get("metadata") or {}).get("effective_tokio_sampler_config"),
+                )
+            if scenario == "blocking":
+                if not any(s.get("blocking_queue_depth") is not None for s in run.get("runtime_snapshots", [])):
+                    raise SystemExit(f"expected blocking_queue_depth runtime evidence in {run_path.name}")
+            if scenario == "executor":
+                if not any((s.get("global_queue_depth") is not None) or (s.get("local_queue_depth") is not None) for s in run.get("runtime_snapshots", [])):
+                    raise SystemExit(f"expected global/local queue runtime evidence in {run_path.name}")
+
+        for label, run in ((f"before-{capture_mode}-native", before_native_run), (f"after-{capture_mode}-native", after_native_run)):
+            if "inflight" in run and len(run.get("inflight") or []) == 0:
                 raise SystemExit(
-                    f"expected queue tracing queue events in {run_name} to include non-null depth_at_start"
+                    f"expected native inflight snapshots in {label}; tracing inflight is out of scope for prompt 3"
                 )
 
-    for run_name, run in (("before-tracing-run.json", before_tracing_run), ("after-tracing-run.json", after_tracing_run)):
-        tracing_stage_names = {s.get("stage") for s in run.get("stages", [])}
-        for stage in config["stages"]:
-            if stage not in tracing_stage_names:
-                raise SystemExit(f"expected tracing run {run_name} to include stage '{stage}'")
-        if scenario == "retry-storm":
-            if not any(name and name.startswith("downstream_attempt_") for name in tracing_stage_names):
-                raise SystemExit(f"expected tracing run {run_name} to include at least one downstream_attempt_* stage")
-        if scenario in RUNTIME_SENSITIVE_TRACING_SCENARIOS:
-            if not run.get("runtime_snapshots"):
-                raise SystemExit(f"expected runtime snapshots in tracing run {run_name}")
-            metadata = run.get("metadata", {})
-            sampler_cfg = metadata.get("effective_tokio_sampler_config")
-            lifecycle_warnings = metadata.get("lifecycle_warnings") or []
-            manual_disabled = any(
-                warning.startswith(
-                    "tailtriage-tracing session ran with background runtime sampling disabled"
-                )
-                for warning in lifecycle_warnings
+        if not has_suspect_kind(before_native, {expected_kind}):
+            raise SystemExit(
+                f"expected baseline native primary suspect {expected_kind}, got {before_native['primary_suspect']['kind']}"
             )
-            if sampler_cfg is None and not manual_disabled:
-                raise SystemExit(
-                    f"expected effective_tokio_sampler_config or disabled-sampler warning in tracing run {run_name}"
+        if not has_suspect_kind(before_tracing, {expected_kind}):
+            raise SystemExit(
+                f"expected baseline tracing primary suspect {expected_kind}, got {before_tracing['primary_suspect']['kind']}"
+            )
+
+        if config["require_p95_improvement"] and after_tracing["p95_latency_us"] > before_tracing["p95_latency_us"]:
+            raise SystemExit(
+                "expected tracing mitigated p95 to be non-worse than tracing baseline, "
+                f"got {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
+            )
+
+        if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
+            expected_in_native = has_suspect_kind(after_native, {expected_kind})
+            expected_in_tracing = has_suspect_kind(after_tracing, {expected_kind})
+            if expected_in_native and expected_in_tracing:
+                print(
+                    f"info: mitigated parity primary suspect diverged for {scenario} capture_mode={capture_mode} but expected family is still present "
+                    f"(native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
+                    f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']})"
                 )
-        if scenario in NON_RUNTIME_TRACING_SCENARIOS:
+            else:
+                raise SystemExit(
+                    "mitigated native/tracing primary suspect mismatch: "
+                    f"native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
+                    f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}, "
+                    f"expected_kind_present_native={expected_in_native}, "
+                    f"expected_kind_present_tracing={expected_in_tracing}"
+                )
+
+        for mode, native_run, tracing_run in (
+            ("before", before_native_run, before_tracing_run),
+            ("after", after_native_run, after_tracing_run),
+        ):
+            _require_equal(scenario=scenario, instrumentation=f"native/tracing capture_mode={capture_mode}", artifact_path=f"{mode}-{capture_mode}-run", field="scenario_label", expected=native_run.get("scenario_label"), actual=tracing_run.get("scenario_label"))
+            _require_equal(scenario=scenario, instrumentation=f"native/tracing capture_mode={capture_mode}", artifact_path=f"{mode}-{capture_mode}-run", field="metadata.mode", expected=(native_run.get("metadata") or {}).get("mode"), actual=(tracing_run.get("metadata") or {}).get("mode"))
+            _require_equal(scenario=scenario, instrumentation=f"native/tracing capture_mode={capture_mode}", artifact_path=f"{mode}-{capture_mode}-run", field="metadata.effective_core_config.capture_limits", expected=_capture_limits(native_run), actual=_capture_limits(tracing_run))
             _require_equal(
                 scenario=scenario,
-                instrumentation="tracing",
-                artifact_path=run_name,
-                field="runtime_snapshots",
-                expected=[],
-                actual=run.get("runtime_snapshots") or [],
-            )
-            _require_equal(
-                scenario=scenario,
-                instrumentation="tracing",
-                artifact_path=run_name,
-                field="metadata.effective_tokio_sampler_config",
-                expected=None,
-                actual=(run.get("metadata") or {}).get("effective_tokio_sampler_config"),
-            )
-        if scenario == "blocking":
-            if not any(s.get("blocking_queue_depth") is not None for s in run.get("runtime_snapshots", [])):
-                raise SystemExit(f"expected blocking_queue_depth runtime evidence in {run_name}")
-        if scenario == "executor":
-            if not any((s.get("global_queue_depth") is not None) or (s.get("local_queue_depth") is not None) for s in run.get("runtime_snapshots", [])):
-                raise SystemExit(f"expected global/local queue runtime evidence in {run_name}")
-
-    for label, run in (("before-native", before_native_run), ("after-native", after_native_run)):
-        if "inflight" in run and len(run.get("inflight") or []) == 0:
-            raise SystemExit(
-                f"expected native inflight snapshots in {label}; tracing inflight is out of scope for prompt 3"
+                instrumentation=f"native/tracing capture_mode={capture_mode}",
+                artifact_path=f"{mode}-{capture_mode}-run",
+                field="route_coverage",
+                expected=sorted({r.get("route") for r in native_run.get("requests", [])}),
+                actual=sorted({r.get("route") for r in tracing_run.get("requests", [])}),
             )
 
-    if not has_suspect_kind(before_native, {expected_kind}):
-        raise SystemExit(
-            f"expected baseline native primary suspect {expected_kind}, got {before_native['primary_suspect']['kind']}"
+        print(
+            f"tracing parity validation passed for scenario={scenario} capture_mode={capture_mode}: "
+            f"baseline kind={expected_kind}, tracing p95 {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
         )
-    if not has_suspect_kind(before_tracing, {expected_kind}):
-        raise SystemExit(
-            f"expected baseline tracing primary suspect {expected_kind}, got {before_tracing['primary_suspect']['kind']}"
-        )
-
-    if config["require_p95_improvement"] and after_tracing["p95_latency_us"] > before_tracing["p95_latency_us"]:
-        raise SystemExit(
-            "expected tracing mitigated p95 to be non-worse than tracing baseline, "
-            f"got {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
-        )
-
-    if after_native["primary_suspect"]["kind"] != after_tracing["primary_suspect"]["kind"]:
-        expected_in_native = has_suspect_kind(after_native, {expected_kind})
-        expected_in_tracing = has_suspect_kind(after_tracing, {expected_kind})
-        if expected_in_native and expected_in_tracing:
-            print(
-                f"info: mitigated parity primary suspect diverged for {scenario} but expected family is still present "
-                f"(native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
-                f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']})"
-            )
-        else:
-            raise SystemExit(
-                "mitigated native/tracing primary suspect mismatch: "
-                f"native={after_native['primary_suspect']['kind']} score={after_native['primary_suspect']['score']}, "
-                f"tracing={after_tracing['primary_suspect']['kind']} score={after_tracing['primary_suspect']['score']}, "
-                f"expected_kind_present_native={expected_in_native}, "
-                f"expected_kind_present_tracing={expected_in_tracing}"
-            )
-
-    for mode, native_run, tracing_run in (
-        ("before", before_native_run, before_tracing_run),
-        ("after", after_native_run, after_tracing_run),
-    ):
-        _require_equal(scenario=scenario, instrumentation="native/tracing", artifact_path=f"{mode}-run", field="scenario_label", expected=native_run.get("scenario_label"), actual=tracing_run.get("scenario_label"))
-        _require_equal(scenario=scenario, instrumentation="native/tracing", artifact_path=f"{mode}-run", field="metadata.mode", expected=(native_run.get("metadata") or {}).get("mode"), actual=(tracing_run.get("metadata") or {}).get("mode"))
-        _require_equal(scenario=scenario, instrumentation="native/tracing", artifact_path=f"{mode}-run", field="metadata.effective_core_config.capture_limits", expected=_capture_limits(native_run), actual=_capture_limits(tracing_run))
-        _require_equal(
-            scenario=scenario,
-            instrumentation="native/tracing",
-            artifact_path=f"{mode}-run",
-            field="route_coverage",
-            expected=sorted({r.get("route") for r in native_run.get("requests", [])}),
-            actual=sorted({r.get("route") for r in tracing_run.get("requests", [])}),
-        )
-
-    print(
-        f"tracing parity validation passed for {scenario}: "
-        f"baseline kind={expected_kind}, tracing p95 {before_tracing['p95_latency_us']}us -> {after_tracing['p95_latency_us']}us"
-    )
 
 
 def validate_tracing_retention_parity(root_dir: Path, *, profile: str = "dev") -> None:
@@ -1116,40 +1129,47 @@ def validate_tracing_retention_parity(root_dir: Path, *, profile: str = "dev") -
     demo_manifest = config["demo_manifest"]
     artifact_dir = config["artifact_dir"]
     cli_manifest = root_dir / "tailtriage-cli/Cargo.toml"
-    for instrumentation in ("native", "tracing"):
-        run_path = artifact_dir / f"tiny-{instrumentation}-run.json"
-        analysis_path = artifact_dir / f"tiny-{instrumentation}-analysis.json"
-        run_and_analyze(
-            demo_manifest,
-            cli_manifest,
-            run_path,
-            analysis_path,
-            "baseline",
-            profile=profile,
+
+    for capture_mode in ("light", "investigation"):
+        for instrumentation in ("native", "tracing"):
+            run_path = artifact_dir / f"tiny-{capture_mode}-{instrumentation}-run.json"
+            analysis_path = artifact_dir / f"tiny-{capture_mode}-{instrumentation}-analysis.json"
+            run_and_analyze(
+                demo_manifest,
+                cli_manifest,
+                run_path,
+                analysis_path,
+                "baseline",
+                profile=profile,
                 extra_demo_args=[
-                    "--instrumentation", instrumentation, "--mode", "light",
+                    "--instrumentation", instrumentation, "--mode", capture_mode,
                     "--max-requests", "3", "--max-stages", "3", "--max-queues", "3",
                 ],
-        )
-    native_run = _load_run(artifact_dir / "tiny-native-run.json")
-    tracing_run = _load_run(artifact_dir / "tiny-tracing-run.json")
-    pairs = [
-        ("retained_request_count", len(native_run.get("requests", [])), len(tracing_run.get("requests", []))),
-        ("retained_stage_count", len(native_run.get("stages", [])), len(tracing_run.get("stages", []))),
-        ("retained_queue_count", len(native_run.get("queues", [])), len(tracing_run.get("queues", []))),
-        ("truncation.dropped_requests", (native_run.get("truncation") or {}).get("dropped_requests"), (tracing_run.get("truncation") or {}).get("dropped_requests")),
-        ("truncation.dropped_stages", (native_run.get("truncation") or {}).get("dropped_stages"), (tracing_run.get("truncation") or {}).get("dropped_stages")),
-        ("truncation.dropped_queues", (native_run.get("truncation") or {}).get("dropped_queues"), (tracing_run.get("truncation") or {}).get("dropped_queues")),
-        (
-            "truncation.limits_hit",
-            (native_run.get("truncation") or {}).get("limits_hit"),
-            (tracing_run.get("truncation") or {}).get("limits_hit"),
-        ),
-        ("metadata.effective_core_config", (native_run.get("metadata") or {}).get("effective_core_config"), (tracing_run.get("metadata") or {}).get("effective_core_config")),
-    ]
-    for field, expected, actual in pairs:
-        _require_equal(scenario="tiny-limit", instrumentation="native/tracing", artifact_path="tiny-run", field=field, expected=expected, actual=actual)
-    print("tracing retention parity validation passed (tiny limits)")
+            )
+
+        native_run = _load_run(artifact_dir / f"tiny-{capture_mode}-native-run.json")
+        tracing_run = _load_run(artifact_dir / f"tiny-{capture_mode}-tracing-run.json")
+        pairs = [
+            ("retained_request_count", len(native_run.get("requests", [])), len(tracing_run.get("requests", []))),
+            ("retained_stage_count", len(native_run.get("stages", [])), len(tracing_run.get("stages", []))),
+            ("retained_queue_count", len(native_run.get("queues", [])), len(tracing_run.get("queues", []))),
+            ("truncation.dropped_requests", (native_run.get("truncation") or {}).get("dropped_requests"), (tracing_run.get("truncation") or {}).get("dropped_requests")),
+            ("truncation.dropped_stages", (native_run.get("truncation") or {}).get("dropped_stages"), (tracing_run.get("truncation") or {}).get("dropped_stages")),
+            ("truncation.dropped_queues", (native_run.get("truncation") or {}).get("dropped_queues"), (tracing_run.get("truncation") or {}).get("dropped_queues")),
+            ("truncation.limits_hit", (native_run.get("truncation") or {}).get("limits_hit"), (tracing_run.get("truncation") or {}).get("limits_hit")),
+            ("metadata.effective_core_config", (native_run.get("metadata") or {}).get("effective_core_config"), (tracing_run.get("metadata") or {}).get("effective_core_config")),
+        ]
+        for field, expected, actual in pairs:
+            _require_equal(
+                scenario="tiny-limit",
+                instrumentation=f"native/tracing capture_mode={capture_mode}",
+                artifact_path=f"tiny-{capture_mode}-run",
+                field=field,
+                expected=expected,
+                actual=actual,
+            )
+    print("tracing retention parity validation passed (tiny limits) for light+investigation")
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Unified tailtriage demo run/validate tool.")
     subparsers = parser.add_subparsers(dest="command", required=True)
