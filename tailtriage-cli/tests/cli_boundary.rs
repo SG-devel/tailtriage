@@ -1191,11 +1191,12 @@ fn import_tracing_json_persists_optional_default_assumption_warnings_in_run_arti
 }
 
 #[test]
-fn import_tracing_json_invalid_outcome_non_strict_warns_and_fails_zero_request() {
+fn import_tracing_json_whitespace_outcome_non_strict_warns_and_fails_zero_request() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
-    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    std::fs::write(&spans_path, invalid_whitespace_outcome_only_fixture())
+        .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
         .arg("tracing-json")
@@ -1211,17 +1212,18 @@ fn import_tracing_json_invalid_outcome_non_strict_warns_and_fails_zero_request()
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
     assert!(stderr.contains(
-        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
+        "invalid field 'tt.outcome' in span 'http.request': cannot be empty or whitespace"
     ));
     assert!(stderr.contains("zero request events"));
 }
 
 #[test]
-fn import_tracing_json_invalid_outcome_strict_fails_with_message() {
+fn import_tracing_json_whitespace_outcome_strict_fails_with_message() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
-    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    std::fs::write(&spans_path, invalid_whitespace_outcome_only_fixture())
+        .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
         .arg("tracing-json")
@@ -1237,7 +1239,7 @@ fn import_tracing_json_invalid_outcome_strict_fails_with_message() {
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains(
-        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
+        "invalid field 'tt.outcome' in span 'http.request': cannot be empty or whitespace"
     ));
 }
 
@@ -1269,12 +1271,20 @@ fn import_tracing_json_valid_outcomes_import_successfully() {
         .collect::<Vec<_>>();
     assert_eq!(
         outcomes,
-        vec!["ok", "error", "timeout", "cancelled", "rejected"]
+        vec![
+            "ok",
+            "error",
+            "timeout",
+            "cancelled",
+            "rejected",
+            "cache_miss_fallback"
+        ]
     );
 }
 
 fn valid_cli_artifact_with_requests() -> &'static str {
-    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
+    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}
+"#
 }
 
 fn missing_optional_defaults_fixture() -> &'static str {
@@ -1354,8 +1364,8 @@ fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
 "#
 }
 
-fn invalid_outcome_only_fixture() -> &'static str {
-    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"sucess"}}}
+fn invalid_whitespace_outcome_only_fixture() -> &'static str {
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"   "}}}
 "#
 }
 
@@ -1365,5 +1375,6 @@ fn valid_outcomes_fixture() -> &'static str {
 {"format":"tailtriage.tracing-span.v1","span":{"name":"http.request-3","started_at_unix_ms":1020,"finished_at_unix_ms":1030,"fields":{"tt.kind":"request","tt.request_id":"req-3","tt.route":"/checkout","tt.outcome":"timeout"}}}
 {"format":"tailtriage.tracing-span.v1","span":{"name":"http.request-4","started_at_unix_ms":1030,"finished_at_unix_ms":1040,"fields":{"tt.kind":"request","tt.request_id":"req-4","tt.route":"/checkout","tt.outcome":"cancelled"}}}
 {"format":"tailtriage.tracing-span.v1","span":{"name":"http.request-5","started_at_unix_ms":1040,"finished_at_unix_ms":1050,"fields":{"tt.kind":"request","tt.request_id":"req-5","tt.route":"/checkout","tt.outcome":"rejected"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request-6","started_at_unix_ms":1050,"finished_at_unix_ms":1060,"fields":{"tt.kind":"request","tt.request_id":"req-6","tt.route":"/checkout","tt.outcome":"cache_miss_fallback"}}}
 "#
 }
