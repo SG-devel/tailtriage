@@ -778,6 +778,56 @@ fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
 }
 
 #[test]
+fn import_tracing_json_strict_with_max_requests_keeps_retained_request_and_skips_overflow_children()
+{
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        [
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-1","started_at_unix_ms":100,"finished_at_unix_ms":200,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"st-1","started_at_unix_ms":120,"finished_at_unix_ms":150,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"q-1","started_at_unix_ms":121,"finished_at_unix_ms":130,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-2","started_at_unix_ms":300,"finished_at_unix_ms":400,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"st-2","started_at_unix_ms":320,"finished_at_unix_ms":350,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"db"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"q-2","started_at_unix_ms":321,"finished_at_unix_ms":330,"fields":{"tt.kind":"queue","tt.request_id":"r2","tt.queue":"permits"}}}"#,
+        ]
+        .join("
+"),
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--strict")
+        .arg("--max-requests")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(!stderr.contains("no retained request event was imported"));
+    assert!(run_path.exists(), "run output should exist");
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.requests[0].request_id, "r1");
+    assert_eq!(loaded.run.stages.len(), 1);
+    assert_eq!(loaded.run.stages[0].request_id, "r1");
+    assert_eq!(loaded.run.queues.len(), 1);
+    assert_eq!(loaded.run.queues[0].request_id, "r1");
+}
+
+#[test]
 fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
