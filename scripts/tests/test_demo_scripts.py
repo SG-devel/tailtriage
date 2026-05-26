@@ -181,19 +181,72 @@ class DemoWrapperTests(unittest.TestCase):
             "demo_manifest": Path("/tmp/demo/Cargo.toml"),
             "artifact_dir": Path("/tmp/demo/artifacts"),
         }
-        load_run_mock.side_effect = [{}, {}]
+        load_run_mock.side_effect = [{}, {}, {}, {}]
         demo_tool.validate_tracing_retention_parity(Path("/tmp/repo"), profile="release")
 
         calls = run_and_analyze_mock.call_args_list
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 4)
+        seen_modes = set()
         for call in calls:
             extra_args = call.kwargs["extra_demo_args"]
             self.assertIn("--mode", extra_args)
-            self.assertIn("light", extra_args)
+            mode = extra_args[extra_args.index("--mode") + 1]
+            seen_modes.add(mode)
             self.assertEqual(extra_args[extra_args.index("--max-requests") + 1], "3")
             self.assertEqual(extra_args[extra_args.index("--max-stages") + 1], "3")
             self.assertEqual(extra_args[extra_args.index("--max-queues") + 1], "3")
+        self.assertEqual(seen_modes, {"light", "investigation"})
         self.assertTrue(require_equal_mock.called)
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_uses_both_capture_modes_and_mode_prefixed_artifacts(
+        self,
+        parity_config_mock,
+        run_and_analyze_mock,
+        load_run_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/queue-demo",
+            "expected_kind": "application_queue_saturation",
+            "queues": {"worker_permit"},
+            "stages": {"simulated_work"},
+            "require_p95_improvement": True,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        run = {
+            "requests": [{"route": "/queue-demo"}],
+            "stages": [{"stage": "simulated_work"}],
+            "queues": [{"queue": "worker_permit", "depth_at_start": 1}],
+            "runtime_snapshots": [],
+            "metadata": {
+                "mode": "light",
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+                "effective_tokio_sampler_config": None,
+            },
+            "scenario_label": "queue",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+            "inflight": [{"inflight": 1}],
+        }
+        load_run_mock.side_effect = [run] * 8
+        with patch.object(Path, "exists", return_value=True):
+            demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
+
+        self.assertEqual(len(run_and_analyze_mock.call_args_list), 8)
+        run_artifact_names = {c.args[2].name for c in run_and_analyze_mock.call_args_list}
+        self.assertIn("before-light-native-run.json", run_artifact_names)
+        self.assertIn("after-investigation-tracing-run.json", run_artifact_names)
 
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_and_analyze")
@@ -238,7 +291,7 @@ class DemoWrapperTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 SystemExit,
-                r"scenario=queue.*instrumentation=tracing.*artifact=before-tracing-run\.json.*field=runtime_snapshots.*expected=\[\].*actual=\[\{'global_queue_depth': 1\}\]",
+                r"scenario=queue.*instrumentation=tracing.*artifact=before-light-tracing-run\.json.*field=runtime_snapshots.*expected=\[\].*actual=\[\{'global_queue_depth': 1\}\]",
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
 
