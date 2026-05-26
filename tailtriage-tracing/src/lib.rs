@@ -98,6 +98,7 @@ where
     let mut parsed_requests = Vec::new();
     let mut parsed_stages = Vec::new();
     let mut queues = Vec::new();
+    let mut request_span_ids = BTreeSet::new();
 
     for span in spans {
         let kind = match get_string_field_state(&span, TT_KIND) {
@@ -153,6 +154,9 @@ where
             SpanKind::Request => {
                 let request_id =
                     required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
+                if let Some(request_id) = request_id.as_ref() {
+                    request_span_ids.insert(request_id.clone());
+                }
                 let route = required_string(&span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(route)) = (request_id, route) {
                     let Some((outcome, outcome_defaulted)) =
@@ -255,18 +259,28 @@ where
         .into_iter()
         .map(|request| request.event)
         .collect();
-    let request_intervals = retained_request_intervals(&requests, capture_limits.max_requests);
+    let valid_request_intervals = retained_request_intervals(&requests, requests.len());
+    let retained_request_intervals =
+        retained_request_intervals(&requests, capture_limits.max_requests);
+    let mut dropped_stages_due_to_request_overflow = 0_u64;
+    let mut dropped_queues_due_to_request_overflow = 0_u64;
     filter_correlated_parsed_stages(
         &mut parsed_stages,
-        &request_intervals,
+        &valid_request_intervals,
+        &retained_request_intervals,
+        &request_span_ids,
         options.strict_mode(),
         &mut warnings,
+        &mut dropped_stages_due_to_request_overflow,
     )?;
     filter_correlated_queues(
         &mut queues,
-        &request_intervals,
+        &valid_request_intervals,
+        &retained_request_intervals,
+        &request_span_ids,
         options.strict_mode(),
         &mut warnings,
+        &mut dropped_queues_due_to_request_overflow,
     )?;
     let stage_success_default_count = parsed_stages
         .iter()
@@ -345,6 +359,20 @@ where
             .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
     }
     let mut run = run_builder.finish();
+    if dropped_stages_due_to_request_overflow > 0 {
+        run.truncation.dropped_stages = run
+            .truncation
+            .dropped_stages
+            .saturating_add(dropped_stages_due_to_request_overflow);
+        run.truncation.limits_hit = true;
+    }
+    if dropped_queues_due_to_request_overflow > 0 {
+        run.truncation.dropped_queues = run
+            .truncation
+            .dropped_queues
+            .saturating_add(dropped_queues_due_to_request_overflow);
+        run.truncation.limits_hit = true;
+    }
     attach_durable_conversion_warnings(&mut run, &warnings);
 
     Ok(ImportedRun::new(run, warnings))
@@ -425,28 +453,51 @@ fn interval_within_request_with_tolerance(
 
 fn filter_correlated_parsed_stages(
     stages: &mut Vec<ParsedStageEvent>,
-    request_intervals: &BTreeMap<String, RequestInterval>,
+    valid_request_intervals: &BTreeMap<String, RequestInterval>,
+    retained_request_intervals: &BTreeMap<String, RequestInterval>,
+    request_span_ids: &BTreeSet<String>,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
+    dropped_due_to_request_overflow: &mut u64,
 ) -> Result<(), ImportError> {
     let mut filtered = Vec::with_capacity(stages.len());
     for stage in stages.drain(..) {
-        let Some(interval) = request_intervals.get(stage.event.request_id.as_str()) else {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "skipped stage span for request_id '{}' because no retained request event was imported",
-                    stage.event.request_id
-                ),
-            )?;
+        let Some(valid_interval) = valid_request_intervals.get(stage.event.request_id.as_str())
+        else {
+            if request_span_ids.contains(stage.event.request_id.as_str()) {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "skipped stage span for request_id '{}' because a matching request span was parsed but invalid/skipped before retention",
+                        stage.event.request_id
+                    ),
+                )?;
+            } else {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "skipped stage span for request_id '{}' because no matching request event was imported",
+                        stage.event.request_id
+                    ),
+                )?;
+            }
             continue;
         };
+        if !retained_request_intervals.contains_key(stage.event.request_id.as_str()) {
+            *dropped_due_to_request_overflow = dropped_due_to_request_overflow.saturating_add(1);
+            warnings.push(ImportWarning::new(format!(
+                "skipped stage span for request_id '{}' because the matching request was valid but not retained due to max_requests",
+                stage.event.request_id
+            )));
+            continue;
+        }
         if !interval_within_request_with_tolerance(
             stage.event.started_at_unix_ms,
             stage.event.finished_at_unix_ms,
-            interval.started_at_unix_ms,
-            interval.finished_at_unix_ms,
+            valid_interval.started_at_unix_ms,
+            valid_interval.finished_at_unix_ms,
         ) {
             strict_or_warn(
                 strict,
@@ -457,8 +508,8 @@ fn filter_correlated_parsed_stages(
                     stage.event.request_id,
                     stage.event.started_at_unix_ms,
                     stage.event.finished_at_unix_ms,
-                    interval.started_at_unix_ms,
-                    interval.finished_at_unix_ms
+                    valid_interval.started_at_unix_ms,
+                    valid_interval.finished_at_unix_ms
                 ),
             )?;
             continue;
@@ -471,28 +522,50 @@ fn filter_correlated_parsed_stages(
 
 fn filter_correlated_queues(
     queues: &mut Vec<QueueEvent>,
-    request_intervals: &BTreeMap<String, RequestInterval>,
+    valid_request_intervals: &BTreeMap<String, RequestInterval>,
+    retained_request_intervals: &BTreeMap<String, RequestInterval>,
+    request_span_ids: &BTreeSet<String>,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
+    dropped_due_to_request_overflow: &mut u64,
 ) -> Result<(), ImportError> {
     let mut filtered = Vec::with_capacity(queues.len());
     for queue in queues.drain(..) {
-        let Some(interval) = request_intervals.get(queue.request_id.as_str()) else {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "skipped queue span for request_id '{}' because no retained request event was imported",
-                    queue.request_id
-                ),
-            )?;
+        let Some(valid_interval) = valid_request_intervals.get(queue.request_id.as_str()) else {
+            if request_span_ids.contains(queue.request_id.as_str()) {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "skipped queue span for request_id '{}' because a matching request span was parsed but invalid/skipped before retention",
+                        queue.request_id
+                    ),
+                )?;
+            } else {
+                strict_or_warn(
+                    strict,
+                    warnings,
+                    format!(
+                        "skipped queue span for request_id '{}' because no matching request event was imported",
+                        queue.request_id
+                    ),
+                )?;
+            }
             continue;
         };
+        if !retained_request_intervals.contains_key(queue.request_id.as_str()) {
+            *dropped_due_to_request_overflow = dropped_due_to_request_overflow.saturating_add(1);
+            warnings.push(ImportWarning::new(format!(
+                "skipped queue span for request_id '{}' because the matching request was valid but not retained due to max_requests",
+                queue.request_id
+            )));
+            continue;
+        }
         if !interval_within_request_with_tolerance(
             queue.waited_from_unix_ms,
             queue.waited_until_unix_ms,
-            interval.started_at_unix_ms,
-            interval.finished_at_unix_ms,
+            valid_interval.started_at_unix_ms,
+            valid_interval.finished_at_unix_ms,
         ) {
             strict_or_warn(
                 strict,
@@ -503,8 +576,8 @@ fn filter_correlated_queues(
                     queue.request_id,
                     queue.waited_from_unix_ms,
                     queue.waited_until_unix_ms,
-                    interval.started_at_unix_ms,
-                    interval.finished_at_unix_ms
+                    valid_interval.started_at_unix_ms,
+                    valid_interval.finished_at_unix_ms
                 ),
             )?;
             continue;
@@ -826,7 +899,7 @@ fn parse_depth_at_start(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tailtriage_core::CaptureMode;
+    use tailtriage_core::{CaptureLimitsOverride, CaptureMode};
 
     #[test]
     fn span_kind_parser_accepts_supported_values_only() {
@@ -901,7 +974,8 @@ mod tests {
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 0);
-        let warning = "skipped stage span for request_id 'r-orphan' because no retained request event was imported";
+        let warning =
+            "skipped stage span for request_id 'r-orphan' because no matching request event was imported";
         assert!(imported
             .warnings()
             .iter()
@@ -961,7 +1035,7 @@ mod tests {
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         match err {
             ImportError::StrictViolation(message) => {
-                assert!(message.contains("no retained request event"));
+                assert!(message.contains("no matching request event"));
             }
             _ => panic!("expected StrictViolation"),
         }
@@ -982,7 +1056,8 @@ mod tests {
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().queues.len(), 0);
-        let warning = "skipped queue span for request_id 'r-orphan' because no retained request event was imported";
+        let warning =
+            "skipped queue span for request_id 'r-orphan' because no matching request event was imported";
         assert!(imported
             .warnings()
             .iter()
@@ -1010,7 +1085,7 @@ mod tests {
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         match err {
             ImportError::StrictViolation(message) => {
-                assert!(message.contains("no retained request event"));
+                assert!(message.contains("no matching request event"));
             }
             _ => panic!("expected StrictViolation"),
         }
@@ -2104,11 +2179,74 @@ mod tests {
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
         assert!(imported.warnings().iter().any(|w| w.message().contains(
-            "skipped stage span for request_id 'r1' because no retained request event was imported"
+            "skipped stage span for request_id 'r1' because a matching request span was parsed but invalid/skipped before retention"
         )));
         assert!(imported.warnings().iter().any(|w| w.message().contains(
-            "skipped queue span for request_id 'r1' because no retained request event was imported"
+            "skipped queue span for request_id 'r1' because a matching request span was parsed but invalid/skipped before retention"
         )));
+    }
+
+    #[test]
+    fn strict_mode_allows_valid_children_when_parent_request_is_dropped_by_max_requests() {
+        let spans = vec![
+            SpanRecord::new("req-1", 100, 150)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("stage-1", 110, 120)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("queue-1", 121, 122)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "worker"),
+            SpanRecord::new("req-2", 200, 250)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r2")
+                .field(TT_ROUTE, "/b"),
+            SpanRecord::new("stage-2", 210, 220)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r2")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("queue-2", 221, 222)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r2")
+                .field(TT_QUEUE, "worker"),
+        ];
+        let imported = run_from_span_records(
+            spans,
+            ImportOptions::new("checkout")
+                .strict(true)
+                .capture_limits_override(CaptureLimitsOverride {
+                    max_requests: Some(1),
+                    ..CaptureLimitsOverride::default()
+                }),
+        )
+        .expect("strict import should succeed");
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.requests[0].request_id, "r1");
+        assert!(run.stages.iter().all(|stage| stage.request_id == "r1"));
+        assert!(run.queues.iter().all(|queue| queue.request_id == "r1"));
+        assert_eq!(run.truncation.dropped_requests, 1);
+        assert_eq!(run.truncation.dropped_stages, 1);
+        assert_eq!(run.truncation.dropped_queues, 1);
+        assert!(run.truncation.limits_hit);
+        let warning_messages: Vec<&str> = imported
+            .warnings()
+            .iter()
+            .map(ImportWarning::message)
+            .collect();
+        assert!(
+            warning_messages
+                .iter()
+                .any(|m| m
+                    .contains("matching request was valid but not retained due to max_requests"))
+        );
+        assert!(!warning_messages
+            .iter()
+            .any(|m| m.contains("no retained request event was imported")));
     }
 
     #[test]
