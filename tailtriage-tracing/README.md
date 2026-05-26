@@ -162,3 +162,6 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+
+
+`TracingTokioSession` defaults to starting a background Tokio runtime sampler. For deterministic demos/validation, call `.disable_background_sampler()` and inject runtime snapshots with `record_runtime_snapshot(...)`; shutdown adds lifecycle warnings clarifying that runtime-pressure evidence depends on manual snapshots (or is unavailable when none were recorded). You can also persist merged Run JSON directly on shutdown with `.run_json_path(...)`, then analyze separately with `tailtriage analyze <run.json>`.

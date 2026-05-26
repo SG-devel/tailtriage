@@ -382,3 +382,6 @@ Semantics notes:
 - [Diagnostics guide](diagnostics.md)
 - [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)
+
+
+For `TracingTokioSession`, default behavior starts a background Tokio runtime sampler. Deterministic demo or validation runs can call `.disable_background_sampler()` and inject `record_runtime_snapshot(...)` values manually; lifecycle warnings in the run metadata explain when runtime-pressure evidence depends on manual snapshots or when none were captured. Use `.run_json_path(...)` to write Run JSON on shutdown, then run `tailtriage analyze <run.json>` as a separate step.

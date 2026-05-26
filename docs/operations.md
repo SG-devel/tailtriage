@@ -495,3 +495,6 @@ Do not treat one report as final proof.
 ## Tracing operations cross-reference
 
 For tracing import and tracing-session operations guidance, see the canonical section above: [Operating with tracing-based runs](#operating-with-tracing-based-runs).
+
+
+When using `TracingTokioSession`, background Tokio runtime sampling is enabled by default for production-like capture. For runtime-sensitive deterministic validation, disable it explicitly with `.disable_background_sampler()` and inject controlled snapshots with `record_runtime_snapshot(...)`; treat the resulting runtime-pressure signals as triage input and next-check guidance, not proof of root cause. `.run_json_path(...)` can persist the merged Run JSON during shutdown for runtime-pressure workflows that need direct artifact output before a separate `tailtriage analyze` step.

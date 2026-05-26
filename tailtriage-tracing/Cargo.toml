@@ -54,3 +54,7 @@ required-features = ["live"]
 [[example]]
 name = "live_session_to_run"
 required-features = ["live"]
+
+[[example]]
+name = "tokio_session_to_run"
+required-features = ["tokio"]
