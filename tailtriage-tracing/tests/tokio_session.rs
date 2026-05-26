@@ -112,6 +112,25 @@ async fn zero_sampler_interval_fails_clearly() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn zero_sampler_interval_with_disabled_background_sampler_succeeds() {
+    let session = TracingTokioSession::builder("svc")
+        .sampler_interval(Duration::ZERO)
+        .disable_background_sampler()
+        .start()
+        .expect("zero interval should be ignored when sampler disabled");
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: unix_time_ms(),
+        alive_tasks: Some(1),
+        global_queue_depth: Some(1),
+        local_queue_depth: Some(1),
+        blocking_queue_depth: Some(1),
+        remote_schedule_count: Some(1),
+    });
+    let run = session.shutdown().await.expect("shutdown").run().clone();
+    assert_eq!(run.runtime_snapshots.len(), 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn runtime_merge_keeps_tracing_requests() {
     let session = TracingTokioSession::builder("svc")
         .sampler_interval(Duration::from_millis(1))
