@@ -17,7 +17,7 @@ It is **not**:
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
 - Default (`jsonl`): JSONL import APIs and stable wrapper parsing.
 - `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession`.
-- `tokio`: enables `TracingTokioSession` runtime-sampler coupling and includes `live`.
+- `tokio`: enables `TracingTokioSession` runtime-sampler coupling and includes `live` (background sampler on by default; deterministic runs can call `disable_background_sampler()` and inject snapshots manually).
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
@@ -149,7 +149,7 @@ Missing stage `tt.success` defaults to `true` with a warning.
 
 ## Runtime-pressure limitation
 
-Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling.
+Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling. Runtime-sensitive parity should include runtime snapshots plus either effective Tokio sampler metadata (background sampler enabled) or the explicit disabled-background-sampler lifecycle warning (deterministic/manual mode via `disable_background_sampler()` + `record_runtime_snapshot(...)`).
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 
 For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model. Run metadata time bounds cover merged retained tracing evidence plus retained runtime snapshots, which supports triage interpretation but is not root-cause proof:
@@ -162,3 +162,6 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+
+
+`TracingTokioSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.
