@@ -410,13 +410,12 @@ fn dedupe_retained_requests(
 fn all_valid_request_intervals(requests: &[RequestEvent]) -> BTreeMap<String, RequestInterval> {
     let mut intervals = BTreeMap::new();
     for request in requests {
-        intervals.insert(
-            request.request_id.clone(),
-            RequestInterval {
+        intervals
+            .entry(request.request_id.clone())
+            .or_insert(RequestInterval {
                 started_at_unix_ms: request.started_at_unix_ms,
                 finished_at_unix_ms: request.finished_at_unix_ms,
-            },
-        );
+            });
     }
     intervals
 }
@@ -2355,6 +2354,150 @@ mod tests {
         assert_eq!(imported.run().truncation.dropped_requests, 1);
         assert_eq!(imported.run().truncation.dropped_stages, 1);
         assert_eq!(imported.run().truncation.dropped_queues, 1);
+    }
+
+    #[test]
+    fn strict_mode_max_requests_duplicate_overflow_keeps_retained_child_evidence() {
+        let spans = vec![
+            SpanRecord::new("req-retained", 100, 200)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st-retained", 120, 150)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q-retained", 130, 140)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+            SpanRecord::new("req-overflow", 300, 400)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+        ];
+        let imported = run_from_span_records(
+            spans,
+            ImportOptions::new("checkout")
+                .strict(true)
+                .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                    max_requests: Some(1),
+                    ..tailtriage_core::CaptureLimitsOverride::default()
+                }),
+        )
+        .expect("strict import should retain children for retained duplicate request id");
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.requests[0].request_id, "r1");
+        assert_eq!(run.requests[0].started_at_unix_ms, 100);
+        assert_eq!(run.requests[0].finished_at_unix_ms, 200);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.stages[0].request_id, "r1");
+        assert_eq!(run.stages[0].started_at_unix_ms, 120);
+        assert_eq!(run.stages[0].finished_at_unix_ms, 150);
+        assert_eq!(run.queues.len(), 1);
+        assert_eq!(run.queues[0].request_id, "r1");
+        assert_eq!(run.queues[0].waited_from_unix_ms, 130);
+        assert_eq!(run.queues[0].waited_until_unix_ms, 140);
+        assert_eq!(run.truncation.dropped_requests, 1);
+    }
+
+    #[test]
+    fn strict_mode_max_requests_duplicate_overflow_only_child_still_fails_outside_interval() {
+        let spans = vec![
+            SpanRecord::new("req-retained", 100, 200)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("req-overflow", 300, 400)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st-overflow", 320, 350)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q-overflow", 330, 340)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let err = run_from_span_records(
+            spans,
+            ImportOptions::new("checkout")
+                .strict(true)
+                .capture_limits_override(tailtriage_core::CaptureLimitsOverride {
+                    max_requests: Some(1),
+                    ..tailtriage_core::CaptureLimitsOverride::default()
+                }),
+        )
+        .expect_err("strict import should fail for overflow-only child of duplicate request id");
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        let msg = err.to_string();
+        assert!(msg.contains("falls outside request interval"));
+        assert!(!msg.contains("valid but not retained due to max_requests"));
+    }
+
+    #[test]
+    fn non_strict_max_requests_duplicate_overflow_only_child_warns_outside_interval() {
+        let spans = vec![
+            SpanRecord::new("req-retained", 100, 200)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("req-overflow", 300, 400)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st-overflow", 320, 350)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q-overflow", 330, 340)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let imported = run_from_span_records(
+            spans,
+            ImportOptions::new("checkout").capture_limits_override(
+                tailtriage_core::CaptureLimitsOverride {
+                    max_requests: Some(1),
+                    ..tailtriage_core::CaptureLimitsOverride::default()
+                },
+            ),
+        )
+        .expect("non-strict import should warn and skip overflow-only duplicate children");
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 0);
+        assert_eq!(run.queues.len(), 0);
+        let stage_warning = "skipped stage span 'db' for request_id 'r1' because interval [320, 350] falls outside request interval [100, 200] beyond tolerance_ms=2";
+        let queue_warning = "skipped queue span 'permits' for request_id 'r1' because interval [330, 340] falls outside request interval [100, 200] beyond tolerance_ms=2";
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains(stage_warning)));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains(queue_warning)));
+        assert!(run
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains(stage_warning)));
+        assert!(run
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains(queue_warning)));
+        assert!(imported.warnings().iter().all(|w| !w
+            .message()
+            .contains("valid but not retained due to max_requests")));
+        assert_eq!(run.truncation.dropped_requests, 1);
+        assert_eq!(run.truncation.dropped_stages, 0);
+        assert_eq!(run.truncation.dropped_queues, 0);
     }
 
     #[test]
