@@ -1191,7 +1191,7 @@ fn import_tracing_json_persists_optional_default_assumption_warnings_in_run_arti
 }
 
 #[test]
-fn import_tracing_json_invalid_outcome_non_strict_warns_and_fails_zero_request() {
+fn import_tracing_json_custom_outcome_non_strict_imports_successfully() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1207,17 +1207,18 @@ fn import_tracing_json_invalid_outcome_non_strict_warns_and_fails_zero_request()
         .output()
         .expect("cli should run");
 
-    assert!(!output.status.success(), "cli unexpectedly succeeded");
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("warning:"));
-    assert!(stderr.contains(
-        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
-    ));
-    assert!(stderr.contains("zero request events"));
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.requests[0].outcome, "sucess");
 }
 
 #[test]
-fn import_tracing_json_invalid_outcome_strict_fails_with_message() {
+fn import_tracing_json_custom_outcome_strict_imports_successfully() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1234,11 +1235,14 @@ fn import_tracing_json_invalid_outcome_strict_fails_with_message() {
         .output()
         .expect("cli should run");
 
-    assert!(!output.status.success(), "cli unexpectedly succeeded");
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains(
-        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
-    ));
+    assert!(
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
+    );
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.requests[0].outcome, "sucess");
 }
 
 #[test]
