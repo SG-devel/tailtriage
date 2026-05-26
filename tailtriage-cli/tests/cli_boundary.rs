@@ -825,6 +825,50 @@ fn import_tracing_json_strict_with_max_requests_keeps_retained_request_and_skips
     assert_eq!(loaded.run.stages[0].request_id, "r1");
     assert_eq!(loaded.run.queues.len(), 1);
     assert_eq!(loaded.run.queues[0].request_id, "r1");
+    assert_eq!(loaded.run.truncation.dropped_requests, 1);
+    assert_eq!(loaded.run.truncation.dropped_stages, 1);
+    assert_eq!(loaded.run.truncation.dropped_queues, 1);
+    assert!(loaded.run.truncation.limits_hit);
+}
+
+#[test]
+fn import_tracing_json_strict_with_max_requests_fails_on_invalid_overflow_stage() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        [
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-1","started_at_unix_ms":100,"finished_at_unix_ms":200,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-2","started_at_unix_ms":300,"finished_at_unix_ms":400,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"st-2","started_at_unix_ms":320,"finished_at_unix_ms":450,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"db"}}}"#,
+        ]
+        .join("\n"),
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--strict")
+        .arg("--max-requests")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("falls outside request interval"));
+    assert!(!stderr.contains("valid but not retained due to max_requests"));
+    assert!(
+        !run_path.exists(),
+        "run output should not exist on strict failure"
+    );
 }
 
 #[test]
