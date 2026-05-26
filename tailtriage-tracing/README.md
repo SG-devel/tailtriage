@@ -117,11 +117,11 @@ Ordinary tracing log JSON (for example `fmt().json` output) is rejected by impor
 
 | Span kind | Required fields | Optional fields |
 | --- | --- | --- |
-| request | `tt.kind="request"`, `tt.request_id`, `tt.route` | `tt.outcome` (`ok`, `error`, `timeout`, `cancelled`, or `rejected`) |
+| request | `tt.kind="request"`, `tt.request_id`, `tt.route` | `tt.outcome` (recommended: `ok`, `error`, `timeout`, `cancelled`, `rejected`; custom non-empty labels are allowed and preserved) |
 | stage | `tt.kind="stage"`, `tt.request_id`, `tt.stage` | `tt.success` |
 | queue | `tt.kind="queue"`, `tt.request_id`, `tt.queue` | `tt.depth_at_start` |
 
-Missing request `tt.outcome` defaults to `ok` with a warning.
+`tt.outcome` is optional. Missing request `tt.outcome` defaults to `ok` with a warning. Empty/whitespace-only values are invalid, and custom non-empty labels are preserved exactly.
 Missing stage `tt.success` defaults to `true` with a warning.
 
 ## Strict vs non-strict
