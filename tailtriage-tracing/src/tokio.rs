@@ -246,7 +246,9 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.capture_limits_override(overrides);
         self
     }
-    /// Sets runtime sampler interval.
+    /// Sets runtime sampler interval used only when background runtime sampling is enabled.
+    ///
+    /// This value is ignored when [`Self::disable_background_sampler`] is set.
     #[must_use]
     pub fn sampler_interval(mut self, sampler_interval: Duration) -> Self {
         self.sampler_interval = Some(sampler_interval);
@@ -287,13 +289,6 @@ impl TracingTokioSessionBuilder {
             CaptureMode::Light => builder.light(),
             CaptureMode::Investigation => builder.investigation(),
         };
-        if let Some(interval) = self.sampler_interval {
-            if interval.is_zero() {
-                return Err(TracingTokioSessionStartError::SamplerStart(
-                    SamplerStartError::ZeroInterval,
-                ));
-            }
-        }
         let runtime_collector = Arc::new(
             builder
                 .build()
@@ -304,6 +299,11 @@ impl TracingTokioSessionBuilder {
         } else {
             let sampler_builder = RuntimeSampler::builder(Arc::clone(&runtime_collector));
             let sampler_builder = if let Some(interval) = self.sampler_interval {
+                if interval.is_zero() {
+                    return Err(TracingTokioSessionStartError::SamplerStart(
+                        SamplerStartError::ZeroInterval,
+                    ));
+                }
                 sampler_builder.interval(interval)
             } else {
                 sampler_builder
@@ -381,7 +381,7 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_runtime_data;
+    use super::{merge_runtime_data, SamplerStartError};
     use crate::{ImportWarning, ImportedRun};
     use std::time::Duration;
     use tailtriage_core::{CaptureMode, MemorySink, RuntimeSnapshot, Tailtriage};
@@ -633,6 +633,43 @@ mod tests {
                 ImportWarning::new("unique-warning"),
             ]
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tracing_tokio_session_disabled_background_sampler_ignores_zero_interval() {
+        let session = super::TracingTokioSession::builder("svc")
+            .sampler_interval(Duration::ZERO)
+            .disable_background_sampler()
+            .start()
+            .expect("start tracing tokio session with disabled sampler");
+
+        session.record_runtime_snapshot(RuntimeSnapshot {
+            at_unix_ms: 1,
+            alive_tasks: Some(1),
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        });
+
+        let run = session
+            .shutdown()
+            .await
+            .expect("shutdown tracing tokio session");
+        assert_eq!(run.run().runtime_snapshots.len(), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tracing_tokio_session_zero_interval_errors_when_background_sampler_enabled() {
+        let err = super::TracingTokioSession::builder("svc")
+            .sampler_interval(Duration::ZERO)
+            .start()
+            .expect_err("zero interval should fail with background sampler enabled");
+
+        assert!(matches!(
+            err,
+            super::TracingTokioSessionStartError::SamplerStart(SamplerStartError::ZeroInterval)
+        ));
     }
 
     #[tokio::test(flavor = "current_thread")]
