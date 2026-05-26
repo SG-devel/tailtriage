@@ -1012,8 +1012,17 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
         if scenario in RUNTIME_SENSITIVE_TRACING_SCENARIOS:
             if not run.get("runtime_snapshots"):
                 raise SystemExit(f"expected runtime snapshots in tracing run {run_name}")
-            if run.get("metadata", {}).get("effective_tokio_sampler_config") is None:
-                raise SystemExit(f"expected effective_tokio_sampler_config in tracing run {run_name}")
+            metadata = run.get("metadata", {})
+            sampler_cfg = metadata.get("effective_tokio_sampler_config")
+            lifecycle_warnings = metadata.get("lifecycle_warnings") or []
+            manual_disabled = any(
+                "background runtime sampling disabled" in warning
+                for warning in lifecycle_warnings
+            )
+            if sampler_cfg is None and not manual_disabled:
+                raise SystemExit(
+                    f"expected effective_tokio_sampler_config or disabled-sampler warning in tracing run {run_name}"
+                )
         if scenario in NON_RUNTIME_TRACING_SCENARIOS:
             _require_equal(
                 scenario=scenario,

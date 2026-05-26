@@ -115,3 +115,6 @@ Optional manifest fields can validate expanded analyzer report surface on select
 
 ## Tracing parity CI gates
 Native/tracing parity is CI-gated via `scripts/demo_tool.py validate-tracing-parity all --profile release`. Broad tracing parity checks scenario coverage, expected evidence presence, route coverage, mode parity, and runtime/non-runtime semantics. The queue tiny-limit retention parity gate checks retained counts, dropped counters, `truncation.limits_hit`, and `metadata.effective_core_config`. Runtime-sensitive tracing scenarios (Tokio session coupling) must include runtime snapshots plus sampler metadata; tracing-only scenarios must not fabricate runtime snapshots. These checks support triage consistency and do not prove universal production performance or root-cause certainty.
+
+
+TracingTokioSession validation paths may run deterministic manual runtime snapshot mode (`disable_background_sampler()` + `record_runtime_snapshot(...)`) to remove sampler cadence noise. This supports repeatable triage evidence and does not claim causal proof.

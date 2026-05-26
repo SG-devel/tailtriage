@@ -17,7 +17,7 @@ It is **not**:
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
 - Default (`jsonl`): JSONL import APIs and stable wrapper parsing.
 - `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession`.
-- `tokio`: enables `TracingTokioSession` runtime-sampler coupling and includes `live`.
+- `tokio`: enables `TracingTokioSession` runtime-sampler coupling and includes `live` (background sampler on by default; deterministic runs can call `disable_background_sampler()` and inject snapshots manually).
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
@@ -162,3 +162,6 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
 - `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+
+
+`TracingTokioSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.

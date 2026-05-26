@@ -1,10 +1,12 @@
 #![cfg(feature = "tokio")]
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use tailtriage_core::{unix_time_ms, CaptureLimitsOverride, RuntimeSnapshot};
 use tailtriage_tokio::SamplerStartError;
-use tailtriage_tracing::tokio::{TracingTokioSession, TracingTokioSessionStartError};
+use tailtriage_tracing::tokio::{
+    TracingTokioSession, TracingTokioSessionShutdownError, TracingTokioSessionStartError,
+};
 use tailtriage_tracing::ImportError;
 use tracing_subscriber::prelude::*;
 
@@ -316,4 +318,99 @@ async fn capture_limits_override_controls_sampler_and_collector_retention() {
             .resolved_runtime_snapshot_retention,
         2
     );
+}
+
+fn unique_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("tailtriage-{name}-{}", std::process::id()))
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn disabled_sampler_manual_snapshot_shutdown_has_manual_warning() {
+    let session = TracingTokioSession::builder("svc")
+        .disable_background_sampler()
+        .start()
+        .expect("start");
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: unix_time_ms(),
+        alive_tasks: Some(1),
+        global_queue_depth: Some(2),
+        local_queue_depth: None,
+        blocking_queue_depth: Some(1),
+        remote_schedule_count: None,
+    });
+    let run = session.shutdown().await.expect("shutdown").run().clone();
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert!(run.metadata.effective_tokio_sampler_config.is_none());
+    assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
+        warning.contains("background runtime sampling disabled")
+            && warning.contains("manually recorded")
+    }));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn disabled_sampler_without_manual_snapshot_reports_clear_warning() {
+    let session = TracingTokioSession::builder("svc")
+        .disable_background_sampler()
+        .start()
+        .expect("start");
+    let run = session.shutdown().await.expect("shutdown").run().clone();
+    assert!(run.runtime_snapshots.is_empty());
+    assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
+        warning.contains("background runtime sampling disabled")
+            && warning.contains("no manual runtime snapshots were recorded")
+    }));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn run_json_path_writes_run_with_request_and_creates_parent() {
+    let run_path = unique_path("tokio-session/nested/run.json");
+    let _ = std::fs::remove_file(&run_path);
+    let _ = std::fs::remove_dir_all(run_path.parent().expect("parent"));
+    let session = TracingTokioSession::builder("svc")
+        .run_json_path(&run_path)
+        .start()
+        .expect("start");
+    let subscriber = tracing_subscriber::registry().with(session.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info_span!(
+            "req",
+            tt.kind = "request",
+            tt.request_id = "r1",
+            tt.route = "/r1"
+        )
+        .in_scope(|| {});
+    });
+    session.shutdown().await.expect("shutdown");
+    let run: tailtriage_core::Run =
+        serde_json::from_slice(&std::fs::read(&run_path).expect("read run")).expect("deserialize");
+    assert_eq!(run.requests.len(), 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn zero_request_run_json_path_fails_and_does_not_write_file() {
+    let run_path = unique_path("tokio-session-empty/run.json");
+    let _ = std::fs::remove_file(&run_path);
+    let session = TracingTokioSession::builder("svc")
+        .run_json_path(&run_path)
+        .start()
+        .expect("start");
+    let err = session.shutdown().await.expect_err("must fail");
+    assert!(matches!(
+        err,
+        TracingTokioSessionShutdownError::Import(ImportError::ZeroRequestArtifact { .. })
+    ));
+    assert!(!run_path.exists());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn snapshot_run_does_not_write_run_json() {
+    let run_path = unique_path("tokio-session-snapshot-only/run.json");
+    let _ = std::fs::remove_file(&run_path);
+    let session = TracingTokioSession::builder("svc")
+        .run_json_path(&run_path)
+        .start()
+        .expect("start");
+    let _ = session.snapshot_run().expect("snapshot run");
+    assert!(!run_path.exists());
+    let _ = session.shutdown().await;
 }
