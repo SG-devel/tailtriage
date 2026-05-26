@@ -47,7 +47,7 @@ async fn work() {
     // Your request work goes here.
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = TracingIntakeSession::builder("checkout-service")
         .run_json_path("target/tailtriage-examples/checkout.run.json")
@@ -136,7 +136,9 @@ Missing stage `tt.success` defaults to `true` with a warning.
 
 - `DEFAULT_MAX_OPEN_SPANS` and `DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS` are live-recorder memory caps for in-memory span tracking.
 - `max_open_spans` bounds in-flight span tracking.
-- `max_completed_candidate_spans` bounds retained raw completed candidate spans before semantic conversion.
+- `max_completed_candidate_spans` bounds retained raw completed candidate spans before semantic conversion and serves as the raw live-recorder memory safety cap.
+- Under `max_completed_candidate_spans` pressure, request-root candidates are preserved preferentially whenever a child candidate (queue first, then stage) can be evicted.
+- Child stage/queue evidence may be dropped or evicted under this raw cap; warnings and `truncation.limits_hit` surface this retained-evidence truncation explicitly.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
 - `completed_span_jsonl_path(...)` writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
 - It is intended for replaying the same retained request/stage/queue evidence through `tailtriage import`, not for trace archival.
