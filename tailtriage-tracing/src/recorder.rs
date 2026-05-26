@@ -233,6 +233,8 @@ impl TracingIntakeSession {
     /// use tailtriage_tracing::TracingIntakeSession;
     /// use tracing_subscriber::prelude::*;
     ///
+    /// // Record completed work from span close/drop; keep the span active around the work you want measured.
+    ///
     /// let session = TracingIntakeSession::builder("checkout")
     ///     .completed_span_jsonl_path("completed-spans.jsonl")
     ///     .build()
@@ -246,7 +248,9 @@ impl TracingIntakeSession {
     ///         tt.request_id = "r1",
     ///         tt.route = "/checkout"
     ///     );
-    ///     drop(span);
+    ///
+    ///     let _guard = span.enter();
+    ///     // measured work goes here
     /// });
     ///
     /// let _ = session.shutdown().expect("shutdown should succeed");
@@ -278,23 +282,15 @@ impl TracingIntakeSession {
     ///
     /// # Errors
     ///
-    /// Returns an error when conversion fails or when configured run-json output cannot be written.
+    /// Returns an error when conversion fails or when configured output artifacts cannot be written.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
-        let strict_mode = self.recorder.options.strict_mode();
         let imported = self.recorder.shutdown()?;
-        let (mut run, mut warnings) = imported.into_parts();
+        let (run, warnings) = imported.into_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
             ensure_persistable_run_has_requests(&run)?;
         }
         if let Some(path) = &self.completed_span_jsonl_path {
-            if let Err(err) = write_completed_span_jsonl_from_run(&run, path) {
-                if strict_mode {
-                    return Err(err);
-                }
-                let msg = err.to_string();
-                run.metadata.lifecycle_warnings.push(msg.clone());
-                warnings.push(crate::ImportWarning::new(msg));
-            }
+            write_completed_span_jsonl_from_run(&run, path)?;
         }
         if let Some(path) = self.run_json_path {
             create_output_parent_dir(&path, "create run json parent directory")?;
@@ -526,7 +522,10 @@ impl TracingIntakeSessionBuilder {
     }
     /// Enables completed-span JSONL output at the given path.
     ///
-    /// Writes retained valid completed spans on shutdown using the stable wrapper shape.
+    /// Writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown.
+    ///
+    /// Intended for replay through `tailtriage import`, not trace archival; this output
+    /// does not preserve original tracing span names, span IDs, parent IDs, or non-`tt.*` fields.
     #[must_use]
     pub fn completed_span_jsonl_path(mut self, path: impl AsRef<Path>) -> Self {
         self.completed_span_jsonl_path = Some(path.as_ref().to_path_buf());
@@ -2729,7 +2728,7 @@ mod tests {
     }
 
     #[test]
-    fn intake_session_non_strict_write_failure_adds_warning_and_keeps_run() {
+    fn intake_session_non_strict_write_failure_returns_io_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
         let parent_file = dir.path().join("missing");
         std::fs::write(&parent_file, "not-a-directory").unwrap();
@@ -2748,29 +2747,11 @@ mod tests {
             ));
         });
 
-        let imported = session.shutdown().unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().requests[0].request_id, "r1");
-
-        let warning = imported
-            .warnings()
-            .iter()
-            .map(crate::ImportWarning::message)
-            .find(|m| m.contains("completed span jsonl") || m.contains("spans.jsonl"))
-            .expect("non-strict shutdown should include completed-span JSONL write warning");
-        assert!(
-            warning.contains("completed span jsonl") || warning.contains("spans.jsonl"),
-            "warning should contain completed-span JSONL context: {warning}"
-        );
-        assert!(
-            imported
-                .run()
-                .metadata
-                .lifecycle_warnings
-                .iter()
-                .any(|m| m == warning),
-            "lifecycle warnings should contain the same completed-span JSONL write warning"
-        );
+        let err = session.shutdown().unwrap_err();
+        assert!(matches!(err, ImportError::Io { .. }));
+        assert!(err
+            .to_string()
+            .contains("create completed span jsonl parent directory"));
     }
 
     #[test]
