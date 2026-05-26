@@ -153,7 +153,7 @@ impl TracingTokioSession {
 }
 
 fn write_run_json(path: &Path, run: &Run) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
     LocalJsonSink::new(path)

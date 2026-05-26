@@ -1016,7 +1016,9 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
             sampler_cfg = metadata.get("effective_tokio_sampler_config")
             lifecycle_warnings = metadata.get("lifecycle_warnings") or []
             manual_disabled = any(
-                "background runtime sampling disabled" in warning
+                warning.startswith(
+                    "tailtriage-tracing session ran with background runtime sampling disabled"
+                )
                 for warning in lifecycle_warnings
             )
             if sampler_cfg is None and not manual_disabled:

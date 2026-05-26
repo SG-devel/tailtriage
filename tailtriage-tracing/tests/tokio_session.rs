@@ -2,6 +2,8 @@
 
 use std::{path::PathBuf, time::Duration};
 
+use tempfile::tempdir;
+
 use tailtriage_core::{unix_time_ms, CaptureLimitsOverride, RuntimeSnapshot};
 use tailtriage_tokio::SamplerStartError;
 use tailtriage_tracing::tokio::{
@@ -359,6 +361,36 @@ async fn disabled_sampler_without_manual_snapshot_reports_clear_warning() {
         warning.contains("background runtime sampling disabled")
             && warning.contains("no manual runtime snapshots were recorded")
     }));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn run_json_path_writes_with_simple_relative_filename() {
+    let temp = tempdir().expect("tempdir");
+    let original_cwd = std::env::current_dir().expect("current dir");
+    std::env::set_current_dir(temp.path()).expect("set cwd");
+
+    let run_path = PathBuf::from("run.json");
+    let session = TracingTokioSession::builder("svc")
+        .run_json_path(&run_path)
+        .start()
+        .expect("start");
+    let subscriber = tracing_subscriber::registry().with(session.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info_span!(
+            "req",
+            tt.kind = "request",
+            tt.request_id = "r-simple",
+            tt.route = "/simple"
+        )
+        .in_scope(|| {});
+    });
+    session.shutdown().await.expect("shutdown");
+
+    std::env::set_current_dir(&original_cwd).expect("restore cwd");
+    let run: tailtriage_core::Run =
+        serde_json::from_slice(&std::fs::read(temp.path().join("run.json")).expect("read run"))
+            .expect("deserialize");
+    assert_eq!(run.requests.len(), 1);
 }
 
 #[tokio::test(flavor = "current_thread")]
