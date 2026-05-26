@@ -389,6 +389,40 @@ fn import_tracing_json_capture_limit_overrides_apply() {
 }
 
 #[test]
+fn import_tracing_json_strict_with_max_requests_skips_valid_overflow_children_without_orphan_warning(
+) {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, multi_span_jsonl_fixture()).expect("fixture should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-json")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--input-format")
+        .arg("compatible")
+        .arg("--strict")
+        .arg("--max-requests")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("no retained request event was imported"));
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    assert_eq!(loaded.run.requests.len(), 1);
+    assert_eq!(loaded.run.requests[0].request_id, "req-1");
+    assert_eq!(loaded.run.stages.len(), 1);
+    assert_eq!(loaded.run.stages[0].request_id, "req-1");
+    assert_eq!(loaded.run.queues.len(), 1);
+    assert_eq!(loaded.run.queues[0].request_id, "req-1");
+}
+
+#[test]
 fn import_tracing_json_rejects_inert_runtime_snapshot_flags() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
