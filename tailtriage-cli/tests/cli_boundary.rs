@@ -1191,11 +1191,12 @@ fn import_tracing_json_persists_optional_default_assumption_warnings_in_run_arti
 }
 
 #[test]
-fn import_tracing_json_invalid_outcome_non_strict_warns_and_fails_zero_request() {
+fn import_tracing_json_whitespace_outcome_non_strict_warns_and_fails_zero_request() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
-    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    std::fs::write(&spans_path, invalid_whitespace_outcome_only_fixture())
+        .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
         .arg("tracing-json")
@@ -1210,18 +1211,17 @@ fn import_tracing_json_invalid_outcome_non_strict_warns_and_fails_zero_request()
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
-    assert!(stderr.contains(
-        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
-    ));
+    assert!(stderr.contains("expected non-empty, non-whitespace string"));
     assert!(stderr.contains("zero request events"));
 }
 
 #[test]
-fn import_tracing_json_invalid_outcome_strict_fails_with_message() {
+fn import_tracing_json_whitespace_outcome_strict_fails_with_message() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
-    std::fs::write(&spans_path, invalid_outcome_only_fixture()).expect("fixture should write");
+    std::fs::write(&spans_path, invalid_whitespace_outcome_only_fixture())
+        .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
         .arg("tracing-json")
@@ -1236,9 +1236,7 @@ fn import_tracing_json_invalid_outcome_strict_fails_with_message() {
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains(
-        "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
-    ));
+    assert!(stderr.contains("expected non-empty, non-whitespace string"));
 }
 
 #[test]
@@ -1354,8 +1352,8 @@ fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
 "#
 }
 
-fn invalid_outcome_only_fixture() -> &'static str {
-    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"sucess"}}}
+fn invalid_whitespace_outcome_only_fixture() -> &'static str {
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":" "}}}
 "#
 }
 

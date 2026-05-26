@@ -168,6 +168,7 @@ Analyzer configuration contract:
 - CLI imports that wrapper shape with:
   `tailtriage import tracing-json <completed-spans.jsonl> --service <service> --output <run.json>`
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
+- request `tt.outcome` is optional; missing defaults to `ok` with a warning, recommended common labels are `ok`/`error`/`timeout`/`cancelled`/`rejected`, and custom non-empty string labels are preserved exactly
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
 - tracing-only intake does not fabricate runtime-pressure evidence without runtime snapshots / Tokio sampler coupling
 - OTel/OTLP and tracing backend behavior are out of scope

@@ -797,8 +797,8 @@ fn strict_or_warn(
     Ok(())
 }
 
-const ACCEPTED_OUTCOME_LABELS: [&str; 5] = ["ok", "error", "timeout", "cancelled", "rejected"];
-const ACCEPTED_OUTCOME_LABELS_CSV: &str = "ok,error,timeout,cancelled,rejected";
+#[cfg(test)]
+const RECOMMENDED_OUTCOME_LABELS: [&str; 5] = ["ok", "error", "timeout", "cancelled", "rejected"];
 
 fn parse_outcome(
     span: &SpanRecord,
@@ -808,18 +808,18 @@ fn parse_outcome(
     match get_string_field_state(span, TT_OUTCOME) {
         StringFieldState::Missing => Ok(Some(("ok".to_owned(), true))),
         StringFieldState::Value(value) => {
-            if ACCEPTED_OUTCOME_LABELS.contains(&value) {
-                Ok(Some((value.to_owned(), false)))
-            } else {
+            if value.trim().is_empty() {
                 strict_or_warn(
                     strict,
                     warnings,
                     format!(
-                        "invalid field '{TT_OUTCOME}' in span '{}': expected one of {ACCEPTED_OUTCOME_LABELS_CSV}, got '{value}'",
+                        "invalid field '{TT_OUTCOME}' in span '{}': expected non-empty, non-whitespace string",
                         span.name()
                     ),
                 )?;
                 Ok(None)
+            } else {
+                Ok(Some((value.to_owned(), false)))
             }
         }
         StringFieldState::InvalidType => {
@@ -2067,8 +2067,8 @@ mod tests {
     }
 
     #[test]
-    fn accepted_request_outcomes_are_retained_exactly() {
-        let spans = ACCEPTED_OUTCOME_LABELS
+    fn builtin_request_outcomes_are_retained_exactly() {
+        let spans = RECOMMENDED_OUTCOME_LABELS
             .iter()
             .enumerate()
             .map(|(idx, outcome)| {
@@ -2086,7 +2086,7 @@ mod tests {
             .iter()
             .map(|request| request.outcome.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(retained, ACCEPTED_OUTCOME_LABELS);
+        assert_eq!(retained, RECOMMENDED_OUTCOME_LABELS);
     }
 
     #[test]
@@ -2104,55 +2104,94 @@ mod tests {
     }
 
     #[test]
-    fn invalid_outcome_non_strict_skips_request_and_warns() {
+    fn custom_outcome_is_accepted_and_preserved_exactly() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
             .field(TT_KIND, "request")
             .field(TT_REQUEST_ID, "r1")
             .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, "sucess")];
+            .field(TT_OUTCOME, "cache_miss_fallback")];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.warnings().iter().any(|w| w.message().contains(
-            "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
-        )));
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].outcome, "cache_miss_fallback");
     }
 
     #[test]
-    fn invalid_outcome_strict_fails() {
+    fn whitespace_only_outcome_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
             .field(TT_KIND, "request")
             .field(TT_REQUEST_ID, "r1")
             .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, "sucess")];
+            .field(TT_OUTCOME, "   ")];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("invalid field 'tt.outcome' in span 'http.request': expected non-empty, non-whitespace string")));
+    }
+
+    #[test]
+    fn whitespace_only_outcome_strict_fails() {
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, " \t")];
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(err.to_string().contains(
-            "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'sucess'"
-        ));
+        assert!(err
+            .to_string()
+            .contains("invalid field 'tt.outcome' in span 'http.request': expected non-empty, non-whitespace string"));
     }
 
     #[test]
-    fn invalid_outcome_with_whitespace_is_rejected() {
+    fn non_string_outcome_non_strict_skips_request_and_warns() {
         let spans = vec![SpanRecord::new("http.request", 1, 2)
             .field(TT_KIND, "request")
             .field(TT_REQUEST_ID, "r1")
             .field(TT_ROUTE, "/")
-            .field(TT_OUTCOME, "ok ")];
+            .field(TT_OUTCOME, 42_u64)];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert!(imported.run().requests.is_empty());
-        assert!(imported.warnings().iter().any(|w| w.message().contains(
-            "invalid field 'tt.outcome' in span 'http.request': expected one of ok,error,timeout,cancelled,rejected, got 'ok '"
-        )));
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("invalid field 'tt.outcome' in span 'http.request': expected string")));
     }
 
     #[test]
-    fn invalid_outcome_skips_child_spans_via_existing_correlation_logic() {
+    fn non_string_outcome_strict_fails() {
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, false)];
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err
+            .to_string()
+            .contains("invalid field 'tt.outcome' in span 'http.request': expected string"));
+    }
+
+    #[test]
+    fn native_other_outcome_round_trips_through_tracing_style_outcome_field() {
+        let native = tailtriage_core::Outcome::Other("custom".to_owned());
+        let spans = vec![SpanRecord::new("http.request", 1, 2)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/")
+            .field(TT_OUTCOME, native.as_str())];
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].outcome, native.as_str());
+    }
+
+    #[test]
+    fn invalid_whitespace_outcome_skips_child_spans_via_existing_correlation_logic() {
         let spans = vec![
             SpanRecord::new("http.request", 1_000, 2_000)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, "r1")
                 .field(TT_ROUTE, "/")
-                .field(TT_OUTCOME, "sucess"),
+                .field(TT_OUTCOME, "   "),
             SpanRecord::new("db.stage", 1_100, 1_200)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, "r1")
