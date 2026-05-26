@@ -246,7 +246,9 @@ impl TracingTokioSessionBuilder {
         self.recorder_builder = self.recorder_builder.capture_limits_override(overrides);
         self
     }
-    /// Sets runtime sampler interval.
+    /// Sets runtime sampler interval used when background sampling is enabled.
+    ///
+    /// Ignored when [`Self::disable_background_sampler`] is set.
     #[must_use]
     pub fn sampler_interval(mut self, sampler_interval: Duration) -> Self {
         self.sampler_interval = Some(sampler_interval);
@@ -287,13 +289,6 @@ impl TracingTokioSessionBuilder {
             CaptureMode::Light => builder.light(),
             CaptureMode::Investigation => builder.investigation(),
         };
-        if let Some(interval) = self.sampler_interval {
-            if interval.is_zero() {
-                return Err(TracingTokioSessionStartError::SamplerStart(
-                    SamplerStartError::ZeroInterval,
-                ));
-            }
-        }
         let runtime_collector = Arc::new(
             builder
                 .build()
@@ -304,6 +299,11 @@ impl TracingTokioSessionBuilder {
         } else {
             let sampler_builder = RuntimeSampler::builder(Arc::clone(&runtime_collector));
             let sampler_builder = if let Some(interval) = self.sampler_interval {
+                if interval.is_zero() {
+                    return Err(TracingTokioSessionStartError::SamplerStart(
+                        SamplerStartError::ZeroInterval,
+                    ));
+                }
                 sampler_builder.interval(interval)
             } else {
                 sampler_builder

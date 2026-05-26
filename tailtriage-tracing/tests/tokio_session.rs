@@ -100,15 +100,34 @@ async fn tracing_tokio_session_start_rejects_blank_service_name() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn zero_sampler_interval_fails_clearly() {
+async fn zero_sampler_interval_fails_clearly_when_background_sampler_enabled() {
     let err = TracingTokioSession::builder("svc")
         .sampler_interval(Duration::ZERO)
         .start()
-        .expect_err("zero interval must fail");
+        .expect_err("zero interval must fail when background sampler is enabled");
     assert!(matches!(
         err,
         TracingTokioSessionStartError::SamplerStart(SamplerStartError::ZeroInterval)
     ));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn zero_sampler_interval_is_ignored_when_background_sampler_disabled() {
+    let session = TracingTokioSession::builder("svc")
+        .sampler_interval(Duration::ZERO)
+        .disable_background_sampler()
+        .start()
+        .expect("zero interval should be ignored when sampler is disabled");
+    session.record_runtime_snapshot(RuntimeSnapshot {
+        at_unix_ms: unix_time_ms(),
+        alive_tasks: Some(1),
+        global_queue_depth: Some(1),
+        local_queue_depth: None,
+        blocking_queue_depth: Some(1),
+        remote_schedule_count: None,
+    });
+    let run = session.shutdown().await.expect("shutdown").run().clone();
+    assert_eq!(run.runtime_snapshots.len(), 1);
 }
 
 #[tokio::test(flavor = "current_thread")]
