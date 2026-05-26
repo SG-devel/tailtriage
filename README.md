@@ -68,7 +68,7 @@ Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust c
 
 ### Already using tracing?
 
-If your service already emits `tracing` spans, use `tailtriage-tracing` as a narrow tracing intake bridge.
+If your service already emits `tracing` spans, use `tailtriage-tracing` as a narrow tracing intake bridge. Native capture remains the default path for new integrations.
 
 Offline import expects completed `tt.*` span JSONL (not arbitrary tracing log JSON), requires explicit unix-ms timing, and writes Run JSON before a separate `tailtriage analyze` step.
 
