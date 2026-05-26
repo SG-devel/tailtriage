@@ -233,7 +233,7 @@ impl TracingIntakeSession {
     /// use tailtriage_tracing::TracingIntakeSession;
     /// use tracing_subscriber::prelude::*;
     ///
-    /// Record completed work from span close/drop; keep the span active around the work you want measured.
+    /// // Record completed work from span close/drop; keep the span active around the work you want measured.
     ///
     /// let session = TracingIntakeSession::builder("checkout")
     ///     .completed_span_jsonl_path("completed-spans.jsonl")
