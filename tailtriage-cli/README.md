@@ -51,7 +51,9 @@ tailtriage import tracing-json spans.jsonl --service checkout --output tailtriag
 With optional metadata flags, strict validation, and explicit format:
 
 ```bash
-tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
+tailtriage import tracing-json spans.jsonl --service checkout --output tailtriage-run.json \
+  --service-version v1 --run-id run-42 --strict \
+  --input-format tailtriage-span-jsonl
 ```
 
 
@@ -70,6 +72,7 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 Behavior:
 - `tailtriage-span-jsonl` enforces wrapper-only parsing.
 - `compatible` keeps compatibility parsing for pre-stable/internal normalized shapes and rejects ordinary tracing log JSON (including `fmt().json` output) early with setup guidance; timing is not guessed from JSONL line receive time.
+- `compatible` is for pre-stable/internal normalized completed-span shapes with explicit start/end timestamps; it is not auto-detection and not generic tracing JSON import.
 
 After import, run analysis separately:
 

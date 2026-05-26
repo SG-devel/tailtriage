@@ -14,9 +14,10 @@ It is **not**:
 
 ## Feature flags
 
-- Default (`jsonl`): typed records plus JSONL import APIs.
+- Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
+- Default (`jsonl`): JSONL import APIs and stable wrapper parsing.
 - `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession`.
-- `tokio`: enables `TracingTokioSession` (and includes `live`).
+- `tokio`: enables `TracingTokioSession` runtime-sampler coupling and includes `live`.
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
@@ -137,10 +138,11 @@ Missing stage `tt.success` defaults to `true` with a warning.
 - `max_open_spans` bounds in-flight span tracking.
 - `max_completed_candidate_spans` bounds retained raw completed candidate spans before semantic conversion.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
-- `completed_span_jsonl_path(...)` writes retained valid completed-span JSONL on shutdown only when at least one completed request is retained.
-- The completed-span JSONL is replayable into the same retained request/stage/queue evidence when imported with matching service metadata.
+- `completed_span_jsonl_path(...)` writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
+- It is intended for replaying the same retained request/stage/queue evidence through `tailtriage import`, not for trace archival.
+- It does not preserve original tracing span names, span IDs, parent IDs, or non-`tt.*` fields.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
-- Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit or writer issues occur.
+- Warnings indicate evidence may be incomplete when limits are hit.
 
 ## Runtime-pressure limitation
 
