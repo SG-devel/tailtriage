@@ -793,6 +793,23 @@ def _require_equal(*, scenario: str, instrumentation: str, artifact_path: str, f
             actual=actual,
         )
 
+def _require_run_metadata_mode(
+    *,
+    scenario: str,
+    capture_mode: str,
+    instrumentation: str,
+    artifact_path: Path,
+    run: dict,
+) -> None:
+    _require_equal(
+        scenario=scenario,
+        instrumentation=f"{instrumentation} capture_mode={capture_mode}",
+        artifact_path=artifact_path.name,
+        field="metadata.mode",
+        expected=capture_mode,
+        actual=(run.get("metadata") or {}).get("mode"),
+    )
+
 
 def _capture_limits(run: dict) -> dict | None:
     return ((run.get("metadata") or {}).get("effective_core_config") or {}).get("capture_limits")
@@ -960,6 +977,34 @@ def validate_tracing_parity(root_dir: Path, scenario: str, *, profile: str = "de
         before_tracing_run = _load_run(before_tracing_run_path)
         after_native_run = _load_run(after_native_run_path)
         after_tracing_run = _load_run(after_tracing_run_path)
+        _require_run_metadata_mode(
+            scenario=scenario,
+            capture_mode=capture_mode,
+            instrumentation=f"before-{capture_mode}-native",
+            artifact_path=before_native_run_path,
+            run=before_native_run,
+        )
+        _require_run_metadata_mode(
+            scenario=scenario,
+            capture_mode=capture_mode,
+            instrumentation=f"before-{capture_mode}-tracing",
+            artifact_path=before_tracing_run_path,
+            run=before_tracing_run,
+        )
+        _require_run_metadata_mode(
+            scenario=scenario,
+            capture_mode=capture_mode,
+            instrumentation=f"after-{capture_mode}-native",
+            artifact_path=after_native_run_path,
+            run=after_native_run,
+        )
+        _require_run_metadata_mode(
+            scenario=scenario,
+            capture_mode=capture_mode,
+            instrumentation=f"after-{capture_mode}-tracing",
+            artifact_path=after_tracing_run_path,
+            run=after_tracing_run,
+        )
 
         before_native = load_report_json(before_native_analysis_path)
         before_tracing = load_report_json(before_tracing_analysis_path)
