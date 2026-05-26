@@ -1,14 +1,16 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use tailtriage_core::{
-    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, MemorySink, Run,
-    RuntimeSnapshot, Tailtriage,
+    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, LocalJsonSink, MemorySink, Run,
+    RunSink, RuntimeSnapshot, Tailtriage,
 };
 use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
 use crate::{
-    ImportError, ImportWarning, ImportedRun, RecorderLimits, TailtriageLayer, TracingRecorder,
+    ensure_persistable_run_has_requests, ImportError, ImportWarning, ImportedRun, RecorderLimits,
+    TailtriageLayer, TracingRecorder,
 };
 
 /// Error returned when starting [`TracingTokioSession`].
@@ -41,12 +43,35 @@ impl std::error::Error for TracingTokioSessionStartError {}
 pub enum TracingTokioSessionShutdownError {
     /// Snapshot import failed.
     Import(ImportError),
+    /// Parent directory creation for run JSON output failed.
+    RunJsonParentDir {
+        /// Target output path.
+        path: String,
+        /// Underlying directory creation failure reason.
+        reason: String,
+    },
+    /// Writing merged run JSON output failed.
+    RunJsonWrite {
+        /// Target output path.
+        path: String,
+        /// Underlying run JSON sink failure reason.
+        reason: String,
+    },
 }
 
 impl core::fmt::Display for TracingTokioSessionShutdownError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Import(err) => write!(f, "failed to import tracing spans during shutdown: {err}"),
+            Self::RunJsonParentDir { path, reason } => {
+                write!(
+                    f,
+                    "failed to create parent directory for run JSON at {path}: {reason}"
+                )
+            }
+            Self::RunJsonWrite { path, reason } => {
+                write!(f, "failed to write run JSON at {path}: {reason}")
+            }
         }
     }
 }
@@ -58,6 +83,8 @@ impl std::error::Error for TracingTokioSessionShutdownError {}
 pub struct TracingTokioSessionBuilder {
     recorder_builder: crate::TracingRecorderBuilder,
     sampler_interval: Option<Duration>,
+    disable_background_sampler: bool,
+    run_json_path: Option<PathBuf>,
 }
 
 /// Combined tracing and Tokio runtime sampler session.
@@ -65,7 +92,9 @@ pub struct TracingTokioSessionBuilder {
 pub struct TracingTokioSession {
     recorder: TracingRecorder,
     runtime_collector: Arc<Tailtriage>,
-    sampler: RuntimeSampler,
+    sampler: Option<RuntimeSampler>,
+    run_json_path: Option<PathBuf>,
+    disable_background_sampler: bool,
 }
 
 impl TracingTokioSession {
@@ -74,6 +103,8 @@ impl TracingTokioSession {
         TracingTokioSessionBuilder {
             recorder_builder: TracingRecorder::builder(service_name),
             sampler_interval: None,
+            disable_background_sampler: false,
+            run_json_path: None,
         }
     }
 
@@ -107,13 +138,50 @@ impl TracingTokioSession {
     ///
     /// Returns [`TracingTokioSessionShutdownError::Import`] when strict span import fails.
     pub async fn shutdown(self) -> Result<ImportedRun, TracingTokioSessionShutdownError> {
-        self.sampler.shutdown().await;
+        if let Some(sampler) = self.sampler {
+            sampler.shutdown().await;
+        }
         let imported = self
             .recorder
             .snapshot_run()
             .map_err(TracingTokioSessionShutdownError::Import)?;
-        let runtime = self.runtime_collector.snapshot();
-        Ok(merge_runtime_data(imported, &runtime))
+        let mut runtime = self.runtime_collector.snapshot();
+        if self.disable_background_sampler {
+            let warning = if runtime.runtime_snapshots.is_empty() {
+                "tokio runtime background sampler disabled; no runtime snapshots were recorded"
+            } else {
+                "tokio runtime background sampler disabled; runtime snapshots were manually recorded"
+            };
+            if !runtime
+                .metadata
+                .lifecycle_warnings
+                .iter()
+                .any(|w| w == warning)
+            {
+                runtime
+                    .metadata
+                    .lifecycle_warnings
+                    .push(warning.to_string());
+            }
+        }
+        let merged = merge_runtime_data(imported, &runtime);
+        if let Some(path) = &self.run_json_path {
+            ensure_persistable_run_has_requests(merged.run())
+                .map_err(TracingTokioSessionShutdownError::Import)?;
+            create_parent_dirs(path).map_err(|err| {
+                TracingTokioSessionShutdownError::RunJsonParentDir {
+                    path: path.display().to_string(),
+                    reason: err.to_string(),
+                }
+            })?;
+            LocalJsonSink::new(path)
+                .write(merged.run())
+                .map_err(|err| TracingTokioSessionShutdownError::RunJsonWrite {
+                    path: path.display().to_string(),
+                    reason: err.to_string(),
+                })?;
+        }
+        Ok(merged)
     }
 }
 
@@ -188,6 +256,18 @@ impl TracingTokioSessionBuilder {
         self.sampler_interval = Some(sampler_interval);
         self
     }
+    /// Disables the background Tokio runtime sampler for deterministic/manual runtime snapshots.
+    #[must_use]
+    pub fn disable_background_sampler(mut self) -> Self {
+        self.disable_background_sampler = true;
+        self
+    }
+    /// Writes merged Run JSON on shutdown to the given local filesystem path.
+    #[must_use]
+    pub fn run_json_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.run_json_path = Some(path.as_ref().to_path_buf());
+        self
+    }
     /// Builds the session and starts Tokio runtime sampling.
     ///
     /// # Errors
@@ -223,23 +303,38 @@ impl TracingTokioSessionBuilder {
                 .build()
                 .map_err(TracingTokioSessionStartError::Build)?,
         );
-        let sampler_builder = RuntimeSampler::builder(Arc::clone(&runtime_collector));
-        let sampler_builder = if let Some(interval) = self.sampler_interval {
-            sampler_builder.interval(interval)
+        let sampler = if self.disable_background_sampler {
+            None
         } else {
-            sampler_builder
+            let sampler_builder = RuntimeSampler::builder(Arc::clone(&runtime_collector));
+            let sampler_builder = if let Some(interval) = self.sampler_interval {
+                sampler_builder.interval(interval)
+            } else {
+                sampler_builder
+            };
+            let sampler_builder =
+                sampler_builder.max_runtime_snapshots(resolved_limits.max_runtime_snapshots);
+            Some(
+                sampler_builder
+                    .start()
+                    .map_err(TracingTokioSessionStartError::SamplerStart)?,
+            )
         };
-        let sampler_builder =
-            sampler_builder.max_runtime_snapshots(resolved_limits.max_runtime_snapshots);
-        let sampler = sampler_builder
-            .start()
-            .map_err(TracingTokioSessionStartError::SamplerStart)?;
         Ok(TracingTokioSession {
             recorder,
             runtime_collector,
             sampler,
+            run_json_path: self.run_json_path,
+            disable_background_sampler: self.disable_background_sampler,
         })
     }
+}
+
+fn create_parent_dirs(path: &Path) -> Result<(), std::io::Error> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    Ok(())
 }
 
 fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
@@ -298,7 +393,7 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_runtime_data;
+    use super::{merge_runtime_data, TracingTokioSession};
     use crate::{ImportWarning, ImportedRun};
     use std::time::Duration;
     use tailtriage_core::{CaptureMode, MemorySink, RuntimeSnapshot, Tailtriage};
@@ -517,6 +612,30 @@ mod tests {
             merged.warnings(),
             &[ImportWarning::new("runtime-warning".to_string())]
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn disabled_sampler_manual_snapshot_shutdown_keeps_runtime_and_warning() {
+        let session = TracingTokioSession::builder("svc")
+            .disable_background_sampler()
+            .start()
+            .expect("start");
+        session.record_runtime_snapshot(RuntimeSnapshot {
+            at_unix_ms: 42,
+            alive_tasks: Some(1),
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        });
+        let imported = session.shutdown().await.expect("shutdown");
+        assert_eq!(imported.run().runtime_snapshots.len(), 1);
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("disabled") && w.contains("manually recorded")));
     }
 
     #[test]

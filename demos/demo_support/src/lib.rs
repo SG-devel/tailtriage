@@ -380,7 +380,9 @@ impl RuntimeDemoInstrumentation {
                 )?),
             }),
             InstrumentationMode::Tracing => {
-                let mut builder = TracingTokioSession::builder(service_name).strict(false);
+                let mut builder = TracingTokioSession::builder(service_name)
+                    .strict(false)
+                    .disable_background_sampler();
                 builder = builder.mode(capture.mode);
                 if capture.max_requests.is_some()
                     || capture.max_stages.is_some()
