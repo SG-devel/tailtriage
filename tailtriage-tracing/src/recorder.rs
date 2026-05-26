@@ -92,9 +92,13 @@ impl Default for RecorderLimits {
 #[derive(Debug, Default)]
 struct RecorderState {
     open: BTreeMap<u64, OpenSpan>,
-    completed: Vec<SpanRecord>,
+    completed_requests: Vec<SpanRecord>,
+    completed_stages: Vec<SpanRecord>,
+    completed_queues: Vec<SpanRecord>,
     dropped_open_spans: u64,
-    dropped_completed_candidate_spans: u64,
+    dropped_completed_request_candidates: u64,
+    dropped_completed_child_candidates: u64,
+    evicted_child_candidates_for_request: u64,
     closed_missing_kind_spans: u64,
     closed_unknown_kind_spans: u64,
     closed_malformed_kind_spans: u64,
@@ -133,7 +137,9 @@ struct ClosedKindIssueSample {
 
 struct SnapshotStats {
     dropped_open_spans: u64,
-    dropped_completed_candidate_spans: u64,
+    dropped_completed_request_candidates: u64,
+    dropped_completed_child_candidates: u64,
+    evicted_child_candidates_for_request: u64,
     open_candidate_count: u64,
     open_samples: Vec<OpenSpanSample>,
     closed_missing_kind_spans: u64,
@@ -194,10 +200,14 @@ impl TracingRecorder {
                 }
             }
             (
-                state.completed.clone(),
+                flatten_completed_candidates(&state),
                 SnapshotStats {
                     dropped_open_spans: state.dropped_open_spans,
-                    dropped_completed_candidate_spans: state.dropped_completed_candidate_spans,
+                    dropped_completed_request_candidates: state
+                        .dropped_completed_request_candidates,
+                    dropped_completed_child_candidates: state.dropped_completed_child_candidates,
+                    evicted_child_candidates_for_request: state
+                        .evicted_child_candidates_for_request,
                     open_candidate_count: count,
                     open_samples: samples,
                     closed_missing_kind_spans: state.closed_missing_kind_spans,
@@ -720,13 +730,66 @@ where
             for (k, v) in open.fields {
                 record = record.field(k, v);
             }
-            if state.completed.len() >= self.limits.max_completed_candidate_spans {
-                state.dropped_completed_candidate_spans =
-                    state.dropped_completed_candidate_spans.saturating_add(1);
-            } else {
-                state.completed.push(record);
-            }
+            admit_completed_candidate(
+                &mut state,
+                kind,
+                record,
+                self.limits.max_completed_candidate_spans,
+            );
         }
+    }
+}
+fn flatten_completed_candidates(state: &RecorderState) -> Vec<SpanRecord> {
+    let total = state.completed_requests.len()
+        + state.completed_stages.len()
+        + state.completed_queues.len();
+    let mut spans = Vec::with_capacity(total);
+    spans.extend(state.completed_requests.iter().cloned());
+    spans.extend(state.completed_stages.iter().cloned());
+    spans.extend(state.completed_queues.iter().cloned());
+    spans
+}
+
+fn admit_completed_candidate(
+    state: &mut RecorderState,
+    kind: &'static str,
+    record: SpanRecord,
+    cap: usize,
+) {
+    let total = state.completed_requests.len()
+        + state.completed_stages.len()
+        + state.completed_queues.len();
+    if total < cap {
+        push_by_kind(state, kind, record);
+        return;
+    }
+    if kind == "request" {
+        if !state.completed_queues.is_empty() {
+            state.completed_queues.remove(0);
+            state.evicted_child_candidates_for_request =
+                state.evicted_child_candidates_for_request.saturating_add(1);
+            state.completed_requests.push(record);
+        } else if !state.completed_stages.is_empty() {
+            state.completed_stages.remove(0);
+            state.evicted_child_candidates_for_request =
+                state.evicted_child_candidates_for_request.saturating_add(1);
+            state.completed_requests.push(record);
+        } else {
+            state.dropped_completed_request_candidates =
+                state.dropped_completed_request_candidates.saturating_add(1);
+        }
+    } else {
+        state.dropped_completed_child_candidates =
+            state.dropped_completed_child_candidates.saturating_add(1);
+    }
+}
+
+fn push_by_kind(state: &mut RecorderState, kind: &'static str, record: SpanRecord) {
+    match kind {
+        "request" => state.completed_requests.push(record),
+        "stage" => state.completed_stages.push(record),
+        "queue" => state.completed_queues.push(record),
+        _ => {}
     }
 }
 fn precheck_required_fields(
@@ -899,10 +962,22 @@ fn push_strict_recorder_messages(
             stats.dropped_open_spans, limits.max_open_spans
         ));
     }
-    if stats.dropped_completed_candidate_spans > 0 {
+    if stats.dropped_completed_request_candidates > 0 {
         messages.push(format!(
-            "live recorder dropped {} completed candidate span(s) because max_completed_candidate_spans={} was reached; this is a raw closed-span memory cap before semantic conversion, not request/stage/queue CaptureLimits; raise max_completed_candidate_spans, snapshot/shutdown sooner, or reduce capture scope",
-            stats.dropped_completed_candidate_spans, limits.max_completed_candidate_spans
+            "live recorder dropped {} completed request candidate span(s) because max_completed_candidate_spans={} was reached and no child candidate could be evicted; this is a raw closed-span memory cap before semantic conversion",
+            stats.dropped_completed_request_candidates, limits.max_completed_candidate_spans
+        ));
+    }
+    if stats.dropped_completed_child_candidates > 0 {
+        messages.push(format!(
+            "live recorder dropped {} completed child candidate span(s) because max_completed_candidate_spans={} was reached; request roots are preserved preferentially under pressure",
+            stats.dropped_completed_child_candidates, limits.max_completed_candidate_spans
+        ));
+    }
+    if stats.evicted_child_candidates_for_request > 0 {
+        messages.push(format!(
+            "live recorder evicted {} completed child candidate span(s) to preserve closing request candidates under max_completed_candidate_spans={}",
+            stats.evicted_child_candidates_for_request, limits.max_completed_candidate_spans
         ));
     }
 }
@@ -983,15 +1058,35 @@ fn append_non_strict_drop_warnings(
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
-    if stats.dropped_completed_candidate_spans > 0 {
+    if stats.dropped_completed_request_candidates > 0 {
         let msg = format!(
-            "live recorder dropped {} completed candidate span(s) because max_completed_candidate_spans={} was reached; this is a raw closed-span memory cap before semantic conversion, not request/stage/queue CaptureLimits; raise max_completed_candidate_spans, snapshot/shutdown sooner, or reduce capture scope",
-            stats.dropped_completed_candidate_spans, limits.max_completed_candidate_spans
+            "live recorder dropped {} completed request candidate span(s) because max_completed_candidate_spans={} was reached and no child candidate could be evicted",
+            stats.dropped_completed_request_candidates, limits.max_completed_candidate_spans
         );
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
-    if stats.dropped_open_spans > 0 || stats.dropped_completed_candidate_spans > 0 {
+    if stats.dropped_completed_child_candidates > 0 {
+        let msg = format!(
+            "live recorder dropped {} completed child candidate span(s) because max_completed_candidate_spans={} was reached; request roots are preserved preferentially under pressure",
+            stats.dropped_completed_child_candidates, limits.max_completed_candidate_spans
+        );
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
+    if stats.evicted_child_candidates_for_request > 0 {
+        let msg = format!(
+            "live recorder evicted {} completed child candidate span(s) to preserve closing request candidates under max_completed_candidate_spans={}",
+            stats.evicted_child_candidates_for_request, limits.max_completed_candidate_spans
+        );
+        run.metadata.lifecycle_warnings.push(msg.clone());
+        warnings.push(crate::ImportWarning::new(msg));
+    }
+    if stats.dropped_open_spans > 0
+        || stats.dropped_completed_request_candidates > 0
+        || stats.dropped_completed_child_candidates > 0
+        || stats.evicted_child_candidates_for_request > 0
+    {
         run.truncation.limits_hit = true;
     }
 }
@@ -1047,7 +1142,9 @@ fn imported_with_drop_warnings(
     }
 
     if stats.dropped_open_spans == 0
-        && stats.dropped_completed_candidate_spans == 0
+        && stats.dropped_completed_request_candidates == 0
+        && stats.dropped_completed_child_candidates == 0
+        && stats.evicted_child_candidates_for_request == 0
         && stats.open_candidate_count == 0
         && stats.closed_missing_kind_spans == 0
         && stats.closed_unknown_kind_spans == 0
@@ -1477,6 +1574,111 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn completed_candidate_cap_preserves_request_over_children_non_strict() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(2)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            )
+            .entered();
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "db-pool"
+            ));
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db.query"
+            ));
+            drop(request);
+        });
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported.run().queues.len() + imported.run().stages.len() <= 1);
+        assert!(imported.run().truncation.limits_hit);
+        assert!(imported.warnings().iter().any(|w| {
+            w.message().contains("dropped 1 completed child candidate")
+                || w.message().contains("evicted 1 completed child candidate")
+        }));
+        assert_eq!(imported.run().requests[0].request_id, "r1");
+    }
+
+    #[test]
+    fn strict_mode_errors_when_child_is_dropped_or_evicted_to_preserve_request() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_completed_candidate_spans(2)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/checkout"
+            )
+            .entered();
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "db-pool"
+            ));
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db.query"
+            ));
+            drop(request);
+        });
+        let err = recorder.snapshot_run().unwrap_err();
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("max_completed_candidate_spans"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn flatten_completed_candidates_orders_request_then_stage_then_queue() {
+        let mut state = RecorderState::default();
+        state.completed_stages.push(
+            SpanRecord::new("stage".to_string(), 0, 1)
+                .field("tt.kind", FieldValue::String("stage".to_string())),
+        );
+        state.completed_queues.push(
+            SpanRecord::new("queue".to_string(), 0, 1)
+                .field("tt.kind", FieldValue::String("queue".to_string())),
+        );
+        state.completed_requests.push(
+            SpanRecord::new("request".to_string(), 0, 1)
+                .field("tt.kind", FieldValue::String("request".to_string())),
+        );
+        let flattened = flatten_completed_candidates(&state);
+        let kinds: Vec<&str> = flattened
+            .iter()
+            .map(|s| match s.fields().get("tt.kind") {
+                Some(FieldValue::String(v)) => v.as_str(),
+                _ => "-",
+            })
+            .collect();
+        assert_eq!(kinds, vec!["request", "stage", "queue"]);
     }
 
     #[test]
