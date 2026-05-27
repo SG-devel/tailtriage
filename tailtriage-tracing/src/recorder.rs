@@ -297,6 +297,20 @@ impl TracingIntakeSession {
         let imported = self.recorder.shutdown()?;
         let (run, warnings) = imported.into_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
+            if run.requests.is_empty() {
+                let guidance = crate::persistable_zero_request_guidance();
+                let warning_messages = warnings
+                    .iter()
+                    .map(|w| w.message().to_owned())
+                    .collect::<Vec<_>>();
+                if warning_messages.is_empty() {
+                    return Err(ImportError::ZeroRequestArtifact { guidance });
+                }
+                return Err(ImportError::ZeroRequestArtifactWithWarnings {
+                    guidance,
+                    warnings: warning_messages,
+                });
+            }
             ensure_persistable_run_has_requests(&run)?;
         }
         if let Some(path) = &self.completed_span_jsonl_path {
@@ -3020,6 +3034,36 @@ mod tests {
     }
 
     #[test]
+    fn intake_session_zero_request_persisted_error_includes_intake_warnings() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "bad-kind",
+                tt.kind = "wat",
+                tt.request_id = "r1",
+                tt.route = "/ignored"
+            ));
+        });
+
+        let err = session.shutdown().unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::ZeroRequestArtifactWithWarnings { .. }
+        ));
+        let message = err.to_string();
+        assert!(message.contains("tracing import produced zero request events"));
+        assert!(message.contains("warnings observed during tracing intake:"));
+        assert!(message.contains("invalid tt.kind"));
+        assert!(!run_path.exists());
+    }
+
+    #[test]
     fn shutdown_with_completed_span_jsonl_only_and_zero_requests_writes_no_artifact() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
@@ -3067,6 +3111,42 @@ mod tests {
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert!(!spans_path.exists());
         assert!(!run_path.exists());
+    }
+
+    #[test]
+    fn intake_session_persisted_success_keeps_warnings_and_writes_outputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "req",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/ok"
+            ));
+            drop(tracing::info_span!(
+                "bad-kind",
+                tt.kind = "wat",
+                tt.request_id = "r1",
+                tt.route = "/ignored"
+            ));
+        });
+
+        let imported = session.shutdown().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("invalid tt.kind")));
+        assert!(spans_path.exists());
+        assert!(run_path.exists());
     }
 
     #[test]

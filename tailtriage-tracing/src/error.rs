@@ -44,6 +44,13 @@ pub enum ImportError {
         /// Actionable setup guidance for creating a persistable run artifact.
         guidance: String,
     },
+    /// Persistable run artifact is missing completed request spans and warnings were observed.
+    ZeroRequestArtifactWithWarnings {
+        /// Actionable setup guidance for creating a persistable run artifact.
+        guidance: String,
+        /// Intake and lifecycle warning summaries observed before shutdown.
+        warnings: Vec<String>,
+    },
     /// Failed to write run JSON output via core sink.
     RunJsonWrite {
         /// Target output path.
@@ -75,6 +82,18 @@ impl fmt::Display for ImportError {
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
             Self::InvalidRunEvent(message) => write!(f, "invalid run event: {message}"),
             Self::ZeroRequestArtifact { guidance } => write!(f, "{guidance}"),
+            Self::ZeroRequestArtifactWithWarnings { guidance, warnings } => {
+                writeln!(f, "{guidance}")?;
+                writeln!(f, "warnings observed during tracing intake:")?;
+                for warning in warnings.iter().take(8) {
+                    writeln!(f, "- {warning}")?;
+                }
+                let omitted = warnings.len().saturating_sub(8);
+                if omitted > 0 {
+                    writeln!(f, "- ... and {omitted} additional warnings omitted")?;
+                }
+                Ok(())
+            }
             Self::RunJsonWrite { path, reason } => {
                 write!(f, "failed to write run JSON at {path}: {reason}")
             }
