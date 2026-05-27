@@ -1,3 +1,7 @@
+use crate::{
+    duration_within_tolerance, ensure_persistable_run_has_requests, run_from_span_records,
+    FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
@@ -6,16 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tailtriage_core::{CaptureLimits, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
-
 use tracing::field::{Field, Visit};
 use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
-
-use crate::{
-    duration_within_tolerance, ensure_persistable_run_has_requests, run_from_span_records,
-    FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
-};
-
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
 #[derive(Debug, Clone)]
 pub struct TracingRecorder {
@@ -49,14 +46,12 @@ pub struct TracingIntakeSessionBuilder {
     completed_span_jsonl_path: Option<PathBuf>,
     run_json_path: Option<PathBuf>,
 }
-
 /// Builder for [`TracingRecorder`].
 #[derive(Debug, Clone)]
 pub struct TracingRecorderBuilder {
     options: ImportOptions,
     limits: RecorderLimits,
 }
-
 /// `tracing_subscriber` layer that feeds completed spans into a [`TracingRecorder`].
 #[derive(Debug, Clone)]
 pub struct TailtriageLayer {
@@ -88,7 +83,6 @@ impl Default for RecorderLimits {
         }
     }
 }
-
 #[derive(Debug, Default)]
 struct RecorderState {
     open: BTreeMap<u64, OpenSpan>,
@@ -106,7 +100,6 @@ struct RecorderState {
     closed_incomplete_candidate_spans: u64,
     closed_incomplete_candidate_samples: Vec<ClosedKindIssueSample>,
 }
-
 #[derive(Debug)]
 struct OpenSpan {
     id: Option<String>,
@@ -117,7 +110,6 @@ struct OpenSpan {
     started_instant: Instant,
     is_tt_candidate: bool,
 }
-
 #[derive(Debug, Clone)]
 struct OpenSpanSample {
     name: String,
@@ -125,7 +117,6 @@ struct OpenSpanSample {
     tt_kind: Option<String>,
     tt_request_id: Option<String>,
 }
-
 #[derive(Debug, Clone)]
 struct ClosedKindIssueSample {
     name: String,
@@ -134,7 +125,6 @@ struct ClosedKindIssueSample {
     tt_kind: Option<String>,
     reason: &'static str,
 }
-
 struct SnapshotStats {
     dropped_open_spans: u64,
     dropped_completed_request_candidates: u64,
@@ -155,7 +145,6 @@ fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, Re
         Err(poisoned) => poisoned.into_inner(),
     }
 }
-
 impl TracingRecorder {
     /// Creates a builder with required service name metadata.
     pub fn builder(service_name: impl Into<String>) -> TracingRecorderBuilder {
@@ -164,7 +153,6 @@ impl TracingRecorder {
             limits: RecorderLimits::default(),
         }
     }
-
     /// Returns a cloneable layer that captures `on_new_span`, `on_record`, and `on_close`.
     #[must_use]
     pub fn layer(&self) -> TailtriageLayer {
@@ -173,7 +161,6 @@ impl TracingRecorder {
             limits: self.limits,
         }
     }
-
     /// Returns a non-consuming snapshot of currently completed spans as an imported run.
     ///
     /// Span completion is driven by span close/drop, not enter/exit.
@@ -223,7 +210,6 @@ impl TracingRecorder {
         };
         imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
     }
-
     /// Consumes this recorder handle and returns a final imported run snapshot.
     ///
     /// Span completion is driven by span close/drop, not enter/exit.
@@ -235,7 +221,6 @@ impl TracingRecorder {
         self.snapshot_run()
     }
 }
-
 impl TracingIntakeSession {
     /// Creates a tracing intake session builder with required service metadata.
     ///
@@ -297,7 +282,17 @@ impl TracingIntakeSession {
         let imported = self.recorder.shutdown()?;
         let (run, warnings) = imported.into_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
-            ensure_persistable_run_has_requests(&run)?;
+            if let Err(ImportError::ZeroRequestArtifact { guidance }) =
+                ensure_persistable_run_has_requests(&run)
+            {
+                if warnings.is_empty() {
+                    return Err(ImportError::ZeroRequestArtifact { guidance });
+                }
+                return Err(ImportError::ZeroRequestArtifactWithWarnings {
+                    guidance,
+                    warnings: warnings.iter().map(|w| w.message().to_owned()).collect(),
+                });
+            }
         }
         if let Some(path) = &self.completed_span_jsonl_path {
             write_completed_span_jsonl_from_run(&run, path)?;
@@ -314,7 +309,6 @@ impl TracingIntakeSession {
         Ok(ImportedRun::new(run, warnings))
     }
 }
-
 fn write_completed_span_jsonl_from_run(
     run: &tailtriage_core::Run,
     path: &Path,
@@ -331,41 +325,33 @@ fn write_completed_span_jsonl_from_run(
             context: temp_path.display().to_string(),
             reason: err.to_string(),
         })?;
-
     let write_result = (|| -> Result<(), ImportError> {
         for span in retained_span_records_from_run(run) {
             let wrapped =
                 serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
-
             serde_json::to_writer(&mut file, &wrapped).map_err(|err| ImportError::Io {
                 operation: "write completed span jsonl record",
                 context: temp_path.display().to_string(),
                 reason: err.to_string(),
             })?;
-
             file.write_all(b"\n").map_err(|err| ImportError::Io {
                 operation: "write completed span jsonl newline",
                 context: temp_path.display().to_string(),
                 reason: err.to_string(),
             })?;
         }
-
         file.flush().map_err(|err| ImportError::Io {
             operation: "flush completed span jsonl file",
             context: temp_path.display().to_string(),
             reason: err.to_string(),
         })?;
-
         Ok(())
     })();
-
     drop(file);
-
     if let Err(err) = write_result {
         let _ = std::fs::remove_file(&temp_path);
         return Err(err);
     }
-
     std::fs::rename(&temp_path, path).map_err(|err| {
         let _ = std::fs::remove_file(&temp_path);
         ImportError::Io {
@@ -374,10 +360,8 @@ fn write_completed_span_jsonl_from_run(
             reason: err.to_string(),
         }
     })?;
-
     Ok(())
 }
-
 fn create_output_parent_dir(path: &Path, operation: &'static str) -> Result<(), ImportError> {
     let Some(parent) = path.parent() else {
         return Ok(());
@@ -391,7 +375,6 @@ fn create_output_parent_dir(path: &Path, operation: &'static str) -> Result<(), 
         reason: err.to_string(),
     })
 }
-
 fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
     let file_name = path.file_name().map_or_else(
         || "completed-spans.jsonl".to_string(),
@@ -406,7 +389,6 @@ fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
     );
     path.with_file_name(temp_name)
 }
-
 fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord> {
     let mut spans = Vec::new();
     for req in &run.requests {
@@ -562,34 +544,29 @@ impl TracingIntakeSessionBuilder {
         })
     }
 }
-
 impl TracingRecorderBuilder {
     /// Returns selected capture mode for import conversion semantics.
     #[must_use]
     pub(crate) fn selected_mode(&self) -> CaptureMode {
         self.options.mode_value()
     }
-
     /// Returns capture limits resolved from configured mode/base/override settings.
     #[must_use]
     pub fn resolved_capture_limits(&self) -> CaptureLimits {
         self.options.resolved_capture_limits()
     }
-
     /// Sets service version metadata for converted run output.
     #[must_use]
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
         self.options = self.options.service_version(service_version);
         self
     }
-
     /// Sets explicit run id metadata for converted run output.
     #[must_use]
     pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
         self.options = self.options.run_id(run_id);
         self
     }
-
     /// Enables or disables strict mode for conversion warnings.
     #[must_use]
     pub fn strict(mut self, strict: bool) -> Self {
@@ -614,7 +591,6 @@ impl TracingRecorderBuilder {
         self.options = self.options.capture_limits_override(override_limits);
         self
     }
-
     /// Builds a recorder instance.
     ///
     /// # Errors
@@ -653,7 +629,6 @@ impl TracingRecorderBuilder {
         self
     }
 }
-
 impl<S> Layer<S> for TailtriageLayer
 where
     S: Subscriber,
@@ -690,7 +665,6 @@ where
         };
         state.open.insert(id.into_u64(), open_span);
     }
-
     fn on_record(&self, span_id: &Id, values: &tracing::span::Record<'_>, _ctx: Context<'_, S>) {
         let mut visitor = FieldVisitor::default();
         values.record(&mut visitor);
@@ -699,7 +673,6 @@ where
             span.fields.extend(visitor.fields);
         }
     }
-
     fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
         let mut state = lock_state(&self.state);
         if let Some(open) = state.open.remove(&id.into_u64()) {
@@ -739,7 +712,6 @@ where
         }
     }
 }
-
 fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
     let mut spans = Vec::with_capacity(
         state.completed_requests.len()
@@ -751,7 +723,6 @@ fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
     spans.extend(state.completed_queues.iter().cloned());
     spans
 }
-
 fn push_completed_candidate_with_kind_aware_retention(
     state: &mut RecorderState,
     record: SpanRecord,
@@ -765,7 +736,6 @@ fn push_completed_candidate_with_kind_aware_retention(
         push_record_by_kind(state, record, kind);
         return;
     }
-
     match kind {
         "request" => {
             if !state.completed_queues.is_empty() {
@@ -792,7 +762,6 @@ fn push_completed_candidate_with_kind_aware_retention(
         _ => {}
     }
 }
-
 fn push_record_by_kind(state: &mut RecorderState, record: SpanRecord, kind: &str) {
     match kind {
         "request" => state.completed_requests.push(record),
@@ -815,7 +784,6 @@ fn precheck_required_fields(
         _ => None,
     }
 }
-
 fn require_string_field(
     fields: &BTreeMap<String, FieldValue>,
     field_name: &'static str,
@@ -858,7 +826,6 @@ fn require_string_field(
         }),
     }
 }
-
 fn record_incomplete_candidate_issue(
     state: &mut RecorderState,
     open: &OpenSpan,
@@ -908,7 +875,6 @@ fn record_invalid_kind_issue(state: &mut RecorderState, open: &OpenSpan, reason:
         });
     }
 }
-
 fn classify_kind(fields: &BTreeMap<String, FieldValue>) -> Result<&'static str, &'static str> {
     match fields.get(TT_KIND) {
         None => Err("missing"),
@@ -925,11 +891,9 @@ fn metadata_has_tailtriage_field(metadata: &tracing::Metadata<'_>) -> bool {
         .iter()
         .any(|f| f.name().starts_with("tt."))
 }
-
 fn fields_have_tailtriage_key(fields: &BTreeMap<String, FieldValue>) -> bool {
     fields.keys().any(|k| k.starts_with("tt."))
 }
-
 fn push_strict_recorder_messages(
     messages: &mut Vec<String>,
     stats: &SnapshotStats,
@@ -990,7 +954,6 @@ fn push_strict_recorder_messages(
         ));
     }
 }
-
 fn append_non_strict_drop_warnings(
     run: &mut tailtriage_core::Run,
     warnings: &mut Vec<crate::ImportWarning>,
@@ -1022,7 +985,6 @@ fn append_non_strict_drop_warnings(
         run.metadata.lifecycle_warnings.push(msg.clone());
         warnings.push(crate::ImportWarning::new(msg));
     }
-
     let closed_invalid_kind_total = stats.closed_missing_kind_spans
         + stats.closed_unknown_kind_spans
         + stats.closed_malformed_kind_spans;
@@ -1099,7 +1061,6 @@ fn append_non_strict_drop_warnings(
         run.truncation.limits_hit = true;
     }
 }
-
 fn format_incomplete_closed_candidate_message(stats: &SnapshotStats) -> String {
     let mut msg = format!(
         "live recorder closed {} candidate span(s) with incomplete required fields for tt.kind=request|stage|queue; these spans are not converted",
@@ -1125,7 +1086,6 @@ fn format_incomplete_closed_candidate_message(stats: &SnapshotStats) -> String {
     }
     msg
 }
-
 fn imported_with_drop_warnings(
     spans: Vec<SpanRecord>,
     options: ImportOptions,
@@ -1136,7 +1096,6 @@ fn imported_with_drop_warnings(
     if options.strict_mode() {
         push_strict_recorder_messages(&mut strict_messages, stats, limits);
     }
-
     let imported = match run_from_span_records(spans, options) {
         Ok(imported) => imported,
         Err(ImportError::StrictViolation(message)) if !strict_messages.is_empty() => {
@@ -1145,11 +1104,9 @@ fn imported_with_drop_warnings(
         }
         Err(err) => return Err(err),
     };
-
     if !strict_messages.is_empty() {
         return Err(ImportError::StrictViolation(strict_messages.join("; ")));
     }
-
     if stats.dropped_open_spans == 0
         && stats.dropped_completed_request_candidates == 0
         && stats.dropped_completed_child_candidates == 0
@@ -1162,12 +1119,10 @@ fn imported_with_drop_warnings(
     {
         return Ok(imported);
     }
-
     let (mut run, mut warnings) = imported.into_parts();
     append_non_strict_drop_warnings(&mut run, &mut warnings, stats, limits);
     Ok(ImportedRun::new(run, warnings))
 }
-
 fn scalar_field_string(value: Option<&FieldValue>) -> Option<String> {
     match value {
         Some(FieldValue::String(v)) => Some(v.clone()),
@@ -1178,40 +1133,33 @@ fn scalar_field_string(value: Option<&FieldValue>) -> Option<String> {
         Some(FieldValue::Null) | None => None,
     }
 }
-
 #[derive(Default)]
 struct FieldVisitor {
     fields: BTreeMap<String, FieldValue>,
 }
-
 impl Visit for FieldVisitor {
     fn record_bool(&mut self, field: &Field, value: bool) {
         self.fields
             .insert(field.name().to_owned(), FieldValue::Bool(value));
     }
-
     fn record_i64(&mut self, field: &Field, value: i64) {
         self.fields
             .insert(field.name().to_owned(), FieldValue::I64(value));
     }
-
     fn record_u64(&mut self, field: &Field, value: u64) {
         self.fields
             .insert(field.name().to_owned(), FieldValue::U64(value));
     }
-
     fn record_f64(&mut self, field: &Field, value: f64) {
         self.fields
             .insert(field.name().to_owned(), FieldValue::F64(value));
     }
-
     fn record_str(&mut self, field: &Field, value: &str) {
         self.fields.insert(
             field.name().to_owned(),
             FieldValue::String(value.to_owned()),
         );
     }
-
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         self.fields.insert(
             field.name().to_owned(),
@@ -1219,14 +1167,12 @@ impl Visit for FieldVisitor {
         );
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
     use tailtriage_core::{MemorySink, Tailtriage};
     use tracing_subscriber::prelude::*;
-
     fn with_recorder<T>(f: impl FnOnce(&TracingRecorder) -> T) -> T {
         let recorder = TracingRecorder::builder("svc")
             .run_id("rid")
@@ -1235,7 +1181,6 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || f(&recorder))
     }
-
     fn empty_run() -> tailtriage_core::Run {
         Tailtriage::builder("svc")
             .sink(MemorySink::new())
@@ -1243,7 +1188,6 @@ mod tests {
             .expect("collector")
             .snapshot()
     }
-
     #[test]
     fn request_span_collected() {
         with_recorder(|recorder| {
@@ -1258,7 +1202,6 @@ mod tests {
             assert_eq!(run.run().requests.len(), 1);
         });
     }
-
     #[test]
     fn stage_span_collected() {
         with_recorder(|recorder| {
@@ -1270,7 +1213,6 @@ mod tests {
                 tt.route = "/a"
             )
             .entered();
-
             let span = tracing::info_span!(
                 "stage",
                 tt.kind = "stage",
@@ -1278,14 +1220,11 @@ mod tests {
                 tt.stage = "db"
             );
             drop(span);
-
             drop(request);
-
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().stages.len(), 1);
         });
     }
-
     #[test]
     fn queue_span_collected() {
         with_recorder(|recorder| {
@@ -1308,7 +1247,6 @@ mod tests {
             assert_eq!(run.run().queues.len(), 1);
         });
     }
-
     #[test]
     fn on_record_updates_field() {
         with_recorder(|recorder| {
@@ -1325,7 +1263,6 @@ mod tests {
             assert_eq!(run.run().requests[0].outcome, "timeout");
         });
     }
-
     #[test]
     fn unrelated_span_ignored() {
         with_recorder(|recorder| {
@@ -1337,7 +1274,6 @@ mod tests {
             assert!(run.run().queues.is_empty());
         });
     }
-
     #[test]
     fn snapshot_run_is_non_consuming_and_shutdown_consumes_owned_handle() {
         with_recorder(|recorder| {
@@ -1353,7 +1289,6 @@ mod tests {
             assert_eq!(snapshot.run().requests[0].request_id, "r1");
             assert_eq!(snapshot.run().requests[0].route, "/checkout");
         });
-
         let recorder = TracingRecorder::builder("svc").build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -1369,7 +1304,6 @@ mod tests {
         assert_eq!(run.run().requests.len(), 1);
         assert_eq!(run.run().requests[0].request_id, "r2");
     }
-
     #[test]
     fn builder_metadata_applies_to_imported_run() {
         let recorder = TracingRecorder::builder("checkout-service")
@@ -1388,13 +1322,11 @@ mod tests {
             );
             drop(span);
         });
-
         let run = recorder.snapshot_run().unwrap();
         assert_eq!(run.run().metadata.service_name, "checkout-service");
         assert_eq!(run.run().metadata.service_version.as_deref(), Some("1.2.3"));
         assert_eq!(run.run().metadata.run_id, "run-42");
     }
-
     #[test]
     fn strict_mode_errors_on_malformed_request() {
         let recorder = TracingRecorder::builder("svc")
@@ -1406,10 +1338,8 @@ mod tests {
             let span = tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1");
             drop(span);
         });
-
         assert!(recorder.snapshot_run().is_err());
     }
-
     #[test]
     fn tt_kind_recorded_later_is_captured() {
         with_recorder(|recorder| {
@@ -1421,13 +1351,11 @@ mod tests {
             );
             span.record("tt.kind", "request");
             drop(span);
-
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().requests.len(), 1);
             assert_eq!(run.run().requests[0].route, "/late-kind");
         });
     }
-
     #[test]
     fn non_tailtriage_fields_do_not_make_span_candidate() {
         with_recorder(|recorder| {
@@ -1438,7 +1366,6 @@ mod tests {
                 error = tracing::field::Empty
             );
             drop(span);
-
             let run = recorder.snapshot_run().unwrap();
             assert!(run.run().requests.is_empty());
             assert!(run.run().stages.is_empty());
@@ -1446,7 +1373,6 @@ mod tests {
             assert!(run.warnings().is_empty());
         });
     }
-
     #[test]
     fn debug_or_invalid_tt_kind_does_not_become_valid_kind() {
         with_recorder(|recorder| {
@@ -1457,7 +1383,6 @@ mod tests {
                 tt.route = "/debug"
             );
             drop(debug_kind);
-
             let numeric_kind = tracing::info_span!(
                 "numeric-kind",
                 tt.kind = 7_u64,
@@ -1465,14 +1390,12 @@ mod tests {
                 tt.route = "/numeric"
             );
             drop(numeric_kind);
-
             let run = recorder.snapshot_run().unwrap();
             assert!(run.run().requests.is_empty());
             assert!(run.run().stages.is_empty());
             assert!(run.run().queues.is_empty());
         });
     }
-
     #[test]
     fn shutdown_output_is_analyzable_and_has_no_runtime_snapshots() {
         with_recorder(|recorder| {
@@ -1498,7 +1421,6 @@ mod tests {
             drop(queue);
             drop(stage);
             drop(request);
-
             let imported = recorder.snapshot_run().unwrap();
             let run = imported.run();
             assert_eq!(run.requests.len(), 1);
@@ -1509,7 +1431,6 @@ mod tests {
             assert_eq!(report.request_count, 1);
         });
     }
-
     #[test]
     fn completed_candidate_cap_emits_warning_and_sets_limits_hit_non_strict() {
         let recorder = TracingRecorder::builder("svc")
@@ -1551,7 +1472,6 @@ mod tests {
         assert_eq!(imported.run().truncation.dropped_queues, 0);
         assert_eq!(imported.run().requests[0].request_id, "r1");
     }
-
     #[test]
     fn completed_candidate_cap_preserves_request_over_children_non_strict() {
         let recorder = TracingRecorder::builder("svc")
@@ -1598,7 +1518,6 @@ mod tests {
                 || warning_text.contains("evicted 1 completed child candidate span")
         );
     }
-
     #[test]
     fn strict_mode_errors_when_completed_candidate_cap_drops_spans() {
         let recorder = TracingRecorder::builder("svc")
@@ -1631,7 +1550,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn strict_mode_errors_when_completed_candidate_cap_evicts_child_for_request() {
         let recorder = TracingRecorder::builder("svc")
@@ -1671,7 +1589,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn completed_candidate_conversion_order_is_request_stage_queue() {
         let mut state = RecorderState::default();
@@ -1685,7 +1602,6 @@ mod tests {
         assert_eq!(ordered[1].name(), "stage");
         assert_eq!(ordered[2].name(), "queue");
     }
-
     #[test]
     fn raw_completed_candidate_cap_is_separate_from_semantic_capture_limits() {
         let recorder = TracingRecorder::builder("svc")
@@ -1719,7 +1635,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
-
     #[test]
     fn strict_mode_errors_when_max_open_spans_drops_candidate_spans() {
         let recorder = TracingRecorder::builder("svc")
@@ -1756,7 +1671,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn strict_mode_combines_recorder_drop_and_conversion_strict_violations() {
         let recorder = TracingRecorder::builder("svc")
@@ -1782,7 +1696,6 @@ mod tests {
             );
             drop(valid);
         });
-
         let err = recorder.snapshot_run().expect_err(
             "strict mode should fail when recorder retention drops and strict conversion both occur",
         );
@@ -1793,7 +1706,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn incomplete_request_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
@@ -1826,7 +1738,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
-
     #[test]
     fn incomplete_stage_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
@@ -1872,7 +1783,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
-
     #[test]
     fn incomplete_queue_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
@@ -1918,7 +1828,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
-
     #[test]
     fn invalid_numeric_required_fields_do_not_consume_completed_candidate_cap() {
         let recorder = TracingRecorder::builder("svc")
@@ -1952,7 +1861,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
-
     #[test]
     fn whitespace_only_required_field_reports_incomplete_candidate_not_invalid_run_event() {
         let recorder = TracingRecorder::builder("svc")
@@ -1986,7 +1894,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("InvalidRunEvent")));
     }
-
     #[test]
     fn invalid_numeric_stage_does_not_consume_completed_candidate_cap() {
         let recorder = TracingRecorder::builder("svc")
@@ -2028,7 +1935,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
-
     #[test]
     fn invalid_numeric_queue_does_not_consume_completed_candidate_cap() {
         let recorder = TracingRecorder::builder("svc")
@@ -2070,7 +1976,6 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
-
     #[test]
     fn orphan_stage_does_not_consume_stage_retention_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
@@ -2107,7 +2012,6 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].request_id, "r1");
     }
-
     #[test]
     fn orphan_queue_does_not_consume_queue_retention_in_non_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
@@ -2144,7 +2048,6 @@ mod tests {
         assert_eq!(imported.run().queues.len(), 1);
         assert_eq!(imported.run().queues[0].request_id, "r1");
     }
-
     #[test]
     fn strict_mode_fails_for_malformed_request_span() {
         let recorder = TracingRecorder::builder("svc")
@@ -2162,7 +2065,6 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
-
     #[test]
     fn strict_mode_fails_for_invalid_numeric_request_route() {
         let recorder = TracingRecorder::builder("svc")
@@ -2186,7 +2088,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn strict_mode_fails_for_malformed_stage_span() {
         let recorder = TracingRecorder::builder("svc")
@@ -2211,7 +2112,6 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
-
     #[test]
     fn strict_mode_fails_for_invalid_numeric_stage_field() {
         let recorder = TracingRecorder::builder("svc")
@@ -2242,7 +2142,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn strict_mode_fails_for_malformed_queue_span() {
         let recorder = TracingRecorder::builder("svc")
@@ -2267,7 +2166,6 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
-
     #[test]
     fn strict_mode_fails_for_invalid_numeric_queue_field() {
         let recorder = TracingRecorder::builder("svc")
@@ -2298,7 +2196,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn strict_mode_fails_for_orphan_stage_span() {
         let recorder = TracingRecorder::builder("svc")
@@ -2317,7 +2214,6 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
-
     #[test]
     fn strict_mode_fails_for_orphan_queue_span() {
         let recorder = TracingRecorder::builder("svc")
@@ -2336,7 +2232,6 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
-
     #[test]
     fn open_span_saturation_emits_warning_and_sets_limits_hit() {
         let recorder = TracingRecorder::builder("svc")
@@ -2374,7 +2269,6 @@ mod tests {
             .any(|w| w.contains("dropped 1 candidate spans")));
         assert!(imported.run().truncation.limits_hit);
     }
-
     #[test]
     fn non_strict_mode_reports_drop_warnings_and_truncation() {
         let recorder = TracingRecorder::builder("svc")
@@ -2404,7 +2298,6 @@ mod tests {
             )
             .entered();
         });
-
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let span1 = tracing::info_span!(
@@ -2422,7 +2315,6 @@ mod tests {
             );
             drop(span2);
         });
-
         let imported = recorder.snapshot_run().unwrap();
         assert!(imported
             .warnings()
@@ -2437,7 +2329,6 @@ mod tests {
         assert!(imported.run().truncation.dropped_requests >= 1);
         assert!(imported.run().truncation.limits_hit);
     }
-
     #[test]
     fn unrelated_spans_do_not_consume_open_limit() {
         let recorder = TracingRecorder::builder("svc")
@@ -2461,19 +2352,16 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
         assert!(imported.warnings().is_empty());
     }
-
     #[test]
     fn tracing_recorder_builder_rejects_blank_service_name() {
         let err = TracingRecorder::builder("   ").build().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
-
     #[test]
     fn tracing_intake_session_builder_rejects_blank_service_name() {
         let err = TracingIntakeSession::builder("   ").build().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
-
     #[test]
     fn closed_candidate_missing_tt_kind_warns_non_strict() {
         with_recorder(|recorder| {
@@ -2504,7 +2392,6 @@ mod tests {
                 .any(|w| w == msg));
         });
     }
-
     #[test]
     fn closed_candidate_unknown_tt_kind_warns_non_strict() {
         with_recorder(|recorder| {
@@ -2529,7 +2416,6 @@ mod tests {
             assert!(msg.contains("r-unknown"));
         });
     }
-
     #[test]
     fn closed_candidate_malformed_tt_kind_warns_non_strict() {
         with_recorder(|recorder| {
@@ -2554,7 +2440,6 @@ mod tests {
             assert!(msg.contains("r-malformed"));
         });
     }
-
     #[test]
     fn invalid_kind_warning_aggregates_missing_unknown_and_malformed_counts() {
         with_recorder(|recorder| {
@@ -2588,7 +2473,6 @@ mod tests {
             assert!(msg.contains("reason=malformed"));
         });
     }
-
     #[test]
     fn closed_candidate_missing_tt_kind_errors_strict() {
         let recorder = TracingRecorder::builder("svc")
@@ -2616,7 +2500,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn closed_candidate_missing_tt_kind_shutdown_errors_strict() {
         let recorder = TracingRecorder::builder("svc")
@@ -2644,7 +2527,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn strict_mode_reports_open_and_closed_missing_kind_causes_together() {
         let recorder = TracingRecorder::builder("svc")
@@ -2666,7 +2548,6 @@ mod tests {
                 tt.request_id = "r-closed"
             );
             drop(closed_missing_kind);
-
             let err = recorder.snapshot_run().unwrap_err();
             match err {
                 ImportError::StrictViolation(message) => {
@@ -2679,7 +2560,6 @@ mod tests {
             }
         });
     }
-
     #[test]
     fn unrelated_closed_span_still_ignored_without_warning() {
         with_recorder(|recorder| {
@@ -2717,7 +2597,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-
     #[test]
     fn open_candidate_span_warns_on_snapshot_and_shutdown_non_strict() {
         with_recorder(|recorder| {
@@ -2745,7 +2624,6 @@ mod tests {
                 .contains("open candidate span(s) at snapshot/shutdown")));
         });
     }
-
     #[test]
     fn open_candidate_span_errors_in_strict_mode() {
         let recorder = TracingRecorder::builder("svc")
@@ -2760,7 +2638,6 @@ mod tests {
             assert!(matches!(err, ImportError::StrictViolation(_)));
         });
     }
-
     #[test]
     fn unrelated_open_span_does_not_warn() {
         with_recorder(|recorder| {
@@ -2769,7 +2646,6 @@ mod tests {
             assert!(snapshot.warnings().is_empty());
         });
     }
-
     #[test]
     fn open_candidate_with_empty_tt_kind_still_warns() {
         with_recorder(|recorder| {
@@ -2785,7 +2661,6 @@ mod tests {
                 .contains("open candidate span(s) at snapshot/shutdown")));
         });
     }
-
     #[test]
     fn intake_session_wrapper_jsonl_and_truncate_behavior() {
         let dir = tempfile::tempdir().unwrap();
@@ -2816,7 +2691,6 @@ mod tests {
         let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 1);
     }
-
     #[test]
     fn intake_session_emits_wrapper_shape_and_round_trips_wrapper_only() {
         let dir = tempfile::tempdir().unwrap();
@@ -2851,7 +2725,6 @@ mod tests {
         assert_eq!(value["span"]["fields"]["tt.kind"], "request");
         assert_eq!(value["span"]["fields"]["tt.request_id"], "r1");
         assert_eq!(value["span"]["fields"]["tt.route"], "/a");
-
         let imported = crate::jsonl::import_jsonl_path_with_mode(
             &spans_path,
             ImportOptions::new("svc"),
@@ -2862,7 +2735,6 @@ mod tests {
         assert_eq!(imported.run().requests[0].request_id, "r1");
         assert_eq!(imported.run().requests[0].route, "/a");
     }
-
     #[test]
     fn completed_jsonl_matches_retained_run_counts() {
         let dir = tempfile::tempdir().unwrap();
@@ -2906,7 +2778,6 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
     }
-
     #[test]
     fn intake_session_write_failure_returns_io_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
@@ -2933,7 +2804,6 @@ mod tests {
             .to_string()
             .contains("create completed span jsonl parent directory"));
     }
-
     #[test]
     fn intake_session_non_strict_write_failure_returns_io_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
@@ -2953,14 +2823,12 @@ mod tests {
                 tt.route = "/ok"
             ));
         });
-
         let err = session.shutdown().unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
         assert!(err
             .to_string()
             .contains("create completed span jsonl parent directory"));
     }
-
     #[test]
     fn intake_session_run_json_path_writes_valid_run_json() {
         let dir = tempfile::tempdir().unwrap();
@@ -2984,7 +2852,6 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
         assert_eq!(run.requests.len(), 1);
     }
-
     #[test]
     fn intake_session_run_json_path_creates_nested_parent_directories() {
         let dir = tempfile::tempdir().unwrap();
@@ -3005,20 +2872,35 @@ mod tests {
         session.shutdown().unwrap();
         assert!(run_path.exists());
     }
-
     #[test]
-    fn intake_session_run_json_path_rejects_zero_requests_without_creating_file() {
+    fn intake_session_run_json_path_rejects_zero_requests_with_intake_warnings() {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("run.json");
         let session = TracingIntakeSession::builder("svc")
             .run_json_path(&run_path)
+            .strict(false)
             .build()
             .unwrap();
-        let err = session.shutdown().unwrap_err();
-        assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        let err = tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "bad-request-kind",
+                tt.kind = 5_u64,
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            session.shutdown().unwrap_err()
+        });
+        let err_text = err.to_string();
+        assert!(matches!(
+            err,
+            ImportError::ZeroRequestArtifactWithWarnings { .. }
+        ));
+        assert!(err_text.contains("tracing import produced zero request events"));
+        assert!(err_text.contains("warnings observed during tracing intake:"));
+        assert!(err_text.contains("\n- "));
         assert!(!run_path.exists());
     }
-
     #[test]
     fn shutdown_with_completed_span_jsonl_only_and_zero_requests_writes_no_artifact() {
         let dir = tempfile::tempdir().unwrap();
@@ -3031,14 +2913,37 @@ mod tests {
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert!(!spans_path.exists());
     }
-
     #[test]
     fn shutdown_with_no_persisted_paths_and_zero_requests_still_returns_imported_run() {
         let session = TracingIntakeSession::builder("svc").build().unwrap();
         let imported = session.shutdown().unwrap();
         assert_eq!(imported.run().requests.len(), 0);
     }
-
+    #[test]
+    fn shutdown_with_persisted_output_and_requests_keeps_warnings_and_writes_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .strict(false)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        let imported = tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-missing-outcome",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            session.shutdown().unwrap()
+        });
+        assert!(run_path.exists());
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("missing optional 'tt.outcome'; assumed 'ok'")));
+    }
     #[test]
     fn intake_session_run_json_path_rejects_zero_requests_without_overwriting_existing_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -3052,7 +2957,6 @@ mod tests {
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert_eq!(std::fs::read_to_string(&run_path).unwrap(), "keep-me");
     }
-
     #[test]
     fn shutdown_with_both_outputs_and_zero_requests_writes_no_final_artifacts() {
         let dir = tempfile::tempdir().unwrap();
@@ -3068,7 +2972,6 @@ mod tests {
         assert!(!spans_path.exists());
         assert!(!run_path.exists());
     }
-
     #[test]
     fn completed_span_jsonl_success_writes_final_wrapper_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -3086,7 +2989,6 @@ mod tests {
                 tt.route = "/a"
             ));
         });
-
         session.shutdown().unwrap();
         assert!(spans_path.exists());
         let raw = std::fs::read_to_string(&spans_path).unwrap();
@@ -3096,7 +2998,6 @@ mod tests {
         assert_eq!(value["format"], "tailtriage.tracing-span.v1");
         assert!(value["span"].is_object());
     }
-
     #[test]
     fn completed_span_jsonl_path_creates_nested_parent_directories() {
         let dir = tempfile::tempdir().unwrap();
@@ -3117,13 +3018,11 @@ mod tests {
         session.shutdown().unwrap();
         assert!(spans_path.exists());
     }
-
     #[test]
     fn create_output_parent_dir_skips_filename_only_path() {
         create_output_parent_dir(Path::new("run.json"), "create run json parent directory")
             .unwrap();
     }
-
     #[test]
     fn unrelated_spans_are_ignored_by_completed_span_jsonl_writer() {
         let dir = tempfile::tempdir().unwrap();
@@ -3150,7 +3049,6 @@ mod tests {
         assert!(line.contains("\"tt.request_id\":\"r1\""));
         assert!(!line.contains("unrelated"));
     }
-
     #[test]
     fn completed_jsonl_excludes_malformed_and_orphan_stage_queue_spans() {
         let dir = tempfile::tempdir().unwrap();
@@ -3199,7 +3097,6 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
     }
-
     #[test]
     fn retained_request_stage_queue_omit_contradictory_duration_us() {
         let mut run = empty_run();
@@ -3232,7 +3129,6 @@ mod tests {
         assert_eq!(spans.len(), 3);
         assert!(spans.iter().all(|span| span.duration_us_ref().is_none()));
     }
-
     #[test]
     fn retained_jsonl_replays_in_strict_mode_when_contradictory_durations_omitted() {
         let dir = tempfile::tempdir().unwrap();
@@ -3264,7 +3160,6 @@ mod tests {
             depth_at_start: None,
         });
         write_completed_span_jsonl_from_run(&run, &spans_path).unwrap();
-
         let replay = crate::jsonl::import_jsonl_path_with_mode(
             &spans_path,
             ImportOptions::new("svc").strict(true),
@@ -3275,7 +3170,6 @@ mod tests {
         assert_eq!(replay.run().stages.len(), 1);
         assert_eq!(replay.run().queues.len(), 1);
     }
-
     #[test]
     fn retained_duration_us_preserved_when_within_tolerance() {
         let mut run = empty_run();
@@ -3292,7 +3186,6 @@ mod tests {
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].duration_us_ref(), Some(1_500));
     }
-
     #[test]
     fn intake_session_captures_request_stage_queue() {
         let session = TracingIntakeSession::builder("svc").build().unwrap();
