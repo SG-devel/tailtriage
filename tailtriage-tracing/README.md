@@ -109,9 +109,9 @@ Stable completed-span JSONL records use this wrapper:
 ```
 
 `format` is a wrapper-level field (not a `SpanRecord` field).
-The simple library import APIs (`import_jsonl_reader` / `import_jsonl_path`) also default to this wrapper-only mode. Use `*_with_mode(..., JsonlParseMode::Compatible)` only when explicit legacy-shape compatibility parsing is required.
+The simple library import APIs (`import_jsonl_reader` / `import_jsonl_path`) default to this wrapper-only mode and return a hard error (`ExpectedTailtriageWrapper`) for any non-empty non-wrapper JSON record. Use `*_with_mode(..., JsonlParseMode::Compatible)` only when explicit pre-stable/internal normalized completed-span compatibility parsing is required.
 
-Ordinary tracing log JSON (for example `fmt().json` output) is rejected by import. Import does not guess span timing from line receive time: provide explicit unix-ms start/end timestamps on completed spans.
+Compatible mode accepts only direct `SpanRecord` JSON and pre-stable/internal normalized completed-span records with explicit unix-ms start/end timestamps. Close-event/fmt-like tracing log envelopes are not supported import input. Ordinary tracing log JSON (for example `tracing_subscriber::fmt().json()` output) is unsupported. Import does not guess span timing from line receive time.
 
 ## `tt.*` field convention
 
