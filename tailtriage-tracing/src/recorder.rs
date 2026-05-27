@@ -288,7 +288,12 @@ impl TracingIntakeSession {
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
         self.recorder.snapshot_run()
     }
-    /// Finalizes intake and optionally writes run JSON when configured.
+    /// Finalizes intake and optionally writes configured output artifacts.
+    ///
+    /// Each configured output path is written independently through its own temp/rename flow.
+    /// If both completed-span JSONL and Run JSON outputs are configured, they are not committed
+    /// as one atomic multi-file transaction: a failure writing the second output can occur after
+    /// the first output has already been finalized.
     ///
     /// # Errors
     ///
@@ -548,7 +553,7 @@ impl TracingIntakeSessionBuilder {
     ///
     /// Writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown.
     ///
-    /// Intended for replay through `tailtriage import`, not trace archival; this output
+    /// Intended for replay/debug through `tailtriage import`, not trace archival; this output
     /// does not preserve original tracing span names, span IDs, parent IDs, or non-`tt.*` fields.
     #[must_use]
     pub fn completed_span_jsonl_path(mut self, path: impl AsRef<Path>) -> Self {
@@ -556,6 +561,8 @@ impl TracingIntakeSessionBuilder {
         self
     }
     /// Enables Run JSON output on shutdown at the given path.
+    ///
+    /// Prefer this when you need one canonical persisted shutdown artifact.
     #[must_use]
     pub fn run_json_path(mut self, path: impl AsRef<Path>) -> Self {
         self.run_json_path = Some(path.as_ref().to_path_buf());
