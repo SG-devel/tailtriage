@@ -68,10 +68,14 @@ pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind,
 pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result<(), ImportError> {
     if run.requests.is_empty() {
         return Err(ImportError::ZeroRequestArtifact {
-            guidance: "tracing import produced zero request events; persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and explicit unix-ms timing fields (started_at_unix_ms/finished_at_unix_ms).".to_owned(),
+            guidance: persistable_zero_request_guidance(),
         });
     }
     Ok(())
+}
+
+pub(crate) fn persistable_zero_request_guidance() -> String {
+    "tracing import produced zero request events; persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and explicit unix-ms timing fields (started_at_unix_ms/finished_at_unix_ms).".to_owned()
 }
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
