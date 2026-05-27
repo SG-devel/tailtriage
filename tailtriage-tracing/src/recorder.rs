@@ -1488,6 +1488,60 @@ mod tests {
     }
 
     #[test]
+    fn display_formatted_tt_kind_string_is_imported() {
+        #[derive(Clone, Copy)]
+        struct KindDisplay;
+
+        impl fmt::Display for KindDisplay {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "request")
+            }
+        }
+
+        with_recorder(|recorder| {
+            let kind = KindDisplay;
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = %kind,
+                tt.request_id = "r-display",
+                tt.route = "/display-kind"
+            );
+            drop(span);
+
+            let imported = recorder.snapshot_run().unwrap();
+            assert_eq!(imported.run().requests.len(), 1);
+            assert_eq!(imported.run().requests[0].request_id, "r-display");
+        });
+    }
+
+    #[test]
+    fn debug_formatted_tt_kind_string_warns_and_is_not_imported() {
+        with_recorder(|recorder| {
+            let kind = "request";
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = ?kind,
+                tt.request_id = "r-debug-string",
+                tt.route = "/debug-kind"
+            );
+            drop(span);
+
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert!(imported
+                .run()
+                .metadata
+                .lifecycle_warnings
+                .iter()
+                .any(|warning| {
+                    warning.contains("invalid tt.kind")
+                        && warning.contains("reason=unknown")
+                        && warning.contains("r-debug-string")
+                }));
+        });
+    }
+
+    #[test]
     fn shutdown_output_is_analyzable_and_has_no_runtime_snapshots() {
         with_recorder(|recorder| {
             let request = tracing::info_span!(

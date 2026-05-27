@@ -128,6 +128,8 @@ Missing request `tt.outcome` defaults to `ok` with a warning.
 If present, request `tt.outcome` must be a string and cannot be empty/whitespace-only; accepted custom labels are preserved exactly.
 Missing stage `tt.success` defaults to `true` with a warning.
 
+Record semantic `tt.*` fields as plain scalar values (string literals or Display-formatted scalar strings). For semantic keys like `tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, and `tt.queue`, do not use Debug formatting. For example, `tt.kind = "request"` works; `%kind` can work when `kind` displays as `request`; `?kind` may record debug-quoted output like `"request"`, which semantic parsing treats as unknown.
+
 ## Strict vs non-strict
 
 - Strict mode: malformed/incomplete `tt.*` span records fail import/session conversion.
