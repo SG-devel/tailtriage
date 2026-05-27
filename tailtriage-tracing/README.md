@@ -100,6 +100,13 @@ tailtriage import tracing-json target/tailtriage-examples/checkout.spans.jsonl \
 tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
+If you configure both `completed_span_jsonl_path(...)` and `run_json_path(...)`, each
+configured file is written independently through its own temp/rename path. The two
+outputs are not committed as one atomic transaction: if the second write fails, the
+first output may already exist as a finalized artifact. For production workflows that
+need one canonical shutdown artifact, prefer `run_json_path(...)`. Completed-span JSONL
+remains a replay/debug export, not trace archival.
+
 ## Stable JSONL wrapper format
 
 Stable completed-span JSONL records use this wrapper:
