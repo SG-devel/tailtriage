@@ -1578,3 +1578,96 @@ fn run_builder_accepts_zero_duration_with_positive_timestamp_span() {
     queue.wait_us = 0;
     assert!(builder.push_queue(queue).is_ok());
 }
+
+#[test]
+fn run_builder_accepts_request_duration_within_tolerance() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 10;
+    request.finished_at_unix_ms = 12;
+    request.latency_us = 3_999;
+    assert!(builder.push_request(request).is_ok());
+}
+
+#[test]
+fn run_builder_rejects_request_duration_beyond_tolerance() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 10;
+    request.finished_at_unix_ms = 12;
+    request.latency_us = 4_001;
+    let err = builder
+        .push_request(request)
+        .expect_err("request mismatch beyond tolerance should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "RequestEvent",
+            field: "latency_us",
+            reason: "observed duration 4001us differs from derived duration 2000us by more than tolerance 2000us".into(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_stage_duration_beyond_tolerance() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_unix_ms = 10;
+    stage.finished_at_unix_ms = 11;
+    stage.latency_us = 3_001;
+    let err = builder
+        .push_stage(stage)
+        .expect_err("stage mismatch beyond tolerance should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "StageEvent",
+            field: "latency_us",
+            reason: "observed duration 3001us differs from derived duration 1000us by more than tolerance 2000us".into(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_queue_wait_duration_beyond_tolerance() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_unix_ms = 10;
+    queue.waited_until_unix_ms = 11;
+    queue.wait_us = 3_001;
+    let err = builder
+        .push_queue(queue)
+        .expect_err("queue mismatch beyond tolerance should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "QueueEvent",
+            field: "wait_us",
+            reason: "observed duration 3001us differs from derived duration 1000us by more than tolerance 2000us".into(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_accepts_zero_duration_zero_timestamp_span() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 42;
+    request.finished_at_unix_ms = 42;
+    request.latency_us = 0;
+    assert!(builder.push_request(request).is_ok());
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_unix_ms = 42;
+    stage.finished_at_unix_ms = 42;
+    stage.latency_us = 0;
+    assert!(builder.push_stage(stage).is_ok());
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_unix_ms = 42;
+    queue.waited_until_unix_ms = 42;
+    queue.wait_us = 0;
+    assert!(builder.push_queue(queue).is_ok());
+}
