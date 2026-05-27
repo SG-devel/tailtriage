@@ -74,6 +74,27 @@ pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result
     Ok(())
 }
 
+pub(crate) fn ensure_persistable_run_with_warnings(
+    run: &tailtriage_core::Run,
+    warnings: &[ImportWarning],
+) -> Result<(), ImportError> {
+    if run.requests.is_empty() {
+        let guidance = persistable_zero_request_guidance();
+        let warning_messages = warnings
+            .iter()
+            .map(|warning| warning.message().to_owned())
+            .collect::<Vec<_>>();
+        if warning_messages.is_empty() {
+            return Err(ImportError::ZeroRequestArtifact { guidance });
+        }
+        return Err(ImportError::ZeroRequestArtifactWithWarnings {
+            guidance,
+            warnings: warning_messages,
+        });
+    }
+    ensure_persistable_run_has_requests(run)
+}
+
 pub(crate) fn persistable_zero_request_guidance() -> String {
     "tracing import produced zero request events; persisted Run JSON artifacts intended for tailtriage analyze require at least one completed tt.kind=\"request\" span with tt.request_id, tt.route, and explicit unix-ms timing fields (started_at_unix_ms/finished_at_unix_ms).".to_owned()
 }

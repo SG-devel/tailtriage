@@ -12,7 +12,7 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    duration_within_tolerance, ensure_persistable_run_has_requests, run_from_span_records,
+    duration_within_tolerance, ensure_persistable_run_with_warnings, run_from_span_records,
     FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
 
@@ -302,21 +302,7 @@ impl TracingIntakeSession {
         let imported = self.recorder.shutdown()?;
         let (run, warnings) = imported.into_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
-            if run.requests.is_empty() {
-                let guidance = crate::persistable_zero_request_guidance();
-                let warning_messages = warnings
-                    .iter()
-                    .map(|w| w.message().to_owned())
-                    .collect::<Vec<_>>();
-                if warning_messages.is_empty() {
-                    return Err(ImportError::ZeroRequestArtifact { guidance });
-                }
-                return Err(ImportError::ZeroRequestArtifactWithWarnings {
-                    guidance,
-                    warnings: warning_messages,
-                });
-            }
-            ensure_persistable_run_has_requests(&run)?;
+            ensure_persistable_run_with_warnings(&run, &warnings)?;
         }
         if let Some(path) = &self.completed_span_jsonl_path {
             write_completed_span_jsonl_from_run(&run, path)?;
