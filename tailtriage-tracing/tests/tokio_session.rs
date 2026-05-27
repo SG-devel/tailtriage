@@ -465,6 +465,41 @@ async fn zero_request_run_json_path_fails_and_does_not_write_file() {
         err,
         TracingTokioSessionShutdownError::Import(ImportError::ZeroRequestArtifact { .. })
     ));
+    let err_text = err.to_string();
+    assert!(err_text.contains("tracing import produced zero request events"));
+    assert!(!err_text.contains("warnings observed during tracing intake:"));
+    assert!(!run_path.exists());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn zero_request_run_json_path_surfaces_intake_warnings_in_shutdown_error() {
+    let run_path = unique_path("tokio-session-empty-with-warnings/run.json");
+    let _ = std::fs::remove_file(&run_path);
+    let session = TracingTokioSession::builder("svc")
+        .run_json_path(&run_path)
+        .start()
+        .expect("start");
+    let subscriber = tracing_subscriber::registry().with(session.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info_span!(
+            "bad",
+            tt.kind = "bogus",
+            tt.request_id = "r-bad",
+            tt.route = "/bad"
+        )
+        .in_scope(|| {});
+    });
+    let err = session.shutdown().await.expect_err("must fail");
+    assert!(matches!(
+        err,
+        TracingTokioSessionShutdownError::Import(
+            ImportError::ZeroRequestArtifactWithWarnings { .. }
+        )
+    ));
+    let err_text = err.to_string();
+    assert!(err_text.contains("tracing import produced zero request events"));
+    assert!(err_text.contains("warnings observed during tracing intake:"));
+    assert!(err_text.contains("invalid tt.kind"));
     assert!(!run_path.exists());
 }
 
