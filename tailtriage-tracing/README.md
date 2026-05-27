@@ -88,6 +88,11 @@ Use `run_json_path(...)` when you want to skip a separate import step and write 
 tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
+For both `TracingIntakeSession` and `TracingTokioSession`, persisted-output shutdown
+returns a zero-request error when no request is retained. When tracing intake warnings
+exist (for example malformed `tt.*` fields), shutdown includes those warning messages in
+the same error to guide setup corrections before rerunning capture.
+
 ## Completed-span JSONL path
 
 Use `completed_span_jsonl_path(...)` when you want an offline import workflow:
