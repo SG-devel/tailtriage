@@ -1462,6 +1462,56 @@ mod tests {
     }
 
     #[test]
+    fn display_formatted_tt_kind_string_imports_as_request() {
+        with_recorder(|recorder| {
+            let kind = "request".to_string();
+            let span = tracing::info_span!(
+                "display-kind",
+                tt.kind = %kind,
+                tt.request_id = "r-display",
+                tt.route = "/display",
+                tt.outcome = "ok"
+            );
+            drop(span);
+
+            let run = recorder.snapshot_run().unwrap();
+            assert_eq!(run.run().requests.len(), 1);
+            assert_eq!(run.run().requests[0].request_id, "r-display");
+            assert_eq!(run.run().requests[0].route, "/display");
+            assert!(run.warnings().is_empty());
+        });
+    }
+
+    #[test]
+    fn debug_formatted_tt_kind_string_is_rejected_as_unknown() {
+        with_recorder(|recorder| {
+            let kind = "request".to_string();
+            let span = tracing::info_span!(
+                "debug-kind-string",
+                tt.kind = ?kind,
+                tt.request_id = "r-debug-string",
+                tt.route = "/debug-string"
+            );
+            drop(span);
+
+            let imported = recorder.snapshot_run().unwrap();
+            assert!(imported.run().requests.is_empty());
+            assert_eq!(imported.warnings().len(), 1);
+            let msg = imported.warnings()[0].message();
+            assert!(msg.contains("invalid tt.kind"));
+            assert!(msg.contains("unknown=1"));
+            assert!(msg.contains("reason=unknown"));
+            assert!(msg.contains("r-debug-string"));
+            assert!(imported
+                .run()
+                .metadata
+                .lifecycle_warnings
+                .iter()
+                .any(|w| w == msg));
+        });
+    }
+
+    #[test]
     fn debug_or_invalid_tt_kind_does_not_become_valid_kind() {
         with_recorder(|recorder| {
             let debug_kind = tracing::info_span!(

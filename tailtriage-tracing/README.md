@@ -118,6 +118,8 @@ Import does not guess span timing from line receive time: provide explicit unix-
 
 ## `tt.*` field convention
 
+Record semantic `tt.*` fields (`tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, `tt.queue`) as plain scalar strings (string literals or `%`/Display output that renders as an unquoted scalar value). Do not use `?`/Debug formatting for semantic `tt.*` fields: `tt.kind = "request"` works, `%kind` can work when `kind` displays as `request`, but `?kind` may record `"request"` with debug quoting and be rejected as unknown.
+
 | Span kind | Required fields | Optional fields |
 | --- | --- | --- |
 | request | `tt.kind="request"`, `tt.request_id`, `tt.route` | `tt.outcome` (optional non-empty string; recommended common labels: `ok`, `error`, `timeout`, `cancelled`, `rejected`) |
