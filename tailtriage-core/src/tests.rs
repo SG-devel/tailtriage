@@ -1525,7 +1525,7 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
     let mut stage = test_stage_event("req", "stage");
     stage.started_at_unix_ms = 3;
     stage.finished_at_unix_ms = 4;
-    stage.latency_us = 0;
+    stage.latency_us = 1_000;
     assert!(builder.push_stage(stage).is_ok());
 
     let mut queue = test_queue_event("req", "queue");
@@ -1544,7 +1544,7 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
     let mut queue = test_queue_event("req", "queue");
     queue.waited_from_unix_ms = 5;
     queue.waited_until_unix_ms = 6;
-    queue.wait_us = 0;
+    queue.wait_us = 1_000;
     assert!(builder.push_queue(queue).is_ok());
 
     assert!(builder
@@ -1557,24 +1557,56 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
 }
 
 #[test]
-fn run_builder_accepts_zero_duration_with_positive_timestamp_span() {
+fn run_builder_request_duration_within_tolerance_is_accepted() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
     let mut request = test_request_event("req");
-    request.started_at_unix_ms = 1;
-    request.finished_at_unix_ms = 2;
-    request.latency_us = 0;
+    request.started_at_unix_ms = 10;
+    request.finished_at_unix_ms = 12;
+    request.latency_us = 3_999;
     assert!(builder.push_request(request).is_ok());
+}
+
+#[test]
+fn run_builder_request_duration_beyond_tolerance_is_rejected() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 10;
+    request.finished_at_unix_ms = 12;
+    request.latency_us = 4_001;
+    assert!(builder.push_request(request).is_err());
+}
+
+#[test]
+fn run_builder_stage_duration_beyond_tolerance_is_rejected() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
     let mut stage = test_stage_event("req", "stage");
     stage.started_at_unix_ms = 3;
-    stage.finished_at_unix_ms = 4;
-    stage.latency_us = 0;
-    assert!(builder.push_stage(stage).is_ok());
+    stage.finished_at_unix_ms = 5;
+    stage.latency_us = 4_100;
+    assert!(builder.push_stage(stage).is_err());
+}
+
+#[test]
+fn run_builder_queue_wait_duration_beyond_tolerance_is_rejected() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
     let mut queue = test_queue_event("req", "queue");
     queue.waited_from_unix_ms = 5;
-    queue.waited_until_unix_ms = 6;
-    queue.wait_us = 0;
-    assert!(builder.push_queue(queue).is_ok());
+    queue.waited_until_unix_ms = 7;
+    queue.wait_us = 4_005;
+    assert!(builder.push_queue(queue).is_err());
+}
+
+#[test]
+fn run_builder_zero_duration_timestamps_with_zero_duration_are_accepted() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 2;
+    request.finished_at_unix_ms = 2;
+    request.latency_us = 0;
+    assert!(builder.push_request(request).is_ok());
 }
