@@ -1443,6 +1443,25 @@ mod tests {
     }
 
     #[test]
+    fn display_formatted_tt_kind_is_accepted_when_it_displays_as_request() {
+        with_recorder(|recorder| {
+            let kind = "request";
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = %kind,
+                tt.request_id = "r-display",
+                tt.route = "/display-kind"
+            );
+            drop(span);
+
+            let run = recorder.snapshot_run().unwrap();
+            assert_eq!(run.run().requests.len(), 1);
+            assert_eq!(run.run().requests[0].request_id, "r-display");
+            assert_eq!(run.run().requests[0].route, "/display-kind");
+        });
+    }
+
+    #[test]
     fn non_tailtriage_fields_do_not_make_span_candidate() {
         with_recorder(|recorder| {
             let span = tracing::info_span!(
@@ -1484,6 +1503,34 @@ mod tests {
             assert!(run.run().requests.is_empty());
             assert!(run.run().stages.is_empty());
             assert!(run.run().queues.is_empty());
+        });
+    }
+
+    #[test]
+    fn debug_formatted_tt_kind_is_rejected_with_invalid_kind_warning() {
+        with_recorder(|recorder| {
+            let kind = "request";
+            let span = tracing::info_span!(
+                "debug-kind",
+                tt.kind = ?kind,
+                tt.request_id = "r-debug-kind",
+                tt.route = "/debug-kind"
+            );
+            drop(span);
+
+            let run = recorder.snapshot_run().unwrap();
+            assert!(run.run().requests.is_empty());
+
+            let message = run
+                .warnings()
+                .iter()
+                .find_map(|warning| {
+                    let msg = warning.message();
+                    msg.contains("invalid tt.kind").then_some(msg)
+                })
+                .unwrap_or("");
+            assert!(message.contains("reason=unknown"));
+            assert!(message.contains("r-debug-kind"));
         });
     }
 
