@@ -673,7 +673,7 @@ fn import_tracing_json_compatible_rejects_fmt_like_record_with_top_level_explici
         "cli unexpectedly succeeded: {output:?}"
     );
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("unsupported tracing log envelope fields"));
+    assert!(stderr.contains("unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"));
     assert!(!run_path.exists(), "run json should not be written");
 }
 
@@ -704,7 +704,7 @@ fn import_tracing_json_compatible_rejects_fmt_like_record_with_nested_explicit_t
         "cli unexpectedly succeeded: {output:?}"
     );
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("unsupported tracing log envelope fields"));
+    assert!(stderr.contains("unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"));
     assert!(!run_path.exists(), "run json should not be written");
 }
 

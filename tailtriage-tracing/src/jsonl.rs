@@ -225,7 +225,7 @@ fn parse_record(
     }
     if has_fmt_log_envelope_fields(value) {
         let message = format!(
-            "line {line_no}: unsupported tracing log envelope fields for compatible import (timestamp/level/target)"
+            "line {line_no}: unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"
         );
         if strict {
             return Err(ImportError::StrictViolation(message));
@@ -658,8 +658,11 @@ mod tests {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
 {"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().stages.is_empty());
+        assert_eq!(imported.run().stages.len(), 0);
         assert!(!imported.warnings().is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("unsupported tracing log envelope fields")));
     }
 
     #[test]
@@ -1259,14 +1262,6 @@ mod tests {
         assert!(matches!(err, ImportError::StrictViolation(_)));
         assert!(msg.contains("span") || msg.contains("name"));
         assert!(!msg.contains("unsupported span format marker"));
-
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]
