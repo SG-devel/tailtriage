@@ -956,7 +956,7 @@ fn run_builder_creates_empty_run_with_explicit_metadata() {
             kind: None,
             started_at_unix_ms: 1,
             finished_at_unix_ms: 2,
-            latency_us: 10,
+            latency_us: 1_000,
             outcome: "ok".into(),
         })
         .expect("ok");
@@ -1186,7 +1186,7 @@ fn test_request_event(request_id: &str) -> crate::RequestEvent {
         kind: None,
         started_at_unix_ms: 1,
         finished_at_unix_ms: 2,
-        latency_us: 10,
+        latency_us: 1_000,
         outcome: "ok".to_string(),
     }
 }
@@ -1197,7 +1197,7 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
         stage: stage.to_string(),
         started_at_unix_ms: 3,
         finished_at_unix_ms: 4,
-        latency_us: 11,
+        latency_us: 1_000,
         success: true,
     }
 }
@@ -1208,7 +1208,7 @@ fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
         queue: queue.to_string(),
         waited_from_unix_ms: 5,
         waited_until_unix_ms: 6,
-        wait_us: 12,
+        wait_us: 1_000,
         depth_at_start: Some(1),
     }
 }
@@ -1524,7 +1524,7 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
 
     let mut stage = test_stage_event("req", "stage");
     stage.started_at_unix_ms = 3;
-    stage.finished_at_unix_ms = 4;
+    stage.finished_at_unix_ms = 3;
     stage.latency_us = 0;
     assert!(builder.push_stage(stage).is_ok());
 
@@ -1543,7 +1543,7 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
 
     let mut queue = test_queue_event("req", "queue");
     queue.waited_from_unix_ms = 5;
-    queue.waited_until_unix_ms = 6;
+    queue.waited_until_unix_ms = 5;
     queue.wait_us = 0;
     assert!(builder.push_queue(queue).is_ok());
 
@@ -1557,24 +1557,68 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
 }
 
 #[test]
-fn run_builder_accepts_zero_duration_with_positive_timestamp_span() {
+fn run_builder_request_duration_within_tolerance_is_accepted() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
     let mut request = test_request_event("req");
     request.started_at_unix_ms = 1;
     request.finished_at_unix_ms = 2;
+    request.latency_us = 2_999;
+    assert!(builder.push_request(request).is_ok());
+}
+
+#[test]
+fn run_builder_request_duration_beyond_tolerance_is_rejected() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 1;
+    request.finished_at_unix_ms = 2;
+    request.latency_us = 3_001;
+    assert!(builder.push_request(request).is_err());
+}
+
+#[test]
+fn run_builder_stage_duration_beyond_tolerance_is_rejected() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_unix_ms = 1;
+    stage.finished_at_unix_ms = 2;
+    stage.latency_us = 3_001;
+    assert!(builder.push_stage(stage).is_err());
+}
+
+#[test]
+fn run_builder_queue_wait_beyond_tolerance_is_rejected() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_unix_ms = 1;
+    queue.waited_until_unix_ms = 2;
+    queue.wait_us = 3_001;
+    assert!(builder.push_queue(queue).is_err());
+}
+
+#[test]
+fn run_builder_zero_duration_timestamps_with_zero_duration_are_accepted() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 2;
+    request.finished_at_unix_ms = 2;
     request.latency_us = 0;
     assert!(builder.push_request(request).is_ok());
 
     let mut stage = test_stage_event("req", "stage");
-    stage.started_at_unix_ms = 3;
-    stage.finished_at_unix_ms = 4;
+    stage.started_at_unix_ms = 2;
+    stage.finished_at_unix_ms = 2;
     stage.latency_us = 0;
     assert!(builder.push_stage(stage).is_ok());
 
     let mut queue = test_queue_event("req", "queue");
-    queue.waited_from_unix_ms = 5;
-    queue.waited_until_unix_ms = 6;
+    queue.waited_from_unix_ms = 2;
+    queue.waited_until_unix_ms = 2;
     queue.wait_us = 0;
     assert!(builder.push_queue(queue).is_ok());
 }
