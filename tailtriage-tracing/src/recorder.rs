@@ -1488,6 +1488,64 @@ mod tests {
     }
 
     #[test]
+    fn display_formatted_tt_kind_request_is_imported() {
+        with_recorder(|recorder| {
+            struct RequestKind;
+            impl fmt::Display for RequestKind {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.write_str("request")
+                }
+            }
+
+            let kind = RequestKind;
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = %kind,
+                tt.request_id = "r-display",
+                tt.route = "/display-kind"
+            );
+            drop(request);
+
+            let imported = recorder.snapshot_run().unwrap();
+            let run = imported.run();
+            assert_eq!(run.requests.len(), 1);
+            assert_eq!(run.requests[0].request_id, "r-display");
+            assert_eq!(run.requests[0].route, "/display-kind");
+            assert!(!imported
+                .warnings()
+                .iter()
+                .any(|w| w.message().contains("invalid tt.kind")));
+        });
+    }
+
+    #[test]
+    fn debug_formatted_string_tt_kind_is_rejected_with_invalid_kind_warning() {
+        with_recorder(|recorder| {
+            let kind = "request";
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = ?kind,
+                tt.request_id = "r-debug-string",
+                tt.route = "/debug-string-kind"
+            );
+            drop(request);
+
+            let imported = recorder.snapshot_run().unwrap();
+            let run = imported.run();
+            assert!(run.requests.is_empty());
+            assert!(imported
+                .warnings()
+                .iter()
+                .any(|w| w.message().contains("invalid tt.kind")));
+            assert!(run
+                .metadata
+                .lifecycle_warnings
+                .iter()
+                .any(|msg| msg.contains("invalid tt.kind")));
+        });
+    }
+
+    #[test]
     fn shutdown_output_is_analyzable_and_has_no_runtime_snapshots() {
         with_recorder(|recorder| {
             let request = tracing::info_span!(

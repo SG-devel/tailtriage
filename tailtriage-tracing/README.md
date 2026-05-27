@@ -124,6 +124,10 @@ Import does not guess span timing from line receive time: provide explicit unix-
 | stage | `tt.kind="stage"`, `tt.request_id`, `tt.stage` | `tt.success` |
 | queue | `tt.kind="queue"`, `tt.request_id`, `tt.queue` | `tt.depth_at_start` |
 
+Record semantic `tt.*` fields (`tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, `tt.queue`) as plain scalar strings (string literals or display-formatted scalar strings). Do not use debug formatting for semantic `tt.*` fields.
+
+For example: `tt.kind = "request"` works, `tt.kind = %kind` can work when `kind` displays as `request`, but `tt.kind = ?kind` may record `"request"` (debug quoting) and be rejected as unknown.
+
 Missing request `tt.outcome` defaults to `ok` with a warning.
 If present, request `tt.outcome` must be a string and cannot be empty/whitespace-only; accepted custom labels are preserved exactly.
 Missing stage `tt.success` defaults to `true` with a warning.
