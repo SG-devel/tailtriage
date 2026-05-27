@@ -9,7 +9,7 @@ use tailtriage_core::{
 use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
 
 use crate::{
-    ensure_persistable_run_has_requests, ImportError, ImportWarning, ImportedRun, RecorderLimits,
+    ensure_persistable_run_with_warnings, ImportError, ImportWarning, ImportedRun, RecorderLimits,
     TailtriageLayer, TracingRecorder,
 };
 
@@ -139,7 +139,7 @@ impl TracingTokioSession {
         let merged =
             with_manual_sampler_warning(merge_runtime_data(imported, &runtime), sampler_disabled);
         if let Some(path) = &self.run_json_path {
-            ensure_persistable_run_has_requests(merged.run())
+            ensure_persistable_run_with_warnings(merged.run(), merged.warnings())
                 .map_err(TracingTokioSessionShutdownError::Import)?;
             write_run_json(path, merged.run()).map_err(|reason| {
                 TracingTokioSessionShutdownError::RunJsonWrite {
