@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::{
-    run_from_span_records, FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    run_from_span_records, FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord,
 };
 
 /// Imports newline-delimited JSON records from a reader into a converted run.
@@ -151,7 +151,7 @@ fn parse_record(
                 let message = format!(
                     "line {line_no}: invalid field 'format': expected string format marker"
                 );
-                if strict {
+                if strict || matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                     return Err(if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                         ImportError::ExpectedTailtriageWrapper { reason: message }
                     } else {
@@ -165,7 +165,7 @@ fn parse_record(
             if format_marker != "tailtriage.tracing-span.v1" {
                 let message =
                     format!("line {line_no}: unsupported span format marker '{format_marker}'");
-                if strict {
+                if strict || matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                     return Err(if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                         ImportError::ExpectedTailtriageWrapper { reason: message }
                     } else {
@@ -180,7 +180,7 @@ fn parse_record(
                 let message = format!(
                     "line {line_no}: missing field 'span' for tailtriage.tracing-span.v1 wrapper"
                 );
-                if strict {
+                if strict || matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                     return Err(if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                         ImportError::ExpectedTailtriageWrapper { reason: message }
                     } else {
@@ -195,7 +195,7 @@ fn parse_record(
                 let message = format!(
                     "line {line_no}: invalid field 'span': expected completed span object for tailtriage.tracing-span.v1"
                 );
-                if strict {
+                if strict || matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                     return Err(if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
                         ImportError::ExpectedTailtriageWrapper { reason: message }
                     } else {
@@ -222,14 +222,10 @@ fn parse_record(
         }
     }
     if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
-        let message = format!(
+        let reason = format!(
             "line {line_no}: expected stable wrapper shape {{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{{...}}}}"
         );
-        if strict {
-            return Err(ImportError::ExpectedTailtriageWrapper { reason: message });
-        }
-        warnings.push(crate::ImportWarning::new(message));
-        return Ok(None);
+        return Err(ImportError::ExpectedTailtriageWrapper { reason });
     }
     if let Ok(span) = serde_json::from_value::<SpanRecord>(value.clone()) {
         return Ok(Some(span));
@@ -246,6 +242,23 @@ fn parse_record(
     }
 
     let has_tt = value_has_tailtriage_field(value);
+    if let Some(obj) = value.as_object() {
+        let looks_like_tracing_log_envelope = obj.contains_key("timestamp")
+            || obj.contains_key("level")
+            || obj.contains_key("target");
+        if looks_like_tracing_log_envelope {
+            if has_tt {
+                let message = format!(
+                    "line {line_no}: tracing-log envelope fields (timestamp/level/target) are unsupported import input; compatible mode only accepts direct SpanRecord JSON or normalized completed-span shape"
+                );
+                if strict {
+                    return Err(ImportError::StrictViolation(message));
+                }
+                warnings.push(crate::ImportWarning::new(message));
+            }
+            return Ok(None);
+        }
+    }
     if let Some(span_obj) = value.get("span").and_then(Value::as_object) {
         let is_normalized_shape = span_obj.contains_key("name")
             && (span_obj.contains_key("started_at_unix_ms")
@@ -269,7 +282,7 @@ fn parse_record(
                 }
             };
         }
-        if has_tt && !indicates_close_event(value) {
+        if has_tt {
             let message = format!(
                 "line {line_no}: invalid field `span`: tailtriage span must include name, started_at_unix_ms/start_unix_ms, and finished_at_unix_ms/end_unix_ms"
             );
@@ -281,30 +294,18 @@ fn parse_record(
         }
     }
 
-    match parse_close_event_shape(value) {
-        Ok(Some(result)) => Ok(Some(result)),
-        Ok(None) if has_tt => {
-            let message = format!(
-                "line {line_no}: tailtriage JSONL record must use normalized span shape or supported close-event shape with explicit timestamps"
-            );
-            if strict {
-                Err(ImportError::StrictViolation(message))
-            } else {
-                warnings.push(crate::ImportWarning::new(message));
-                Ok(None)
-            }
+    if has_tt {
+        let message = format!(
+            "line {line_no}: tailtriage JSONL record must use normalized span shape with explicit timestamps"
+        );
+        if strict {
+            Err(ImportError::StrictViolation(message))
+        } else {
+            warnings.push(crate::ImportWarning::new(message));
+            Ok(None)
         }
-        Ok(None) => Ok(None),
-        Err(err) if has_tt => {
-            let message = format!("line {line_no}: {err}");
-            if strict {
-                Err(ImportError::StrictViolation(message))
-            } else {
-                warnings.push(crate::ImportWarning::new(message));
-                Ok(None)
-            }
-        }
-        Err(err) => Err(err),
+    } else {
+        Ok(None)
     }
 }
 
@@ -385,71 +386,6 @@ fn parse_normalized_span(
     }
 
     Ok(span)
-}
-
-fn parse_close_event_shape(value: &Value) -> Result<Option<SpanRecord>, ImportError> {
-    let fields = extract_fields_for_span(value);
-    if !fields.contains_key(TT_KIND) {
-        return Ok(None);
-    }
-
-    if !indicates_close_event(value) {
-        return Ok(None);
-    }
-
-    let obj = value.as_object().ok_or_else(|| ImportError::InvalidField {
-        field: "jsonl",
-        reason: "line must be a JSON object".to_owned(),
-    })?;
-    let name = optional_string(obj, "span_name")?
-        .or_else(|| {
-            obj.get("span")
-                .and_then(Value::as_object)
-                .and_then(|s| s.get("name"))
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
-        })
-        .or_else(|| optional_string(obj, "name").ok().flatten())
-        .unwrap_or_else(|| "tracing.close".to_owned());
-
-    let span_obj = obj.get("span").and_then(Value::as_object);
-    let started_at_unix_ms =
-        required_timestamp_obj_or_nested(obj, span_obj, "started_at_unix_ms", "start_unix_ms")?;
-    let finished_at_unix_ms =
-        required_timestamp_obj_or_nested(obj, span_obj, "finished_at_unix_ms", "end_unix_ms")?;
-
-    let mut span = SpanRecord::new(name, started_at_unix_ms, finished_at_unix_ms);
-    if let Some(id) = optional_string(obj, "id")? {
-        span = span.id(id);
-    }
-    if let Some(parent_id) = optional_string(obj, "parent_id")? {
-        span = span.parent_id(parent_id);
-    }
-    for (k, v) in fields {
-        span = span.field(k, v);
-    }
-    Ok(Some(span))
-}
-
-fn indicates_close_event(value: &Value) -> bool {
-    let is_close = |s: &str| {
-        let lower = s.to_ascii_lowercase();
-        lower.contains("close") || lower.contains("closed")
-    };
-    value
-        .get("event")
-        .and_then(Value::as_str)
-        .is_some_and(is_close)
-        || value
-            .get("message")
-            .and_then(Value::as_str)
-            .is_some_and(is_close)
-        || value
-            .get("fields")
-            .and_then(Value::as_object)
-            .and_then(|o| o.get("message"))
-            .and_then(Value::as_str)
-            .is_some_and(is_close)
 }
 
 fn extract_fields_for_span(value: &Value) -> BTreeMap<String, FieldValue> {
@@ -534,21 +470,6 @@ fn required_timestamp_obj(
     alias: &'static str,
 ) -> Result<u64, ImportError> {
     if let Some(v) = obj.get(primary).or_else(|| obj.get(alias)) {
-        return parse_u64(v, primary);
-    }
-    Err(ImportError::MissingField(primary))
-}
-fn required_timestamp_obj_or_nested(
-    obj: &serde_json::Map<String, Value>,
-    nested_obj: Option<&serde_json::Map<String, Value>>,
-    primary: &'static str,
-    alias: &'static str,
-) -> Result<u64, ImportError> {
-    if let Some(v) = obj.get(primary).or_else(|| obj.get(alias)) {
-        return parse_u64(v, primary);
-    }
-    if let Some(v) = nested_obj.and_then(|nested| nested.get(primary).or_else(|| nested.get(alias)))
-    {
         return parse_u64(v, primary);
     }
     Err(ImportError::MissingField(primary))
@@ -712,12 +633,17 @@ mod tests {
     }
 
     #[test]
-    fn close_event_shape_with_explicit_timestamps_is_supported() {
+    fn compatible_mode_rejects_close_event_like_fmt_envelopes_even_with_timing() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
 {"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}},"started_at_unix_ms":5,"finished_at_unix_ms":8}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().stages.len(), 1);
-        assert_eq!(imported.run().stages[0].stage, "db");
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
+        assert!(imported.run().stages.is_empty());
+        assert_eq!(imported.run().requests.len(), 1);
     }
 
     #[test]
@@ -734,12 +660,17 @@ mod tests {
     }
 
     #[test]
-    fn close_event_shape_with_nested_span_timestamps_is_supported() {
+    fn compatible_mode_rejects_close_event_like_nested_timestamps() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
 {"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().stages.len(), 1);
-        assert_eq!(imported.run().stages[0].stage, "db");
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
+        assert!(imported.run().stages.is_empty());
+        assert_eq!(imported.run().requests.len(), 1);
     }
 
     #[test]
@@ -1002,7 +933,12 @@ mod tests {
     fn normalized_stage_fields_import_from_outer_fields() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
 {"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::Compatible,
+        )
+        .unwrap();
         assert_eq!(imported.run().stages.len(), 1);
         assert_eq!(imported.run().stages[0].stage, "db");
     }
@@ -1131,13 +1067,13 @@ mod tests {
     }
 
     #[test]
-    fn unrelated_top_level_json_record_still_ignored() {
-        let input = r#"{"message":"ordinary log","level":"info","request_id":"r1"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert!(imported.warnings().is_empty());
+    fn default_import_rejects_non_wrapper_record() {
+        let err = import_jsonl_reader(
+            Cursor::new(r#"{"message":"ordinary"}"#),
+            ImportOptions::new("svc"),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]
@@ -1174,24 +1110,19 @@ mod tests {
     }
 
     #[test]
-    fn wrapper_only_non_strict_unwrapped_warns_and_skips() {
+    fn wrapper_only_non_strict_unwrapped_errors() {
         let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader_with_mode(
+        let err = import_jsonl_reader_with_mode(
             Cursor::new(unwrapped),
             ImportOptions::new("svc"),
             JsonlParseMode::TailtriageWrapperOnly,
         )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert!(!imported.warnings().is_empty());
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("tailtriage.tracing-span.v1")));
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]
-    fn wrapper_only_unsupported_marker_strict_errors_and_non_strict_warns() {
+    fn wrapper_only_unsupported_marker_errors_in_all_strictness_modes() {
         let v2 = r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let err = import_jsonl_reader_with_mode(
             Cursor::new(v2),
@@ -1202,17 +1133,25 @@ mod tests {
         assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
         assert!(err.to_string().contains("v2") || err.to_string().contains("unsupported"));
 
-        let imported = import_jsonl_reader_with_mode(
+        let err = import_jsonl_reader_with_mode(
             Cursor::new(v2),
             ImportOptions::new("svc"),
             JsonlParseMode::TailtriageWrapperOnly,
         )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("v2") || w.message().contains("unsupported")));
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+    }
+
+    #[test]
+    fn wrapper_only_mode_non_wrapper_tt_json_returns_expected_wrapper_error() {
+        let input = r#"{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]
@@ -1329,17 +1268,13 @@ mod tests {
         assert!(msg.contains("started_at_unix_ms") || msg.contains("expected"));
         assert!(!msg.contains("unsupported span format marker"));
 
-        let imported = import_jsonl_reader_with_mode(
+        let err = import_jsonl_reader_with_mode(
             Cursor::new(input),
             ImportOptions::new("svc"),
             JsonlParseMode::TailtriageWrapperOnly,
         )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(!imported.warnings()[0]
-            .message()
-            .contains("unsupported span format marker"));
+        .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
     #[test]
@@ -1356,14 +1291,13 @@ mod tests {
         assert!(msg.contains("span") || msg.contains("name"));
         assert!(!msg.contains("unsupported span format marker"));
 
-        let imported = import_jsonl_reader_with_mode(
+        let err = import_jsonl_reader_with_mode(
             Cursor::new(input),
             ImportOptions::new("svc"),
             JsonlParseMode::TailtriageWrapperOnly,
         )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert_eq!(imported.warnings().len(), 1);
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]
@@ -1382,14 +1316,13 @@ mod tests {
         );
         assert!(!msg.contains("unsupported span format marker"));
 
-        let imported = import_jsonl_reader_with_mode(
+        let err = import_jsonl_reader_with_mode(
             Cursor::new(input),
             ImportOptions::new("svc"),
             JsonlParseMode::TailtriageWrapperOnly,
         )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert_eq!(imported.warnings().len(), 1);
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]
@@ -1405,14 +1338,13 @@ mod tests {
         assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
         assert!(msg.contains("format") && msg.contains("expected string"));
 
-        let imported = import_jsonl_reader_with_mode(
+        let err = import_jsonl_reader_with_mode(
             Cursor::new(input),
             ImportOptions::new("svc"),
             JsonlParseMode::TailtriageWrapperOnly,
         )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert_eq!(imported.warnings().len(), 1);
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]
@@ -1436,15 +1368,11 @@ mod tests {
     }
 
     #[test]
-    fn import_jsonl_reader_unwrapped_non_strict_warns_and_skips_by_default() {
+    fn import_jsonl_reader_unwrapped_non_strict_errors_by_default() {
         let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            super::import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("expected stable wrapper shape")));
+        let err = super::import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc"))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
     }
 
     #[test]

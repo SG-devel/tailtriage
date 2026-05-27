@@ -69,9 +69,10 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 - `compatible`
 
 Behavior:
-- `tailtriage-span-jsonl` enforces wrapper-only parsing.
-- `compatible` keeps compatibility parsing for pre-stable/internal normalized shapes and rejects ordinary tracing log JSON (including `fmt().json` output) early with setup guidance; timing is not guessed from JSONL line receive time.
-- `compatible` is for pre-stable/internal normalized completed-span shapes with explicit start/end timestamps; it is not auto-detection and not generic tracing JSON import.
+- `tailtriage-span-jsonl` enforces wrapper-only parsing; non-wrapper non-empty records are hard import errors.
+- `compatible` keeps compatibility parsing only for pre-stable/internal normalized completed-span shapes with explicit start/end timestamps.
+- Close-event/fmt-like tracing log envelopes are not supported input, and ordinary tracing log JSON (including `fmt().json` output) is rejected.
+- `compatible` is not auto-detection and not generic tracing JSON import.
 
 After import, run analysis separately:
 
