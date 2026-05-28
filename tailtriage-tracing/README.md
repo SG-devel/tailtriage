@@ -34,6 +34,7 @@ If you use Tokio runtime sampler coupling via `TracingTokioSession`, use:
 ```bash
 cargo add tailtriage-tracing --features tokio
 cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
 ```
 
 ## Recommended live session setup (`live` feature)

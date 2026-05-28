@@ -42,6 +42,7 @@ workspace = true
 tailtriage-analyzer.workspace = true
 futures-executor = "0.3"
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 [[example]]
 name = "completed_span_jsonl_import"
