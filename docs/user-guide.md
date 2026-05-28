@@ -109,6 +109,7 @@ Tokio runtime sampler coupling via `TracingTokioSession` requires the `tokio` fe
 ```bash
 cargo add tailtriage-tracing --features tokio
 cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
 ```
 
 For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
