@@ -110,8 +110,12 @@ If you configure both `completed_span_jsonl_path(...)` and `run_json_path(...)`,
 configured file is written independently through its own temp/rename path. The two
 outputs are not committed as one atomic transaction: if the second write fails, the
 first output may already exist as a finalized artifact. For production workflows that
-need one canonical shutdown artifact, prefer `run_json_path(...)`. Completed-span JSONL
-remains a replay/debug export, not trace archival.
+need one canonical shutdown artifact, prefer `run_json_path(...)`.
+Completed-span JSONL is retained-evidence replay/debug export and is not trace archival.
+It does not preserve lifecycle warnings, truncation counters, original span IDs, parent IDs,
+original span names, or non-`tt.*` fields. For production workflows that need the complete
+persisted triage artifact including warnings/truncation metadata, prefer `run_json_path(...)`.
+Callers that use JSONL-only export should inspect `session.shutdown()?.warnings()` in the same process.
 
 ## Stable JSONL wrapper format
 
@@ -181,7 +185,7 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 ## Examples
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
-- `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+- `tailtriage-tracing/examples/completed_span_jsonl_export.rs`
 
 
 `TracingTokioSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.
