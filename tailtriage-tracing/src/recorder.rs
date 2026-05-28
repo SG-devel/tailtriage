@@ -239,31 +239,30 @@ impl TracingRecorder {
 impl TracingIntakeSession {
     /// Creates a tracing intake session builder with required service metadata.
     ///
+    /// Service startup should install `session.layer()` in process-wide subscriber setup;
+    /// scoped defaults are only for local/test-style usage.
     /// ```no_run
     /// use tailtriage_tracing::TracingIntakeSession;
     /// use tracing_subscriber::prelude::*;
     ///
-    /// // Record completed work from span close/drop; keep the span active around the work you want measured.
-    ///
     /// let session = TracingIntakeSession::builder("checkout")
     ///     .completed_span_jsonl_path("completed-spans.jsonl")
-    ///     .build()
-    ///     .expect("session should build");
+    ///     .build()?;
     ///
-    /// let subscriber = tracing_subscriber::registry().with(session.layer());
-    /// tracing::subscriber::with_default(subscriber, || {
-    ///     let span = tracing::info_span!(
-    ///         "request",
-    ///         tt.kind = "request",
-    ///         tt.request_id = "r1",
-    ///         tt.route = "/checkout"
-    ///     );
+    /// tracing_subscriber::registry().with(session.layer()).init();
     ///
-    ///     let _guard = span.enter();
-    ///     // measured work goes here
-    /// });
+    /// let span = tracing::info_span!(
+    ///     "request",
+    ///     tt.kind = "request",
+    ///     tt.request_id = "r1",
+    ///     tt.route = "/checkout"
+    /// );
+    /// let _guard = span.enter();
+    /// // measured work goes here
+    /// drop(_guard);
     ///
-    /// let _ = session.shutdown().expect("shutdown should succeed");
+    /// session.shutdown()?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn builder(service_name: impl Into<String>) -> TracingIntakeSessionBuilder {
         TracingIntakeSessionBuilder {
