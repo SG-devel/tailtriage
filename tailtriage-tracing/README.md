@@ -162,10 +162,11 @@ Missing stage `tt.success` defaults to `true` with a warning.
 - Child stage/queue evidence may be dropped or evicted under that pressure and is surfaced through warnings plus `truncation.limits_hit`.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
 - `completed_span_jsonl_path(...)` writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
-- It is intended for replaying the same retained request/stage/queue evidence through `tailtriage import`, not for trace archival.
-- It does not preserve original tracing span names, span IDs, parent IDs, or non-`tt.*` fields.
+- Completed-span JSONL is retained-evidence replay/debug export for the same request/stage/queue evidence path through `tailtriage import`; it is not a production trace archive.
+- It does not preserve lifecycle warnings, truncation counters, original span IDs, parent IDs, original span names, or non-`tt.*` fields.
+- For production workflows that need the complete persisted triage artifact including warnings/truncation metadata, prefer `run_json_path(...)`.
+- Callers using JSONL-only export should inspect `session.shutdown()?.warnings()` in the same process.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
-- Warnings and lifecycle warnings indicate evidence may be incomplete when limits are hit.
 
 ## Runtime-pressure limitation
 
@@ -181,7 +182,7 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 ## Examples
 
 - `tailtriage-tracing/examples/live_session_to_run.rs`
-- `tailtriage-tracing/examples/completed_span_jsonl_import.rs`
+- `tailtriage-tracing/examples/completed_span_jsonl_export.rs`
 
 
 `TracingTokioSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.

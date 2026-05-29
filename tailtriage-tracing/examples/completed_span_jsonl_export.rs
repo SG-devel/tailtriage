@@ -42,7 +42,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    session.shutdown()?;
+    let imported = session.shutdown()?;
+    for warning in imported.warnings() {
+        eprintln!("warning: {}", warning.message());
+    }
     println!("wrote completed spans to: {}", spans_path.display());
     // Import + analyze with:
     // tailtriage import tracing-json target/tailtriage-examples/completed-spans.jsonl --service checkout-service --output target/tailtriage-examples/run.json
