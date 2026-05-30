@@ -21,7 +21,7 @@ struct Cli {
 
 #[derive(Debug, clap::Subcommand)]
 enum Command {
-    /// Import tracing JSONL spans into a tailtriage run JSON artifact.
+    /// Import completed tailtriage tracing span JSONL into a tailtriage run JSON artifact.
     Import {
         #[command(subcommand)]
         command: ImportCommand,
@@ -48,9 +48,10 @@ enum Command {
 
 #[derive(Debug, clap::Subcommand)]
 enum ImportCommand {
-    /// Import completed `tt.*` tracing span JSONL into Run JSON.
-    TracingJson {
-        /// Path to newline-delimited JSON span records.
+    /// Import completed `tt.*` tailtriage tracing span JSONL into Run JSON.
+    #[command(name = "tracing-spans-jsonl")]
+    TracingSpansJsonl {
+        /// Path to completed tailtriage tracing span JSONL records.
         #[arg(value_name = "SPANS_JSONL")]
         spans_jsonl: PathBuf,
         /// Service name to store in imported run metadata.
@@ -119,7 +120,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Command::Import { command } => match command {
-            ImportCommand::TracingJson {
+            ImportCommand::TracingSpansJsonl {
                 spans_jsonl,
                 service,
                 output,
@@ -131,7 +132,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 max_requests,
                 max_stages,
                 max_queues,
-            } => import_tracing_json(
+            } => import_tracing_spans_jsonl(
                 spans_jsonl,
                 service,
                 &output,
@@ -203,7 +204,7 @@ fn create_output_parent_dir(path: &std::path::Path) -> Result<(), std::io::Error
 }
 
 #[allow(clippy::too_many_arguments)]
-fn import_tracing_json(
+fn import_tracing_spans_jsonl(
     spans_jsonl: PathBuf,
     service: String,
     output: &PathBuf,
@@ -243,7 +244,7 @@ fn import_tracing_json(
             std::io::Error::new(
                 err.kind(),
                 format!(
-                    "failed to inspect tracing JSON input '{}': {err}",
+                    "failed to inspect completed tailtriage tracing span JSONL input '{}': {err}",
                     spans_jsonl.display()
                 ),
             )
@@ -255,7 +256,7 @@ fn import_tracing_json(
     if looks_like_fmt_json {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            tracing_json_setup_guidance(),
+            tracing_spans_jsonl_setup_guidance(),
         )
         .into());
     }
@@ -290,8 +291,8 @@ fn import_tracing_json(
     Ok(())
 }
 
-fn tracing_json_setup_guidance() -> &'static str {
-    "the file looks like ordinary tracing log JSON, not completed tailtriage span JSONL. tailtriage requires completed spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Stable import expects wrapper JSONL records shaped like {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}. Ordinary tracing_subscriber::fmt().json() logs are unsupported. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-json <completed-spans.jsonl> --service <service> --output <run-json>"
+fn tracing_spans_jsonl_setup_guidance() -> &'static str {
+    "the file looks like ordinary tracing log JSON, not completed tailtriage tracing span JSONL. tailtriage requires completed tailtriage tracing spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Stable import expects wrapper JSONL records shaped like {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}. Ordinary tracing_subscriber::fmt().json() logs are unsupported. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run-json>"
 }
 
 fn should_append_wrapper_guidance(input_format: TracingInputFormat, err: &ImportError) -> bool {

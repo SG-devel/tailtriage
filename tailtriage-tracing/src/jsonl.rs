@@ -28,7 +28,7 @@ pub fn import_jsonl_reader<R: Read>(
     import_jsonl_reader_with_mode(reader, options, JsonlParseMode::TailtriageWrapperOnly)
 }
 
-/// Parse mode for tracing JSONL import.
+/// Parse mode for completed tailtriage tracing span JSONL import.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsonlParseMode {
     /// Accept stable wrapper records plus compatibility legacy shapes.
