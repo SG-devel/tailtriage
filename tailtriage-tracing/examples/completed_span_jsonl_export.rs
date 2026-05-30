@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     println!("wrote completed spans to: {}", spans_path.display());
     // Import + analyze with:
-    // tailtriage import tracing-json target/tailtriage-examples/completed-spans.jsonl --service checkout-service --output target/tailtriage-examples/run.json
+    // tailtriage import tracing-spans-jsonl target/tailtriage-examples/completed-spans.jsonl --service checkout-service --output target/tailtriage-examples/run.json
     // tailtriage analyze target/tailtriage-examples/run.json
     Ok(())
 }

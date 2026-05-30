@@ -4,7 +4,7 @@
 
 It helps existing `tracing` users produce standard `tailtriage_core::Run` artifacts by:
 - writing Run JSON on shutdown, and/or
-- writing retained, semantically valid completed-span JSONL on shutdown.
+- writing retained, semantically valid completed tailtriage tracing span JSONL on shutdown.
 
 It is **not**:
 - an observability backend,
@@ -94,12 +94,12 @@ returns a zero-request error when no request is retained. When tracing intake wa
 exist (for example malformed `tt.*` fields), shutdown includes those warning messages in
 the same error to guide setup corrections before rerunning capture.
 
-## Completed-span JSONL path
+## Completed tailtriage tracing span JSONL path
 
 Use `completed_span_jsonl_path(...)` when you want an offline import workflow:
 
 ```bash
-tailtriage import tracing-json target/tailtriage-examples/checkout.spans.jsonl \
+tailtriage import tracing-spans-jsonl target/tailtriage-examples/checkout.spans.jsonl \
   --service checkout-service \
   --output target/tailtriage-examples/checkout.run.json
 
@@ -115,7 +115,7 @@ remains a replay/debug export, not trace archival.
 
 ## Stable JSONL wrapper format
 
-Stable completed-span JSONL records use this wrapper:
+Stable completed tailtriage tracing span JSONL records use this wrapper:
 
 ```json
 {"format":"tailtriage.tracing-span.v1","span":{...}}
@@ -162,15 +162,15 @@ Missing stage `tt.success` defaults to `true` with a warning.
 - Child stage/queue evidence may be dropped or evicted under that pressure and is surfaced through warnings plus `truncation.limits_hit`.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
 - `completed_span_jsonl_path(...)` writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
-- Completed-span JSONL is retained-evidence replay/debug export for the same request/stage/queue evidence path through `tailtriage import`; it is not a production trace archive.
+- Completed tailtriage tracing span JSONL is retained-evidence replay/debug export for the same request/stage/queue evidence path through `tailtriage import`; it is not a production trace archive.
 - It does not preserve lifecycle warnings, truncation counters, original span IDs, parent IDs, original span names, or non-`tt.*` fields.
 - For production workflows that need the complete persisted triage artifact including warnings/truncation metadata, prefer `run_json_path(...)`.
 - Callers using JSONL-only export should inspect `session.shutdown()?.warnings()` in the same process.
-- This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
+- This completed tailtriage tracing span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
 
 ## Runtime-pressure limitation
 
-Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling. Runtime-sensitive tracing contract parity uses deterministic/manual runtime snapshots and requires non-empty runtime snapshots, scenario-specific runtime field evidence, and the explicit disabled-background-sampler lifecycle warning (via `disable_background_sampler()` + `record_runtime_snapshot(...)`). It does not rely on ambient sampler metadata/noise.
+Completed tracing span JSONL import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline completed tailtriage tracing span JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling. Runtime-sensitive tracing contract parity uses deterministic/manual runtime snapshots and requires non-empty runtime snapshots, scenario-specific runtime field evidence, and the explicit disabled-background-sampler lifecycle warning (via `disable_background_sampler()` + `record_runtime_snapshot(...)`). It does not rely on ambient sampler metadata/noise.
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; shutdown fails for persisted-output sessions when zero completed requests are retained. When intake/lifecycle warnings are available, that shutdown error includes warning summaries to help tracing-intake setup triage. In-process library snapshots may still be zero-request for inspection.
 
 For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model. Run metadata time bounds cover merged retained tracing evidence plus retained runtime snapshots, which supports triage interpretation but is not root-cause proof:

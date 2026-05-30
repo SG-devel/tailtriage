@@ -162,11 +162,11 @@ Analyzer configuration contract:
 
 - primary live path is `TracingIntakeSession` / `TracingIntakeSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
 - live session output can write standard Run JSON on shutdown via `run_json_path(...)`
-- live session output can write stable completed-span JSONL on shutdown via `completed_span_jsonl_path(...)`, using retained semantically valid request/stage/queue evidence
-- stable completed-span JSONL wrapper format is:
+- live session output can write stable completed tailtriage tracing span JSONL on shutdown via `completed_span_jsonl_path(...)`, using retained semantically valid request/stage/queue evidence
+- stable completed tailtriage tracing span JSONL wrapper format is:
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:
-  `tailtriage import tracing-json <completed-spans.jsonl> --service <service> --output <run.json>`
+  `tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run.json>`
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
 - request `tt.outcome` is optional; missing defaults to `ok` with a warning, recommended common labels are `ok`/`error`/`timeout`/`cancelled`/`rejected`, and custom non-empty string labels are preserved exactly
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported

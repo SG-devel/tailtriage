@@ -158,7 +158,7 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing import expects completed `tt.*` span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Completed-span JSONL is not a production trace archive and does not preserve warning/truncation context; prefer Run JSON when the artifact itself must carry that context. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps. OTel/OTLP intake remains out of scope on this path.
+`tailtriage import tracing-spans-jsonl` expects completed tailtriage tracing span JSONL with `tt.*` fields, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Completed tailtriage tracing span JSONL is not a production trace archive and does not preserve warning/truncation context; prefer Run JSON when the artifact itself must carry that context. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps. OTel/OTLP intake remains out of scope on this path.
 
 Important limits for production interpretation:
 
