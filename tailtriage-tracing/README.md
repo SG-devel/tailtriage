@@ -99,7 +99,7 @@ the same error to guide setup corrections before rerunning capture.
 Use `completed_span_jsonl_path(...)` when you want an offline import workflow:
 
 ```bash
-tailtriage import tracing-json target/tailtriage-examples/checkout.spans.jsonl \
+tailtriage import tracing-spans-jsonl target/tailtriage-examples/checkout.spans.jsonl \
   --service checkout-service \
   --output target/tailtriage-examples/checkout.run.json
 
@@ -170,7 +170,7 @@ Missing stage `tt.success` defaults to `true` with a warning.
 
 ## Runtime-pressure limitation
 
-Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline tracing JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling. Runtime-sensitive tracing contract parity uses deterministic/manual runtime snapshots and requires non-empty runtime snapshots, scenario-specific runtime field evidence, and the explicit disabled-background-sampler lifecycle warning (via `disable_background_sampler()` + `record_runtime_snapshot(...)`). It does not rely on ambient sampler metadata/noise.
+Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline completed-span JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling. Runtime-sensitive tracing contract parity uses deterministic/manual runtime snapshots and requires non-empty runtime snapshots, scenario-specific runtime field evidence, and the explicit disabled-background-sampler lifecycle warning (via `disable_background_sampler()` + `record_runtime_snapshot(...)`). It does not rely on ambient sampler metadata/noise.
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; shutdown fails for persisted-output sessions when zero completed requests are retained. When intake/lifecycle warnings are available, that shutdown error includes warning summaries to help tracing-intake setup triage. In-process library snapshots may still be zero-request for inspection.
 
 For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model. Run metadata time bounds cover merged retained tracing evidence plus retained runtime snapshots, which supports triage interpretation but is not root-cause proof:

@@ -223,7 +223,7 @@ fn missing_run_json_without_help_flag_fails_clearly() {
 }
 
 #[test]
-fn import_tracing_json_creates_missing_output_parent_directories() {
+fn import_tracing_spans_jsonl_creates_missing_output_parent_directories() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("missing-parent/run.json");
@@ -231,7 +231,7 @@ fn import_tracing_json_creates_missing_output_parent_directories() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -251,7 +251,7 @@ fn import_tracing_json_creates_missing_output_parent_directories() {
 }
 
 #[test]
-fn import_tracing_json_fails_when_output_parent_path_is_not_directory() {
+fn import_tracing_spans_jsonl_fails_when_output_parent_path_is_not_directory() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let invalid_parent = dir.path().join("not-a-dir");
@@ -261,7 +261,7 @@ fn import_tracing_json_fails_when_output_parent_path_is_not_directory() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -281,7 +281,7 @@ fn import_tracing_json_fails_when_output_parent_path_is_not_directory() {
 }
 
 #[test]
-fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
+fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -289,7 +289,7 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -309,7 +309,7 @@ fn import_tracing_json_writes_run_json_analyzable_by_existing_apis() {
 }
 
 #[test]
-fn import_tracing_json_writes_run_json_when_output_path_contains_spaces() {
+fn import_tracing_spans_jsonl_writes_run_json_when_output_path_contains_spaces() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run artifact with spaces.json");
@@ -317,7 +317,7 @@ fn import_tracing_json_writes_run_json_when_output_path_contains_spaces() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -335,14 +335,14 @@ fn import_tracing_json_writes_run_json_when_output_path_contains_spaces() {
 }
 
 #[test]
-fn import_tracing_json_mode_investigation_sets_run_metadata_mode() {
+fn import_tracing_spans_jsonl_mode_investigation_sets_run_metadata_mode() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--mode")
         .arg("investigation")
@@ -358,14 +358,14 @@ fn import_tracing_json_mode_investigation_sets_run_metadata_mode() {
 }
 
 #[test]
-fn import_tracing_json_capture_limit_overrides_apply() {
+fn import_tracing_spans_jsonl_capture_limit_overrides_apply() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, multi_span_jsonl_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -389,14 +389,14 @@ fn import_tracing_json_capture_limit_overrides_apply() {
 }
 
 #[test]
-fn import_tracing_json_rejects_inert_runtime_snapshot_flags() {
+fn import_tracing_spans_jsonl_rejects_inert_runtime_snapshot_flags() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -412,14 +412,14 @@ fn import_tracing_json_rejects_inert_runtime_snapshot_flags() {
 }
 
 #[test]
-fn import_tracing_json_rejects_inert_inflight_snapshot_flags() {
+fn import_tracing_spans_jsonl_rejects_inert_inflight_snapshot_flags() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -446,7 +446,7 @@ fn tailtriage_help_mentions_import_and_analyze_artifacts() {
 }
 
 #[test]
-fn import_tracing_json_input_format_tailtriage_wrapper_only_accepts_fixture() {
+fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixture() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -454,7 +454,7 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_accepts_fixture() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -476,14 +476,14 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_accepts_fixture() {
 }
 
 #[test]
-fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() {
+fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_rejects_unwrapped() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, one_valid_request_span_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -500,14 +500,14 @@ fn import_tracing_json_input_format_tailtriage_wrapper_only_rejects_unwrapped() 
 }
 
 #[test]
-fn import_tracing_json_default_wrapper_mode_rejects_wrong_wrapper_format_with_guidance() {
+fn import_tracing_spans_jsonl_default_wrapper_mode_rejects_wrong_wrapper_format_with_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -521,14 +521,14 @@ fn import_tracing_json_default_wrapper_mode_rejects_wrong_wrapper_format_with_gu
 }
 
 #[test]
-fn import_tracing_json_default_wrapper_mode_semantic_missing_route_no_wrapper_guidance() {
+fn import_tracing_spans_jsonl_default_wrapper_mode_semantic_missing_route_no_wrapper_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1"}}}"#).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -544,14 +544,15 @@ fn import_tracing_json_default_wrapper_mode_semantic_missing_route_no_wrapper_gu
 }
 
 #[test]
-fn import_tracing_json_default_wrapper_mode_semantic_invalid_kind_type_no_wrapper_guidance() {
+fn import_tracing_spans_jsonl_default_wrapper_mode_semantic_invalid_kind_type_no_wrapper_guidance()
+{
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":1,"tt.request_id":"r1","tt.route":"/a"}}}"#).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -567,13 +568,14 @@ fn import_tracing_json_default_wrapper_mode_semantic_invalid_kind_type_no_wrappe
 }
 
 #[test]
-fn import_tracing_json_default_wrapper_mode_missing_input_does_not_append_wrapper_guidance() {
+fn import_tracing_spans_jsonl_default_wrapper_mode_missing_input_does_not_append_wrapper_guidance()
+{
     let dir = tempfile::tempdir().expect("tempdir should build");
     let missing_spans_path = dir.path().join("missing-spans.jsonl");
     let run_path = dir.path().join("run.json");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&missing_spans_path)
         .arg("--service")
         .arg("checkout")
@@ -589,14 +591,15 @@ fn import_tracing_json_default_wrapper_mode_missing_input_does_not_append_wrappe
 }
 
 #[test]
-fn import_tracing_json_default_wrapper_mode_malformed_json_does_not_append_wrapper_guidance() {
+fn import_tracing_spans_jsonl_default_wrapper_mode_malformed_json_does_not_append_wrapper_guidance()
+{
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("bad.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, "{\"format\":").expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -612,7 +615,7 @@ fn import_tracing_json_default_wrapper_mode_malformed_json_does_not_append_wrapp
 }
 
 #[test]
-fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
+fn import_tracing_spans_jsonl_default_rejects_fmt_json_with_guidance() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("fmt.jsonl");
     let run_path = dir.path().join("run.json");
@@ -629,7 +632,7 @@ fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -647,7 +650,8 @@ fn import_tracing_json_default_rejects_fmt_json_with_guidance() {
 }
 
 #[test]
-fn import_tracing_json_compatible_rejects_fmt_like_record_with_top_level_explicit_timestamps() {
+fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_top_level_explicit_timestamps(
+) {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
@@ -658,7 +662,7 @@ fn import_tracing_json_compatible_rejects_fmt_like_record_with_top_level_explici
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -678,7 +682,7 @@ fn import_tracing_json_compatible_rejects_fmt_like_record_with_top_level_explici
 }
 
 #[test]
-fn import_tracing_json_compatible_rejects_fmt_like_record_with_nested_explicit_timestamps() {
+fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_nested_explicit_timestamps() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
@@ -689,7 +693,7 @@ fn import_tracing_json_compatible_rejects_fmt_like_record_with_nested_explicit_t
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -709,10 +713,10 @@ fn import_tracing_json_compatible_rejects_fmt_like_record_with_nested_explicit_t
 }
 
 #[test]
-fn import_tracing_json_help_shows_only_live_input_format_values() {
+fn import_tracing_spans_jsonl_help_shows_only_live_input_format_values() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg("--help")
         .output()
         .expect("cli should run");
@@ -724,14 +728,14 @@ fn import_tracing_json_help_shows_only_live_input_format_values() {
 }
 
 #[test]
-fn import_tracing_json_auto_is_rejected() {
+fn import_tracing_spans_jsonl_auto_is_rejected() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -745,7 +749,7 @@ fn import_tracing_json_auto_is_rejected() {
 }
 
 #[test]
-fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
+fn import_tracing_spans_jsonl_strict_fails_on_incomplete_tailtriage_span() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -754,7 +758,7 @@ fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -776,8 +780,8 @@ fn import_tracing_json_strict_fails_on_incomplete_tailtriage_span() {
 }
 
 #[test]
-fn import_tracing_json_strict_with_max_requests_keeps_retained_request_and_skips_overflow_children()
-{
+fn import_tracing_spans_jsonl_strict_with_max_requests_keeps_retained_request_and_skips_overflow_children(
+) {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -798,7 +802,7 @@ fn import_tracing_json_strict_with_max_requests_keeps_retained_request_and_skips
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -830,7 +834,7 @@ fn import_tracing_json_strict_with_max_requests_keeps_retained_request_and_skips
 }
 
 #[test]
-fn import_tracing_json_strict_with_max_requests_fails_on_invalid_overflow_stage() {
+fn import_tracing_spans_jsonl_strict_with_max_requests_fails_on_invalid_overflow_stage() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -847,7 +851,7 @@ fn import_tracing_json_strict_with_max_requests_fails_on_invalid_overflow_stage(
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -870,7 +874,7 @@ fn import_tracing_json_strict_with_max_requests_fails_on_invalid_overflow_stage(
 }
 
 #[test]
-fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
+fn import_tracing_spans_jsonl_non_strict_writes_output_and_emits_warning_to_stderr() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -882,7 +886,7 @@ fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -905,7 +909,7 @@ fn import_tracing_json_non_strict_writes_output_and_emits_warning_to_stderr() {
 }
 
 #[test]
-fn import_tracing_json_writes_metadata_flags_into_run_json() {
+fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -913,7 +917,7 @@ fn import_tracing_json_writes_metadata_flags_into_run_json() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -940,7 +944,7 @@ fn import_tracing_json_writes_metadata_flags_into_run_json() {
 }
 
 #[test]
-fn import_tracing_json_accepts_paths_with_spaces() {
+fn import_tracing_spans_jsonl_accepts_paths_with_spaces() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("tracing spans.jsonl");
     let run_path = dir.path().join("imported run.json");
@@ -948,7 +952,7 @@ fn import_tracing_json_accepts_paths_with_spaces() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -968,14 +972,14 @@ fn import_tracing_json_accepts_paths_with_spaces() {
 }
 
 #[test]
-fn import_tracing_json_rejects_whitespace_service_name() {
+fn import_tracing_spans_jsonl_rejects_whitespace_service_name() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, one_valid_request_span_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg(" ")
@@ -990,14 +994,14 @@ fn import_tracing_json_rejects_whitespace_service_name() {
 }
 
 #[test]
-fn import_tracing_json_fails_when_only_unrelated_lines_are_present() {
+fn import_tracing_spans_jsonl_fails_when_only_unrelated_lines_are_present() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"plain","started_at_unix_ms":1,"finished_at_unix_ms":2}}"#).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1013,14 +1017,14 @@ fn import_tracing_json_fails_when_only_unrelated_lines_are_present() {
 }
 
 #[test]
-fn import_tracing_json_fails_when_non_strict_skips_all_malformed_tt_spans() {
+fn import_tracing_spans_jsonl_fails_when_non_strict_skips_all_malformed_tt_spans() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, malformed_tailtriage_span_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1036,7 +1040,7 @@ fn import_tracing_json_fails_when_non_strict_skips_all_malformed_tt_spans() {
 }
 
 #[test]
-fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
+fn import_tracing_spans_jsonl_fails_when_only_tt_spans_are_missing_kind() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1044,7 +1048,7 @@ fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
         .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1063,7 +1067,7 @@ fn import_tracing_json_fails_when_only_tt_spans_are_missing_kind() {
 }
 
 #[test]
-fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
+fn import_tracing_spans_jsonl_warns_for_tt_fields_missing_kind_and_still_writes_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1071,7 +1075,7 @@ fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
         .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1102,7 +1106,7 @@ fn import_tracing_json_warns_for_tt_fields_missing_kind_and_still_writes_run() {
 }
 
 #[test]
-fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
+fn import_tracing_spans_jsonl_persists_unknown_kind_warning_in_run_artifact() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1110,7 +1114,7 @@ fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
         .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1141,14 +1145,14 @@ fn import_tracing_json_persists_unknown_kind_warning_in_run_artifact() {
 }
 
 #[test]
-fn import_tracing_json_persists_optional_default_assumption_warnings_in_run_artifact() {
+fn import_tracing_spans_jsonl_persists_optional_default_assumption_warnings_in_run_artifact() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, missing_optional_defaults_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1188,7 +1192,7 @@ fn import_tracing_json_persists_optional_default_assumption_warnings_in_run_arti
 }
 
 #[test]
-fn import_tracing_json_whitespace_outcome_non_strict_warns_and_fails_zero_request() {
+fn import_tracing_spans_jsonl_whitespace_outcome_non_strict_warns_and_fails_zero_request() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1196,7 +1200,7 @@ fn import_tracing_json_whitespace_outcome_non_strict_warns_and_fails_zero_reques
         .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1213,7 +1217,7 @@ fn import_tracing_json_whitespace_outcome_non_strict_warns_and_fails_zero_reques
 }
 
 #[test]
-fn import_tracing_json_whitespace_outcome_strict_fails_with_message() {
+fn import_tracing_spans_jsonl_whitespace_outcome_strict_fails_with_message() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1221,7 +1225,7 @@ fn import_tracing_json_whitespace_outcome_strict_fails_with_message() {
         .expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
@@ -1237,14 +1241,14 @@ fn import_tracing_json_whitespace_outcome_strict_fails_with_message() {
 }
 
 #[test]
-fn import_tracing_json_valid_outcomes_import_successfully() {
+fn import_tracing_spans_jsonl_valid_outcomes_import_successfully() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(&spans_path, valid_outcomes_fixture()).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
-        .arg("tracing-json")
+        .arg("tracing-spans-jsonl")
         .arg(&spans_path)
         .arg("--service")
         .arg("checkout")
