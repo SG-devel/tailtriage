@@ -11,6 +11,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build()?;
 
     let subscriber = tracing_subscriber::registry().with(session.layer());
+    // Scoped/local example usage: services should install the layer in their
+    // normal process-wide subscriber setup during startup.
     tracing::subscriber::with_default(subscriber, || {
         let request = tracing::info_span!(
             "http.request",
