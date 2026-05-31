@@ -252,14 +252,14 @@ impl TracingIntakeSession {
     ///
     /// tracing_subscriber::registry().with(session.layer()).init();
     ///
-    /// let span = tracing::info_span!(
-    ///     "request",
-    ///     tt.kind = "request",
-    ///     tt.request_id = "r1",
-    ///     tt.route = "/checkout"
-    /// );
     /// {
-    ///     let _guard = span.enter();
+    ///     let _guard = tracing::info_span!(
+    ///         "request",
+    ///         tt.kind = "request",
+    ///         tt.request_id = "r1",
+    ///         tt.route = "/checkout"
+    ///     )
+    ///     .entered();
     ///     // measured work goes here
     /// }
     ///
@@ -2855,6 +2855,70 @@ mod tests {
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));
         });
+    }
+
+    #[test]
+    fn session_shutdown_succeeds_when_request_span_handle_is_dropped_before_shutdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+
+        tracing::subscriber::with_default(subscriber, || {
+            let _request_guard = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a",
+                tt.outcome = "ok"
+            )
+            .entered();
+        });
+
+        session.shutdown().unwrap();
+        assert!(run_path.exists());
+    }
+
+    #[test]
+    fn session_shutdown_rejects_open_request_span_for_persisted_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a",
+                tt.outcome = "ok"
+            );
+            {
+                let _request_guard = span.enter();
+            }
+
+            let err = session.shutdown().unwrap_err();
+            assert!(matches!(
+                err,
+                ImportError::ZeroRequestArtifact { .. }
+                    | ImportError::ZeroRequestArtifactWithWarnings { .. }
+            ));
+            let message = err.to_string();
+            assert!(
+                message.contains("tracing import produced zero request events")
+                    || message.contains("open candidate spans")
+                    || message.contains("open candidate span(s)")
+            );
+            drop(span);
+        });
+        assert!(!run_path.exists());
     }
 
     #[test]
