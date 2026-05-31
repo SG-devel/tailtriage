@@ -217,6 +217,14 @@ fn import_tracing_spans_jsonl(
     max_stages: Option<usize>,
     max_queues: Option<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if max_requests == Some(0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "--max-requests must be at least 1 for persisted tracing import; tailtriage analyze requires at least one request event",
+        )
+        .into());
+    }
+
     let mut options = ImportOptions::new(service).strict(strict).mode(mode.into());
     if let Some(service_version) = service_version {
         options = options.service_version(service_version);
