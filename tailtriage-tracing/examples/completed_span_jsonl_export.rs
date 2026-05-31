@@ -14,14 +14,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // should install the tailtriage layer in the process-wide subscriber setup.
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
-        let request = tracing::info_span!(
+        let _request_guard = tracing::info_span!(
             "http.request",
             tt.kind = "request",
             tt.request_id = "req-1",
             tt.route = "/checkout",
             tt.outcome = "ok"
-        );
-        let _request_guard = request.enter();
+        )
+        .entered();
         {
             let _queue_guard = tracing::info_span!(
                 "admission.queue",
