@@ -224,6 +224,13 @@ fn import_tracing_spans_jsonl(
     if let Some(run_id) = run_id {
         options = options.run_id(run_id);
     }
+    if max_requests == Some(0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "--max-requests must be at least 1 for persisted tracing import; tailtriage analyze requires at least one request event",
+        )
+        .into());
+    }
     let mut capture_limits_override = CaptureLimitsOverride::default();
     if let Some(max_requests) = max_requests {
         capture_limits_override.max_requests = Some(max_requests);

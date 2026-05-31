@@ -389,6 +389,70 @@ fn import_tracing_spans_jsonl_capture_limit_overrides_apply() {
 }
 
 #[test]
+fn import_tracing_spans_jsonl_rejects_zero_max_requests() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-spans-jsonl")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-requests")
+        .arg("0")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("--max-requests"));
+    assert!(stderr.contains("at least 1"));
+    assert!(stderr.contains("persisted tracing import"));
+    assert!(stderr.contains("tailtriage analyze requires at least one request event"));
+    assert!(!run_path.exists(), "run artifact should not be written");
+}
+
+#[test]
+fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, request_stage_queue_wrapper_jsonl_fixture())
+        .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-spans-jsonl")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-stages")
+        .arg("0")
+        .arg("--max-queues")
+        .arg("0")
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported run should load in cli loader");
+    assert!(!loaded.run.requests.is_empty());
+    assert_eq!(loaded.run.stages.len(), 0);
+    assert_eq!(loaded.run.queues.len(), 0);
+}
+
+#[test]
 fn import_tracing_spans_jsonl_rejects_inert_runtime_snapshot_flags() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
@@ -1303,6 +1367,13 @@ fn valid_cli_artifact_with_empty_requests() -> &'static str {
 
 fn complete_span_jsonl_fixture() -> &'static str {
     include_str!("../../tailtriage-tracing/tests/fixtures/tailtriage-span-v1.jsonl")
+}
+
+fn request_stage_queue_wrapper_jsonl_fixture() -> &'static str {
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1100,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"db","started_at_unix_ms":1020,"finished_at_unix_ms":1080,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"permits","started_at_unix_ms":1030,"finished_at_unix_ms":1040,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"permits"}}}
+"#
 }
 
 fn incomplete_tailtriage_span_fixture() -> &'static str {
