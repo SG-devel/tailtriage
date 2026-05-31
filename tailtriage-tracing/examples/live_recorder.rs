@@ -16,14 +16,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let subscriber = tracing_subscriber::registry().with(recorder.layer());
 
     tracing::subscriber::with_default(subscriber, || {
-        let request = tracing::info_span!(
+        let _request_entered = tracing::info_span!(
             "http.request",
             tt.kind = "request",
             tt.request_id = "req-1",
             tt.route = "/checkout",
             tt.outcome = "ok"
-        );
-        let _request_entered = request.enter();
+        )
+        .entered();
 
         {
             let queue = tracing::info_span!(
