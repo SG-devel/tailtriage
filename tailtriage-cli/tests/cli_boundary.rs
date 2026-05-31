@@ -389,6 +389,69 @@ fn import_tracing_spans_jsonl_capture_limit_overrides_apply() {
 }
 
 #[test]
+fn import_tracing_spans_jsonl_rejects_zero_max_requests() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-spans-jsonl")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-requests")
+        .arg("0")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--max-requests"));
+    assert!(stderr.contains("at least 1"));
+    assert!(stderr.contains("persisted tracing import"));
+    assert!(stderr.contains("tailtriage analyze requires at least one request event"));
+    assert!(!run_path.exists());
+}
+
+#[test]
+fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(&spans_path, complete_span_jsonl_fixture()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-spans-jsonl")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-stages")
+        .arg("0")
+        .arg("--max-queues")
+        .arg("0")
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+
+    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+        .expect("imported request-only run should load in cli loader");
+    assert!(!loaded.run.requests.is_empty());
+    assert!(loaded.run.stages.is_empty());
+    assert!(loaded.run.queues.is_empty());
+}
+
+#[test]
 fn import_tracing_spans_jsonl_rejects_inert_runtime_snapshot_flags() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
