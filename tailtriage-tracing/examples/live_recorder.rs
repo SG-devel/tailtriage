@@ -11,6 +11,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .strict(false)
         .build()?;
 
+    // This standalone example uses a scoped local subscriber; service startup
+    // should install the tailtriage layer in the process-wide subscriber setup.
     let subscriber = tracing_subscriber::registry().with(recorder.layer());
 
     tracing::subscriber::with_default(subscriber, || {
