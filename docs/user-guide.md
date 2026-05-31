@@ -77,14 +77,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::registry()
         .with(session.layer())
         .init(); // startup-only: global subscriber installation for this process
-    let span = tracing::info_span!(
-        "request",
-        tt.kind = "request",
-        tt.request_id = "req-1",
-        tt.route = "/checkout",
-        tt.outcome = "ok",
-    );
-    work().instrument(span).await;
+    {
+        let span = tracing::info_span!(
+            "request",
+            tt.kind = "request",
+            tt.request_id = "req-1",
+            tt.route = "/checkout",
+            tt.outcome = "ok",
+        );
+        work().instrument(span).await;
+    } // the request span is closed before shutdown
     let imported = session.shutdown()?;
     let _ = imported;
     Ok(())
