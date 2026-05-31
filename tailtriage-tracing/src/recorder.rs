@@ -728,13 +728,12 @@ where
                 record_incomplete_candidate_issue(&mut state, &open, kind, reason);
                 return;
             }
-            let mut record = SpanRecord::new(
-                open.name,
-                open.started_at_unix_ms,
-                tailtriage_core::unix_time_ms(),
-            );
             let duration_us =
                 u64::try_from(open.started_instant.elapsed().as_micros()).unwrap_or(u64::MAX);
+            let finished_at_unix_ms =
+                finish_unix_ms_from_started_and_duration(open.started_at_unix_ms, duration_us);
+            let mut record =
+                SpanRecord::new(open.name, open.started_at_unix_ms, finished_at_unix_ms);
             record = record.duration_us(duration_us);
             if let Some(span_id) = open.id {
                 record = record.id(span_id);
@@ -754,6 +753,11 @@ where
             );
         }
     }
+}
+
+fn finish_unix_ms_from_started_and_duration(started_at_unix_ms: u64, duration_us: u64) -> u64 {
+    let elapsed_ms = duration_us.saturating_add(999) / 1000;
+    started_at_unix_ms.saturating_add(elapsed_ms)
 }
 
 fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
@@ -1263,6 +1267,77 @@ mod tests {
             .build()
             .expect("collector")
             .snapshot()
+    }
+
+    #[test]
+    fn finish_unix_ms_from_started_and_duration_rounds_up_and_saturates() {
+        assert_eq!(finish_unix_ms_from_started_and_duration(42, 0), 42);
+        assert_eq!(finish_unix_ms_from_started_and_duration(42, 1), 43);
+        assert_eq!(finish_unix_ms_from_started_and_duration(42, 999), 43);
+        assert_eq!(finish_unix_ms_from_started_and_duration(42, 1000), 43);
+        assert_eq!(finish_unix_ms_from_started_and_duration(42, 1001), 44);
+        assert_eq!(
+            finish_unix_ms_from_started_and_duration(u64::MAX - 1, 1001),
+            u64::MAX
+        );
+        assert_eq!(
+            finish_unix_ms_from_started_and_duration(0, u64::MAX),
+            u64::MAX / 1000
+        );
+    }
+
+    #[test]
+    fn strict_snapshot_run_succeeds_for_completed_live_request_span() {
+        let recorder = TracingRecorder::builder("svc")
+            .run_id("rid")
+            .strict(true)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span);
+        });
+
+        let run = recorder.snapshot_run().unwrap();
+        assert_eq!(run.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn completed_live_request_uses_positive_elapsed_latency_for_finish_time() {
+        let recorder = TracingRecorder::builder("svc")
+            .run_id("rid")
+            .strict(true)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            drop(span);
+        });
+
+        let run = recorder.snapshot_run().unwrap();
+        let request = &run.run().requests[0];
+        assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
+        assert!(request.latency_us > 0);
+        assert_eq!(
+            request.finished_at_unix_ms,
+            finish_unix_ms_from_started_and_duration(
+                request.started_at_unix_ms,
+                request.latency_us
+            )
+        );
     }
 
     #[test]
