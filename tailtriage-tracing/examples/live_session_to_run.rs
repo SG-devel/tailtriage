@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .run_json_path(&run_path)
         .build()?;
 
+    // Example-local scoped subscriber; service startup should install the layer globally.
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
         let request = tracing::info_span!(

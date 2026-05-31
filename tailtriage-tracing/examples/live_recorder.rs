@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .strict(false)
         .build()?;
 
+    // Example-local scoped subscriber; service startup should install the layer globally.
     let subscriber = tracing_subscriber::registry().with(recorder.layer());
 
     tracing::subscriber::with_default(subscriber, || {
