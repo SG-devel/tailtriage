@@ -10,6 +10,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .run_json_path(&run_path)
         .build()?;
 
+    // This runnable example uses `with_default` as a scoped/local harness.
+    // Services should install the layer in process-wide startup subscriber setup.
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
         let request = tracing::info_span!(
