@@ -62,6 +62,7 @@ pub struct TracingRecorderBuilder {
 pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
     limits: RecorderLimits,
+    semantic_max_requests: usize,
 }
 /// Default maximum number of concurrently tracked open candidate spans.
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
@@ -171,6 +172,7 @@ impl TracingRecorder {
         TailtriageLayer {
             state: Arc::clone(&self.state),
             limits: self.limits,
+            semantic_max_requests: self.options.resolved_capture_limits().max_requests,
         }
     }
 
@@ -748,6 +750,7 @@ where
                 record,
                 kind,
                 self.limits,
+                self.semantic_max_requests,
             );
         }
     }
@@ -770,6 +773,7 @@ fn push_completed_candidate_with_kind_aware_retention(
     record: SpanRecord,
     kind: &str,
     limits: RecorderLimits,
+    semantic_max_requests: usize,
 ) {
     let total = state.completed_requests.len()
         + state.completed_stages.len()
@@ -781,7 +785,10 @@ fn push_completed_candidate_with_kind_aware_retention(
 
     match kind {
         "request" => {
-            if !state.completed_queues.is_empty() {
+            if state.completed_requests.len() >= semantic_max_requests {
+                state.dropped_completed_request_candidates =
+                    state.dropped_completed_request_candidates.saturating_add(1);
+            } else if !state.completed_queues.is_empty() {
                 state.completed_queues.pop();
                 state.evicted_child_candidates_to_preserve_request = state
                     .evicted_child_candidates_to_preserve_request
@@ -986,7 +993,7 @@ fn push_strict_recorder_messages(
     }
     if stats.dropped_completed_request_candidates > 0 {
         messages.push(format!(
-            "live recorder dropped {} completed request candidate span(s) because max_completed_candidate_spans={} was reached and no child candidate was available to evict",
+            "live recorder dropped {} completed request candidate span(s) because max_completed_candidate_spans={} was reached and the request could not survive semantic request retention or no child candidate was available to evict",
             stats.dropped_completed_request_candidates, limits.max_completed_candidate_spans
         ));
     }
@@ -1082,7 +1089,7 @@ fn append_non_strict_drop_warnings(
     }
     if stats.dropped_completed_request_candidates > 0 {
         let msg = format!(
-            "live recorder dropped {} completed request candidate span(s) because max_completed_candidate_spans={} was reached and no child candidate was available to evict",
+            "live recorder dropped {} completed request candidate span(s) because max_completed_candidate_spans={} was reached and the request could not survive semantic request retention or no child candidate was available to evict",
             stats.dropped_completed_request_candidates, limits.max_completed_candidate_spans
         );
         run.metadata.lifecycle_warnings.push(msg.clone());
@@ -1789,6 +1796,125 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn raw_cap_does_not_evict_retained_request_child_for_later_unretained_request() {
+        let recorder = TracingRecorder::builder("svc")
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(1),
+                max_stages: Some(10),
+                max_queues: Some(10),
+                ..Default::default()
+            })
+            .max_completed_candidate_spans(2)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-r1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/r1"
+            );
+            let request_guard = request.enter();
+            drop(tracing::info_span!(
+                "stage-r1",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+            drop(request_guard);
+            drop(request);
+            drop(tracing::info_span!(
+                "request-r2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/r2"
+            ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.requests[0].request_id, "r1");
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.stages[0].request_id, "r1");
+        assert_eq!(run.stages[0].stage, "db");
+        assert!(!run
+            .requests
+            .iter()
+            .any(|request| request.request_id == "r2"));
+        assert!(run.truncation.limits_hit);
+        assert_eq!(run.truncation.dropped_requests, 0);
+        assert!(imported.warnings().iter().any(|warning| {
+            warning
+                .message()
+                .contains("dropped 1 completed request candidate span")
+        }));
+        assert!(imported.warnings().iter().any(|warning| {
+            warning
+                .message()
+                .contains("could not survive semantic request retention")
+        }));
+    }
+
+    #[test]
+    fn raw_cap_still_preserves_request_root_when_within_semantic_request_limit() {
+        let recorder = TracingRecorder::builder("svc")
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(2),
+                max_stages: Some(10),
+                max_queues: Some(10),
+                ..Default::default()
+            })
+            .max_completed_candidate_spans(2)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request-r1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/r1"
+            );
+            let request_guard = request.enter();
+            drop(tracing::info_span!(
+                "stage-r1",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+            drop(request_guard);
+            drop(request);
+            drop(tracing::info_span!(
+                "request-r2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/r2"
+            ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 2);
+        assert!(run
+            .requests
+            .iter()
+            .any(|request| request.request_id == "r1"));
+        assert!(run
+            .requests
+            .iter()
+            .any(|request| request.request_id == "r2"));
+        assert!(run.stages.is_empty());
+        assert!(run.truncation.limits_hit);
+        assert!(imported.warnings().iter().any(|warning| {
+            warning
+                .message()
+                .contains("evicted 1 completed child candidate span")
+        }));
     }
 
     #[test]
