@@ -12,6 +12,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .disable_background_sampler()
         .start()?;
 
+    // This standalone example uses a scoped local subscriber; service startup
+    // should install the tailtriage layer in the process-wide subscriber setup.
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
         let _request_guard = tracing::info_span!(
