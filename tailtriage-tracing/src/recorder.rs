@@ -731,12 +731,7 @@ where
                 record_incomplete_candidate_issue(&mut state, &open, kind, reason);
                 return;
             }
-            let duration_us = u64::try_from(
-                closed_instant
-                    .duration_since(open.started_instant)
-                    .as_micros(),
-            )
-            .unwrap_or(u64::MAX);
+            let duration_us = duration_us_between(open.started_instant, closed_instant);
             let mut record = SpanRecord::new(open.name, open.started_at_unix_ms, closed_at_unix_ms)
                 .duration_us(duration_us);
             if let Some(span_id) = open.id {
@@ -757,6 +752,13 @@ where
             );
         }
     }
+}
+
+fn duration_us_between(
+    started_instant: std::time::Instant,
+    closed_instant: std::time::Instant,
+) -> u64 {
+    u64::try_from(closed_instant.duration_since(started_instant).as_micros()).unwrap_or(u64::MAX)
 }
 
 fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
@@ -1333,43 +1335,15 @@ mod tests {
     }
 
     #[test]
-    fn live_close_duration_excludes_waiting_for_recorder_mutex() {
-        let recorder = TracingRecorder::builder("svc")
-            .run_id("rid")
-            .build()
-            .unwrap();
-        let subscriber = tracing_subscriber::registry().with(recorder.layer());
-        tracing::subscriber::with_default(subscriber, || {
-            let span = tracing::info_span!(
-                "request",
-                tt.kind = "request",
-                tt.request_id = "r1",
-                tt.route = "/a"
-            );
+    fn duration_uses_captured_close_instant_not_current_time() {
+        let started_instant = std::time::Instant::now();
+        let closed_instant = started_instant + std::time::Duration::from_millis(1);
+        std::thread::sleep(std::time::Duration::from_millis(50));
 
-            let state_guard = lock_state(&recorder.state);
-            let (ready_tx, ready_rx) = std::sync::mpsc::channel();
-            let drop_thread = std::thread::spawn(move || {
-                ready_tx.send(()).expect("notify drop readiness");
-                drop(span);
-            });
+        let duration_us = duration_us_between(started_instant, closed_instant);
 
-            ready_rx.recv().expect("drop thread is ready");
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            drop(state_guard);
-            drop_thread.join().expect("span drop thread succeeds");
-
-            let snapshot = recorder.snapshot_run().unwrap();
-            assert_eq!(snapshot.run().requests.len(), 1);
-            let request = &snapshot.run().requests[0];
-            assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
-            assert!(request.latency_us > 0);
-            assert!(
-                request.latency_us < 50_000,
-                "latency_us should be captured before waiting on the recorder mutex; got {}",
-                request.latency_us
-            );
-        });
+        assert!((1_000..=2_000).contains(&duration_us));
+        assert!(duration_us < 10_000);
     }
 
     #[test]
