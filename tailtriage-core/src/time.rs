@@ -1,4 +1,39 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IntervalStart {
+    pub(crate) started_at_unix_ms: u64,
+    pub(crate) started: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FinishedInterval {
+    pub(crate) started_at_unix_ms: u64,
+    pub(crate) finished_at_unix_ms: u64,
+    pub(crate) duration_us: u64,
+}
+
+pub(crate) fn start_interval() -> IntervalStart {
+    IntervalStart {
+        started_at_unix_ms: unix_time_ms(),
+        started: Instant::now(),
+    }
+}
+
+pub(crate) fn finish_interval(start: IntervalStart) -> FinishedInterval {
+    let finished_at_unix_ms = unix_time_ms();
+    let duration_us = duration_to_us(start.started.elapsed());
+
+    FinishedInterval {
+        started_at_unix_ms: start.started_at_unix_ms,
+        finished_at_unix_ms,
+        duration_us,
+    }
+}
+
+pub(crate) fn duration_to_us(duration: Duration) -> u64 {
+    duration.as_micros().try_into().unwrap_or(u64::MAX)
+}
 
 /// Converts a [`Duration`] since [`UNIX_EPOCH`] to unix epoch milliseconds,
 /// saturating at [`u64::MAX`].
@@ -27,7 +62,10 @@ pub fn unix_time_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{duration_to_unix_ms, system_time_to_unix_ms};
+    use super::{
+        duration_to_unix_ms, duration_to_us, finish_interval, start_interval,
+        system_time_to_unix_ms,
+    };
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -51,5 +89,24 @@ mod tests {
             system_time_to_unix_ms(SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
             1_000
         );
+    }
+
+    #[test]
+    fn duration_to_us_saturates_on_overflow() {
+        let overflow_duration = Duration::from_micros(u64::MAX)
+            .checked_add(Duration::from_micros(1))
+            .expect("overflow test duration should be representable");
+        assert_eq!(duration_to_us(overflow_duration), u64::MAX);
+        assert_eq!(duration_to_us(Duration::from_micros(123)), 123);
+    }
+
+    #[test]
+    fn finish_interval_preserves_timestamp_ordering() {
+        let start = start_interval();
+        std::thread::sleep(Duration::from_millis(1));
+        let finished = finish_interval(start);
+
+        assert!(finished.finished_at_unix_ms >= finished.started_at_unix_ms);
+        assert!(finished.duration_us > 0);
     }
 }
