@@ -2,6 +2,7 @@ use std::future::ready;
 #[cfg(debug_assertions)]
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::{
     BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, EffectiveTokioSamplerConfig,
@@ -122,6 +123,39 @@ fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
     assert_eq!(snapshot.requests.len(), 2);
     assert_eq!(snapshot.requests[0].request_id, "req-duplicate");
     assert_eq!(snapshot.requests[1].request_id, "req-duplicate");
+}
+
+#[test]
+fn request_stage_and_queue_timers_record_ordered_positive_durations() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-positive-timers.json");
+    let started =
+        tailtriage.begin_request_with("/invoice", RequestOptions::new().request_id("req-timing"));
+    let request = started.handle;
+
+    futures_executor::block_on(request.queue("permit").await_on(async {
+        std::thread::sleep(Duration::from_millis(1));
+    }));
+    futures_executor::block_on(request.stage("persist").await_value(async {
+        std::thread::sleep(Duration::from_millis(1));
+    }));
+    std::thread::sleep(Duration::from_millis(1));
+    started.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    let request = snapshot
+        .requests
+        .first()
+        .expect("request should be recorded");
+    assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
+    assert!(request.latency_us > 0);
+
+    let stage = snapshot.stages.first().expect("stage should be recorded");
+    assert!(stage.finished_at_unix_ms >= stage.started_at_unix_ms);
+    assert!(stage.latency_us > 0);
+
+    let queue = snapshot.queues.first().expect("queue should be recorded");
+    assert!(queue.waited_until_unix_ms >= queue.waited_from_unix_ms);
+    assert!(queue.wait_us > 0);
 }
 
 #[test]
