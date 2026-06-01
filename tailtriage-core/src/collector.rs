@@ -3,9 +3,9 @@ use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use crate::config::Config;
+use crate::time::{finish_interval, start_interval, FinishedInterval, IntervalStart};
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
@@ -97,8 +97,7 @@ struct PendingRequest {
     request_id: String,
     route: String,
     kind: Option<String>,
-    started_at_unix_ms: u64,
-    started: Instant,
+    interval_start: IntervalStart,
 }
 
 impl std::fmt::Debug for Tailtriage {
@@ -196,6 +195,7 @@ pub struct OwnedRequestHandle {
 pub struct RequestCompletion<'a> {
     tailtriage: &'a Tailtriage,
     pending_key: u64,
+    interval_start: IntervalStart,
     finished: bool,
 }
 
@@ -208,6 +208,7 @@ pub struct RequestCompletion<'a> {
 pub struct OwnedRequestCompletion {
     tailtriage: Arc<Tailtriage>,
     pending_key: u64,
+    interval_start: IntervalStart,
     finished: bool,
 }
 
@@ -292,7 +293,8 @@ impl Tailtriage {
         route: impl Into<String>,
         options: RequestOptions,
     ) -> StartedRequest<'_> {
-        let (request_id, route, kind, pending_key) = self.start_request(route.into(), options);
+        let (request_id, route, kind, pending_key, interval_start) =
+            self.start_request(route.into(), options);
 
         StartedRequest {
             handle: RequestHandle {
@@ -304,6 +306,7 @@ impl Tailtriage {
             completion: RequestCompletion {
                 tailtriage: self,
                 pending_key,
+                interval_start,
                 finished: false,
             },
         }
@@ -325,7 +328,8 @@ impl Tailtriage {
         route: impl Into<String>,
         options: RequestOptions,
     ) -> OwnedStartedRequest {
-        let (request_id, route, kind, pending_key) = self.start_request(route.into(), options);
+        let (request_id, route, kind, pending_key, interval_start) =
+            self.start_request(route.into(), options);
 
         OwnedStartedRequest {
             handle: OwnedRequestHandle {
@@ -337,6 +341,7 @@ impl Tailtriage {
             completion: OwnedRequestCompletion {
                 tailtriage: Arc::clone(self),
                 pending_key,
+                interval_start,
                 finished: false,
             },
         }
@@ -593,22 +598,22 @@ impl Tailtriage {
         &self,
         route: String,
         options: RequestOptions,
-    ) -> (String, String, Option<String>, u64) {
+    ) -> (String, String, Option<String>, u64, IntervalStart) {
         let request_id = options
             .request_id
             .unwrap_or_else(|| generate_request_id(&route));
         let pending_key = PENDING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let kind = options.kind;
+        let interval_start = start_interval();
         let pending = PendingRequest {
             request_id: request_id.clone(),
             route: route.clone(),
             kind: kind.clone(),
-            started_at_unix_ms: unix_time_ms(),
-            started: Instant::now(),
+            interval_start,
         };
         lock_pending(&self.pending_requests).insert(pending_key, pending);
 
-        (request_id, route, kind, pending_key)
+        (request_id, route, kind, pending_key, interval_start)
     }
 }
 
@@ -703,6 +708,7 @@ impl RequestCompletion<'_> {
             return;
         }
 
+        let finished = finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             debug_assert!(
@@ -714,15 +720,10 @@ impl RequestCompletion<'_> {
         };
         self.finished = true;
 
-        self.tailtriage.record_request_event(RequestEvent {
-            request_id: pending.request_id,
-            route: pending.route,
-            kind: pending.kind,
-            started_at_unix_ms: pending.started_at_unix_ms,
-            finished_at_unix_ms: unix_time_ms(),
-            latency_us: duration_to_us(pending.started.elapsed()),
-            outcome: outcome.into_string(),
-        });
+        self.tailtriage
+            .record_request_event(request_event_from_finished_interval(
+                pending, finished, outcome,
+            ));
     }
 }
 
@@ -817,6 +818,7 @@ impl OwnedRequestCompletion {
             return;
         }
 
+        let finished = finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             self.finished = true;
@@ -824,15 +826,30 @@ impl OwnedRequestCompletion {
         };
         self.finished = true;
 
-        self.tailtriage.record_request_event(RequestEvent {
-            request_id: pending.request_id,
-            route: pending.route,
-            kind: pending.kind,
-            started_at_unix_ms: pending.started_at_unix_ms,
-            finished_at_unix_ms: unix_time_ms(),
-            latency_us: duration_to_us(pending.started.elapsed()),
-            outcome: outcome.into_string(),
-        });
+        self.tailtriage
+            .record_request_event(request_event_from_finished_interval(
+                pending, finished, outcome,
+            ));
+    }
+}
+
+fn request_event_from_finished_interval(
+    pending: PendingRequest,
+    finished: FinishedInterval,
+    outcome: Outcome,
+) -> RequestEvent {
+    debug_assert_eq!(
+        pending.interval_start.started_at_unix_ms,
+        finished.started_at_unix_ms
+    );
+    RequestEvent {
+        request_id: pending.request_id,
+        route: pending.route,
+        kind: pending.kind,
+        started_at_unix_ms: finished.started_at_unix_ms,
+        finished_at_unix_ms: finished.finished_at_unix_ms,
+        latency_us: finished.duration_us,
+        outcome: outcome.into_string(),
     }
 }
 
@@ -877,10 +894,6 @@ fn lock_pending(
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
-}
-
-pub(crate) fn duration_to_us(duration: Duration) -> u64 {
-    duration.as_micros().try_into().unwrap_or(u64::MAX)
 }
 
 pub(crate) fn generate_run_id() -> String {

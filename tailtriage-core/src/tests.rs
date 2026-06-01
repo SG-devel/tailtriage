@@ -145,6 +145,42 @@ fn queue_stage_and_inflight_are_recorded() {
 }
 
 #[test]
+fn request_stage_and_queue_timing_preserves_order_after_sleep() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-sleep-timing.json");
+    let started = tailtriage.begin_request_with(
+        "/sleep",
+        RequestOptions::new().request_id("req-sleep").kind("http"),
+    );
+    let request = started.handle;
+
+    futures_executor::block_on(request.queue("permit").await_on(async {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }));
+    futures_executor::block_on(request.stage("db").await_value(async {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(1));
+    started.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.stages.len(), 1);
+    assert_eq!(snapshot.queues.len(), 1);
+
+    let request = &snapshot.requests[0];
+    assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
+    assert!(request.latency_us > 0);
+
+    let stage = &snapshot.stages[0];
+    assert!(stage.finished_at_unix_ms >= stage.started_at_unix_ms);
+    assert!(stage.latency_us > 0);
+
+    let queue = &snapshot.queues[0];
+    assert!(queue.waited_until_unix_ms >= queue.waited_from_unix_ms);
+    assert!(queue.wait_us > 0);
+}
+
+#[test]
 fn unfinished_requests_still_trigger_strict_lifecycle_errors() {
     let sink = Arc::new(RecordingSink::default());
     let tailtriage = Tailtriage::builder("payments")
