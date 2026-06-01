@@ -728,10 +728,9 @@ where
                 record_incomplete_candidate_issue(&mut state, &open, kind, reason);
                 return;
             }
+            let finished_at_unix_ms = tailtriage_core::unix_time_ms();
             let duration_us =
                 u64::try_from(open.started_instant.elapsed().as_micros()).unwrap_or(u64::MAX);
-            let finished_at_unix_ms =
-                finish_unix_ms_from_started_and_duration(open.started_at_unix_ms, duration_us);
             let mut record =
                 SpanRecord::new(open.name, open.started_at_unix_ms, finished_at_unix_ms)
                     .duration_us(duration_us);
@@ -753,12 +752,6 @@ where
             );
         }
     }
-}
-
-fn finish_unix_ms_from_started_and_duration(started_at_unix_ms: u64, duration_us: u64) -> u64 {
-    let elapsed_ms =
-        (duration_us / 1_000).saturating_add(u64::from(!duration_us.is_multiple_of(1_000)));
-    started_at_unix_ms.saturating_add(elapsed_ms)
 }
 
 fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
@@ -1271,57 +1264,6 @@ mod tests {
     }
 
     #[test]
-    fn finish_unix_ms_from_started_and_duration_rounds_up_microseconds() {
-        let start = 1_700_000_000_000;
-        assert_eq!(finish_unix_ms_from_started_and_duration(start, 0), start);
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 999),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1_000),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1_001),
-            start + 2
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_saturates_on_overflow() {
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(u64::MAX - 1, 1_001),
-            u64::MAX
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(u64::MAX - 1, u64::MAX),
-            u64::MAX
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_rounds_extreme_duration_up() {
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(0, u64::MAX),
-            (u64::MAX / 1_000) + 1
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_keeps_extreme_multiple_exact() {
-        let duration_us = u64::MAX - (u64::MAX % 1_000);
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(0, duration_us),
-            duration_us / 1_000
-        );
-    }
-
-    #[test]
     fn request_span_collected() {
         with_recorder(|recorder| {
             let span = tracing::info_span!(
@@ -1358,7 +1300,7 @@ mod tests {
     }
 
     #[test]
-    fn live_completed_request_uses_positive_elapsed_latency_for_finish_time() {
+    fn live_completed_request_samples_close_wall_time_and_monotonic_duration() {
         with_recorder(|recorder| {
             let span = tracing::info_span!(
                 "request",
@@ -1373,13 +1315,43 @@ mod tests {
             let request = &snapshot.run().requests[0];
             assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
             assert!(request.latency_us > 0);
-            assert_eq!(
-                request.finished_at_unix_ms,
-                finish_unix_ms_from_started_and_duration(
-                    request.started_at_unix_ms,
-                    request.latency_us
-                )
+            // The finish wall timestamp is sampled independently at span close; it is
+            // not required to equal start + rounded monotonic latency.
+        });
+    }
+
+    #[test]
+    fn live_tracing_timing_matches_native_wall_bounds_and_monotonic_duration_semantics() {
+        let tailtriage = Tailtriage::builder("svc")
+            .sink(MemorySink::new())
+            .build()
+            .expect("collector");
+        let started = tailtriage.begin_request_with(
+            "/native",
+            tailtriage_core::RequestOptions::new().request_id("native-r1"),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        started.completion.finish_ok();
+        let native_snapshot = tailtriage.snapshot();
+        let native_request = &native_snapshot.requests[0];
+
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "tracing-r1",
+                tt.route = "/tracing"
             );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            drop(span);
+
+            let tracing_snapshot = recorder.snapshot_run().unwrap();
+            let tracing_request = &tracing_snapshot.run().requests[0];
+
+            assert!(native_request.finished_at_unix_ms >= native_request.started_at_unix_ms);
+            assert!(native_request.latency_us > 0);
+            assert!(tracing_request.finished_at_unix_ms >= tracing_request.started_at_unix_ms);
+            assert!(tracing_request.latency_us > 0);
         });
     }
 
