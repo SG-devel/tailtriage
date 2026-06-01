@@ -713,14 +713,13 @@ fn import_tracing_spans_jsonl_default_rejects_fmt_json_with_guidance() {
 }
 
 #[test]
-fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_top_level_explicit_timestamps(
-) {
+fn import_tracing_spans_jsonl_compatible_accepts_fmt_metadata_with_top_level_completed_timing() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(
         &spans_path,
-        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","event":"close","name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":2000,"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}"#,
+        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","event":"close","name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":2000,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}"#,
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -736,16 +735,19 @@ fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_top_level_
         .output()
         .expect("cli should run");
     assert!(
-        !output.status.success(),
-        "cli unexpectedly succeeded: {output:?}"
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
     );
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"));
-    assert!(!run_path.exists(), "run json should not be written");
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let run: Run = serde_json::from_str(
+        &std::fs::read_to_string(&run_path).expect("run json should be written"),
+    )
+    .expect("run json should decode");
+    assert_eq!(run.requests.len(), 1);
 }
 
 #[test]
-fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_nested_explicit_timestamps() {
+fn import_tracing_spans_jsonl_compatible_accepts_fmt_metadata_with_nested_completed_timing() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
@@ -767,12 +769,15 @@ fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_nested_exp
         .output()
         .expect("cli should run");
     assert!(
-        !output.status.success(),
-        "cli unexpectedly succeeded: {output:?}"
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
     );
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"));
-    assert!(!run_path.exists(), "run json should not be written");
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let run: Run = serde_json::from_str(
+        &std::fs::read_to_string(&run_path).expect("run json should be written"),
+    )
+    .expect("run json should decode");
+    assert_eq!(run.requests.len(), 1);
 }
 
 #[test]
