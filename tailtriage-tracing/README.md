@@ -12,6 +12,14 @@ It is **not**:
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
+## When to use this crate
+
+Use this path when your service already uses Rust `tracing` and already has stable per-request correlation IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
+
+This crate converts tracing-shaped request, stage, and queue evidence into standard `tailtriage_core::Run` artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend.
+
+For one work item, every request, stage, and queue span must carry the same `tt.request_id`. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing or inconsistent IDs cause child evidence to be skipped or weakened.
+
 ## Feature flags
 
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
@@ -145,6 +153,19 @@ For example: `tt.kind = "request"` works, `tt.kind = %kind` can work when `kind`
 Missing request `tt.outcome` defaults to `ok` with a warning.
 If present, request `tt.outcome` must be a string and cannot be empty/whitespace-only; accepted custom labels are preserved exactly.
 Missing stage `tt.success` defaults to `true` with a warning.
+
+Live tracing intake only tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. If a value is filled later, declare the field with `tracing::field::Empty` and then call `span.record(...)`; adding brand-new `tt.*` fields later with `span.record(...)` is not supported.
+
+```rust
+let span = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = tracing::field::Empty,
+);
+span.record("tt.outcome", "timeout");
+```
 
 ## Strict vs non-strict
 

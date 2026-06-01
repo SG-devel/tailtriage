@@ -158,7 +158,11 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
+Tracing intake works best when request correlation is already reliable. Every request, stage, and queue span for one work item must carry the same `tt.request_id`; missing or inconsistent `tt.request_id` causes child stage/queue evidence to be skipped or weakened. Native capture is the recommended first path when correlation is not already available.
+
 Tracing import expects completed tailtriage `tt.*` tracing span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Completed-span JSONL is not a production trace archive and does not preserve warning/truncation context; prefer Run JSON when the artifact itself must carry that context. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps. OTel/OTLP intake remains out of scope on this path.
+
+Live tracing intake only tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. If a value is filled later, declare it with `tracing::field::Empty` and then call `span.record(...)`; adding brand-new `tt.*` fields later with `span.record(...)` is not supported.
 
 Important limits for production interpretation:
 
