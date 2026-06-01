@@ -95,6 +95,7 @@ Import behavior checklist:
 - Writes Run JSON through the normal local JSON artifact writer, not Report JSON.
 - Keeps analysis as a separate step: `tailtriage analyze tailtriage-run.json`.
 - Prints import warnings to stderr as `warning: ...`.
+- Prefers supplied `duration_us` as authoritative elapsed-time evidence when present. Strict import rejects duration/timestamp mismatches beyond the tracing tolerance; non-strict import warns but keeps `duration_us`, with Unix timestamps remaining wall-clock anchors. When `duration_us` is absent, import derives duration from explicit start/end timestamps.
 - Uses the same `CaptureMode`/`CaptureLimits` semantics as native capture for request/stage/queue evidence retention.
 - Exposes request/stage/queue limit overrides because those are the evidence types offline CLI tracing import ingests.
 - Does not expose runtime-snapshot or in-flight-snapshot limit flags because this import path does not ingest those evidence types.
