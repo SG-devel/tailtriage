@@ -87,6 +87,29 @@ fn sample_request(id: u64) -> RequestEvent {
     }
 }
 
+#[test]
+fn latency_percentiles_use_duration_fields_not_timestamp_subtraction() {
+    let mut run = test_run();
+    run.metadata.started_at_unix_ms = 10;
+    run.metadata.finished_at_unix_ms = 11;
+    run.metadata.finalized_at_unix_ms = Some(11);
+    run.requests = vec![RequestEvent {
+        request_id: "req-duration".to_owned(),
+        route: "/timing".to_owned(),
+        kind: None,
+        started_at_unix_ms: 10,
+        finished_at_unix_ms: 11,
+        latency_us: 50_000,
+        outcome: "ok".to_owned(),
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.p50_latency_us, Some(50_000));
+    assert_eq!(report.p95_latency_us, Some(50_000));
+    assert_eq!(report.p99_latency_us, Some(50_000));
+}
+
 fn runtime_snapshot(
     global: Option<u64>,
     local: Option<u64>,
