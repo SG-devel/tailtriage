@@ -93,6 +93,7 @@ If your service already builds a subscriber in startup code, compose `session.la
 ## Timing model
 
 - Imported or live tracing evidence is converted to normal tailtriage Run timing fields.
+- Live tracing samples finish wall time when a span closes.
 - `duration_us` is the preferred authoritative elapsed-time evidence when supplied.
 - Unix-ms timestamps are wall-clock anchors and may be coarser than durations.
 - Ordinary tracing log timestamps are not enough for completed-span import; completed spans need explicit start/end timing and semantic tt.* fields.
