@@ -716,6 +716,8 @@ where
     }
 
     fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
+        let closed_instant = std::time::Instant::now();
+        let finished_at_unix_ms = tailtriage_core::unix_time_ms();
         let mut state = lock_state(&self.state);
         if let Some(open) = state.open.remove(&id.into_u64()) {
             let kind = classify_kind(&open.fields);
@@ -728,9 +730,12 @@ where
                 record_incomplete_candidate_issue(&mut state, &open, kind, reason);
                 return;
             }
-            let finished_at_unix_ms = tailtriage_core::unix_time_ms();
-            let duration_us =
-                u64::try_from(open.started_instant.elapsed().as_micros()).unwrap_or(u64::MAX);
+            let duration_us = u64::try_from(
+                closed_instant
+                    .saturating_duration_since(open.started_instant)
+                    .as_micros(),
+            )
+            .unwrap_or(u64::MAX);
             let mut record =
                 SpanRecord::new(open.name, open.started_at_unix_ms, finished_at_unix_ms)
                     .duration_us(duration_us);
