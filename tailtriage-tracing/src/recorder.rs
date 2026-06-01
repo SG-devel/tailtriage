@@ -728,10 +728,9 @@ where
                 record_incomplete_candidate_issue(&mut state, &open, kind, reason);
                 return;
             }
+            let finished_at_unix_ms = tailtriage_core::unix_time_ms();
             let duration_us =
                 u64::try_from(open.started_instant.elapsed().as_micros()).unwrap_or(u64::MAX);
-            let finished_at_unix_ms =
-                finish_unix_ms_from_started_and_duration(open.started_at_unix_ms, duration_us);
             let mut record =
                 SpanRecord::new(open.name, open.started_at_unix_ms, finished_at_unix_ms)
                     .duration_us(duration_us);
@@ -753,12 +752,6 @@ where
             );
         }
     }
-}
-
-fn finish_unix_ms_from_started_and_duration(started_at_unix_ms: u64, duration_us: u64) -> u64 {
-    let elapsed_ms =
-        (duration_us / 1_000).saturating_add(u64::from(!duration_us.is_multiple_of(1_000)));
-    started_at_unix_ms.saturating_add(elapsed_ms)
 }
 
 fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
@@ -1258,8 +1251,15 @@ mod tests {
             .run_id("rid")
             .build()
             .unwrap();
+        with_recorder_state(&recorder, f)
+    }
+
+    fn with_recorder_state<T>(
+        recorder: &TracingRecorder,
+        f: impl FnOnce(&TracingRecorder) -> T,
+    ) -> T {
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
-        tracing::subscriber::with_default(subscriber, || f(&recorder))
+        tracing::subscriber::with_default(subscriber, || f(recorder))
     }
 
     fn empty_run() -> tailtriage_core::Run {
@@ -1268,57 +1268,6 @@ mod tests {
             .build()
             .expect("collector")
             .snapshot()
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_rounds_up_microseconds() {
-        let start = 1_700_000_000_000;
-        assert_eq!(finish_unix_ms_from_started_and_duration(start, 0), start);
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 999),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1_000),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1_001),
-            start + 2
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_saturates_on_overflow() {
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(u64::MAX - 1, 1_001),
-            u64::MAX
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(u64::MAX - 1, u64::MAX),
-            u64::MAX
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_rounds_extreme_duration_up() {
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(0, u64::MAX),
-            (u64::MAX / 1_000) + 1
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_keeps_extreme_multiple_exact() {
-        let duration_us = u64::MAX - (u64::MAX % 1_000);
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(0, duration_us),
-            duration_us / 1_000
-        );
     }
 
     #[test]
@@ -1358,7 +1307,7 @@ mod tests {
     }
 
     #[test]
-    fn live_completed_request_uses_positive_elapsed_latency_for_finish_time() {
+    fn live_completed_request_uses_close_wall_clock_and_monotonic_latency() {
         with_recorder(|recorder| {
             let span = tracing::info_span!(
                 "request",
@@ -1373,12 +1322,64 @@ mod tests {
             let request = &snapshot.run().requests[0];
             assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
             assert!(request.latency_us > 0);
+
+            let completed = {
+                let state = lock_state(&recorder.state);
+                completed_span_records(&state)
+            };
+            assert_eq!(completed.len(), 1);
+            assert!(completed[0].finished_at_unix_ms() >= completed[0].started_at_unix_ms());
+            assert_eq!(completed[0].duration_us_ref(), Some(request.latency_us));
+
+            // Live tracing samples finish wall time at close and records latency from
+            // monotonic elapsed time. Coarse wall-clock bounds are not required to
+            // equal start + rounded latency.
+        });
+    }
+
+    #[test]
+    fn live_tracing_and_native_capture_share_wall_bounds_and_monotonic_duration_semantics() {
+        let native = Tailtriage::builder("svc")
+            .sink(MemorySink::new())
+            .build()
+            .expect("native collector");
+        let started = native.begin_request("/a");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        started.completion.finish_ok();
+        let native_snapshot = native.snapshot();
+        let native_request = &native_snapshot.requests[0];
+
+        let tracing_recorder = TracingRecorder::builder("svc")
+            .run_id("rid")
+            .build()
+            .unwrap();
+        with_recorder_state(&tracing_recorder, |recorder| {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            drop(span);
+
+            let tracing_snapshot = recorder.snapshot_run().unwrap();
+            let tracing_request = &tracing_snapshot.run().requests[0];
+
+            assert!(native_request.finished_at_unix_ms >= native_request.started_at_unix_ms);
+            assert!(native_request.latency_us > 0);
+            assert!(tracing_request.finished_at_unix_ms >= tracing_request.started_at_unix_ms);
+            assert!(tracing_request.latency_us > 0);
+
+            let completed = {
+                let state = lock_state(&recorder.state);
+                completed_span_records(&state)
+            };
+            assert_eq!(completed.len(), 1);
+            assert!(completed[0].finished_at_unix_ms() >= completed[0].started_at_unix_ms());
             assert_eq!(
-                request.finished_at_unix_ms,
-                finish_unix_ms_from_started_and_duration(
-                    request.started_at_unix_ms,
-                    request.latency_us
-                )
+                completed[0].duration_us_ref(),
+                Some(tracing_request.latency_us)
             );
         });
     }
