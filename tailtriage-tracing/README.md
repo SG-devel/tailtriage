@@ -122,6 +122,14 @@ first output may already exist as a finalized artifact. For production workflows
 need one canonical shutdown artifact, prefer `run_json_path(...)`. Completed-span JSONL
 remains a replay/debug export, not trace archival.
 
+
+## Timing model
+
+- Imported or live tracing evidence is converted to normal tailtriage Run timing fields.
+- Durations are the authoritative elapsed-time evidence when present.
+- Unix-ms timestamps are wall-clock anchors and may be coarser than durations.
+- Ordinary tracing log timestamps are not enough for completed-span import; completed spans need explicit start/end timing and semantic tt.* fields.
+
 ## Stable JSONL wrapper format
 
 Stable completed-span JSONL records use this wrapper:

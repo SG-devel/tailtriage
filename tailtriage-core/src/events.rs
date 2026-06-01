@@ -223,6 +223,12 @@ pub struct UnfinishedRequestSample {
 }
 
 /// Per-request timing and status.
+///
+/// Duration fields are authoritative for elapsed-time analysis; unix-ms
+/// timestamps are wall-clock anchors for log correlation, artifact readability,
+/// and coarse temporal grouping. Wall-clock anchors may be coarse or move if
+/// the system clock changes, so analyzer scoring uses duration fields where
+/// present.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestEvent {
     /// Correlation ID for the request.
@@ -242,6 +248,12 @@ pub struct RequestEvent {
 }
 
 /// Timing record for one named stage.
+///
+/// Duration fields are authoritative for elapsed-time analysis; unix-ms
+/// timestamps are wall-clock anchors for log correlation, artifact readability,
+/// and coarse temporal grouping. Wall-clock anchors may be coarse or move if
+/// the system clock changes, so analyzer scoring uses duration fields where
+/// present.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEvent {
     /// Parent request ID.
@@ -260,6 +272,12 @@ pub struct StageEvent {
 }
 
 /// Queue wait measurement for a request waiting on a queue/permit.
+///
+/// Duration fields are authoritative for elapsed-time analysis; unix-ms
+/// timestamps are wall-clock anchors for log correlation, artifact readability,
+/// and coarse temporal grouping. Wall-clock anchors may be coarse or move if
+/// the system clock changes, so analyzer scoring uses duration fields where
+/// present.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueEvent {
     /// Parent request ID.
@@ -277,6 +295,11 @@ pub struct QueueEvent {
 }
 
 /// Point-in-time in-flight gauge reading.
+///
+/// Unix-ms timestamps are wall-clock anchors for log correlation, artifact
+/// readability, and coarse temporal grouping. When no monotonic run-relative
+/// timing is available, temporal segmentation may use these anchors and
+/// in-flight attribution can be approximate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InFlightSnapshot {
     /// Gauge name.
@@ -288,6 +311,11 @@ pub struct InFlightSnapshot {
 }
 
 /// Point-in-time runtime metrics sample.
+///
+/// Unix-ms timestamps are wall-clock anchors for log correlation, artifact
+/// readability, and coarse temporal grouping. When no monotonic run-relative
+/// timing is available, temporal segmentation may use these anchors and
+/// runtime attribution can be approximate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     /// Timestamp (milliseconds since epoch UTC).
