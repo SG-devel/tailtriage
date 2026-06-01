@@ -756,8 +756,8 @@ where
 }
 
 fn finish_unix_ms_from_started_and_duration(started_at_unix_ms: u64, duration_us: u64) -> u64 {
-    let rounded_elapsed_ms = duration_us.saturating_add(999) / 1_000;
-    started_at_unix_ms.saturating_add(rounded_elapsed_ms)
+    let elapsed_ms = (duration_us / 1_000).saturating_add(u64::from(duration_us % 1_000 != 0));
+    started_at_unix_ms.saturating_add(elapsed_ms)
 }
 
 fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
@@ -1300,6 +1300,23 @@ mod tests {
         assert_eq!(
             finish_unix_ms_from_started_and_duration(u64::MAX - 1, u64::MAX),
             u64::MAX
+        );
+    }
+
+    #[test]
+    fn finish_unix_ms_from_started_and_duration_rounds_extreme_duration_up() {
+        assert_eq!(
+            finish_unix_ms_from_started_and_duration(0, u64::MAX),
+            (u64::MAX / 1_000) + 1
+        );
+    }
+
+    #[test]
+    fn finish_unix_ms_from_started_and_duration_keeps_extreme_multiple_exact() {
+        let duration_us = u64::MAX - (u64::MAX % 1_000);
+        assert_eq!(
+            finish_unix_ms_from_started_and_duration(0, duration_us),
+            duration_us / 1_000
         );
     }
 
