@@ -12,6 +12,14 @@ It is **not**:
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
+## When to use this crate
+
+Use this path when your service already uses Rust `tracing` and already has stable per-request correlation IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
+
+Every request, stage, and queue span for one work item must carry the same `tt.request_id`. Child stage/queue evidence is correlated to retained request evidence by that value, so missing or inconsistent IDs weaken or skip child evidence.
+
+This crate converts tracing-shaped evidence into standard `tailtriage_core::Run` artifacts. It is not a tracing backend.
+
 ## Feature flags
 
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
@@ -141,6 +149,19 @@ Import does not guess span timing from line receive time: provide explicit unix-
 Record semantic `tt.*` fields (`tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, `tt.queue`) as plain scalar strings (string literals or display-formatted scalar strings). Do not use debug formatting for semantic `tt.*` fields.
 
 For example: `tt.kind = "request"` works, `tt.kind = %kind` can work when `kind` displays as `request`, but `tt.kind = ?kind` may record `"request"` (debug quoting) and be rejected as unknown.
+
+Live tracing tracks spans that are tailtriage candidates when the span is created. Declare `tt.*` fields on the span at creation time. If a value is filled later, declare that field with `tracing::field::Empty` and then call `span.record(...)`; adding brand-new `tt.*` fields later with `span.record(...)` is not supported.
+
+```rust
+let span = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = tracing::field::Empty,
+);
+span.record("tt.outcome", "timeout");
+```
 
 Missing request `tt.outcome` defaults to `ok` with a warning.
 If present, request `tt.outcome` must be a string and cannot be empty/whitespace-only; accepted custom labels are preserved exactly.
