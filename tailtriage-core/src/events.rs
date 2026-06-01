@@ -291,9 +291,8 @@ pub struct QueueEvent {
 /// Point-in-time in-flight gauge reading.
 ///
 /// Snapshot timestamps are Unix-ms wall-clock anchors for correlation,
-/// readability, and coarse temporal grouping; they may be coarse or move with
-/// system clock changes, so attribution can be approximate when no monotonic
-/// run-relative timing is available.
+/// readability, and coarse temporal grouping; runtime/in-flight attribution
+/// based on those anchors can be approximate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InFlightSnapshot {
     /// Gauge name.
@@ -307,9 +306,8 @@ pub struct InFlightSnapshot {
 /// Point-in-time runtime metrics sample.
 ///
 /// Snapshot timestamps are Unix-ms wall-clock anchors for correlation,
-/// readability, and coarse temporal grouping; they may be coarse or move with
-/// system clock changes, so attribution can be approximate when no monotonic
-/// run-relative timing is available.
+/// readability, and coarse temporal grouping; runtime/in-flight attribution
+/// based on those anchors can be approximate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     /// Timestamp (milliseconds since epoch UTC).

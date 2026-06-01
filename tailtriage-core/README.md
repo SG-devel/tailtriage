@@ -161,7 +161,7 @@ Finalization timestamps:
 - Unix millisecond timestamps are wall-clock anchors for log correlation, artifact readability, and coarse temporal grouping.
 - Wall-clock timestamps can be coarse and can move if the system clock changes.
 - Analyzer scoring uses duration fields for latency, queue wait, and stage duration.
-- Temporal segmentation may use wall-clock timestamps when no monotonic run-relative timing is available, so runtime/in-flight attribution can be approximate.
+- Temporal segmentation currently uses Unix-ms wall-clock timestamp anchors, so runtime/in-flight attribution can be approximate.
 
 ## Capture modes
 
