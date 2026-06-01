@@ -223,9 +223,9 @@ fn parse_record(
         );
         return Err(ImportError::ExpectedTailtriageWrapper { reason: message });
     }
-    if has_fmt_log_envelope_fields(value) {
+    if is_ordinary_fmt_json_without_completed_span_timing(value) {
         let message = format!(
-            "line {line_no}: unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"
+            "line {line_no}: unsupported ordinary tracing fmt JSON record for compatible import (timestamp/level/target without completed-span timing)"
         );
         if strict {
             return Err(ImportError::StrictViolation(message));
@@ -298,13 +298,24 @@ fn parse_record(
     }
 }
 
-fn has_fmt_log_envelope_fields(value: &Value) -> bool {
+fn is_ordinary_fmt_json_without_completed_span_timing(value: &Value) -> bool {
+    let Some(obj) = value.as_object() else {
+        return false;
+    };
+
+    let looks_like_fmt =
+        obj.contains_key("timestamp") && obj.contains_key("level") && obj.contains_key("target");
+    looks_like_fmt && !has_completed_span_timing(value)
+}
+
+fn has_completed_span_timing(value: &Value) -> bool {
+    has_explicit_start_and_end(value) || value.get("span").is_some_and(has_explicit_start_and_end)
+}
+
+fn has_explicit_start_and_end(value: &Value) -> bool {
     value.as_object().is_some_and(|obj| {
-        obj.contains_key("timestamp")
-            || obj.contains_key("level")
-            || obj.contains_key("target")
-            || obj.contains_key("event")
-            || obj.contains_key("message")
+        (obj.contains_key("started_at_unix_ms") || obj.contains_key("start_unix_ms"))
+            && (obj.contains_key("finished_at_unix_ms") || obj.contains_key("end_unix_ms"))
     })
 }
 
@@ -654,15 +665,44 @@ mod tests {
     }
 
     #[test]
-    fn compatible_mode_rejects_close_event_shape_with_nested_span_timestamps() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
-{"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
+    fn compatible_mode_accepts_normalized_completed_span_with_top_level_message() {
+        let input = r#"{"message":"completed request","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","tt.outcome":"ok","tt.success":true}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().stages.len(), 0);
-        assert!(!imported.warnings().is_empty());
-        assert!(imported.warnings().iter().any(|w| w
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported.warnings().is_empty());
+    }
+
+    #[test]
+    fn compatible_mode_accepts_normalized_completed_span_with_fmt_like_metadata() {
+        let input = r#"{"timestamp":"2026-06-01T00:00:00Z","level":"INFO","target":"svc","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","tt.outcome":"ok","tt.success":true}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert!(imported.warnings().is_empty());
+    }
+
+    #[test]
+    fn compatible_mode_rejects_ordinary_fmt_json_without_completed_span_timing() {
+        let input = r#"{"timestamp":"2026-06-01T00:00:00Z","level":"INFO","target":"svc","message":"ordinary log"}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported.run().stages.is_empty());
+        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings()[0]
             .message()
-            .contains("unsupported tracing log envelope fields")));
+            .contains("ordinary tracing fmt JSON"));
+
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .unwrap_err();
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+    }
+
+    #[test]
+    fn compatible_mode_accepts_close_event_shape_with_nested_span_timestamps() {
+        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","tt.outcome":"ok","tt.success":true}}}
+{"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db","tt.success":true}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.run().stages.len(), 1);
+        assert!(imported.warnings().is_empty());
     }
 
     #[test]
@@ -1058,7 +1098,7 @@ mod tests {
         assert!(imported.run().requests.is_empty());
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
+        assert!(imported.warnings().is_empty());
     }
 
     #[test]
@@ -1076,6 +1116,18 @@ mod tests {
         let err = import_jsonl_reader_with_mode(
             Cursor::new(unwrapped),
             ImportOptions::new("svc").strict(true),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+    }
+
+    #[test]
+    fn wrapper_only_mode_rejects_non_wrapper_compatible_completed_span() {
+        let compatible = r#"{"message":"completed request","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","tt.outcome":"ok","tt.success":true}}}"#;
+        let err = import_jsonl_reader_with_mode(
+            Cursor::new(compatible),
+            ImportOptions::new("svc"),
             JsonlParseMode::TailtriageWrapperOnly,
         )
         .unwrap_err();
