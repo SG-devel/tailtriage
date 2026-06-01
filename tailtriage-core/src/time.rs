@@ -25,8 +25,8 @@ pub(crate) struct FinishedInterval {
 /// Starts a measured interval using a wall-clock sample and monotonic instant.
 #[must_use]
 pub(crate) fn start_interval() -> IntervalStart {
-    let started = Instant::now();
     let started_at_unix_ms = unix_time_ms();
+    let started = Instant::now();
 
     IntervalStart {
         started_at_unix_ms,
