@@ -81,6 +81,14 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Timing model
+
+- Duration fields in microseconds (`latency_us`, `wait_us`, stage `latency_us`) are authoritative for elapsed-time analysis.
+- Unix millisecond timestamps are wall-clock anchors for log correlation, artifact readability, and coarse temporal grouping.
+- Wall-clock timestamps can be coarse and can move if the system clock changes.
+- Analyzer scoring uses duration fields for latency, queue wait, and stage duration.
+- Temporal segmentation may use wall-clock timestamps when no monotonic run-relative timing is available, so runtime/in-flight attribution can be approximate.
+
 ## Output sinks
 
 `tailtriage-core` captures run data and finalizes through a sink. It does not perform analysis/report generation.

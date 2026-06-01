@@ -103,6 +103,26 @@ fn runtime_snapshot(
 }
 
 #[test]
+fn request_latency_percentiles_use_duration_fields_not_wall_clock_subtraction() {
+    let mut run = test_run();
+    run.requests = vec![RequestEvent {
+        request_id: "req-duration".to_owned(),
+        route: "/duration".to_owned(),
+        kind: None,
+        started_at_unix_ms: 1_000,
+        finished_at_unix_ms: 1_001,
+        latency_us: 50_000,
+        outcome: "ok".to_owned(),
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.p50_latency_us, Some(50_000));
+    assert_eq!(report.p95_latency_us, Some(50_000));
+    assert_eq!(report.p99_latency_us, Some(50_000));
+}
+
+#[test]
 fn downstream_stage_tie_break_is_deterministic() {
     let mut run = test_run();
     run.stages = vec![

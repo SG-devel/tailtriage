@@ -223,6 +223,10 @@ pub struct UnfinishedRequestSample {
 }
 
 /// Per-request timing and status.
+///
+/// Duration fields are authoritative elapsed-time evidence. Unix-millisecond
+/// timestamps are wall-clock anchors for correlation, readability, and coarse
+/// grouping; they may be coarse or move when the system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestEvent {
     /// Correlation ID for the request.
@@ -242,6 +246,10 @@ pub struct RequestEvent {
 }
 
 /// Timing record for one named stage.
+///
+/// Duration fields are authoritative elapsed-time evidence. Unix-millisecond
+/// timestamps are wall-clock anchors for correlation, readability, and coarse
+/// grouping; they may be coarse or move when the system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEvent {
     /// Parent request ID.
@@ -260,6 +268,10 @@ pub struct StageEvent {
 }
 
 /// Queue wait measurement for a request waiting on a queue/permit.
+///
+/// Duration fields are authoritative elapsed-time evidence. Unix-millisecond
+/// timestamps are wall-clock anchors for correlation, readability, and coarse
+/// grouping; they may be coarse or move when the system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueEvent {
     /// Parent request ID.
@@ -277,6 +289,10 @@ pub struct QueueEvent {
 }
 
 /// Point-in-time in-flight gauge reading.
+///
+/// Unix-millisecond timestamps are wall-clock anchors for correlation,
+/// readability, and coarse temporal grouping; runtime/in-flight attribution may
+/// be approximate when no monotonic run-relative timing is available.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InFlightSnapshot {
     /// Gauge name.
@@ -288,6 +304,10 @@ pub struct InFlightSnapshot {
 }
 
 /// Point-in-time runtime metrics sample.
+///
+/// Unix-millisecond timestamps are wall-clock anchors for correlation,
+/// readability, and coarse temporal grouping; runtime/in-flight attribution may
+/// be approximate when no monotonic run-relative timing is available.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     /// Timestamp (milliseconds since epoch UTC).
