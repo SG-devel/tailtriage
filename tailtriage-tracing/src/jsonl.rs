@@ -877,31 +877,32 @@ mod tests {
     }
 
     #[test]
-    fn normalized_contradictory_duration_us_warns_and_uses_derived_latency() {
+    fn normalized_contradictory_duration_us_warns_and_retains_duration_latency() {
         let input = r#"
 {"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
 {"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":1234,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
 {"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":1234,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 10_000);
-        assert_eq!(imported.run().stages[0].latency_us, 7_000);
+        assert_eq!(imported.run().requests[0].latency_us, 1234);
+        assert_eq!(imported.run().stages[0].latency_us, 1234);
         assert_eq!(imported.run().queues[0].wait_us, 1234);
-        assert!(imported.warnings().iter().any(|w| w
-            .message()
-            .contains("duration_us mismatch exceeds tolerance")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("duration_us was retained")));
     }
 
     #[test]
-    fn normalized_zero_duration_us_outside_tolerance_uses_derived_latency() {
+    fn normalized_zero_duration_us_outside_tolerance_is_retained() {
         let input = r#"
 {"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":0,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
 {"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":0,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
 {"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":0,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 10_000);
-        assert_eq!(imported.run().stages[0].latency_us, 7_000);
+        assert_eq!(imported.run().requests[0].latency_us, 0);
+        assert_eq!(imported.run().stages[0].latency_us, 0);
         assert_eq!(imported.run().queues[0].wait_us, 0);
     }
 
@@ -973,17 +974,17 @@ mod tests {
     }
 
     #[test]
-    fn normalized_duration_us_from_outer_fields_uses_derived_when_outside_tolerance() {
+    fn normalized_duration_us_from_outer_fields_retained_when_outside_tolerance() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 10_000);
+        assert_eq!(imported.run().requests[0].latency_us, 1234);
     }
 
     #[test]
-    fn normalized_duration_us_from_top_level_tt_keys_uses_derived_when_outside_tolerance() {
+    fn normalized_duration_us_from_top_level_tt_keys_retained_when_outside_tolerance() {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"tt.kind":"request","tt.request_id":"r1","tt.route":"/top"}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 10_000);
+        assert_eq!(imported.run().requests[0].latency_us, 1234);
     }
 
     #[test]
