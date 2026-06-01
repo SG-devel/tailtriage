@@ -90,6 +90,13 @@ If your service already builds a subscriber in startup code, compose `session.la
 
 `set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
 
+## Timing model
+
+- Imported or live tracing evidence is converted to normal tailtriage Run timing fields.
+- Durations are the authoritative elapsed-time evidence when present.
+- Unix-ms timestamps are wall-clock anchors and may be coarser than durations.
+- Ordinary tracing log timestamps are not enough for completed-span import; completed spans need explicit start/end timing and semantic tt.* fields.
+
 ## Direct Run JSON path
 
 Use `run_json_path(...)` when you want to skip a separate import step and write Run JSON through the same robust writer path used by native capture sinks:
