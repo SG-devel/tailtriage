@@ -728,10 +728,9 @@ where
                 record_incomplete_candidate_issue(&mut state, &open, kind, reason);
                 return;
             }
+            let finished_at_unix_ms = tailtriage_core::unix_time_ms();
             let duration_us =
                 u64::try_from(open.started_instant.elapsed().as_micros()).unwrap_or(u64::MAX);
-            let finished_at_unix_ms =
-                finish_unix_ms_from_started_and_duration(open.started_at_unix_ms, duration_us);
             let mut record =
                 SpanRecord::new(open.name, open.started_at_unix_ms, finished_at_unix_ms)
                     .duration_us(duration_us);
@@ -753,12 +752,6 @@ where
             );
         }
     }
-}
-
-fn finish_unix_ms_from_started_and_duration(started_at_unix_ms: u64, duration_us: u64) -> u64 {
-    let elapsed_ms =
-        (duration_us / 1_000).saturating_add(u64::from(!duration_us.is_multiple_of(1_000)));
-    started_at_unix_ms.saturating_add(elapsed_ms)
 }
 
 fn completed_span_records(state: &RecorderState) -> Vec<SpanRecord> {
@@ -1251,6 +1244,7 @@ mod tests {
     use super::*;
     use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
     use tailtriage_core::{MemorySink, Tailtriage};
+    use tracing::Instrument as _;
     use tracing_subscriber::prelude::*;
 
     fn with_recorder<T>(f: impl FnOnce(&TracingRecorder) -> T) -> T {
@@ -1268,57 +1262,6 @@ mod tests {
             .build()
             .expect("collector")
             .snapshot()
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_rounds_up_microseconds() {
-        let start = 1_700_000_000_000;
-        assert_eq!(finish_unix_ms_from_started_and_duration(start, 0), start);
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 999),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1_000),
-            start + 1
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(start, 1_001),
-            start + 2
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_saturates_on_overflow() {
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(u64::MAX - 1, 1_001),
-            u64::MAX
-        );
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(u64::MAX - 1, u64::MAX),
-            u64::MAX
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_rounds_extreme_duration_up() {
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(0, u64::MAX),
-            (u64::MAX / 1_000) + 1
-        );
-    }
-
-    #[test]
-    fn finish_unix_ms_from_started_and_duration_keeps_extreme_multiple_exact() {
-        let duration_us = u64::MAX - (u64::MAX % 1_000);
-        assert_eq!(
-            finish_unix_ms_from_started_and_duration(0, duration_us),
-            duration_us / 1_000
-        );
     }
 
     #[test]
@@ -1358,28 +1301,71 @@ mod tests {
     }
 
     #[test]
-    fn live_completed_request_uses_positive_elapsed_latency_for_finish_time() {
+    fn live_completed_request_records_close_wall_time_and_elapsed_latency() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
         with_recorder(|recorder| {
-            let span = tracing::info_span!(
-                "request",
-                tt.kind = "request",
-                tt.request_id = "r1",
-                tt.route = "/a"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(1));
-            drop(span);
+            runtime.block_on(async {
+                let span = tracing::info_span!(
+                    "request",
+                    tt.kind = "request",
+                    tt.request_id = "r1",
+                    tt.route = "/a"
+                );
+                async {
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                }
+                .instrument(span)
+                .await;
+            });
 
             let snapshot = recorder.snapshot_run().unwrap();
+            assert_eq!(snapshot.run().requests.len(), 1);
             let request = &snapshot.run().requests[0];
             assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
             assert!(request.latency_us > 0);
-            assert_eq!(
-                request.finished_at_unix_ms,
-                finish_unix_ms_from_started_and_duration(
-                    request.started_at_unix_ms,
-                    request.latency_us
-                )
+        });
+    }
+
+    #[test]
+    fn live_completed_request_finish_time_is_not_required_to_match_duration_projection() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        with_recorder(|recorder| {
+            runtime.block_on(async {
+                let span = tracing::info_span!(
+                    "request",
+                    tt.kind = "request",
+                    tt.request_id = "r1",
+                    tt.route = "/a"
+                );
+                {
+                    let mut state = lock_state(&recorder.state);
+                    for open in state.open.values_mut() {
+                        open.started_at_unix_ms = 1;
+                    }
+                }
+                async {
+                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                }
+                .instrument(span)
+                .await;
+            });
+
+            let snapshot = recorder.snapshot_run().unwrap();
+            assert_eq!(snapshot.run().requests.len(), 1);
+            let request = &snapshot.run().requests[0];
+            let projected_finish_from_duration = request.started_at_unix_ms.saturating_add(
+                (request.latency_us / 1_000)
+                    .saturating_add(u64::from(!request.latency_us.is_multiple_of(1_000))),
             );
+            assert_eq!(request.started_at_unix_ms, 1);
+            assert!(request.latency_us > 0);
+            assert!(request.finished_at_unix_ms > projected_finish_from_duration);
         });
     }
 
