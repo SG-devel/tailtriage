@@ -101,6 +101,9 @@ Import behavior checklist:
 - Does not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured, for example via Tokio runtime sampling.
 - Treats malformed JSON input as fatal.
 - In non-strict mode, skips syntactically valid malformed/incomplete `tt.*` records with `warning: ...` lines.
+- Prefers `duration_us` as authoritative elapsed-time evidence when supplied; when it is absent, import derives duration from `finished_at_unix_ms - started_at_unix_ms`.
+- Rejects `duration_us`/timestamp-derived duration mismatches in `--strict` mode.
+- Warns but keeps `duration_us` in non-strict mode when supplied duration and timestamp-derived duration differ beyond tolerance.
 - Requires `--service` to be non-empty and not whitespace-only.
 - Fails when zero request events would be written, such as unrelated-only input or all-skipped malformed `tt.*` input, because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
 - Applies the same non-empty-request rule before persisting completed-span JSONL artifacts in tracing intake sessions.
