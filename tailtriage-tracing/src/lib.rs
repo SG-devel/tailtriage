@@ -311,10 +311,6 @@ where
     let retained_requests = &requests[..requests.len().min(capture_limits.max_requests)];
     let retained_stages = &stages[..stages.len().min(capture_limits.max_stages)];
     let retained_queues = &queues[..queues.len().min(capture_limits.max_queues)];
-    let retained_authoritative_requests = retained_requests.to_vec();
-    let retained_authoritative_stages = retained_stages.to_vec();
-    let retained_authoritative_queues = retained_queues.to_vec();
-
     let (started_at_unix_ms, finished_at_unix_ms) =
         retained_event_time_bounds(retained_requests, retained_stages, retained_queues)
             .unwrap_or_else(|| {
@@ -361,29 +357,22 @@ where
         },
     })?;
 
-    // RunBuilder still validates core event shape and retention behavior. Its
-    // duration/timestamp consistency check is stricter than non-strict tracing
-    // import, so feed it timestamp-derived durations and restore the retained
-    // authoritative `duration_us` values after validation/retention completes.
-    for request in requests.iter().cloned().map(builder_valid_request_event) {
+    for request in requests {
         run_builder
             .push_request(request)
             .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
     }
-    for stage in stages.iter().cloned().map(builder_valid_stage_event) {
+    for stage in stages {
         run_builder
             .push_stage(stage)
             .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
     }
-    for queue in queues.iter().cloned().map(builder_valid_queue_event) {
+    for queue in queues {
         run_builder
             .push_queue(queue)
             .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
     }
     let mut run = run_builder.finish();
-    run.requests = retained_authoritative_requests;
-    run.stages = retained_authoritative_stages;
-    run.queues = retained_authoritative_queues;
     run.truncation.dropped_stages = run
         .truncation
         .dropped_stages
@@ -726,24 +715,6 @@ fn timestamp_derived_duration_us(started_at_unix_ms: u64, finished_at_unix_ms: u
     finished_at_unix_ms
         .saturating_sub(started_at_unix_ms)
         .saturating_mul(1000)
-}
-
-fn builder_valid_request_event(mut event: RequestEvent) -> RequestEvent {
-    event.latency_us =
-        timestamp_derived_duration_us(event.started_at_unix_ms, event.finished_at_unix_ms);
-    event
-}
-
-fn builder_valid_stage_event(mut event: StageEvent) -> StageEvent {
-    event.latency_us =
-        timestamp_derived_duration_us(event.started_at_unix_ms, event.finished_at_unix_ms);
-    event
-}
-
-fn builder_valid_queue_event(mut event: QueueEvent) -> QueueEvent {
-    event.wait_us =
-        timestamp_derived_duration_us(event.waited_from_unix_ms, event.waited_until_unix_ms);
-    event
 }
 
 fn elapsed_duration_us(
@@ -2704,7 +2675,7 @@ mod tests {
     }
 
     #[test]
-    fn mismatched_request_duration_warns_and_retains_duration_us_in_non_strict_mode() {
+    fn mismatched_request_duration_goes_through_builder_and_is_retained_in_non_strict_mode() {
         let spans = vec![SpanRecord::new("req", 100, 101)
             .duration_us(50_000)
             .field(TT_KIND, "request")
@@ -2761,6 +2732,12 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("duration_us was retained")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("duration_us was retained")));
     }
 
     #[test]
@@ -2782,6 +2759,12 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("duration_us was retained")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("duration_us was retained")));
     }
 
     #[test]
