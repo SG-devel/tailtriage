@@ -25,19 +25,25 @@ pub(crate) struct FinishedInterval {
 /// Starts a measured interval using a wall-clock sample and monotonic instant.
 #[must_use]
 pub(crate) fn start_interval() -> IntervalStart {
+    let started = Instant::now();
+    let started_at_unix_ms = unix_time_ms();
+
     IntervalStart {
-        started_at_unix_ms: unix_time_ms(),
-        started: Instant::now(),
+        started_at_unix_ms,
+        started,
     }
 }
 
 /// Finishes a measured interval using wall-clock finish time and monotonic duration.
 #[must_use]
 pub(crate) fn finish_interval(start: IntervalStart) -> FinishedInterval {
+    let finished = Instant::now();
+    let finished_at_unix_ms = unix_time_ms();
+
     FinishedInterval {
         started_at_unix_ms: start.started_at_unix_ms,
-        finished_at_unix_ms: unix_time_ms(),
-        duration_us: duration_to_us(start.started.elapsed()),
+        finished_at_unix_ms,
+        duration_us: duration_to_us(finished.duration_since(start.started)),
     }
 }
 
