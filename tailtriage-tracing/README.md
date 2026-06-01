@@ -20,6 +20,13 @@ This crate converts tracing-shaped request, stage, and queue evidence into stand
 
 For one work item, every request, stage, and queue span must carry the same `tt.request_id`. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing or inconsistent IDs cause child evidence to be skipped or weakened.
 
+## Timing model
+
+- Imported or live tracing evidence is converted to normal tailtriage Run timing fields.
+- Durations are the authoritative elapsed-time evidence when present.
+- Unix-ms timestamps are wall-clock anchors and may be coarser than durations.
+- Ordinary tracing log timestamps are not enough for completed-span import; completed spans need explicit start/end timing and semantic tt.* fields.
+
 ## Feature flags
 
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.

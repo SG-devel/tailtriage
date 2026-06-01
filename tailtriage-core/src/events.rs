@@ -223,6 +223,11 @@ pub struct UnfinishedRequestSample {
 }
 
 /// Per-request timing and status.
+///
+/// Timing model: microsecond duration fields are authoritative for elapsed-time
+/// analysis; unix-ms timestamps are wall-clock anchors for correlation,
+/// readability, and coarse grouping, and may be coarse or move with the system
+/// clock.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestEvent {
     /// Correlation ID for the request.
@@ -242,6 +247,11 @@ pub struct RequestEvent {
 }
 
 /// Timing record for one named stage.
+///
+/// Timing model: microsecond duration fields are authoritative for elapsed-time
+/// analysis; unix-ms timestamps are wall-clock anchors for correlation,
+/// readability, and coarse grouping, and may be coarse or move with the system
+/// clock.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEvent {
     /// Parent request ID.
@@ -260,6 +270,11 @@ pub struct StageEvent {
 }
 
 /// Queue wait measurement for a request waiting on a queue/permit.
+///
+/// Timing model: microsecond duration fields are authoritative for elapsed-time
+/// analysis; unix-ms timestamps are wall-clock anchors for correlation,
+/// readability, and coarse grouping, and may be coarse or move with the system
+/// clock.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueEvent {
     /// Parent request ID.
@@ -277,6 +292,10 @@ pub struct QueueEvent {
 }
 
 /// Point-in-time in-flight gauge reading.
+///
+/// Timing model: unix-ms timestamps are wall-clock anchors for correlation,
+/// readability, and coarse grouping; elapsed-time analysis uses request, stage,
+/// and queue duration fields when present.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InFlightSnapshot {
     /// Gauge name.
@@ -288,6 +307,10 @@ pub struct InFlightSnapshot {
 }
 
 /// Point-in-time runtime metrics sample.
+///
+/// Timing model: unix-ms timestamps are wall-clock anchors for correlation,
+/// readability, and coarse grouping; elapsed-time analysis uses request, stage,
+/// and queue duration fields when present.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     /// Timestamp (milliseconds since epoch UTC).
