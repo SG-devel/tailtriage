@@ -12,6 +12,12 @@ It is **not**:
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
+## When to use this crate
+
+Use this path when your service already uses Rust `tracing` and already has stable per-request correlation IDs. Every request, stage, and queue span for one work item must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by that value.
+
+New integrations without existing tracing/correlation should start with native `tailtriage` capture first. This crate converts tracing-shaped evidence into standard `Run` artifacts; it is not a tracing backend.
+
 ## Feature flags
 
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
@@ -82,6 +88,19 @@ If your service already builds a subscriber in startup code, compose `session.la
 
 `set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
 
+Live tracing only tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields on the span when it is created. If a value is filled later, declare the field with `tracing::field::Empty` and then call `span.record(...)`; do not rely on adding brand-new `tt.*` fields later.
+
+```rust
+let span = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = tracing::field::Empty,
+);
+span.record("tt.outcome", "timeout");
+```
+
 ## Direct Run JSON path
 
 Use `run_json_path(...)` when you want to skip a separate import step and write Run JSON through the same robust writer path used by native capture sinks:
@@ -137,6 +156,8 @@ Import does not guess span timing from line receive time: provide explicit unix-
 | request | `tt.kind="request"`, `tt.request_id`, `tt.route` | `tt.outcome` (optional non-empty string; recommended common labels: `ok`, `error`, `timeout`, `cancelled`, `rejected`) |
 | stage | `tt.kind="stage"`, `tt.request_id`, `tt.stage` | `tt.success` |
 | queue | `tt.kind="queue"`, `tt.request_id`, `tt.queue` | `tt.depth_at_start` |
+
+Every request, stage, and queue span for one work item must carry the same `tt.request_id`; stage/queue evidence without a matching retained request is skipped or weakened during conversion.
 
 Record semantic `tt.*` fields (`tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, `tt.queue`) as plain scalar strings (string literals or display-formatted scalar strings). Do not use debug formatting for semantic `tt.*` fields.
 
