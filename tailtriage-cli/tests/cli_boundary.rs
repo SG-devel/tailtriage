@@ -713,14 +713,13 @@ fn import_tracing_spans_jsonl_default_rejects_fmt_json_with_guidance() {
 }
 
 #[test]
-fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_top_level_explicit_timestamps(
-) {
+fn import_tracing_spans_jsonl_compatible_rejects_ordinary_fmt_json_without_completed_span_timing() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
     std::fs::write(
         &spans_path,
-        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","event":"close","name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":2000,"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}"#,
+        r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"ordinary log"}}"#,
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
@@ -740,12 +739,12 @@ fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_top_level_
         "cli unexpectedly succeeded: {output:?}"
     );
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"));
+    assert!(stderr.contains("ordinary tracing log JSON"));
     assert!(!run_path.exists(), "run json should not be written");
 }
 
 #[test]
-fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_nested_explicit_timestamps() {
+fn import_tracing_spans_jsonl_compatible_accepts_normalized_record_with_fmt_metadata() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
@@ -767,12 +766,12 @@ fn import_tracing_spans_jsonl_compatible_rejects_fmt_like_record_with_nested_exp
         .output()
         .expect("cli should run");
     assert!(
-        !output.status.success(),
-        "cli unexpectedly succeeded: {output:?}"
+        output.status.success(),
+        "cli unexpectedly failed: {output:?}"
     );
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("unsupported tracing log envelope fields for compatible import (timestamp/level/target/event/message)"));
-    assert!(!run_path.exists(), "run json should not be written");
+    assert!(!stderr.contains("unsupported tracing fmt JSON for compatible import"));
+    assert!(run_path.exists(), "run json should be written");
 }
 
 #[test]
