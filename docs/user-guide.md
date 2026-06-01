@@ -34,7 +34,9 @@ The `controller` and `tokio` namespaces are available with default features; `ax
 
 ### Using existing tracing spans
 
-If you already instrument request/stage/queue work with Rust `tracing`, use `tailtriage-tracing` as an intake path into the same triage workflow.
+Use this path when the service already uses Rust `tracing`. It is best when the service already has stable per-request correlation IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
+
+Every request, stage, and queue span for one work item must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by `tt.request_id`. `tailtriage-tracing` converts tracing-shaped evidence into standard `Run` artifacts; it is not a tracing backend.
 
 Install for typed records plus JSONL import APIs (default feature set):
 
@@ -49,7 +51,33 @@ tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout -
 tailtriage analyze tailtriage-run.json
 ```
 
-`tailtriage import tracing-spans-jsonl` imports completed tailtriage tracing span JSONL and writes Run artifact JSON (not Report JSON), and analysis remains a separate step after import. Use the documented stable wrapper JSONL shape from `tailtriage-tracing` (`{"format":"tailtriage.tracing-span.v1","span":{...}}`). `--strict` fails on malformed or incomplete `tt.*` spans; non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages. Tracing import and native capture use the same `CaptureMode`/`CaptureLimits` semantics for request/stage/queue retention. Offline import exposes `--mode <light|investigation>` plus `--max-requests`, `--max-stages`, and `--max-queues` because those are the imported evidence types. It does not expose runtime/in-flight snapshot limit flags because those evidence types are not imported by this path. Tracing-only runs do not fabricate runtime snapshots, and runtime-pressure evidence remains Tokio-specific. Persisted Run JSON and persisted completed-span JSONL intended for offline CLI workflows must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Completed-span JSONL replays retained request/stage/queue evidence and does not carry live-session warning/truncation metadata; use Run JSON for the complete persisted artifact.
+#### What this imports
+
+Imports completed tailtriage tracing span JSONL. The stable/default input is the wrapper-only shape: `{"format":"tailtriage.tracing-span.v1","span":{...}}`. Ordinary `tracing_subscriber::fmt().json()` logs remain unsupported.
+
+#### What this writes
+
+Writes Run JSON, not Report JSON. Analysis is a separate `tailtriage analyze` step.
+
+#### Strict vs non-strict
+
+`--strict` fails malformed or incomplete `tt.*` spans. Non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages.
+
+#### Retention limits
+
+Offline import exposes request/stage/queue retention options (`--mode <light|investigation>`, `--max-requests`, `--max-stages`, and `--max-queues`) because those are the imported evidence types.
+
+#### Runtime evidence
+
+Offline import does not ingest runtime snapshots or in-flight snapshots. Tracing-only runs do not fabricate runtime snapshots, so runtime-pressure evidence remains Tokio-specific and limited unless runtime snapshots are captured separately.
+
+#### Zero-request artifacts
+
+Persisted CLI artifacts require at least one completed request. In-process library snapshots may still be zero-request for inspection.
+
+#### Completed-span JSONL caveat
+
+Completed-span JSONL is retained replay/debug evidence. It omits warning/truncation metadata and does not preserve the full Run warning/truncation context. Use Run JSON for the complete persisted artifact.
 
 B) Direct Run JSON path with async span instrumentation (`live` feature required):
 
@@ -95,6 +123,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure.
 `tt.outcome` on request spans is optional: missing values default to `ok` with a warning; recommended common labels are `ok`, `error`, `timeout`, `cancelled`, and `rejected`; custom non-empty labels are preserved exactly.
+
+Live tracing intake tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. For late values, declare the field with `tracing::field::Empty` and then call `span.record(...)`; adding brand-new `tt.*` fields later is not supported.
 
 In service code, add `session.layer()` beside your existing tracing layers and install the resulting subscriber in the application's normal process-wide/global subscriber setup. `set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
 

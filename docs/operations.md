@@ -162,6 +162,9 @@ Tracing import expects completed tailtriage `tt.*` tracing span JSONL, not ordin
 
 Important limits for production interpretation:
 
+* tracing intake works best when request correlation is already reliable
+* missing or inconsistent `tt.request_id` causes child stage/queue evidence to be skipped or weakened
+* native capture is the recommended first path when correlation is not already available
 * tracing-only runs do not fabricate runtime snapshots
 * without runtime snapshots, executor-pressure and blocking-pool suspects can be weaker or absent
 * runtime-pressure evidence remains Tokio-specific and requires runtime snapshots or Tokio sampler coupling

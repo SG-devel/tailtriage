@@ -12,6 +12,12 @@ It is **not**:
 - an OTel/OTLP pipeline,
 - proof of root cause (output remains triage leads).
 
+## When to use this crate
+
+Use this path when the service already uses Rust `tracing` and already has stable per-request correlation IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
+
+Every request, stage, and queue span for one work item must carry the same `tt.request_id`; child stage/queue evidence is correlated only to retained request evidence with the same `tt.request_id`. This crate converts tracing-shaped evidence into standard `Run` artifacts; it is not a tracing backend.
+
 ## Feature flags
 
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
@@ -141,6 +147,19 @@ Import does not guess span timing from line receive time: provide explicit unix-
 Record semantic `tt.*` fields (`tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, `tt.queue`) as plain scalar strings (string literals or display-formatted scalar strings). Do not use debug formatting for semantic `tt.*` fields.
 
 For example: `tt.kind = "request"` works, `tt.kind = %kind` can work when `kind` displays as `request`, but `tt.kind = ?kind` may record `"request"` (debug quoting) and be rejected as unknown.
+
+Live tracing intake tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. If a value is filled later, declare that field with `tracing::field::Empty` at creation time and then call `span.record(...)`; adding a brand-new `tt.*` field later is not supported.
+
+```rust
+let span = tracing::info_span!(
+    "request",
+    tt.kind = "request",
+    tt.request_id = "req-1",
+    tt.route = "/checkout",
+    tt.outcome = tracing::field::Empty,
+);
+span.record("tt.outcome", "timeout");
+```
 
 Missing request `tt.outcome` defaults to `ok` with a warning.
 If present, request `tt.outcome` must be a string and cannot be empty/whitespace-only; accepted custom labels are preserved exactly.
