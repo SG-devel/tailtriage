@@ -1593,47 +1593,54 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
 }
 
 #[test]
-fn run_builder_request_duration_within_tolerance_is_accepted() {
+fn run_builder_request_duration_field_is_authoritative_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
     let mut request = test_request_event("req");
     request.started_at_unix_ms = 10;
-    request.finished_at_unix_ms = 12;
-    request.latency_us = 3_999;
-    assert!(builder.push_request(request).is_ok());
+    request.finished_at_unix_ms = 11;
+    request.latency_us = 50_000;
+
+    builder
+        .push_request(request)
+        .expect("duration is authoritative");
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.requests[0].latency_us, 50_000);
 }
 
 #[test]
-fn run_builder_request_duration_beyond_tolerance_is_rejected() {
-    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
-
-    let mut request = test_request_event("req");
-    request.started_at_unix_ms = 10;
-    request.finished_at_unix_ms = 12;
-    request.latency_us = 4_001;
-    assert!(builder.push_request(request).is_err());
-}
-
-#[test]
-fn run_builder_stage_duration_beyond_tolerance_is_rejected() {
+fn run_builder_stage_duration_field_is_authoritative_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
     let mut stage = test_stage_event("req", "stage");
     stage.started_at_unix_ms = 3;
-    stage.finished_at_unix_ms = 5;
-    stage.latency_us = 4_100;
-    assert!(builder.push_stage(stage).is_err());
+    stage.finished_at_unix_ms = 4;
+    stage.latency_us = 50_000;
+
+    builder
+        .push_stage(stage)
+        .expect("duration is authoritative");
+    let run = builder.finish();
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.stages[0].latency_us, 50_000);
 }
 
 #[test]
-fn run_builder_queue_wait_duration_beyond_tolerance_is_rejected() {
+fn run_builder_queue_wait_field_is_authoritative_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
     let mut queue = test_queue_event("req", "queue");
     queue.waited_from_unix_ms = 5;
-    queue.waited_until_unix_ms = 7;
-    queue.wait_us = 4_005;
-    assert!(builder.push_queue(queue).is_err());
+    queue.waited_until_unix_ms = 6;
+    queue.wait_us = 50_000;
+
+    builder
+        .push_queue(queue)
+        .expect("duration is authoritative");
+    let run = builder.finish();
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.queues[0].wait_us, 50_000);
 }
 
 #[test]
