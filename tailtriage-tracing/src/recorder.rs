@@ -756,7 +756,8 @@ where
 }
 
 fn finish_unix_ms_from_started_and_duration(started_at_unix_ms: u64, duration_us: u64) -> u64 {
-    let elapsed_ms = (duration_us / 1_000).saturating_add(u64::from(duration_us % 1_000 != 0));
+    let elapsed_ms =
+        (duration_us / 1_000).saturating_add(u64::from(!duration_us.is_multiple_of(1_000)));
     started_at_unix_ms.saturating_add(elapsed_ms)
 }
 
