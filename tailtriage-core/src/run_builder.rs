@@ -5,8 +5,6 @@ use crate::{
 };
 use core::fmt;
 
-const DURATION_TOLERANCE_US: u64 = 2_000;
-
 /// Options for assembling a completed [`Run`] artifact.
 ///
 /// This API is for completed evidence assembly (for example, import/conversion
@@ -158,7 +156,12 @@ impl std::error::Error for RunBuilderEventError {}
 /// Advanced/import API for completed-run artifact assembly.
 ///
 /// [`RunBuilder`] assembles a finalized [`Run`] from already measured evidence.
-/// It does not perform live request lifecycle tracking.
+/// It validates event shape and timestamp ordering, but does not perform live
+/// request lifecycle tracking.
+///
+/// Elapsed duration fields such as request latency, stage latency, and queue
+/// wait are accepted as authoritative completed evidence. [`RunBuilder`] does
+/// not synthesize or repair durations from wall-clock timestamps.
 ///
 /// Push methods use first-N retention through the same bounded
 /// retention/truncation helper used by the live collector. Overflow items are
@@ -359,16 +362,6 @@ fn invalid_event(
     }
 }
 
-fn duration_from_unix_ms_bounds(started_at_unix_ms: u64, finished_at_unix_ms: u64) -> u64 {
-    finished_at_unix_ms
-        .saturating_sub(started_at_unix_ms)
-        .saturating_mul(1_000)
-}
-
-fn duration_within_tolerance(observed_us: u64, derived_us: u64) -> bool {
-    observed_us.abs_diff(derived_us) <= DURATION_TOLERANCE_US
-}
-
 fn validate_request_event(event: &RequestEvent) -> Result<(), RunBuilderEventError> {
     if event.request_id.trim().is_empty() {
         return Err(invalid_event(
@@ -394,18 +387,6 @@ fn validate_request_event(event: &RequestEvent) -> Result<(), RunBuilderEventErr
             "must not be empty",
         ));
     }
-    let derived_us =
-        duration_from_unix_ms_bounds(event.started_at_unix_ms, event.finished_at_unix_ms);
-    if !duration_within_tolerance(event.latency_us, derived_us) {
-        return Err(invalid_event(
-            "RequestEvent",
-            "latency_us",
-            format!(
-                "observed duration {}us differs from timestamp-derived duration {}us by more than tolerance {}us",
-                event.latency_us, derived_us, DURATION_TOLERANCE_US
-            ),
-        ));
-    }
     Ok(())
 }
 fn validate_stage_event(event: &StageEvent) -> Result<(), RunBuilderEventError> {
@@ -426,18 +407,6 @@ fn validate_stage_event(event: &StageEvent) -> Result<(), RunBuilderEventError> 
             "must be >= started_at_unix_ms",
         ));
     }
-    let derived_us =
-        duration_from_unix_ms_bounds(event.started_at_unix_ms, event.finished_at_unix_ms);
-    if !duration_within_tolerance(event.latency_us, derived_us) {
-        return Err(invalid_event(
-            "StageEvent",
-            "latency_us",
-            format!(
-                "observed duration {}us differs from timestamp-derived duration {}us by more than tolerance {}us",
-                event.latency_us, derived_us, DURATION_TOLERANCE_US
-            ),
-        ));
-    }
     Ok(())
 }
 fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> {
@@ -456,18 +425,6 @@ fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> 
             "QueueEvent",
             "waited_until_unix_ms",
             "must be >= waited_from_unix_ms",
-        ));
-    }
-    let derived_us =
-        duration_from_unix_ms_bounds(event.waited_from_unix_ms, event.waited_until_unix_ms);
-    if !duration_within_tolerance(event.wait_us, derived_us) {
-        return Err(invalid_event(
-            "QueueEvent",
-            "wait_us",
-            format!(
-                "observed duration {}us differs from timestamp-derived duration {}us by more than tolerance {}us",
-                event.wait_us, derived_us, DURATION_TOLERANCE_US
-            ),
         ));
     }
     Ok(())
