@@ -157,6 +157,8 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 
 On successful sampler start, tailtriage records effective sampler configuration metadata into the run artifact metadata before runtime snapshots are captured.
 
+The sampler records an initial sample promptly after start, then follows the configured cadence. The cadence is a target periodic sampling cadence, not a hard real-time guarantee.
+
 When the sampler is running, the run artifact can include runtime snapshots such as:
 
 - `alive_tasks`

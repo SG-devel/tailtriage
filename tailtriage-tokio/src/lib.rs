@@ -515,6 +515,10 @@ impl RuntimeSampler {
 
     /// Starts periodic runtime metrics sampling on the current Tokio runtime.
     ///
+    /// The sampler records an initial sample promptly after start, then follows
+    /// the configured cadence. The cadence is a target periodic sampling cadence,
+    /// not a hard real-time guarantee.
+    ///
     /// Use this during incident triage when runtime pressure evidence is needed
     /// to rank suspects (for example: global queue growth or alive-task spikes).
     /// For lower runtime-cost core-only capture categories, skip sampler startup.
@@ -555,6 +559,9 @@ impl RuntimeSamplerBuilder {
     }
 
     /// Overrides resolved sampler cadence.
+    ///
+    /// This is the target periodic sampling cadence after the prompt initial
+    /// sample, not a hard real-time guarantee.
     #[must_use]
     pub fn interval(mut self, interval: Duration) -> Self {
         self.interval_override = Some(interval);
@@ -569,6 +576,10 @@ impl RuntimeSamplerBuilder {
     }
 
     /// Resolves configuration and starts periodic runtime metrics sampling.
+    ///
+    /// The sampler records an initial sample promptly after start, then follows
+    /// the configured cadence. The cadence is a target periodic sampling cadence,
+    /// not a hard real-time guarantee.
     ///
     /// Resolution precedence:
     ///
