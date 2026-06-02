@@ -454,10 +454,11 @@ impl TailtriageController {
         builder = builder.strict_lifecycle(template.strict_lifecycle);
 
         let run = Arc::new(builder.build().map_err(EnableError::Build)?);
+        let generation_started_at_unix_ms = run.snapshot().metadata.started_at_unix_ms;
         let runtime = Arc::new(ActiveGenerationRuntime {
             state: ActiveGenerationState {
                 generation_id: next_generation,
-                started_at_unix_ms: tailtriage_core::unix_time_ms(),
+                started_at_unix_ms: generation_started_at_unix_ms,
                 artifact_path: artifact_path.clone(),
                 accepting_new_admissions: true,
                 closing: false,
@@ -1894,6 +1895,28 @@ mod tests {
         assert!(expected.exists());
 
         fs::remove_file(expected).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn active_generation_started_at_matches_underlying_run_metadata() {
+        let output = test_output("active-start-matches-run");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active_state = controller.enable().expect("enable should succeed");
+        let active_runtime = active_runtime(&controller);
+        let run_started_at = active_runtime.run.snapshot().metadata.started_at_unix_ms;
+
+        assert_eq!(active_state.started_at_unix_ms, run_started_at);
+        assert_eq!(active_runtime.snapshot().started_at_unix_ms, run_started_at);
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+        fs::remove_file(active_state.artifact_path).expect("cleanup should succeed");
     }
 
     #[test]
