@@ -22,6 +22,7 @@ pub struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
     limits: RecorderLimits,
+    started_instant: Instant,
 }
 /// High-level tracing intake bridge for completed `tt.*` spans.
 ///
@@ -63,6 +64,7 @@ pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
     limits: RecorderLimits,
     semantic_max_requests: usize,
+    recorder_started_instant: Instant,
 }
 /// Default maximum number of concurrently tracked open candidate spans.
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
@@ -115,6 +117,7 @@ struct OpenSpan {
     name: String,
     fields: BTreeMap<String, FieldValue>,
     started_at_unix_ms: u64,
+    started_at_run_us: u64,
     started_instant: Instant,
     is_tt_candidate: bool,
 }
@@ -173,6 +176,7 @@ impl TracingRecorder {
             state: Arc::clone(&self.state),
             limits: self.limits,
             semantic_max_requests: self.options.resolved_capture_limits().max_requests,
+            recorder_started_instant: self.started_instant,
         }
     }
 
@@ -423,11 +427,18 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
             "tt.request",
             req.started_at_unix_ms,
             req.finished_at_unix_ms,
-        )
-        .field("tt.kind", "request")
-        .field("tt.request_id", req.request_id.clone())
-        .field("tt.route", req.route.clone())
-        .field("tt.outcome", req.outcome.clone());
+        );
+        if let Some(started_at_run_us) = req.started_at_run_us {
+            span = span.started_at_run_us(started_at_run_us);
+        }
+        if let Some(finished_at_run_us) = req.finished_at_run_us {
+            span = span.finished_at_run_us(finished_at_run_us);
+        }
+        span = span
+            .field("tt.kind", "request")
+            .field("tt.request_id", req.request_id.clone())
+            .field("tt.route", req.route.clone())
+            .field("tt.outcome", req.outcome.clone());
         if duration_within_tolerance(
             req.latency_us,
             req.started_at_unix_ms,
@@ -442,11 +453,18 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
             "tt.stage",
             stage.started_at_unix_ms,
             stage.finished_at_unix_ms,
-        )
-        .field("tt.kind", "stage")
-        .field("tt.request_id", stage.request_id.clone())
-        .field("tt.stage", stage.stage.clone())
-        .field("tt.success", stage.success);
+        );
+        if let Some(started_at_run_us) = stage.started_at_run_us {
+            span = span.started_at_run_us(started_at_run_us);
+        }
+        if let Some(finished_at_run_us) = stage.finished_at_run_us {
+            span = span.finished_at_run_us(finished_at_run_us);
+        }
+        span = span
+            .field("tt.kind", "stage")
+            .field("tt.request_id", stage.request_id.clone())
+            .field("tt.stage", stage.stage.clone())
+            .field("tt.success", stage.success);
         if duration_within_tolerance(
             stage.latency_us,
             stage.started_at_unix_ms,
@@ -461,10 +479,17 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
             "tt.queue",
             queue.waited_from_unix_ms,
             queue.waited_until_unix_ms,
-        )
-        .field("tt.kind", "queue")
-        .field("tt.request_id", queue.request_id.clone())
-        .field("tt.queue", queue.queue.clone());
+        );
+        if let Some(waited_from_run_us) = queue.waited_from_run_us {
+            span = span.started_at_run_us(waited_from_run_us);
+        }
+        if let Some(waited_until_run_us) = queue.waited_until_run_us {
+            span = span.finished_at_run_us(waited_until_run_us);
+        }
+        span = span
+            .field("tt.kind", "queue")
+            .field("tt.request_id", queue.request_id.clone())
+            .field("tt.queue", queue.queue.clone());
         if duration_within_tolerance(
             queue.wait_us,
             queue.waited_from_unix_ms,
@@ -644,6 +669,7 @@ impl TracingRecorderBuilder {
             state: Arc::new(Mutex::new(RecorderState::default())),
             options: self.options,
             limits: self.limits,
+            started_instant: Instant::now(),
         })
     }
     /// Sets live recorder memory limits.
@@ -674,6 +700,7 @@ where
     S: Subscriber,
 {
     fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let created_instant = Instant::now();
         let mut visitor = FieldVisitor::default();
         attrs.record(&mut visitor);
         let parent_id = attrs
@@ -700,7 +727,8 @@ where
             name: attrs.metadata().name().to_owned(),
             fields: visitor.fields,
             started_at_unix_ms: tailtriage_core::unix_time_ms(),
-            started_instant: Instant::now(),
+            started_at_run_us: run_offset_us(self.recorder_started_instant, created_instant),
+            started_instant: created_instant,
             is_tt_candidate: metadata_candidate || initial_candidate,
         };
         state.open.insert(id.into_u64(), open_span);
@@ -732,7 +760,10 @@ where
                 return;
             }
             let duration_us = duration_us_between(open.started_instant, closed_instant);
+            let finished_at_run_us = run_offset_us(self.recorder_started_instant, closed_instant);
             let mut record = SpanRecord::new(open.name, open.started_at_unix_ms, closed_at_unix_ms)
+                .started_at_run_us(open.started_at_run_us)
+                .finished_at_run_us(finished_at_run_us)
                 .duration_us(duration_us);
             if let Some(span_id) = open.id {
                 record = record.id(span_id);
@@ -754,10 +785,11 @@ where
     }
 }
 
-fn duration_us_between(
-    started_instant: std::time::Instant,
-    closed_instant: std::time::Instant,
-) -> u64 {
+fn run_offset_us(started_instant: Instant, instant: Instant) -> u64 {
+    u64::try_from(instant.duration_since(started_instant).as_micros()).unwrap_or(u64::MAX)
+}
+
+fn duration_us_between(started_instant: Instant, closed_instant: Instant) -> u64 {
     u64::try_from(closed_instant.duration_since(started_instant).as_micros()).unwrap_or(u64::MAX)
 }
 
@@ -1332,6 +1364,8 @@ mod tests {
         let request = &snapshot.run().requests[0];
         assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
         assert!(request.latency_us > 0);
+        assert!(request.started_at_run_us.is_some());
+        assert!(request.finished_at_run_us.is_some());
     }
 
     #[test]
@@ -1406,6 +1440,9 @@ mod tests {
 
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().stages.len(), 1);
+            let stage = &run.run().stages[0];
+            assert!(stage.started_at_run_us.is_some());
+            assert!(stage.finished_at_run_us.is_some());
         });
     }
 
@@ -1429,6 +1466,9 @@ mod tests {
             drop(request);
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().queues.len(), 1);
+            let queue = &run.run().queues[0];
+            assert!(queue.waited_from_run_us.is_some());
+            assert!(queue.waited_until_run_us.is_some());
         });
     }
 
@@ -3146,7 +3186,9 @@ mod tests {
         assert!(value["span"].is_object());
         assert_eq!(value["span"]["name"], "tt.request");
         assert!(value["span"]["started_at_unix_ms"].is_number());
+        assert!(value["span"]["started_at_run_us"].is_number());
         assert!(value["span"]["finished_at_unix_ms"].is_number());
+        assert!(value["span"]["finished_at_run_us"].is_number());
         assert!(value["span"]["duration_us"].is_number());
         assert_eq!(value["span"]["fields"]["tt.kind"], "request");
         assert_eq!(value["span"]["fields"]["tt.request_id"], "r1");
@@ -3161,6 +3203,8 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].request_id, "r1");
         assert_eq!(imported.run().requests[0].route, "/a");
+        assert!(imported.run().requests[0].started_at_run_us.is_some());
+        assert!(imported.run().requests[0].finished_at_run_us.is_some());
     }
 
     #[test]

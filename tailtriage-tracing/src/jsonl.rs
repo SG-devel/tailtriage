@@ -376,6 +376,8 @@ fn parse_normalized_span(
     let parent_id = optional_string(span_obj, "parent_id")?;
     let started_at_unix_ms = required_timestamp(span_obj, "started_at_unix_ms", "start_unix_ms")?;
     let finished_at_unix_ms = required_timestamp(span_obj, "finished_at_unix_ms", "end_unix_ms")?;
+    let started_at_run_us = optional_u64(span_obj, "started_at_run_us")?;
+    let finished_at_run_us = optional_u64(span_obj, "finished_at_run_us")?;
     let duration_us = optional_duration_us(span_obj)?;
 
     let mut span = SpanRecord::new(name, started_at_unix_ms, finished_at_unix_ms);
@@ -384,6 +386,12 @@ fn parse_normalized_span(
     }
     if let Some(parent_id) = parent_id {
         span = span.parent_id(parent_id);
+    }
+    if let Some(started_at_run_us) = started_at_run_us {
+        span = span.started_at_run_us(started_at_run_us);
+    }
+    if let Some(finished_at_run_us) = finished_at_run_us {
+        span = span.finished_at_run_us(finished_at_run_us);
     }
     if let Some(duration_us) = duration_us {
         span = span.duration_us(duration_us);
@@ -484,16 +492,23 @@ fn required_timestamp_obj(
     Err(ImportError::MissingField(primary))
 }
 fn optional_duration_us(obj: &serde_json::Map<String, Value>) -> Result<Option<u64>, ImportError> {
-    match obj.get("duration_us") {
+    optional_u64(obj, "duration_us")
+}
+
+fn optional_u64(
+    obj: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<Option<u64>, ImportError> {
+    match obj.get(field) {
         Some(Value::Number(n)) => n
             .as_u64()
             .ok_or_else(|| ImportError::InvalidField {
-                field: "duration_us",
+                field,
                 reason: "expected unsigned integer microseconds as u64".to_owned(),
             })
             .map(Some),
         Some(_) => Err(ImportError::InvalidField {
-            field: "duration_us",
+            field,
             reason: "expected unsigned integer microseconds as u64".to_owned(),
         }),
         None => Ok(None),
@@ -898,6 +913,42 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("duration_us was retained")));
+    }
+
+    #[test]
+    fn stable_wrapper_run_relative_fields_import_into_run_events() {
+        let input = r#"
+{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"started_at_run_us":100,"finished_at_unix_ms":20,"finished_at_run_us":200,"duration_us":100,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"st","started_at_unix_ms":11,"started_at_run_us":110,"finished_at_unix_ms":18,"finished_at_run_us":180,"duration_us":70,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"q","started_at_unix_ms":10,"started_at_run_us":120,"finished_at_unix_ms":11,"finished_at_run_us":130,"duration_us":10,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
+"#;
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+
+        assert_eq!(imported.run().requests[0].started_at_run_us, Some(100));
+        assert_eq!(imported.run().requests[0].finished_at_run_us, Some(200));
+        assert_eq!(imported.run().stages[0].started_at_run_us, Some(110));
+        assert_eq!(imported.run().stages[0].finished_at_run_us, Some(180));
+        assert_eq!(imported.run().queues[0].waited_from_run_us, Some(120));
+        assert_eq!(imported.run().queues[0].waited_until_run_us, Some(130));
+    }
+
+    #[test]
+    fn stable_wrapper_without_run_relative_fields_imports_none() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let imported = import_jsonl_reader_with_mode(
+            Cursor::new(input),
+            ImportOptions::new("svc"),
+            JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+
+        assert_eq!(imported.run().requests[0].started_at_run_us, None);
+        assert_eq!(imported.run().requests[0].finished_at_run_us, None);
     }
 
     #[test]
