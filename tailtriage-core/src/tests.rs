@@ -140,6 +140,10 @@ fn queue_stage_and_inflight_are_recorded() {
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.inflight.len(), 2);
+    assert!(snapshot
+        .inflight
+        .iter()
+        .all(|snapshot| snapshot.at_run_us.is_some()));
     assert_eq!(snapshot.queues.len(), 1);
     assert_eq!(snapshot.stages.len(), 1);
 }
@@ -169,14 +173,35 @@ fn request_stage_and_queue_timing_preserves_order_after_sleep() {
 
     let request = &snapshot.requests[0];
     assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
+    let request_started_at_run_us = request
+        .started_at_run_us
+        .expect("native request should have run-relative start");
+    let request_finished_at_run_us = request
+        .finished_at_run_us
+        .expect("native request should have run-relative finish");
+    assert!(request_finished_at_run_us >= request_started_at_run_us);
     assert!(request.latency_us > 0);
 
     let stage = &snapshot.stages[0];
     assert!(stage.finished_at_unix_ms >= stage.started_at_unix_ms);
+    let stage_started_at_run_us = stage
+        .started_at_run_us
+        .expect("native stage should have run-relative start");
+    let stage_finished_at_run_us = stage
+        .finished_at_run_us
+        .expect("native stage should have run-relative finish");
+    assert!(stage_finished_at_run_us >= stage_started_at_run_us);
     assert!(stage.latency_us > 0);
 
     let queue = &snapshot.queues[0];
     assert!(queue.waited_until_unix_ms >= queue.waited_from_unix_ms);
+    let queue_waited_from_run_us = queue
+        .waited_from_run_us
+        .expect("native queue should have run-relative wait start");
+    let queue_waited_until_run_us = queue
+        .waited_until_run_us
+        .expect("native queue should have run-relative wait end");
+    assert!(queue_waited_until_run_us >= queue_waited_from_run_us);
     assert!(queue.wait_us > 0);
 }
 
@@ -348,6 +373,7 @@ fn capture_limits_apply_to_all_sections() {
     second.completion.finish_ok();
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: None,
@@ -356,6 +382,7 @@ fn capture_limits_apply_to_all_sections() {
     });
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(2),
         global_queue_depth: Some(2),
         local_queue_depth: None,
@@ -561,6 +588,7 @@ fn saturation_preserves_exact_drop_counts_across_sections() {
     for i in 1..=3 {
         tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
             at_unix_ms: crate::unix_time_ms(),
+            at_run_us: None,
             alive_tasks: Some(i),
             global_queue_depth: Some(i),
             local_queue_depth: None,
@@ -604,6 +632,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
 
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: None,
@@ -612,6 +641,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
     });
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(2),
         global_queue_depth: Some(2),
         local_queue_depth: None,
@@ -620,6 +650,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
     });
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(3),
         global_queue_depth: Some(3),
         local_queue_depth: None,
@@ -662,6 +693,7 @@ fn unsaturated_runs_keep_zero_truncation_counters() {
     started.completion.finish_ok();
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: None,
@@ -734,11 +766,44 @@ fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
                 "sample": []
             }
         },
-        "requests": [],
-        "stages": [],
-        "queues": [],
-        "inflight": [],
-        "runtime_snapshots": [],
+        "requests": [{
+            "request_id": "req-legacy",
+            "route": "/legacy",
+            "kind": null,
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "outcome": "ok"
+        }],
+        "stages": [{
+            "request_id": "req-legacy",
+            "stage": "db",
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "success": true
+        }],
+        "queues": [{
+            "request_id": "req-legacy",
+            "queue": "permit",
+            "waited_from_unix_ms": 1,
+            "waited_until_unix_ms": 2,
+            "wait_us": 10,
+            "depth_at_start": null
+        }],
+        "inflight": [{
+            "gauge": "active",
+            "at_unix_ms": 1,
+            "count": 1
+        }],
+        "runtime_snapshots": [{
+            "at_unix_ms": 1,
+            "alive_tasks": 1,
+            "global_queue_depth": null,
+            "local_queue_depth": null,
+            "blocking_queue_depth": null,
+            "remote_schedule_count": null
+        }],
         "truncation": {
             "dropped_requests": 0,
             "dropped_stages": 0,
@@ -752,6 +817,14 @@ fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
     assert_eq!(parsed.metadata.mode, CaptureMode::Investigation);
     assert!(parsed.metadata.effective_core_config.is_none());
     assert!(parsed.metadata.finalized_at_unix_ms.is_none());
+    assert_eq!(parsed.requests[0].started_at_run_us, None);
+    assert_eq!(parsed.requests[0].finished_at_run_us, None);
+    assert_eq!(parsed.stages[0].started_at_run_us, None);
+    assert_eq!(parsed.stages[0].finished_at_run_us, None);
+    assert_eq!(parsed.queues[0].waited_from_run_us, None);
+    assert_eq!(parsed.queues[0].waited_until_run_us, None);
+    assert_eq!(parsed.inflight[0].at_run_us, None);
+    assert_eq!(parsed.runtime_snapshots[0].at_run_us, None);
 }
 
 #[test]
@@ -774,11 +847,44 @@ fn run_deserialization_ignores_unknown_metadata_fields() {
             },
             "future_metadata_field": "still-compatible"
         },
-        "requests": [],
-        "stages": [],
-        "queues": [],
-        "inflight": [],
-        "runtime_snapshots": [],
+        "requests": [{
+            "request_id": "req-legacy",
+            "route": "/legacy",
+            "kind": null,
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "outcome": "ok"
+        }],
+        "stages": [{
+            "request_id": "req-legacy",
+            "stage": "db",
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "success": true
+        }],
+        "queues": [{
+            "request_id": "req-legacy",
+            "queue": "permit",
+            "waited_from_unix_ms": 1,
+            "waited_until_unix_ms": 2,
+            "wait_us": 10,
+            "depth_at_start": null
+        }],
+        "inflight": [{
+            "gauge": "active",
+            "at_unix_ms": 1,
+            "count": 1
+        }],
+        "runtime_snapshots": [{
+            "at_unix_ms": 1,
+            "alive_tasks": 1,
+            "global_queue_depth": null,
+            "local_queue_depth": null,
+            "blocking_queue_depth": null,
+            "remote_schedule_count": null
+        }],
         "truncation": {
             "dropped_requests": 0,
             "dropped_stages": 0,
@@ -991,7 +1097,9 @@ fn run_builder_creates_empty_run_with_explicit_metadata() {
             route: "/x".into(),
             kind: None,
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 10,
             outcome: "ok".into(),
         })
@@ -1221,7 +1329,9 @@ fn test_request_event(request_id: &str) -> crate::RequestEvent {
         route: "/test".to_string(),
         kind: None,
         started_at_unix_ms: 1,
+        started_at_run_us: None,
         finished_at_unix_ms: 2,
+        finished_at_run_us: None,
         latency_us: 10,
         outcome: "ok".to_string(),
     }
@@ -1232,7 +1342,9 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
         request_id: request_id.to_string(),
         stage: stage.to_string(),
         started_at_unix_ms: 3,
+        started_at_run_us: None,
         finished_at_unix_ms: 4,
+        finished_at_run_us: None,
         latency_us: 11,
         success: true,
     }
@@ -1243,7 +1355,9 @@ fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
         request_id: request_id.to_string(),
         queue: queue.to_string(),
         waited_from_unix_ms: 5,
+        waited_from_run_us: None,
         waited_until_unix_ms: 6,
+        waited_until_run_us: None,
         wait_us: 12,
         depth_at_start: Some(1),
     }
@@ -1355,6 +1469,7 @@ fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
         .push_inflight_snapshot(crate::InFlightSnapshot {
             gauge: "g".to_string(),
             at_unix_ms: 7,
+            at_run_us: None,
             count: 1,
         })
         .expect("ok");
@@ -1362,6 +1477,7 @@ fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
         .push_inflight_snapshot(crate::InFlightSnapshot {
             gauge: "g".to_string(),
             at_unix_ms: 8,
+            at_run_us: None,
             count: 2,
         })
         .expect("ok");
@@ -1392,6 +1508,7 @@ fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
     builder
         .push_runtime_snapshot(crate::RuntimeSnapshot {
             at_unix_ms: 9,
+            at_run_us: None,
             alive_tasks: Some(1),
             global_queue_depth: Some(2),
             local_queue_depth: Some(3),
@@ -1402,6 +1519,7 @@ fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
     builder
         .push_runtime_snapshot(crate::RuntimeSnapshot {
             at_unix_ms: 10,
+            at_run_us: None,
             alive_tasks: Some(2),
             global_queue_depth: Some(3),
             local_queue_depth: Some(4),
@@ -1446,12 +1564,14 @@ fn run_builder_does_not_report_truncation_within_limits() {
         .push_inflight_snapshot(crate::InFlightSnapshot {
             gauge: "g".to_string(),
             at_unix_ms: 11,
+            at_run_us: None,
             count: 1,
         })
         .expect("ok");
     builder
         .push_runtime_snapshot(crate::RuntimeSnapshot {
             at_unix_ms: 12,
+            at_run_us: None,
             alive_tasks: Some(1),
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
@@ -1504,12 +1624,14 @@ fn run_builder_valid_pushes_return_ok() {
         .push_inflight_snapshot(crate::InFlightSnapshot {
             gauge: "inflight".into(),
             at_unix_ms: 1,
+            at_run_us: None,
             count: 1,
         })
         .is_ok());
     assert!(builder
         .push_runtime_snapshot(crate::RuntimeSnapshot {
             at_unix_ms: 0,
+            at_run_us: None,
             alive_tasks: None,
             global_queue_depth: None,
             local_queue_depth: None,
@@ -1587,6 +1709,7 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
         .push_inflight_snapshot(crate::InFlightSnapshot {
             gauge: " ".into(),
             at_unix_ms: 1,
+            at_run_us: None,
             count: 1,
         })
         .is_err());
@@ -1646,4 +1769,21 @@ fn run_builder_zero_duration_timestamps_with_zero_duration_are_accepted() {
     request.finished_at_unix_ms = 2;
     request.latency_us = 0;
     assert!(builder.push_request(request).is_ok());
+}
+
+#[test]
+fn record_runtime_snapshot_stamps_run_relative_time_when_missing() {
+    let tailtriage = build_for_test("runtime", "runtime-run-relative.json");
+    tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
+        alive_tasks: Some(1),
+        global_queue_depth: None,
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.runtime_snapshots[0].at_run_us.is_some());
 }
