@@ -454,10 +454,11 @@ impl TailtriageController {
         builder = builder.strict_lifecycle(template.strict_lifecycle);
 
         let run = Arc::new(builder.build().map_err(EnableError::Build)?);
+        let generation_started_at_unix_ms = run.snapshot().metadata.started_at_unix_ms;
         let runtime = Arc::new(ActiveGenerationRuntime {
             state: ActiveGenerationState {
                 generation_id: next_generation,
-                started_at_unix_ms: tailtriage_core::unix_time_ms(),
+                started_at_unix_ms: generation_started_at_unix_ms,
                 artifact_path: artifact_path.clone(),
                 accepting_new_admissions: true,
                 closing: false,
@@ -1643,9 +1644,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        ControllerBuildError, ControllerSinkTemplate, DisableOutcome, EnableError, GenerationState,
-        ReloadConfigError, ReloadTemplateError, RunEndPolicy, RuntimeSamplerTemplate,
-        TailtriageController, TailtriageControllerTemplate,
+        ControllerBuildError, ControllerLifecycle, ControllerSinkTemplate, DisableOutcome,
+        EnableError, GenerationState, ReloadConfigError, ReloadTemplateError, RunEndPolicy,
+        RuntimeSamplerTemplate, TailtriageController, TailtriageControllerTemplate,
     };
     use serde::Serialize;
     use tailtriage_core::{
@@ -1894,6 +1895,36 @@ mod tests {
         assert!(expected.exists());
 
         fs::remove_file(expected).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn enable_generation_start_matches_underlying_run_metadata() {
+        let output = test_output("enable-start-metadata");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+
+        let run_started_at_unix_ms = {
+            let lifecycle = controller
+                .inner
+                .lifecycle
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match *lifecycle {
+                ControllerLifecycle::Active { ref active, .. } => {
+                    active.run.snapshot().metadata.started_at_unix_ms
+                }
+                ControllerLifecycle::Disabled { .. } => panic!("controller should be active"),
+            }
+        };
+
+        assert_eq!(active.started_at_unix_ms, run_started_at_unix_ms);
+
+        controller.shutdown().expect("shutdown should succeed");
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
     #[test]

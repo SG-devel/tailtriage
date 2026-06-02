@@ -148,6 +148,8 @@ Runtime sampling is usually unnecessary when:
 Important operational constraints:
 
 * runtime sampling must start inside an active Tokio runtime
+* sampler startup records an initial sample promptly, then follows the configured target cadence
+* sampler cadence is a target periodic cadence, not a hard real-time guarantee
 * runtime snapshots are bounded by capture limits
 * some runtime fields require `tokio_unstable`
 * runtime sampling increases event volume and artifact growth

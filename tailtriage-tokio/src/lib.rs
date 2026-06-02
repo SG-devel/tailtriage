@@ -443,6 +443,10 @@ impl std::fmt::Display for SamplerStartError {
 impl std::error::Error for SamplerStartError {}
 
 /// Periodically samples Tokio runtime metrics and records them into a [`Tailtriage`] run.
+///
+/// After startup, the sampler records an initial sample promptly, then follows
+/// the configured cadence. That cadence is a target periodic sampling cadence,
+/// not a hard real-time guarantee.
 #[derive(Debug)]
 pub struct RuntimeSampler {
     stop_tx: Option<oneshot::Sender<()>>,
@@ -515,6 +519,10 @@ impl RuntimeSampler {
 
     /// Starts periodic runtime metrics sampling on the current Tokio runtime.
     ///
+    /// The sampler records an initial sample promptly after start, then follows
+    /// the configured cadence. The cadence is a target periodic sampling
+    /// cadence, not a hard real-time guarantee.
+    ///
     /// Use this during incident triage when runtime pressure evidence is needed
     /// to rank suspects (for example: global queue growth or alive-task spikes).
     /// For lower runtime-cost core-only capture categories, skip sampler startup.
@@ -569,6 +577,10 @@ impl RuntimeSamplerBuilder {
     }
 
     /// Resolves configuration and starts periodic runtime metrics sampling.
+    ///
+    /// The sampler records an initial sample promptly after start, then follows
+    /// the configured cadence. The cadence is a target periodic sampling
+    /// cadence, not a hard real-time guarantee.
     ///
     /// Resolution precedence:
     ///
