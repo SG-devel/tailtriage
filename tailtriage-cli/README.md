@@ -75,6 +75,12 @@ Behavior:
 - Close-event/fmt-like tracing log envelopes are unsupported import input.
 - Ordinary `tracing_subscriber::fmt().json()` logs are unsupported and rejected; timing is not guessed from JSONL line receive time.
 
+Tracing import field types:
+- `tt.success`: optional bool; strings `"true"` and `"false"` are also accepted case-insensitively.
+- `tt.depth_at_start`: optional non-negative integer. Do not record it with debug formatting.
+- `tt.outcome`: optional non-empty string.
+- `tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, and `tt.queue`: scalar strings.
+
 After import, run analysis separately:
 
 ```bash
