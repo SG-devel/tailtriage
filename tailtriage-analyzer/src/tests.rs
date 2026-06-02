@@ -1782,6 +1782,13 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
     for segment in &report.temporal_segments {
         assert_eq!(segment.evidence_quality.runtime_snapshot_count, 1);
         assert_eq!(segment.evidence_quality.inflight_snapshot_count, 1);
+        assert!(
+            !segment
+                .warnings
+                .iter()
+                .any(|warning| warning
+                    .contains("Temporal segment used wall-clock timestamp fallback"))
+        );
     }
 }
 
@@ -1795,6 +1802,7 @@ fn temporal_segments_fallback_for_older_artifacts_warns() {
 
     let report = analyze_run(&run, AnalyzeOptions::default());
 
+    assert_eq!(report.request_count, 20);
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &report.temporal_segments {
         assert!(segment.warnings.iter().any(|warning| warning

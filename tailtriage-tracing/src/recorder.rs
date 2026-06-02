@@ -1454,6 +1454,133 @@ mod tests {
         assert!(duration_us < 10_000);
     }
 
+    fn native_request_stage_queue_run() -> tailtriage_core::Run {
+        let tailtriage = Tailtriage::builder("svc")
+            .sink(MemorySink::new())
+            .build()
+            .expect("native collector should build");
+        let started = tailtriage.begin_request_with(
+            "/parity",
+            tailtriage_core::RequestOptions::new().request_id("r1"),
+        );
+        let request = started.handle;
+        futures_executor::block_on(request.queue("permits").await_on(async {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }));
+        futures_executor::block_on(request.stage("db").await_value(async {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }));
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        started.completion.finish_ok();
+        tailtriage.snapshot()
+    }
+
+    fn live_request_stage_queue_run() -> tailtriage_core::Run {
+        let recorder = TracingRecorder::builder("svc")
+            .run_id("rid")
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/parity"
+            );
+            let request_guard = request.enter();
+
+            let queue = tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "permits"
+            );
+            {
+                let _queue_guard = queue.enter();
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            drop(queue);
+
+            let stage = tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            );
+            {
+                let _stage_guard = stage.enter();
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            drop(stage);
+
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            drop(request_guard);
+            drop(request);
+        });
+        recorder.snapshot_run().unwrap().run().clone()
+    }
+
+    fn assert_non_negative_us(value: u64) {
+        assert!(i128::from(value) >= 0);
+    }
+
+    fn assert_request_stage_queue_timing_contract(mut run: tailtriage_core::Run) {
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.queues.len(), 1);
+
+        let request = &run.requests[0];
+        assert!(request.latency_us > 0);
+        assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
+        assert!(request.started_at_run_us.is_some());
+        assert!(request.finished_at_run_us.is_some());
+
+        let stage = &run.stages[0];
+        assert!(stage.latency_us > 0);
+        assert!(stage.finished_at_unix_ms >= stage.started_at_unix_ms);
+        assert!(stage.started_at_run_us.is_some());
+        assert!(stage.finished_at_run_us.is_some());
+
+        let queue = &run.queues[0];
+        assert!(queue.waited_until_unix_ms >= queue.waited_from_unix_ms);
+        assert_non_negative_us(queue.wait_us);
+        assert!(queue.wait_us <= request.latency_us);
+        assert!(queue.waited_from_run_us.is_some());
+        assert!(queue.waited_until_run_us.is_some());
+
+        let json = serde_json::to_string(&run).expect("run should serialize");
+        assert!(json.contains("\"latency_us\""));
+        assert!(json.contains("\"wait_us\""));
+
+        run.requests[0].started_at_unix_ms = 100;
+        run.requests[0].finished_at_unix_ms = 101;
+        run.requests[0].latency_us = 100_000;
+        run.stages[0].started_at_unix_ms = 100;
+        run.stages[0].finished_at_unix_ms = 101;
+        run.stages[0].latency_us = 80_000;
+        run.queues[0].waited_from_unix_ms = 100;
+        run.queues[0].waited_until_unix_ms = 101;
+        run.queues[0].wait_us = 20_000;
+
+        let report = analyze_run(
+            &run,
+            AnalyzeOptions::default().with_downstream(|options| options.min_stage_samples = 1),
+        );
+        assert_eq!(report.p50_latency_us, Some(100_000));
+        assert_eq!(report.p95_queue_share_permille, Some(200));
+        assert_eq!(
+            report.primary_suspect.kind,
+            tailtriage_analyzer::DiagnosisKind::DownstreamStageDominates
+        );
+    }
+
+    #[test]
+    fn native_core_and_live_tracing_capture_timing_semantics_stay_in_parity() {
+        assert_request_stage_queue_timing_contract(native_request_stage_queue_run());
+        assert_request_stage_queue_timing_contract(live_request_stage_queue_run());
+    }
+
     #[test]
     fn live_finished_wall_clock_is_not_synthesized_from_duration() {
         let recorder = TracingRecorder::builder("svc")

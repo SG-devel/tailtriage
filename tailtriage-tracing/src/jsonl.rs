@@ -628,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn stable_wrapper_non_strict_duration_mismatch_keeps_duration_us_authoritative() {
+    fn stable_wrapper_duration_mismatch_keeps_duration_us_authoritative_or_fails_strict() {
         let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":100,"started_at_run_us":10,"finished_at_unix_ms":101,"finished_at_run_us":20,"duration_us":50000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let imported =
             super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
@@ -639,6 +639,14 @@ mod tests {
             .warnings()
             .iter()
             .any(|warning| warning.message().contains("duration_us was retained")));
+
+        let strict_err =
+            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+                .expect_err("strict JSONL import should reject contradictory duration_us");
+        assert!(matches!(strict_err, ImportError::StrictViolation(_)));
+        assert!(strict_err
+            .to_string()
+            .contains("duration_us differs from timestamp-derived duration"));
     }
 
     #[test]
