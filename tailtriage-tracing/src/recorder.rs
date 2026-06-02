@@ -22,6 +22,7 @@ pub struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
     limits: RecorderLimits,
+    started_instant: Instant,
 }
 /// High-level tracing intake bridge for completed `tt.*` spans.
 ///
@@ -63,6 +64,7 @@ pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
     limits: RecorderLimits,
     semantic_max_requests: usize,
+    recorder_started_instant: Instant,
 }
 /// Default maximum number of concurrently tracked open candidate spans.
 pub const DEFAULT_MAX_OPEN_SPANS: usize = 8_192;
@@ -115,6 +117,7 @@ struct OpenSpan {
     name: String,
     fields: BTreeMap<String, FieldValue>,
     started_at_unix_ms: u64,
+    started_at_run_us: u64,
     started_instant: Instant,
     is_tt_candidate: bool,
 }
@@ -173,6 +176,7 @@ impl TracingRecorder {
             state: Arc::clone(&self.state),
             limits: self.limits,
             semantic_max_requests: self.options.resolved_capture_limits().max_requests,
+            recorder_started_instant: self.started_instant,
         }
     }
 
@@ -428,6 +432,12 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         .field("tt.request_id", req.request_id.clone())
         .field("tt.route", req.route.clone())
         .field("tt.outcome", req.outcome.clone());
+        if let Some(started_at_run_us) = req.started_at_run_us {
+            span = span.started_at_run_us(started_at_run_us);
+        }
+        if let Some(finished_at_run_us) = req.finished_at_run_us {
+            span = span.finished_at_run_us(finished_at_run_us);
+        }
         if duration_within_tolerance(
             req.latency_us,
             req.started_at_unix_ms,
@@ -447,6 +457,12 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         .field("tt.request_id", stage.request_id.clone())
         .field("tt.stage", stage.stage.clone())
         .field("tt.success", stage.success);
+        if let Some(started_at_run_us) = stage.started_at_run_us {
+            span = span.started_at_run_us(started_at_run_us);
+        }
+        if let Some(finished_at_run_us) = stage.finished_at_run_us {
+            span = span.finished_at_run_us(finished_at_run_us);
+        }
         if duration_within_tolerance(
             stage.latency_us,
             stage.started_at_unix_ms,
@@ -465,6 +481,12 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         .field("tt.kind", "queue")
         .field("tt.request_id", queue.request_id.clone())
         .field("tt.queue", queue.queue.clone());
+        if let Some(waited_from_run_us) = queue.waited_from_run_us {
+            span = span.started_at_run_us(waited_from_run_us);
+        }
+        if let Some(waited_until_run_us) = queue.waited_until_run_us {
+            span = span.finished_at_run_us(waited_until_run_us);
+        }
         if duration_within_tolerance(
             queue.wait_us,
             queue.waited_from_unix_ms,
@@ -644,6 +666,7 @@ impl TracingRecorderBuilder {
             state: Arc::new(Mutex::new(RecorderState::default())),
             options: self.options,
             limits: self.limits,
+            started_instant: Instant::now(),
         })
     }
     /// Sets live recorder memory limits.
@@ -689,6 +712,8 @@ where
         if !(metadata_candidate || initial_candidate) {
             return;
         }
+        let started_instant = Instant::now();
+        let started_at_run_us = duration_us_between(self.recorder_started_instant, started_instant);
         let mut state = lock_state(&self.state);
         if state.open.len() >= self.limits.max_open_spans {
             state.dropped_open_spans = state.dropped_open_spans.saturating_add(1);
@@ -700,7 +725,8 @@ where
             name: attrs.metadata().name().to_owned(),
             fields: visitor.fields,
             started_at_unix_ms: tailtriage_core::unix_time_ms(),
-            started_instant: Instant::now(),
+            started_at_run_us,
+            started_instant,
             is_tt_candidate: metadata_candidate || initial_candidate,
         };
         state.open.insert(id.into_u64(), open_span);
@@ -732,7 +758,11 @@ where
                 return;
             }
             let duration_us = duration_us_between(open.started_instant, closed_instant);
+            let finished_at_run_us =
+                duration_us_between(self.recorder_started_instant, closed_instant);
             let mut record = SpanRecord::new(open.name, open.started_at_unix_ms, closed_at_unix_ms)
+                .started_at_run_us(open.started_at_run_us)
+                .finished_at_run_us(finished_at_run_us)
                 .duration_us(duration_us);
             if let Some(span_id) = open.id {
                 record = record.id(span_id);
@@ -1282,6 +1312,78 @@ mod tests {
             drop(span);
             let run = recorder.snapshot_run().unwrap();
             assert_eq!(run.run().requests.len(), 1);
+        });
+    }
+
+    #[test]
+    fn live_request_conversion_populates_run_relative_offsets() {
+        with_recorder(|recorder| {
+            drop(tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+
+            let snapshot = recorder.snapshot_run().unwrap();
+            let request = &snapshot.run().requests[0];
+            assert!(request.started_at_run_us.is_some());
+            assert!(request.finished_at_run_us.is_some());
+            assert!(request.finished_at_run_us >= request.started_at_run_us);
+        });
+    }
+
+    #[test]
+    fn live_stage_conversion_populates_run_relative_offsets() {
+        with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            let request_guard = request.enter();
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+            drop(request_guard);
+            drop(request);
+
+            let snapshot = recorder.snapshot_run().unwrap();
+            let stage = &snapshot.run().stages[0];
+            assert!(stage.started_at_run_us.is_some());
+            assert!(stage.finished_at_run_us.is_some());
+            assert!(stage.finished_at_run_us >= stage.started_at_run_us);
+        });
+    }
+
+    #[test]
+    fn live_queue_conversion_populates_run_relative_offsets() {
+        with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            let request_guard = request.enter();
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "permits"
+            ));
+            drop(request_guard);
+            drop(request);
+
+            let snapshot = recorder.snapshot_run().unwrap();
+            let queue = &snapshot.run().queues[0];
+            assert!(queue.waited_from_run_us.is_some());
+            assert!(queue.waited_until_run_us.is_some());
+            assert!(queue.waited_until_run_us >= queue.waited_from_run_us);
         });
     }
 

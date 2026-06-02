@@ -91,7 +91,11 @@ pub struct SpanRecord {
     name: String,
     fields: BTreeMap<String, FieldValue>,
     started_at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started_at_run_us: Option<u64>,
     finished_at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    finished_at_run_us: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     duration_us: Option<u64>,
 }
@@ -105,7 +109,9 @@ impl SpanRecord {
             name: name.into(),
             fields: BTreeMap::new(),
             started_at_unix_ms,
+            started_at_run_us: None,
             finished_at_unix_ms,
+            finished_at_run_us: None,
             duration_us: None,
         }
     }
@@ -130,6 +136,20 @@ impl SpanRecord {
         self.fields.insert(key.into(), value.into());
         self
     }
+    /// Sets the span start offset from run start in monotonic microseconds.
+    #[must_use]
+    pub fn started_at_run_us(mut self, started_at_run_us: u64) -> Self {
+        self.started_at_run_us = Some(started_at_run_us);
+        self
+    }
+
+    /// Sets the span finish offset from run start in monotonic microseconds.
+    #[must_use]
+    pub fn finished_at_run_us(mut self, finished_at_run_us: u64) -> Self {
+        self.finished_at_run_us = Some(finished_at_run_us);
+        self
+    }
+
     /// Sets explicit span duration in microseconds.
     #[must_use]
     pub fn duration_us(mut self, duration_us: u64) -> Self {
@@ -162,10 +182,20 @@ impl SpanRecord {
     pub fn started_at_unix_ms(&self) -> u64 {
         self.started_at_unix_ms
     }
+    /// Returns span start offset from run start in monotonic microseconds when present.
+    #[must_use]
+    pub fn started_at_run_us_ref(&self) -> Option<u64> {
+        self.started_at_run_us
+    }
     /// Returns finish timestamp in unix milliseconds.
     #[must_use]
     pub fn finished_at_unix_ms(&self) -> u64 {
         self.finished_at_unix_ms
+    }
+    /// Returns span finish offset from run start in monotonic microseconds when present.
+    #[must_use]
+    pub fn finished_at_run_us_ref(&self) -> Option<u64> {
+        self.finished_at_run_us
     }
     /// Returns explicit span duration in microseconds when present.
     #[must_use]
@@ -364,8 +394,20 @@ mod tests {
         assert_eq!(record.parent_id_ref(), Some("parent-1"));
         assert_eq!(record.name(), "request");
         assert_eq!(record.started_at_unix_ms(), 10);
+        assert_eq!(record.started_at_run_us_ref(), None);
         assert_eq!(record.finished_at_unix_ms(), 20);
+        assert_eq!(record.finished_at_run_us_ref(), None);
         assert_eq!(record.fields().len(), 4);
+    }
+
+    #[test]
+    fn span_record_builder_stores_run_relative_offsets() {
+        let record = SpanRecord::new("request", 10, 20)
+            .started_at_run_us(1_000)
+            .finished_at_run_us(2_000);
+
+        assert_eq!(record.started_at_run_us_ref(), Some(1_000));
+        assert_eq!(record.finished_at_run_us_ref(), Some(2_000));
     }
 
     #[test]
