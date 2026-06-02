@@ -161,6 +161,7 @@ async fn run_request_cohort(
                 let amplified_local_depth = local_depth.saturating_mul(snapshot_depth_scale);
                 instrumentation.record_runtime_snapshot(RuntimeSnapshot {
                     at_unix_ms: unix_time_ms(),
+                    at_run_us: None,
                     alive_tasks: Some(amplified_global_depth),
                     global_queue_depth: Some(amplified_global_depth),
                     local_queue_depth: Some(amplified_local_depth),
