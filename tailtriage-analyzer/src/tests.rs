@@ -136,6 +136,152 @@ fn runtime_snapshot(
     }
 }
 
+fn temporal_options_for_four_request_tests() -> AnalyzeOptions {
+    AnalyzeOptions::default().with_temporal(|temporal| {
+        temporal.min_request_count = 4;
+        temporal.min_segment_request_count = 2;
+        temporal.p95_shift_ratio_numerator = 2;
+        temporal.p95_shift_ratio_denominator = 1;
+    })
+}
+
+fn run_relative_temporal_test_run() -> Run {
+    let mut run = test_run();
+    run.metadata.started_at_unix_ms = 1_000;
+    run.metadata.finished_at_unix_ms = 1_001;
+    run.metadata.finalized_at_unix_ms = Some(1_001);
+    run.requests = vec![
+        temporal_request("r1", Some(0), Some(1_000), 1_000),
+        temporal_request("r2", Some(20_000), Some(21_000), 1_000),
+        temporal_request("r3", Some(40_000), Some(50_000), 10_000),
+        temporal_request("r4", Some(60_000), Some(70_000), 10_000),
+    ];
+    run.runtime_snapshots = vec![
+        temporal_runtime_snapshot(9_000, Some(500)),
+        temporal_runtime_snapshot(1_000, Some(45_000)),
+        temporal_runtime_snapshot(1_000, Some(99_000)),
+    ];
+    run.inflight = vec![
+        temporal_inflight_snapshot(9_000, Some(500)),
+        temporal_inflight_snapshot(1_000, Some(45_000)),
+        temporal_inflight_snapshot(1_000, Some(99_000)),
+    ];
+    run
+}
+
+fn wall_clock_temporal_fallback_test_run() -> Run {
+    let mut run = run_relative_temporal_test_run();
+    for request in &mut run.requests {
+        request.started_at_run_us = None;
+        request.finished_at_run_us = None;
+    }
+    for snapshot in &mut run.runtime_snapshots {
+        snapshot.at_run_us = None;
+    }
+    for snapshot in &mut run.inflight {
+        snapshot.at_run_us = None;
+    }
+    run
+}
+
+fn temporal_request(
+    request_id: &str,
+    started_at_run_us: Option<u64>,
+    finished_at_run_us: Option<u64>,
+    latency_us: u64,
+) -> RequestEvent {
+    RequestEvent {
+        request_id: request_id.to_owned(),
+        route: "/temporal".to_owned(),
+        kind: None,
+        started_at_unix_ms: 1_000,
+        started_at_run_us,
+        finished_at_unix_ms: 1_000 + latency_us.div_ceil(1_000),
+        finished_at_run_us,
+        latency_us,
+        outcome: "ok".to_owned(),
+    }
+}
+
+fn temporal_runtime_snapshot(at_unix_ms: u64, at_run_us: Option<u64>) -> RuntimeSnapshot {
+    RuntimeSnapshot {
+        at_unix_ms,
+        at_run_us,
+        alive_tasks: Some(10),
+        global_queue_depth: Some(1),
+        local_queue_depth: Some(1),
+        blocking_queue_depth: Some(0),
+        remote_schedule_count: None,
+    }
+}
+
+fn temporal_inflight_snapshot(
+    at_unix_ms: u64,
+    at_run_us: Option<u64>,
+) -> tailtriage_core::InFlightSnapshot {
+    tailtriage_core::InFlightSnapshot {
+        gauge: "requests".to_owned(),
+        at_unix_ms,
+        at_run_us,
+        count: 1,
+    }
+}
+
+#[test]
+fn temporal_segmentation_prefers_complete_run_relative_timing() {
+    let run = run_relative_temporal_test_run();
+    let report = analyze_run(&run, temporal_options_for_four_request_tests());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    assert_eq!(report.temporal_segments[0].name, "early");
+    assert_eq!(report.temporal_segments[0].request_count, 2);
+    assert_eq!(report.temporal_segments[0].p95_latency_us, Some(1_000));
+    assert_eq!(
+        report.temporal_segments[0]
+            .evidence_quality
+            .runtime_snapshot_count,
+        1
+    );
+    assert_eq!(
+        report.temporal_segments[0]
+            .evidence_quality
+            .inflight_snapshot_count,
+        1
+    );
+    assert_eq!(report.temporal_segments[1].name, "late");
+    assert_eq!(report.temporal_segments[1].request_count, 2);
+    assert_eq!(report.temporal_segments[1].p95_latency_us, Some(10_000));
+    assert_eq!(
+        report.temporal_segments[1]
+            .evidence_quality
+            .runtime_snapshot_count,
+        1
+    );
+    assert_eq!(
+        report.temporal_segments[1]
+            .evidence_quality
+            .inflight_snapshot_count,
+        1
+    );
+    assert!(report.temporal_segments.iter().all(|segment| segment
+        .warnings
+        .iter()
+        .all(|warning| !warning.contains("wall-clock timestamp fallback"))));
+}
+
+#[test]
+fn temporal_segmentation_falls_back_for_older_artifacts_without_run_relative_timing() {
+    let run = wall_clock_temporal_fallback_test_run();
+    let report = analyze_run(&run, temporal_options_for_four_request_tests());
+
+    assert_eq!(report.request_count, 4);
+    assert_eq!(report.temporal_segments.len(), 2);
+    assert!(report.temporal_segments.iter().any(|segment| segment
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("wall-clock timestamp fallback"))));
+}
+
 #[test]
 fn downstream_stage_tie_break_is_deterministic() {
     let mut run = test_run();

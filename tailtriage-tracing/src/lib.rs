@@ -2721,6 +2721,44 @@ mod tests {
         assert_eq!(run.queues[0].depth_at_start, Some(9));
     }
 
+    #[cfg(feature = "jsonl")]
+    #[test]
+    fn stable_wrapper_jsonl_retains_explicit_duration_over_timestamp_delta() {
+        let span = SpanRecord::new("req", 100, 101)
+            .duration_us(50_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")
+            .field(TT_OUTCOME, "ok");
+        let jsonl = serde_json::json!({
+            "format": "tailtriage.tracing-span.v1",
+            "span": span,
+        })
+        .to_string()
+            + "\n";
+
+        let imported = import_jsonl_reader(
+            std::io::Cursor::new(jsonl.as_bytes()),
+            ImportOptions::new("svc"),
+        )
+        .expect("non-strict wrapper JSONL import should retain mismatched duration");
+        assert_eq!(imported.run().requests[0].latency_us, 50_000);
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("duration_us differs from timestamp-derived duration")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("duration_us was retained")));
+
+        let strict_err = import_jsonl_reader(
+            std::io::Cursor::new(jsonl.as_bytes()),
+            ImportOptions::new("svc").strict(true),
+        )
+        .expect_err("strict wrapper JSONL import should reject mismatched duration");
+        assert!(matches!(strict_err, ImportError::StrictViolation(_)));
+    }
+
     #[test]
     fn mismatched_request_duration_warns_and_retains_duration_us_in_non_strict_mode() {
         let spans = vec![SpanRecord::new("req", 100, 101)

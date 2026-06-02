@@ -5,8 +5,8 @@ use std::time::Duration;
 use futures_executor::block_on;
 use tailtriage_analyzer::{analyze_run, render_text, AnalyzeOptions, DiagnosisKind, Report};
 use tailtriage_core::{
-    CaptureMode, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata, StageEvent,
-    TruncationSummary, UnfinishedRequests, SCHEMA_VERSION,
+    CaptureMode, EffectiveCoreConfig, Outcome, QueueEvent, RequestEvent, RequestOptions, Run,
+    RunMetadata, StageEvent, Tailtriage, TruncationSummary, UnfinishedRequests, SCHEMA_VERSION,
 };
 use tailtriage_tracing::{
     run_from_span_records, ImportOptions, SpanRecord, TracingRecorder, TT_DEPTH_AT_START, TT_KIND,
@@ -242,6 +242,108 @@ fn format_mismatches(mismatches: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+fn single_request_native_run() -> Run {
+    let tailtriage = Tailtriage::builder("svc")
+        .build()
+        .expect("native tailtriage build should succeed");
+    let started = tailtriage.begin_request_with(
+        "/checkout",
+        RequestOptions::new().request_id("r1").kind("http"),
+    );
+
+    block_on(started.handle.queue("permits").await_on(async {
+        thread::sleep(Duration::from_millis(1));
+    }));
+    block_on(started.handle.stage("db").await_value(async {
+        thread::sleep(Duration::from_millis(1));
+    }));
+    thread::sleep(Duration::from_millis(1));
+    started.completion.finish(Outcome::Ok);
+
+    tailtriage.snapshot()
+}
+
+fn single_request_live_tracing_run() -> Run {
+    let recorder = TracingRecorder::builder("svc")
+        .build()
+        .expect("live recorder build should succeed");
+    let subscriber = tracing_subscriber::registry().with(recorder.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        let request = tracing::info_span!(
+            "request",
+            tt.kind = "request",
+            tt.request_id = "r1",
+            tt.route = "/checkout",
+            tt.outcome = "ok"
+        );
+        {
+            let _request_guard = request.enter();
+            let queue = tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "permits",
+                tt.depth_at_start = 1_u64
+            );
+            {
+                let _queue_guard = queue.enter();
+                thread::sleep(Duration::from_millis(1));
+            }
+            drop(queue);
+
+            let stage = tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db",
+                tt.success = true
+            );
+            {
+                let _stage_guard = stage.enter();
+                thread::sleep(Duration::from_millis(1));
+            }
+            drop(stage);
+        }
+        drop(request);
+    });
+
+    recorder
+        .snapshot_run()
+        .expect("live tracing run should import")
+        .run()
+        .clone()
+}
+
+fn assert_single_request_timing_semantics(run: &Run) {
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.queues.len(), 1);
+
+    let request = &run.requests[0];
+    let stage = &run.stages[0];
+    let queue = &run.queues[0];
+
+    assert!(request.latency_us > 0);
+    assert!(stage.latency_us > 0);
+    assert!(queue.wait_us > 0);
+    assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
+    assert!(stage.finished_at_unix_ms >= stage.started_at_unix_ms);
+    assert!(queue.waited_until_unix_ms >= queue.waited_from_unix_ms);
+
+    let report = analyze_run(run, AnalyzeOptions::default());
+    assert_eq!(report.p50_latency_us, Some(request.latency_us));
+    assert_eq!(report.p95_latency_us, Some(request.latency_us));
+    assert_eq!(report.p99_latency_us, Some(request.latency_us));
+}
+
+pub fn assert_single_request_native_and_live_tracing_timing_semantics() {
+    let native = single_request_native_run();
+    let live_tracing = single_request_live_tracing_run();
+
+    assert_single_request_timing_semantics(&native);
+    assert_single_request_timing_semantics(&live_tracing);
 }
 
 pub fn assert_deterministic_span_import_full_parity() {
