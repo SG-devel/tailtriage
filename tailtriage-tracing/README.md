@@ -154,13 +154,24 @@ Import does not guess span timing from line receive time: provide explicit unix-
 | stage | `tt.kind="stage"`, `tt.request_id`, `tt.stage` | `tt.success` |
 | queue | `tt.kind="queue"`, `tt.request_id`, `tt.queue` | `tt.depth_at_start` |
 
-Record semantic `tt.*` fields (`tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, `tt.queue`) as plain scalar strings (string literals or display-formatted scalar strings). Do not use debug formatting for semantic `tt.*` fields.
+Accepted field types:
 
-For example: `tt.kind = "request"` works, `tt.kind = %kind` can work when `kind` displays as `request`, but `tt.kind = ?kind` may record `"request"` (debug quoting) and be rejected as unknown.
+- `tt.success`: optional bool; strings `"true"` and `"false"` are also accepted case-insensitively.
+- `tt.depth_at_start`: optional non-negative integer. Do not record it with debug formatting.
+- `tt.outcome`: optional non-empty string.
+- `tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, and `tt.queue`: scalar strings.
 
-Missing request `tt.outcome` defaults to `ok` with a warning.
-If present, request `tt.outcome` must be a string and cannot be empty/whitespace-only; accepted custom labels are preserved exactly.
-Missing stage `tt.success` defaults to `true` with a warning.
+Use a plain integer value for queue depth:
+
+```text
+tt.depth_at_start = depth_u64
+```
+
+`tt.depth_at_start = ?depth` may produce a debug-formatted value and be rejected.
+
+For semantic string fields, `tt.kind = "request"` works, and `tt.kind = %kind` can work when `kind` displays as `request`. `tt.kind = ?kind` may record `"request"` with debug quoting and be rejected as unknown.
+
+Missing request `tt.outcome` defaults to `ok` with a warning. Missing stage `tt.success` defaults to `true` with a warning.
 
 Live tracing intake only tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. If a value is filled later, declare the field with `tracing::field::Empty` and then call `span.record(...)`; adding brand-new `tt.*` fields later with `span.record(...)` is not supported.
 
