@@ -191,7 +191,9 @@ where
                             route,
                             kind: None,
                             started_at_unix_ms: span.started_at_unix_ms(),
+                            started_at_run_us: None,
                             finished_at_unix_ms: span.finished_at_unix_ms(),
+                            finished_at_run_us: None,
                             latency_us: elapsed_duration_us(
                                 &span,
                                 options.strict_mode(),
@@ -219,7 +221,9 @@ where
                             request_id,
                             stage,
                             started_at_unix_ms: span.started_at_unix_ms(),
+                            started_at_run_us: None,
                             finished_at_unix_ms: span.finished_at_unix_ms(),
+                            finished_at_run_us: None,
                             latency_us: elapsed_duration_us(
                                 &span,
                                 options.strict_mode(),
@@ -246,7 +250,9 @@ where
                         request_id,
                         queue,
                         waited_from_unix_ms: span.started_at_unix_ms(),
+                        waited_from_run_us: None,
                         waited_until_unix_ms: span.finished_at_unix_ms(),
+                        waited_until_run_us: None,
                         wait_us: elapsed_duration_us(&span, options.strict_mode(), &mut warnings)?,
                         depth_at_start,
                     });
@@ -796,7 +802,9 @@ mod persistable_tests {
             route: "/".into(),
             kind: None,
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         });

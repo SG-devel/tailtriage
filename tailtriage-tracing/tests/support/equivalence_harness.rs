@@ -131,7 +131,9 @@ fn deterministic_native_run() -> Run {
             route: "/checkout".to_owned(),
             kind: None,
             started_at_unix_ms: req_start,
+            started_at_run_us: None,
             finished_at_unix_ms: req_start + (request_us / 1000),
+            finished_at_run_us: None,
             latency_us: request_us,
             outcome: "ok".to_owned(),
         });
@@ -139,7 +141,9 @@ fn deterministic_native_run() -> Run {
             request_id: id.to_owned(),
             queue: "permits".to_owned(),
             waited_from_unix_ms: req_start + 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: req_start + 1 + (queue_us / 1000),
+            waited_until_run_us: None,
             wait_us: queue_us,
             depth_at_start: Some(3),
         });
@@ -147,7 +151,9 @@ fn deterministic_native_run() -> Run {
             request_id: id.to_owned(),
             stage: "db".to_owned(),
             started_at_unix_ms: req_start + 85,
+            started_at_run_us: None,
             finished_at_unix_ms: req_start + 85 + (db_us / 1000),
+            finished_at_run_us: None,
             latency_us: db_us,
             success: true,
         });
@@ -155,7 +161,9 @@ fn deterministic_native_run() -> Run {
             request_id: id.to_owned(),
             stage: "cache".to_owned(),
             started_at_unix_ms: req_start + 93,
+            started_at_run_us: None,
             finished_at_unix_ms: req_start + 93 + (cache_us / 1000),
+            finished_at_run_us: None,
             latency_us: cache_us,
             success: true,
         });

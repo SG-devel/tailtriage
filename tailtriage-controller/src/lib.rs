@@ -2103,6 +2103,7 @@ mod tests {
 
         runtime.run.record_runtime_snapshot(RuntimeSnapshot {
             at_unix_ms: tailtriage_core::unix_time_ms(),
+            at_run_us: None,
             alive_tasks: Some(1),
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
@@ -2111,6 +2112,7 @@ mod tests {
         });
         runtime.run.record_runtime_snapshot(RuntimeSnapshot {
             at_unix_ms: tailtriage_core::unix_time_ms(),
+            at_run_us: None,
             alive_tasks: Some(2),
             global_queue_depth: Some(2),
             local_queue_depth: Some(2),

@@ -82,6 +82,7 @@ async fn run_demo(
                 let pending = pending_blocking.load(Ordering::SeqCst);
                 instrumentation.record_runtime_snapshot(RuntimeSnapshot {
                     at_unix_ms: unix_time_ms(),
+                    at_run_us: None,
                     alive_tasks: None,
                     global_queue_depth: Some(0),
                     local_queue_depth: None,

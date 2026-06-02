@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::config::Config;
-use crate::time::{finish_interval, start_interval, FinishedInterval, IntervalStart};
+use crate::time::{FinishedInterval, IntervalStart, RunClock};
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
@@ -17,6 +17,7 @@ use crate::{
 /// Per-run collector that records request events and writes the final artifact.
 pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
+    pub(crate) clock: RunClock,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
     pending_requests: Mutex<HashMap<u64, PendingRequest>>,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
@@ -231,7 +232,8 @@ impl Tailtriage {
             return Err(BuildError::EmptyServiceName);
         }
 
-        let now = unix_time_ms();
+        let clock = RunClock::new();
+        let now = clock.run_start_unix_ms;
         let run = Run::new(RunMetadata {
             run_id: config.run_id.unwrap_or_else(generate_run_id),
             service_name: config.service_name,
@@ -251,6 +253,7 @@ impl Tailtriage {
 
         Ok(Self {
             run: Mutex::new(run),
+            clock,
             inflight_counts: Mutex::new(HashMap::new()),
             pending_requests: Mutex::new(HashMap::new()),
             sink: config.sink,
@@ -441,9 +444,11 @@ impl Tailtriage {
             *entry
         };
 
+        let sample = self.clock.sample();
         self.record_inflight_snapshot(InFlightSnapshot {
             gauge: gauge.clone(),
-            at_unix_ms: unix_time_ms(),
+            at_unix_ms: sample.unix_ms,
+            at_run_us: Some(sample.run_elapsed_us),
             count,
         });
 
@@ -456,6 +461,7 @@ impl Tailtriage {
 
     /// Records one runtime metrics sample captured by an integration crate.
     pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+        let snapshot = self.stamp_runtime_snapshot(snapshot);
         if self.truncation_state.runtime_snapshots.is_saturated() {
             self.truncation_state.runtime_snapshots.increment_drop();
             self.notify_limits_hit_transition();
@@ -541,6 +547,7 @@ impl Tailtriage {
     }
 
     pub(crate) fn record_inflight_snapshot(&self, snapshot: InFlightSnapshot) {
+        let snapshot = self.stamp_inflight_snapshot(snapshot);
         if self.truncation_state.inflight.is_saturated() {
             self.truncation_state.inflight.increment_drop();
             self.notify_limits_hit_transition();
@@ -558,6 +565,20 @@ impl Tailtriage {
         if notify_limits_hit {
             self.notify_limits_hit_transition();
         }
+    }
+
+    fn stamp_inflight_snapshot(&self, mut snapshot: InFlightSnapshot) -> InFlightSnapshot {
+        if snapshot.at_run_us.is_none() {
+            snapshot.at_run_us = Some(self.clock.sample().run_elapsed_us);
+        }
+        snapshot
+    }
+
+    fn stamp_runtime_snapshot(&self, mut snapshot: RuntimeSnapshot) -> RuntimeSnapshot {
+        if snapshot.at_run_us.is_none() {
+            snapshot.at_run_us = Some(self.clock.sample().run_elapsed_us);
+        }
+        snapshot
     }
 
     fn record_request_event(&self, event: RequestEvent) {
@@ -604,7 +625,7 @@ impl Tailtriage {
             .unwrap_or_else(|| generate_request_id(&route));
         let pending_key = PENDING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let kind = options.kind;
-        let interval_start = start_interval();
+        let interval_start = self.clock.start_interval();
         let pending = PendingRequest {
             request_id: request_id.clone(),
             route: route.clone(),
@@ -708,7 +729,7 @@ impl RequestCompletion<'_> {
             return;
         }
 
-        let finished = finish_interval(self.interval_start);
+        let finished = self.tailtriage.clock.finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             debug_assert!(
@@ -818,7 +839,7 @@ impl OwnedRequestCompletion {
             return;
         }
 
-        let finished = finish_interval(self.interval_start);
+        let finished = self.tailtriage.clock.finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             self.finished = true;
@@ -847,7 +868,9 @@ fn request_event_from_finished_interval(
         route: pending.route,
         kind: pending.kind,
         started_at_unix_ms: finished.started_at_unix_ms,
+        started_at_run_us: finished.started_at_run_us,
         finished_at_unix_ms: finished.finished_at_unix_ms,
+        finished_at_run_us: finished.finished_at_run_us,
         latency_us: finished.duration_us,
         outcome: outcome.into_string(),
     }
