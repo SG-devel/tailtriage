@@ -443,6 +443,11 @@ impl std::fmt::Display for SamplerStartError {
 impl std::error::Error for SamplerStartError {}
 
 /// Periodically samples Tokio runtime metrics and records them into a [`Tailtriage`] run.
+///
+/// The sampler records an initial runtime snapshot promptly after start, then
+/// follows the resolved cadence. The cadence is a target periodic sampling
+/// cadence, not a hard real-time guarantee; actual timing depends on Tokio
+/// scheduling and runtime conditions.
 #[derive(Debug)]
 pub struct RuntimeSampler {
     stop_tx: Option<oneshot::Sender<()>>,
@@ -460,7 +465,10 @@ pub struct RuntimeSampler {
 /// Selecting core [`CaptureMode`] never auto-starts runtime sampling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokioSamplerModeDefaults {
-    /// Default periodic sampler cadence.
+    /// Default target periodic sampler cadence.
+    ///
+    /// Sampling records an initial snapshot promptly after start and then follows
+    /// this target cadence; it is not a hard real-time timing guarantee.
     pub cadence: Duration,
     /// Default maximum number of runtime snapshots this sampler should record.
     pub max_runtime_snapshots: usize,
@@ -555,6 +563,9 @@ impl RuntimeSamplerBuilder {
     }
 
     /// Overrides resolved sampler cadence.
+    ///
+    /// The resolved cadence is a target periodic sampling cadence after the
+    /// initial prompt sample, not a hard real-time timing guarantee.
     #[must_use]
     pub fn interval(mut self, interval: Duration) -> Self {
         self.interval_override = Some(interval);
@@ -579,7 +590,9 @@ impl RuntimeSamplerBuilder {
     ///    [`Self::max_runtime_snapshots`]
     ///
     /// Resolved runtime snapshot retention is clamped by the core run cap
-    /// (`effective_core_config.capture_limits.max_runtime_snapshots`).
+    /// (`effective_core_config.capture_limits.max_runtime_snapshots`). The
+    /// sampler records an initial sample promptly after start, then follows the
+    /// resolved target cadence; cadence is not a hard real-time guarantee.
     ///
     /// # Errors
     ///

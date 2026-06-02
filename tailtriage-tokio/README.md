@@ -20,6 +20,8 @@ The runtime sampler owns Tokio runtime sampler behavior:
 - runtime snapshot retention resolution
 - recording runtime snapshots into the same run artifact as core request data
 
+After startup, the sampler records an initial runtime snapshot promptly, then follows the configured cadence. Cadence is the target periodic sampling cadence, not a hard real-time guarantee; actual timing depends on Tokio scheduling and runtime conditions.
+
 Runtime snapshots help strengthen evidence for bottleneck families such as:
 
 - executor pressure
@@ -230,7 +232,7 @@ When you do not override sampler settings, this crate uses Tokio-owned defaults 
 - cadence: `100ms`
 - `max_runtime_snapshots = 50_000`
 
-These defaults apply only when the sampler is started.
+These defaults apply only when the sampler is started. The sampler records an initial sample promptly after start, then follows the configured target cadence; cadence is not a hard real-time guarantee.
 
 ### Resolution rules
 
