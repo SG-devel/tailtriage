@@ -6,31 +6,156 @@ use super::{
 use crate::route;
 
 const TEMPORAL_RUNTIME_ATTRIBUTION_WARNING: &str = "Runtime and in-flight evidence is sparse in this segment after timestamp filtering; executor/blocking attribution is limited.";
+const TEMPORAL_WALL_CLOCK_FALLBACK_WARNING: &str = "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing.";
 pub(super) const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.";
 pub(super) const TEMPORAL_P95_SHIFT_WARNING: &str =
     "Temporal segments show a large p95 latency shift between early and late requests.";
 pub(super) const TEMPORAL_OVERLAP_ATTRIBUTION_WARNING: &str = "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate.";
 
-fn filtered_run_for_temporal_segment(
+#[derive(Clone, Copy)]
+enum SegmentWindow {
+    RunRelative { start: u64, finish: u64 },
+    Unix { start: u64, finish: u64 },
+}
+
+fn request_temporal_sort_key(request: &RequestEvent) -> (u8, u64, String) {
+    match request.started_at_run_us {
+        Some(started_at_run_us) => (0, started_at_run_us, request.request_id.clone()),
+        None => (1, request.started_at_unix_ms, request.request_id.clone()),
+    }
+}
+
+fn segment_run_relative_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
+    if !requests
+        .iter()
+        .all(|r| r.started_at_run_us.is_some() && r.finished_at_run_us.is_some())
+    {
+        return None;
+    }
+    let start = requests.iter().filter_map(|r| r.started_at_run_us).min()?;
+    let finish = requests.iter().filter_map(|r| r.finished_at_run_us).max()?;
+    Some((start, finish))
+}
+
+fn segment_unix_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
+    let start = requests.iter().map(|r| r.started_at_unix_ms).min()?;
+    let finish = requests.iter().map(|r| r.finished_at_unix_ms).max()?;
+    Some((start, finish))
+}
+
+fn filter_segment_runtime_and_inflight(
     run: &Run,
     request_ids: &[String],
-    start: u64,
-    end: u64,
+    window: SegmentWindow,
 ) -> Run {
     let mut filtered = route::filtered_run_for_route(run, request_ids);
-    filtered.runtime_snapshots = run
-        .runtime_snapshots
-        .iter()
-        .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= end)
-        .cloned()
-        .collect();
-    filtered.inflight = run
-        .inflight
-        .iter()
-        .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= end)
-        .cloned()
-        .collect();
+    match window {
+        SegmentWindow::RunRelative { start, finish } => {
+            filtered.runtime_snapshots = run
+                .runtime_snapshots
+                .iter()
+                .filter(|s| matches!(s.at_run_us, Some(at) if at >= start && at <= finish))
+                .cloned()
+                .collect();
+            filtered.inflight = run
+                .inflight
+                .iter()
+                .filter(|s| matches!(s.at_run_us, Some(at) if at >= start && at <= finish))
+                .cloned()
+                .collect();
+        }
+        SegmentWindow::Unix { start, finish } => {
+            filtered.runtime_snapshots = run
+                .runtime_snapshots
+                .iter()
+                .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= finish)
+                .cloned()
+                .collect();
+            filtered.inflight = run
+                .inflight
+                .iter()
+                .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= finish)
+                .cloned()
+                .collect();
+        }
+    }
     filtered
+}
+
+fn build_temporal_segment(
+    name: &str,
+    run: &Run,
+    seg: &[RequestEvent],
+    options: &AnalyzeOptions,
+) -> TemporalSegment {
+    let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
+    let (start, finish) = segment_unix_window(seg)
+        .map_or((None, None), |(start, finish)| (Some(start), Some(finish)));
+    let run_relative_window = segment_run_relative_window(seg);
+    let mut used_unix_fallback = false;
+    let mut analyzed = match run_relative_window {
+        Some((s, f)) => analyze_run_internal(
+            &filter_segment_runtime_and_inflight(
+                run,
+                &ids,
+                SegmentWindow::RunRelative {
+                    start: s,
+                    finish: f,
+                },
+            ),
+            options,
+        ),
+        None => match (start, finish) {
+            (Some(s), Some(f)) => {
+                used_unix_fallback = true;
+                analyze_run_internal(
+                    &filter_segment_runtime_and_inflight(
+                        run,
+                        &ids,
+                        SegmentWindow::Unix {
+                            start: s,
+                            finish: f,
+                        },
+                    ),
+                    options,
+                )
+            }
+            _ => analyze_run_internal(&route::filtered_run_for_route(run, &ids), options),
+        },
+    };
+    let sparse_runtime =
+        analyzed.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present;
+    let sparse_inflight =
+        analyzed.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present;
+    if matches!(
+        analyzed.primary_suspect.kind,
+        DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
+    ) && (sparse_runtime || sparse_inflight)
+    {
+        analyzed
+            .warnings
+            .push(TEMPORAL_RUNTIME_ATTRIBUTION_WARNING.to_string());
+    }
+    if used_unix_fallback {
+        analyzed
+            .warnings
+            .push(TEMPORAL_WALL_CLOCK_FALLBACK_WARNING.to_string());
+    }
+    TemporalSegment {
+        name: name.to_string(),
+        request_count: analyzed.request_count,
+        started_at_unix_ms: start,
+        finished_at_unix_ms: finish,
+        p50_latency_us: analyzed.p50_latency_us,
+        p95_latency_us: analyzed.p95_latency_us,
+        p99_latency_us: analyzed.p99_latency_us,
+        p95_queue_share_permille: analyzed.p95_queue_share_permille,
+        p95_service_share_permille: analyzed.p95_service_share_permille,
+        evidence_quality: analyzed.evidence_quality,
+        primary_suspect: analyzed.primary_suspect,
+        secondary_suspects: analyzed.secondary_suspects,
+        warnings: analyzed.warnings,
+    }
 }
 
 pub(super) fn temporal_segments(
@@ -42,11 +167,7 @@ pub(super) fn temporal_segments(
         return vec![];
     }
     let mut requests = run.requests.clone();
-    requests.sort_by(|a, b| {
-        a.started_at_unix_ms
-            .cmp(&b.started_at_unix_ms)
-            .then_with(|| a.request_id.cmp(&b.request_id))
-    });
+    requests.sort_by_key(request_temporal_sort_key);
     let split = requests.len() / 2;
     let (early, late) = requests.split_at(split);
     if early.len() < options.temporal.min_segment_request_count
@@ -54,47 +175,8 @@ pub(super) fn temporal_segments(
     {
         return vec![];
     }
-    let build = |name: &str, seg: &[RequestEvent]| {
-        let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
-        let start = seg.iter().map(|r| r.started_at_unix_ms).min();
-        let finish = seg.iter().map(|r| r.finished_at_unix_ms).max();
-        let mut analyzed = match (start, finish) {
-            (Some(s), Some(f)) => {
-                analyze_run_internal(&filtered_run_for_temporal_segment(run, &ids, s, f), options)
-            }
-            _ => analyze_run_internal(&route::filtered_run_for_route(run, &ids), options),
-        };
-        let sparse_runtime =
-            analyzed.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present;
-        let sparse_inflight =
-            analyzed.evidence_quality.inflight_snapshots != SignalCoverageStatus::Present;
-        if matches!(
-            analyzed.primary_suspect.kind,
-            DiagnosisKind::ExecutorPressureSuspected | DiagnosisKind::BlockingPoolPressure
-        ) && (sparse_runtime || sparse_inflight)
-        {
-            analyzed
-                .warnings
-                .push(TEMPORAL_RUNTIME_ATTRIBUTION_WARNING.to_string());
-        }
-        TemporalSegment {
-            name: name.to_string(),
-            request_count: analyzed.request_count,
-            started_at_unix_ms: start,
-            finished_at_unix_ms: finish,
-            p50_latency_us: analyzed.p50_latency_us,
-            p95_latency_us: analyzed.p95_latency_us,
-            p99_latency_us: analyzed.p99_latency_us,
-            p95_queue_share_permille: analyzed.p95_queue_share_permille,
-            p95_service_share_permille: analyzed.p95_service_share_permille,
-            evidence_quality: analyzed.evidence_quality,
-            primary_suspect: analyzed.primary_suspect,
-            secondary_suspects: analyzed.secondary_suspects,
-            warnings: analyzed.warnings,
-        }
-    };
-    let mut early_seg = build("early", early);
-    let mut late_seg = build("late", late);
+    let mut early_seg = build_temporal_segment("early", run, early, options);
+    let mut late_seg = build_temporal_segment("late", run, late, options);
     let p95_shift =
         has_material_p95_shift(early_seg.p95_latency_us, late_seg.p95_latency_us, options);
     let queue_move = has_material_share_shift(

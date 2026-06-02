@@ -81,6 +81,22 @@ fn test_run() -> Run {
     }
 }
 
+const TEMPORAL_WALL_CLOCK_FALLBACK_WARNING: &str = "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing.";
+
+fn request_with_run_timing(id: u64, started_at_run_us: u64, latency_us: u64) -> RequestEvent {
+    RequestEvent {
+        request_id: format!("req-{id}"),
+        route: "/t".into(),
+        kind: None,
+        started_at_unix_ms: 1,
+        started_at_run_us: Some(started_at_run_us),
+        finished_at_unix_ms: 1,
+        finished_at_run_us: Some(started_at_run_us + latency_us),
+        latency_us,
+        outcome: "ok".into(),
+    }
+}
+
 fn sample_request(id: u64) -> RequestEvent {
     RequestEvent {
         request_id: format!("req-{id}"),
@@ -1654,6 +1670,132 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
         .find(|s| s.name == "early")
         .expect("early temporal segment should be emitted");
     assert_eq!(early.finished_at_unix_ms, Some(1000));
+}
+
+#[test]
+fn temporal_segments_order_requests_by_run_relative_start_before_coarse_unix_tie() {
+    let mut run = test_run();
+    run.requests = (1..=20)
+        .map(|id| request_with_run_timing(id, (21 - id) * 1_000, 1_000))
+        .collect();
+
+    for id in 11..=20 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{id}"),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 1,
+            waited_from_run_us: Some((21 - id) * 1_000),
+            waited_until_unix_ms: 1,
+            waited_until_run_us: Some((21 - id) * 1_000 + 900),
+            depth_at_start: Some(9),
+        });
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|s| s.name == "early")
+        .expect("early temporal segment should be emitted");
+    assert_eq!(
+        early.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+}
+
+#[test]
+fn temporal_segments_filter_runtime_and_inflight_by_run_relative_window_when_available() {
+    let mut run = test_run();
+    run.requests = (1..=10)
+        .map(|id| request_with_run_timing(id, id * 1_000, 1_000))
+        .chain((11..=20).map(|id| request_with_run_timing(id, id * 10_000, 5_000)))
+        .collect();
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(5_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(20),
+            blocking_queue_depth: Some(1),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(150_000),
+            global_queue_depth: Some(2),
+            local_queue_depth: Some(2),
+            alive_tasks: Some(20),
+            blocking_queue_depth: Some(2),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(5_000),
+            gauge: "http.server.requests".into(),
+            count: 1,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(150_000),
+            gauge: "http.server.requests".into(),
+            count: 2,
+        },
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert_eq!(segment.evidence_quality.runtime_snapshot_count, 1);
+        assert_eq!(segment.evidence_quality.inflight_snapshot_count, 1);
+    }
+}
+
+#[test]
+fn temporal_segments_fallback_for_older_artifacts_emits_wall_clock_warning() {
+    let mut run = test_run();
+    run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+    for i in 10usize..20 {
+        if let Some(req) = run.requests.get_mut(i) {
+            req.latency_us = 5_000;
+        }
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert!(segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+}
+
+#[test]
+fn temporal_segments_do_not_emit_wall_clock_fallback_warning_when_run_relative_fields_are_complete()
+{
+    let mut run = test_run();
+    run.requests = (1..=10)
+        .map(|id| request_with_run_timing(id, id * 1_000, 1_000))
+        .chain((11..=20).map(|id| request_with_run_timing(id, id * 10_000, 5_000)))
+        .collect();
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert!(!segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
 }
 
 #[test]
