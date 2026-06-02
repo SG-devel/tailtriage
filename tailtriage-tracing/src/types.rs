@@ -91,7 +91,11 @@ pub struct SpanRecord {
     name: String,
     fields: BTreeMap<String, FieldValue>,
     started_at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started_at_run_us: Option<u64>,
     finished_at_unix_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    finished_at_run_us: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     duration_us: Option<u64>,
 }
@@ -105,7 +109,9 @@ impl SpanRecord {
             name: name.into(),
             fields: BTreeMap::new(),
             started_at_unix_ms,
+            started_at_run_us: None,
             finished_at_unix_ms,
+            finished_at_run_us: None,
             duration_us: None,
         }
     }
@@ -130,6 +136,20 @@ impl SpanRecord {
         self.fields.insert(key.into(), value.into());
         self
     }
+    /// Sets the span start offset from recorder/run start in microseconds.
+    #[must_use]
+    pub fn started_at_run_us(mut self, started_at_run_us: u64) -> Self {
+        self.started_at_run_us = Some(started_at_run_us);
+        self
+    }
+
+    /// Sets the span finish offset from recorder/run start in microseconds.
+    #[must_use]
+    pub fn finished_at_run_us(mut self, finished_at_run_us: u64) -> Self {
+        self.finished_at_run_us = Some(finished_at_run_us);
+        self
+    }
+
     /// Sets explicit span duration in microseconds.
     #[must_use]
     pub fn duration_us(mut self, duration_us: u64) -> Self {
@@ -162,10 +182,20 @@ impl SpanRecord {
     pub fn started_at_unix_ms(&self) -> u64 {
         self.started_at_unix_ms
     }
+    /// Returns start offset from recorder/run start in microseconds when present.
+    #[must_use]
+    pub fn started_at_run_us_ref(&self) -> Option<u64> {
+        self.started_at_run_us
+    }
     /// Returns finish timestamp in unix milliseconds.
     #[must_use]
     pub fn finished_at_unix_ms(&self) -> u64 {
         self.finished_at_unix_ms
+    }
+    /// Returns finish offset from recorder/run start in microseconds when present.
+    #[must_use]
+    pub fn finished_at_run_us_ref(&self) -> Option<u64> {
+        self.finished_at_run_us
     }
     /// Returns explicit span duration in microseconds when present.
     #[must_use]
