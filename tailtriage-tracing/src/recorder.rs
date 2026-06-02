@@ -3636,7 +3636,9 @@ mod tests {
             route: "/a".into(),
             kind: None,
             started_at_unix_ms: 100,
+            started_at_run_us: None,
             finished_at_unix_ms: 100,
+            finished_at_run_us: None,
             latency_us: 50_000,
             outcome: "ok".into(),
         });
@@ -3644,7 +3646,9 @@ mod tests {
             request_id: "r1".into(),
             stage: "db".into(),
             started_at_unix_ms: 100,
+            started_at_run_us: None,
             finished_at_unix_ms: 100,
+            finished_at_run_us: None,
             latency_us: 50_000,
             success: true,
         });
@@ -3652,7 +3656,9 @@ mod tests {
             request_id: "r1".into(),
             queue: "permits".into(),
             waited_from_unix_ms: 100,
+            waited_from_run_us: None,
             waited_until_unix_ms: 100,
+            waited_until_run_us: None,
             wait_us: 50_000,
             depth_at_start: None,
         });
@@ -3671,7 +3677,9 @@ mod tests {
             route: "/a".into(),
             kind: None,
             started_at_unix_ms: 100,
+            started_at_run_us: None,
             finished_at_unix_ms: 100,
+            finished_at_run_us: None,
             latency_us: 50_000,
             outcome: "ok".into(),
         });
@@ -3679,7 +3687,9 @@ mod tests {
             request_id: "r1".into(),
             stage: "db".into(),
             started_at_unix_ms: 100,
+            started_at_run_us: None,
             finished_at_unix_ms: 100,
+            finished_at_run_us: None,
             latency_us: 50_000,
             success: true,
         });
@@ -3687,7 +3697,9 @@ mod tests {
             request_id: "r1".into(),
             queue: "permits".into(),
             waited_from_unix_ms: 100,
+            waited_from_run_us: None,
             waited_until_unix_ms: 100,
+            waited_until_run_us: None,
             wait_us: 50_000,
             depth_at_start: None,
         });
@@ -3712,7 +3724,9 @@ mod tests {
             route: "/a".into(),
             kind: None,
             started_at_unix_ms: 100,
+            started_at_run_us: None,
             finished_at_unix_ms: 101,
+            finished_at_run_us: None,
             latency_us: 1_500,
             outcome: "ok".into(),
         });

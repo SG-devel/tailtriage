@@ -344,7 +344,9 @@ mod tests {
             route: "/checkout".to_string(),
             kind: Some("http".to_string()),
             started_at_unix_ms: 10,
+            started_at_run_us: None,
             finished_at_unix_ms: 20,
+            finished_at_run_us: None,
             latency_us: 10_000,
             outcome: "ok".to_string(),
         });

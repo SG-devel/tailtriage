@@ -728,7 +728,9 @@ mod tests {
                 route: "route-a".to_string(),
                 kind: None,
                 started_at_unix_ms: 1,
+                started_at_run_us: None,
                 finished_at_unix_ms: 2,
+                finished_at_run_us: None,
                 latency_us: 1_000,
                 outcome: Outcome::Ok.into_string(),
             })

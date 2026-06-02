@@ -120,6 +120,7 @@ async fn zero_sampler_interval_is_ignored_when_background_sampler_is_disabled() 
         .expect("zero interval should be ignored when sampler is disabled");
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: Some(0),
@@ -192,6 +193,7 @@ async fn record_runtime_snapshot_is_visible_in_snapshot_run() {
     let at = unix_time_ms();
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: at,
+        at_run_us: None,
         alive_tasks: Some(3),
         global_queue_depth: Some(2),
         local_queue_depth: Some(1),
@@ -219,6 +221,7 @@ async fn record_runtime_snapshot_is_visible_in_shutdown_output() {
     let at = unix_time_ms();
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: at,
+        at_run_us: None,
         alive_tasks: Some(7),
         global_queue_depth: Some(6),
         local_queue_depth: Some(5),
@@ -272,6 +275,7 @@ async fn record_runtime_snapshot_does_not_alter_tracing_events() {
     });
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
+        at_run_us: None,
         alive_tasks: None,
         global_queue_depth: Some(1),
         local_queue_depth: None,
@@ -295,6 +299,7 @@ async fn runtime_snapshot_truncation_propagates_to_imported_run() {
         .expect("start session");
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: Some(1),
@@ -303,6 +308,7 @@ async fn runtime_snapshot_truncation_propagates_to_imported_run() {
     });
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms().saturating_add(1),
+        at_run_us: None,
         alive_tasks: Some(2),
         global_queue_depth: Some(2),
         local_queue_depth: Some(2),
@@ -329,6 +335,7 @@ async fn capture_limits_override_controls_sampler_and_collector_retention() {
     for idx in 0_u64..5 {
         session.record_runtime_snapshot(RuntimeSnapshot {
             at_unix_ms: unix_time_ms().saturating_add(idx),
+            at_run_us: None,
             alive_tasks: Some(idx),
             global_queue_depth: Some(idx),
             local_queue_depth: Some(idx),
@@ -360,6 +367,7 @@ async fn disabled_sampler_manual_snapshot_shutdown_has_manual_warning() {
         .expect("start");
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(2),
         local_queue_depth: None,
