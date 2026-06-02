@@ -96,7 +96,7 @@ If your service already builds a subscriber in startup code, compose `session.la
 - Live tracing samples finish wall time when the span closes.
 - Newer live tracing output includes run-relative monotonic offsets for request, stage, and queue spans when those offsets are available; these offsets improve temporal grouping inside a captured run.
 - Imported JSONL may omit run-relative offsets. When they are absent, the analyzer falls back to Unix-ms wall-clock timestamps for temporal grouping.
-- `duration_us` remains the authoritative elapsed-time evidence when supplied or recorded by live tracing.
+- Completed-span JSONL export preserves `duration_us` because duration fields are authoritative elapsed-time evidence; Unix-ms timestamps remain wall-clock anchors and may be coarser than the elapsed duration.
 - Unix-ms timestamps are wall-clock anchors and may be coarser than durations.
 - Ordinary tracing log timestamps are not enough for completed-span import; completed spans need explicit start/end timing and semantic tt.* fields.
 
