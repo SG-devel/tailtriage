@@ -188,7 +188,7 @@ fn parse_record(
                 };
             };
 
-            let Some(_) = span_value.as_object() else {
+            let Some(span_obj) = span_value.as_object() else {
                 let message = format!(
                     "line {line_no}: invalid field 'span': expected completed span object for tailtriage.tracing-span.v1"
                 );
@@ -201,6 +201,9 @@ fn parse_record(
                     Ok(None)
                 };
             };
+
+            optional_u64(span_obj, "started_at_run_us")?;
+            optional_u64(span_obj, "finished_at_run_us")?;
 
             return match serde_json::from_value::<SpanRecord>(span_value.clone()) {
                 Ok(span) => Ok(Some(span)),
@@ -590,6 +593,22 @@ mod tests {
 
         assert_eq!(request.started_at_run_us, None);
         assert_eq!(request.finished_at_run_us, None);
+    }
+
+    #[test]
+    fn stable_wrapper_invalid_run_relative_field_fails_with_invalid_field() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"started_at_run_us":"bad","finished_at_unix_ms":20,"duration_us":10000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err =
+            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+                .expect_err("invalid run-relative field should fail");
+
+        assert!(matches!(
+            err,
+            ImportError::InvalidField {
+                field: "started_at_run_us",
+                ..
+            }
+        ));
     }
 
     #[test]
