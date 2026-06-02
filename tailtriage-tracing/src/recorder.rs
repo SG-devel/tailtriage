@@ -90,8 +90,9 @@ impl Default for RecorderLimits {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct RecorderState {
+    start_instant: Instant,
     open: BTreeMap<u64, OpenSpan>,
     completed_requests: Vec<SpanRecord>,
     completed_stages: Vec<SpanRecord>,
@@ -115,8 +116,31 @@ struct OpenSpan {
     name: String,
     fields: BTreeMap<String, FieldValue>,
     started_at_unix_ms: u64,
+    started_at_run_us: u64,
     started_instant: Instant,
     is_tt_candidate: bool,
+}
+
+impl Default for RecorderState {
+    fn default() -> Self {
+        Self {
+            start_instant: Instant::now(),
+            open: BTreeMap::new(),
+            completed_requests: Vec::new(),
+            completed_stages: Vec::new(),
+            completed_queues: Vec::new(),
+            dropped_open_spans: 0,
+            dropped_completed_request_candidates: 0,
+            dropped_completed_child_candidates: 0,
+            evicted_child_candidates_to_preserve_request: 0,
+            closed_missing_kind_spans: 0,
+            closed_unknown_kind_spans: 0,
+            closed_malformed_kind_spans: 0,
+            closed_kind_samples: Vec::new(),
+            closed_incomplete_candidate_spans: 0,
+            closed_incomplete_candidate_samples: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -428,6 +452,12 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         .field("tt.request_id", req.request_id.clone())
         .field("tt.route", req.route.clone())
         .field("tt.outcome", req.outcome.clone());
+        if let Some(started_at_run_us) = req.started_at_run_us {
+            span = span.started_at_run_us(started_at_run_us);
+        }
+        if let Some(finished_at_run_us) = req.finished_at_run_us {
+            span = span.finished_at_run_us(finished_at_run_us);
+        }
         if duration_within_tolerance(
             req.latency_us,
             req.started_at_unix_ms,
@@ -447,6 +477,12 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         .field("tt.request_id", stage.request_id.clone())
         .field("tt.stage", stage.stage.clone())
         .field("tt.success", stage.success);
+        if let Some(started_at_run_us) = stage.started_at_run_us {
+            span = span.started_at_run_us(started_at_run_us);
+        }
+        if let Some(finished_at_run_us) = stage.finished_at_run_us {
+            span = span.finished_at_run_us(finished_at_run_us);
+        }
         if duration_within_tolerance(
             stage.latency_us,
             stage.started_at_unix_ms,
@@ -465,6 +501,12 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         .field("tt.kind", "queue")
         .field("tt.request_id", queue.request_id.clone())
         .field("tt.queue", queue.queue.clone());
+        if let Some(waited_from_run_us) = queue.waited_from_run_us {
+            span = span.started_at_run_us(waited_from_run_us);
+        }
+        if let Some(waited_until_run_us) = queue.waited_until_run_us {
+            span = span.finished_at_run_us(waited_until_run_us);
+        }
         if duration_within_tolerance(
             queue.wait_us,
             queue.waited_from_unix_ms,
@@ -689,6 +731,7 @@ where
         if !(metadata_candidate || initial_candidate) {
             return;
         }
+        let started_instant = Instant::now();
         let mut state = lock_state(&self.state);
         if state.open.len() >= self.limits.max_open_spans {
             state.dropped_open_spans = state.dropped_open_spans.saturating_add(1);
@@ -700,7 +743,8 @@ where
             name: attrs.metadata().name().to_owned(),
             fields: visitor.fields,
             started_at_unix_ms: tailtriage_core::unix_time_ms(),
-            started_instant: Instant::now(),
+            started_at_run_us: duration_us_between(state.start_instant, started_instant),
+            started_instant,
             is_tt_candidate: metadata_candidate || initial_candidate,
         };
         state.open.insert(id.into_u64(), open_span);
@@ -720,6 +764,7 @@ where
         let closed_instant = std::time::Instant::now();
 
         let mut state = lock_state(&self.state);
+        let finished_at_run_us = duration_us_between(state.start_instant, closed_instant);
         if let Some(open) = state.open.remove(&id.into_u64()) {
             let kind = classify_kind(&open.fields);
             if let Err(reason) = kind {
@@ -733,6 +778,8 @@ where
             }
             let duration_us = duration_us_between(open.started_instant, closed_instant);
             let mut record = SpanRecord::new(open.name, open.started_at_unix_ms, closed_at_unix_ms)
+                .started_at_run_us(open.started_at_run_us)
+                .finished_at_run_us(finished_at_run_us)
                 .duration_us(duration_us);
             if let Some(span_id) = open.id {
                 record = record.id(span_id);
@@ -1268,6 +1315,76 @@ mod tests {
             .build()
             .expect("collector")
             .snapshot()
+    }
+
+    #[test]
+    fn live_recorder_request_conversion_populates_run_relative_fields() {
+        with_recorder(|recorder| {
+            let span = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            drop(span);
+
+            let imported = recorder.snapshot_run().unwrap();
+            let request = &imported.run().requests[0];
+            assert!(request.started_at_run_us.is_some());
+            assert!(request.finished_at_run_us.is_some());
+        });
+    }
+
+    #[test]
+    fn live_recorder_stage_conversion_populates_run_relative_fields() {
+        with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            let live_request_guard = request.enter();
+            drop(tracing::info_span!(
+                "stage",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+            drop(live_request_guard);
+            drop(request);
+
+            let imported = recorder.snapshot_run().unwrap();
+            let stage = &imported.run().stages[0];
+            assert!(stage.started_at_run_us.is_some());
+            assert!(stage.finished_at_run_us.is_some());
+        });
+    }
+
+    #[test]
+    fn live_recorder_queue_conversion_populates_run_relative_fields() {
+        with_recorder(|recorder| {
+            let request = tracing::info_span!(
+                "request",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            );
+            let live_request_guard = request.enter();
+            drop(tracing::info_span!(
+                "queue",
+                tt.kind = "queue",
+                tt.request_id = "r1",
+                tt.queue = "permits"
+            ));
+            drop(live_request_guard);
+            drop(request);
+
+            let imported = recorder.snapshot_run().unwrap();
+            let queue = &imported.run().queues[0];
+            assert!(queue.waited_from_run_us.is_some());
+            assert!(queue.waited_until_run_us.is_some());
+        });
     }
 
     #[test]

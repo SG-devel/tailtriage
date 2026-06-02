@@ -191,9 +191,9 @@ where
                             route,
                             kind: None,
                             started_at_unix_ms: span.started_at_unix_ms(),
-                            started_at_run_us: None,
+                            started_at_run_us: span.started_at_run_us_ref(),
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            finished_at_run_us: None,
+                            finished_at_run_us: span.finished_at_run_us_ref(),
                             latency_us: elapsed_duration_us(
                                 &span,
                                 options.strict_mode(),
@@ -221,9 +221,9 @@ where
                             request_id,
                             stage,
                             started_at_unix_ms: span.started_at_unix_ms(),
-                            started_at_run_us: None,
+                            started_at_run_us: span.started_at_run_us_ref(),
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            finished_at_run_us: None,
+                            finished_at_run_us: span.finished_at_run_us_ref(),
                             latency_us: elapsed_duration_us(
                                 &span,
                                 options.strict_mode(),
@@ -250,9 +250,9 @@ where
                         request_id,
                         queue,
                         waited_from_unix_ms: span.started_at_unix_ms(),
-                        waited_from_run_us: None,
+                        waited_from_run_us: span.started_at_run_us_ref(),
                         waited_until_unix_ms: span.finished_at_unix_ms(),
-                        waited_until_run_us: None,
+                        waited_until_run_us: span.finished_at_run_us_ref(),
                         wait_us: elapsed_duration_us(&span, options.strict_mode(), &mut warnings)?,
                         depth_at_start,
                     });
@@ -986,6 +986,44 @@ mod tests {
             .run()
             .clone();
         assert_eq!(run.queues.len(), 1);
+    }
+
+    #[test]
+    fn span_record_run_relative_fields_convert_to_core_events() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .started_at_run_us(10)
+                .finished_at_run_us(20_010)
+                .duration_us(20_000)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("st", 105, 115)
+                .started_at_run_us(5_010)
+                .finished_at_run_us(15_010)
+                .duration_us(10_000)
+                .field(TT_KIND, "stage")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_STAGE, "db"),
+            SpanRecord::new("q", 102, 103)
+                .started_at_run_us(2_010)
+                .finished_at_run_us(3_010)
+                .duration_us(1_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+        let run = run_from_span_records(spans, ImportOptions::new("svc"))
+            .unwrap()
+            .run()
+            .clone();
+
+        assert_eq!(run.requests[0].started_at_run_us, Some(10));
+        assert_eq!(run.requests[0].finished_at_run_us, Some(20_010));
+        assert_eq!(run.stages[0].started_at_run_us, Some(5_010));
+        assert_eq!(run.stages[0].finished_at_run_us, Some(15_010));
+        assert_eq!(run.queues[0].waited_from_run_us, Some(2_010));
+        assert_eq!(run.queues[0].waited_until_run_us, Some(3_010));
     }
 
     #[test]
