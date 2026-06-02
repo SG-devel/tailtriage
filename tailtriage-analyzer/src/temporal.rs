@@ -10,26 +10,78 @@ pub(super) const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show 
 pub(super) const TEMPORAL_P95_SHIFT_WARNING: &str =
     "Temporal segments show a large p95 latency shift between early and late requests.";
 pub(super) const TEMPORAL_OVERLAP_ATTRIBUTION_WARNING: &str = "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate.";
+pub(super) const TEMPORAL_WALL_CLOCK_FALLBACK_WARNING: &str = "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing.";
 
-fn filtered_run_for_temporal_segment(
+#[derive(Clone, Copy)]
+enum SegmentWindow {
+    RunRelative { start: u64, finish: u64 },
+    Unix { start: u64, finish: u64 },
+}
+
+fn request_temporal_sort_key(request: &RequestEvent) -> (u64, &str) {
+    (
+        request
+            .started_at_run_us
+            .unwrap_or(request.started_at_unix_ms),
+        request.request_id.as_str(),
+    )
+}
+
+fn segment_run_relative_window(seg: &[RequestEvent]) -> Option<(u64, u64)> {
+    if !seg
+        .iter()
+        .all(|r| r.started_at_run_us.is_some() && r.finished_at_run_us.is_some())
+    {
+        return None;
+    }
+
+    let start = seg.iter().filter_map(|r| r.started_at_run_us).min()?;
+    let finish = seg.iter().filter_map(|r| r.finished_at_run_us).max()?;
+    Some((start, finish))
+}
+
+fn segment_unix_window(seg: &[RequestEvent]) -> Option<(u64, u64)> {
+    let start = seg.iter().map(|r| r.started_at_unix_ms).min()?;
+    let finish = seg.iter().map(|r| r.finished_at_unix_ms).max()?;
+    Some((start, finish))
+}
+
+fn filter_segment_runtime_and_inflight(
     run: &Run,
     request_ids: &[String],
-    start: u64,
-    end: u64,
+    window: SegmentWindow,
 ) -> Run {
     let mut filtered = route::filtered_run_for_route(run, request_ids);
-    filtered.runtime_snapshots = run
-        .runtime_snapshots
-        .iter()
-        .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= end)
-        .cloned()
-        .collect();
-    filtered.inflight = run
-        .inflight
-        .iter()
-        .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= end)
-        .cloned()
-        .collect();
+    match window {
+        SegmentWindow::RunRelative { start, finish } => {
+            filtered.runtime_snapshots = run
+                .runtime_snapshots
+                .iter()
+                .filter(|s| matches!(s.at_run_us, Some(at) if at >= start && at <= finish))
+                .cloned()
+                .collect();
+            filtered.inflight = run
+                .inflight
+                .iter()
+                .filter(|s| matches!(s.at_run_us, Some(at) if at >= start && at <= finish))
+                .cloned()
+                .collect();
+        }
+        SegmentWindow::Unix { start, finish } => {
+            filtered.runtime_snapshots = run
+                .runtime_snapshots
+                .iter()
+                .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= finish)
+                .cloned()
+                .collect();
+            filtered.inflight = run
+                .inflight
+                .iter()
+                .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= finish)
+                .cloned()
+                .collect();
+        }
+    }
     filtered
 }
 
@@ -42,11 +94,7 @@ pub(super) fn temporal_segments(
         return vec![];
     }
     let mut requests = run.requests.clone();
-    requests.sort_by(|a, b| {
-        a.started_at_unix_ms
-            .cmp(&b.started_at_unix_ms)
-            .then_with(|| a.request_id.cmp(&b.request_id))
-    });
+    requests.sort_by(|a, b| request_temporal_sort_key(a).cmp(&request_temporal_sort_key(b)));
     let split = requests.len() / 2;
     let (early, late) = requests.split_at(split);
     if early.len() < options.temporal.min_segment_request_count
@@ -56,13 +104,17 @@ pub(super) fn temporal_segments(
     }
     let build = |name: &str, seg: &[RequestEvent]| {
         let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
-        let start = seg.iter().map(|r| r.started_at_unix_ms).min();
-        let finish = seg.iter().map(|r| r.finished_at_unix_ms).max();
-        let mut analyzed = match (start, finish) {
-            (Some(s), Some(f)) => {
-                analyze_run_internal(&filtered_run_for_temporal_segment(run, &ids, s, f), options)
-            }
-            _ => analyze_run_internal(&route::filtered_run_for_route(run, &ids), options),
+        let unix_window = segment_unix_window(seg);
+        let run_relative_window = segment_run_relative_window(seg);
+        let window = run_relative_window
+            .map(|(start, finish)| SegmentWindow::RunRelative { start, finish })
+            .or_else(|| unix_window.map(|(start, finish)| SegmentWindow::Unix { start, finish }));
+        let mut analyzed = match window {
+            Some(window) => analyze_run_internal(
+                &filter_segment_runtime_and_inflight(run, &ids, window),
+                options,
+            ),
+            None => analyze_run_internal(&route::filtered_run_for_route(run, &ids), options),
         };
         let sparse_runtime =
             analyzed.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present;
@@ -77,11 +129,16 @@ pub(super) fn temporal_segments(
                 .warnings
                 .push(TEMPORAL_RUNTIME_ATTRIBUTION_WARNING.to_string());
         }
+        if run_relative_window.is_none() {
+            analyzed
+                .warnings
+                .push(TEMPORAL_WALL_CLOCK_FALLBACK_WARNING.to_string());
+        }
         TemporalSegment {
             name: name.to_string(),
             request_count: analyzed.request_count,
-            started_at_unix_ms: start,
-            finished_at_unix_ms: finish,
+            started_at_unix_ms: unix_window.map(|(start, _)| start),
+            finished_at_unix_ms: unix_window.map(|(_, finish)| finish),
             p50_latency_us: analyzed.p50_latency_us,
             p95_latency_us: analyzed.p95_latency_us,
             p99_latency_us: analyzed.p99_latency_us,

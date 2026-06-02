@@ -6,7 +6,7 @@ use tailtriage_core::{
 use super::temporal::{
     apply_temporal_overlap_attribution_warning, has_material_p95_shift,
     TEMPORAL_OVERLAP_ATTRIBUTION_WARNING, TEMPORAL_P95_SHIFT_WARNING,
-    TEMPORAL_SUSPECT_SHIFT_WARNING,
+    TEMPORAL_SUSPECT_SHIFT_WARNING, TEMPORAL_WALL_CLOCK_FALLBACK_WARNING,
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
@@ -1654,6 +1654,210 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
         .find(|s| s.name == "early")
         .expect("early temporal segment should be emitted");
     assert_eq!(early.finished_at_unix_ms, Some(1000));
+}
+
+#[test]
+fn temporal_sort_prefers_run_relative_start_when_unix_timestamps_tie() {
+    let mut run = test_run();
+    run.requests = (1..=20)
+        .map(|i| {
+            let mut req = sample_request(i);
+            req.started_at_unix_ms = 1;
+            req.finished_at_unix_ms = 2;
+            req.started_at_run_us = Some((21 - i) * 1_000);
+            req.finished_at_run_us = Some((21 - i) * 1_000 + 500);
+            req
+        })
+        .collect();
+
+    for i in 11..=20 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 1,
+            waited_from_run_us: None,
+            waited_until_unix_ms: 2,
+            waited_until_run_us: None,
+            depth_at_start: Some(9),
+        });
+    }
+    for i in 1..=10 {
+        run.stages.push(StageEvent {
+            request_id: format!("req-{i}"),
+            stage: "db".into(),
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "early")
+        .expect("early temporal segment should be emitted");
+    assert_eq!(
+        early.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+}
+
+#[test]
+fn temporal_runtime_and_inflight_filtering_uses_run_relative_snapshot_times() {
+    let mut run = test_run();
+    run.requests = (1..=20)
+        .map(|i| {
+            let mut req = sample_request(i);
+            req.started_at_unix_ms = 1;
+            req.finished_at_unix_ms = 1;
+            req.started_at_run_us = Some(i * 10_000);
+            req.finished_at_run_us = Some(i * 10_000 + 1_000);
+            if i > 10 {
+                req.latency_us = 5_000;
+            }
+            req
+        })
+        .collect();
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(55_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(10),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(155_000),
+            global_queue_depth: Some(2),
+            local_queue_depth: Some(2),
+            alive_tasks: Some(20),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(55_000),
+            gauge: "http.server.requests".into(),
+            count: 1,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(155_000),
+            gauge: "http.server.requests".into(),
+            count: 2,
+        },
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert_eq!(segment.evidence_quality.runtime_snapshot_count, 1);
+        assert_eq!(segment.evidence_quality.inflight_snapshot_count, 1);
+        assert!(!segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+}
+
+#[test]
+fn older_temporal_artifacts_use_unix_fallback_and_warn() {
+    let mut run = test_run();
+    run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
+    for i in 1..=10 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: i,
+            waited_from_run_us: None,
+            waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
+            depth_at_start: Some(9),
+        });
+    }
+    for i in 11..=20 {
+        run.stages.push(StageEvent {
+            request_id: format!("req-{i}"),
+            stage: "db".into(),
+            started_at_unix_ms: i,
+            started_at_run_us: None,
+            finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert!(segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+}
+
+#[test]
+fn complete_run_relative_temporal_artifacts_do_not_emit_fallback_warning() {
+    let mut run = test_run();
+    run.requests = (1..=20)
+        .map(|i| {
+            let mut req = sample_request(i);
+            req.started_at_run_us = Some(i * 1_000);
+            req.finished_at_run_us = Some(i * 1_000 + 500);
+            req
+        })
+        .collect();
+    for i in 1..=10 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 900,
+            waited_from_unix_ms: i,
+            waited_from_run_us: None,
+            waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
+            depth_at_start: Some(9),
+        });
+    }
+    for i in 11..=20 {
+        run.stages.push(StageEvent {
+            request_id: format!("req-{i}"),
+            stage: "db".into(),
+            started_at_unix_ms: i,
+            started_at_run_us: None,
+            finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert!(!segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
 }
 
 #[test]
