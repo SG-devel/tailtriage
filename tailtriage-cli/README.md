@@ -58,6 +58,13 @@ tailtriage import tracing-spans-jsonl spans.jsonl --service checkout --output ta
 
 `tailtriage import tracing-spans-jsonl` imports **completed tailtriage `tt.*` tracing span JSONL** into **Run JSON** (not Report JSON).
 
+Accepted `tt.*` field types match tracing intake:
+
+- `tt.success`: optional bool; strings `"true"` and `"false"` are also accepted case-insensitively.
+- `tt.depth_at_start`: optional non-negative integer. Do not record it with debug formatting.
+- `tt.outcome`: optional non-empty string.
+- `tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, and `tt.queue`: scalar strings.
+
 Recommended stable input format is the tailtriage wrapper JSONL shape:
 
 ```json
