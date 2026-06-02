@@ -639,6 +639,11 @@ mod tests {
             .warnings()
             .iter()
             .any(|warning| warning.message().contains("duration_us was retained")));
+
+        let strict_err =
+            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+                .expect_err("strict import should reject contradictory duration_us");
+        assert!(matches!(strict_err, ImportError::StrictViolation(_)));
     }
 
     #[test]
