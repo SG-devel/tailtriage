@@ -12,8 +12,8 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    duration_within_tolerance, ensure_persistable_run_with_warnings, run_from_span_records,
-    FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    ensure_persistable_run_with_warnings, run_from_span_records, FieldValue, ImportError,
+    ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
@@ -458,13 +458,7 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         if let Some(finished_at_run_us) = req.finished_at_run_us {
             span = span.finished_at_run_us(finished_at_run_us);
         }
-        if duration_within_tolerance(
-            req.latency_us,
-            req.started_at_unix_ms,
-            req.finished_at_unix_ms,
-        ) {
-            span = span.duration_us(req.latency_us);
-        }
+        span = span.duration_us(req.latency_us);
         spans.push(span);
     }
     for stage in &run.stages {
@@ -483,13 +477,7 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         if let Some(finished_at_run_us) = stage.finished_at_run_us {
             span = span.finished_at_run_us(finished_at_run_us);
         }
-        if duration_within_tolerance(
-            stage.latency_us,
-            stage.started_at_unix_ms,
-            stage.finished_at_unix_ms,
-        ) {
-            span = span.duration_us(stage.latency_us);
-        }
+        span = span.duration_us(stage.latency_us);
         spans.push(span);
     }
     for queue in &run.queues {
@@ -507,13 +495,7 @@ fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord>
         if let Some(waited_until_run_us) = queue.waited_until_run_us {
             span = span.finished_at_run_us(waited_until_run_us);
         }
-        if duration_within_tolerance(
-            queue.wait_us,
-            queue.waited_from_unix_ms,
-            queue.waited_until_unix_ms,
-        ) {
-            span = span.duration_us(queue.wait_us);
-        }
+        span = span.duration_us(queue.wait_us);
         if let Some(depth) = queue.depth_at_start {
             span = span.field("tt.depth_at_start", depth);
         }
@@ -1330,8 +1312,11 @@ mod tests {
 
             let imported = recorder.snapshot_run().unwrap();
             let request = &imported.run().requests[0];
-            assert!(request.started_at_run_us.is_some());
-            assert!(request.finished_at_run_us.is_some());
+            let start = request.started_at_run_us.expect("request start run offset");
+            let finish = request
+                .finished_at_run_us
+                .expect("request finish run offset");
+            assert!(finish >= start);
         });
     }
 
@@ -1356,8 +1341,9 @@ mod tests {
 
             let imported = recorder.snapshot_run().unwrap();
             let stage = &imported.run().stages[0];
-            assert!(stage.started_at_run_us.is_some());
-            assert!(stage.finished_at_run_us.is_some());
+            let start = stage.started_at_run_us.expect("stage start run offset");
+            let finish = stage.finished_at_run_us.expect("stage finish run offset");
+            assert!(finish >= start);
         });
     }
 
@@ -1382,8 +1368,9 @@ mod tests {
 
             let imported = recorder.snapshot_run().unwrap();
             let queue = &imported.run().queues[0];
-            assert!(queue.waited_from_run_us.is_some());
-            assert!(queue.waited_until_run_us.is_some());
+            let start = queue.waited_from_run_us.expect("queue start run offset");
+            let finish = queue.waited_until_run_us.expect("queue finish run offset");
+            assert!(finish >= start);
         });
     }
 
@@ -1449,6 +1436,11 @@ mod tests {
         let request = &snapshot.run().requests[0];
         assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
         assert!(request.latency_us > 0);
+        let start = request.started_at_run_us.expect("request start run offset");
+        let finish = request
+            .finished_at_run_us
+            .expect("request finish run offset");
+        assert!(finish >= start);
     }
 
     #[test]
@@ -3746,16 +3738,16 @@ mod tests {
     }
 
     #[test]
-    fn retained_request_stage_queue_omit_contradictory_duration_us() {
+    fn retained_request_stage_queue_preserve_authoritative_duration_and_run_relative_fields() {
         let mut run = empty_run();
         run.requests.push(tailtriage_core::RequestEvent {
             request_id: "r1".into(),
             route: "/a".into(),
             kind: None,
             started_at_unix_ms: 100,
-            started_at_run_us: None,
-            finished_at_unix_ms: 100,
-            finished_at_run_us: None,
+            started_at_run_us: Some(1_000),
+            finished_at_unix_ms: 101,
+            finished_at_run_us: Some(51_000),
             latency_us: 50_000,
             outcome: "ok".into(),
         });
@@ -3763,29 +3755,56 @@ mod tests {
             request_id: "r1".into(),
             stage: "db".into(),
             started_at_unix_ms: 100,
-            started_at_run_us: None,
-            finished_at_unix_ms: 100,
-            finished_at_run_us: None,
-            latency_us: 50_000,
+            started_at_run_us: Some(2_000),
+            finished_at_unix_ms: 101,
+            finished_at_run_us: Some(72_000),
+            latency_us: 70_000,
             success: true,
         });
         run.queues.push(tailtriage_core::QueueEvent {
             request_id: "r1".into(),
             queue: "permits".into(),
             waited_from_unix_ms: 100,
-            waited_from_run_us: None,
-            waited_until_unix_ms: 100,
-            waited_until_run_us: None,
-            wait_us: 50_000,
+            waited_from_run_us: Some(3_000),
+            waited_until_unix_ms: 101,
+            waited_until_run_us: Some(33_000),
+            wait_us: 30_000,
             depth_at_start: None,
         });
+
         let spans = retained_span_records_from_run(&run);
         assert_eq!(spans.len(), 3);
-        assert!(spans.iter().all(|span| span.duration_us_ref().is_none()));
+
+        let request = &spans[0];
+        assert_eq!(request.duration_us_ref(), Some(50_000));
+        assert_eq!(request.started_at_run_us_ref(), Some(1_000));
+        assert_eq!(request.finished_at_run_us_ref(), Some(51_000));
+        assert!(matches!(
+            request.fields().get("tt.kind"),
+            Some(FieldValue::String(kind)) if kind == "request"
+        ));
+
+        let stage = &spans[1];
+        assert_eq!(stage.duration_us_ref(), Some(70_000));
+        assert_eq!(stage.started_at_run_us_ref(), Some(2_000));
+        assert_eq!(stage.finished_at_run_us_ref(), Some(72_000));
+        assert!(matches!(
+            stage.fields().get("tt.kind"),
+            Some(FieldValue::String(kind)) if kind == "stage"
+        ));
+
+        let queue = &spans[2];
+        assert_eq!(queue.duration_us_ref(), Some(30_000));
+        assert_eq!(queue.started_at_run_us_ref(), Some(3_000));
+        assert_eq!(queue.finished_at_run_us_ref(), Some(33_000));
+        assert!(matches!(
+            queue.fields().get("tt.kind"),
+            Some(FieldValue::String(kind)) if kind == "queue"
+        ));
     }
 
     #[test]
-    fn retained_jsonl_replays_in_strict_mode_when_contradictory_durations_omitted() {
+    fn retained_jsonl_round_trip_preserves_authoritative_duration_and_run_relative_fields() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let mut run = empty_run();
@@ -3794,9 +3813,9 @@ mod tests {
             route: "/a".into(),
             kind: None,
             started_at_unix_ms: 100,
-            started_at_run_us: None,
-            finished_at_unix_ms: 100,
-            finished_at_run_us: None,
+            started_at_run_us: Some(1_000),
+            finished_at_unix_ms: 101,
+            finished_at_run_us: Some(51_000),
             latency_us: 50_000,
             outcome: "ok".into(),
         });
@@ -3804,33 +3823,39 @@ mod tests {
             request_id: "r1".into(),
             stage: "db".into(),
             started_at_unix_ms: 100,
-            started_at_run_us: None,
-            finished_at_unix_ms: 100,
-            finished_at_run_us: None,
-            latency_us: 50_000,
+            started_at_run_us: Some(2_000),
+            finished_at_unix_ms: 101,
+            finished_at_run_us: Some(72_000),
+            latency_us: 70_000,
             success: true,
         });
         run.queues.push(tailtriage_core::QueueEvent {
             request_id: "r1".into(),
             queue: "permits".into(),
             waited_from_unix_ms: 100,
-            waited_from_run_us: None,
-            waited_until_unix_ms: 100,
-            waited_until_run_us: None,
-            wait_us: 50_000,
+            waited_from_run_us: Some(3_000),
+            waited_until_unix_ms: 101,
+            waited_until_run_us: Some(33_000),
+            wait_us: 30_000,
             depth_at_start: None,
         });
         write_completed_span_jsonl_from_run(&run, &spans_path).unwrap();
 
         let replay = crate::jsonl::import_jsonl_path_with_mode(
             &spans_path,
-            ImportOptions::new("svc").strict(true),
+            ImportOptions::new("svc"),
             crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
         )
         .unwrap();
-        assert_eq!(replay.run().requests.len(), 1);
-        assert_eq!(replay.run().stages.len(), 1);
-        assert_eq!(replay.run().queues.len(), 1);
+        assert_eq!(replay.run().requests[0].latency_us, 50_000);
+        assert_eq!(replay.run().requests[0].started_at_run_us, Some(1_000));
+        assert_eq!(replay.run().requests[0].finished_at_run_us, Some(51_000));
+        assert_eq!(replay.run().stages[0].latency_us, 70_000);
+        assert_eq!(replay.run().stages[0].started_at_run_us, Some(2_000));
+        assert_eq!(replay.run().stages[0].finished_at_run_us, Some(72_000));
+        assert_eq!(replay.run().queues[0].wait_us, 30_000);
+        assert_eq!(replay.run().queues[0].waited_from_run_us, Some(3_000));
+        assert_eq!(replay.run().queues[0].waited_until_run_us, Some(33_000));
     }
 
     #[test]

@@ -202,8 +202,15 @@ fn parse_record(
                 };
             };
 
-            return match serde_json::from_value::<SpanRecord>(span_value.clone()) {
+            let span_obj = span_value.as_object().expect("validated span object above");
+            return match parse_normalized_span(span_value, span_obj) {
                 Ok(span) => Ok(Some(span)),
+                Err(
+                    err @ ImportError::InvalidField {
+                        field: "started_at_run_us" | "finished_at_run_us",
+                        ..
+                    },
+                ) => Err(err),
                 Err(err) => {
                     let message =
                         format!("line {line_no}: invalid tailtriage.tracing-span.v1 span: {err}");
@@ -467,11 +474,11 @@ fn optional_string(
 ) -> Result<Option<String>, ImportError> {
     match obj.get(key) {
         Some(Value::String(s)) => Ok(Some(s.clone())),
+        Some(Value::Null) | None => Ok(None),
         Some(_) => Err(ImportError::InvalidField {
             field: key,
             reason: "expected string".to_owned(),
         }),
-        None => Ok(None),
     }
 }
 fn required_timestamp(
@@ -583,13 +590,36 @@ mod tests {
 
     #[test]
     fn stable_wrapper_jsonl_without_run_relative_fields_imports_none() {
-        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":10000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let input = r#"
+{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":10000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":7000,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"q","started_at_unix_ms":12,"finished_at_unix_ms":13,"duration_us":1000,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits"}}}
+"#;
         let imported =
             super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        let request = &imported.run().requests[0];
+        let run = imported.run();
 
-        assert_eq!(request.started_at_run_us, None);
-        assert_eq!(request.finished_at_run_us, None);
+        assert_eq!(run.requests[0].started_at_run_us, None);
+        assert_eq!(run.requests[0].finished_at_run_us, None);
+        assert_eq!(run.stages[0].started_at_run_us, None);
+        assert_eq!(run.stages[0].finished_at_run_us, None);
+        assert_eq!(run.queues[0].waited_from_run_us, None);
+        assert_eq!(run.queues[0].waited_until_run_us, None);
+    }
+
+    #[test]
+    fn stable_wrapper_invalid_run_relative_field_fails_with_invalid_field() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"started_at_run_us":"bad","finished_at_unix_ms":20,"finished_at_run_us":10100,"duration_us":10000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
+        let err =
+            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ImportError::InvalidField {
+                field: "started_at_run_us",
+                ..
+            }
+        ));
     }
 
     #[test]
