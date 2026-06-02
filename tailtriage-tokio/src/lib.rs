@@ -710,6 +710,7 @@ pub fn capture_runtime_snapshot(handle: &Handle) -> RuntimeSnapshot {
 
     RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
+        at_run_us: None,
         alive_tasks: u64::try_from(metrics.num_alive_tasks()).ok(),
         global_queue_depth: u64::try_from(metrics.global_queue_depth()).ok(),
         local_queue_depth,

@@ -46,6 +46,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(4),
         global_queue_depth: Some(1),
         local_queue_depth: Some(0),

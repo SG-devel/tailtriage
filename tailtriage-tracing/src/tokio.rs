@@ -405,7 +405,9 @@ mod tests {
             route: "/r1".into(),
             kind: Some("http".into()),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         });
@@ -413,7 +415,9 @@ mod tests {
             request_id: "r1".into(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 1_000,
             success: true,
         });
@@ -421,7 +425,9 @@ mod tests {
             request_id: "r1".into(),
             queue: "global".into(),
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             wait_us: 1_000,
             depth_at_start: Some(2),
         });
@@ -433,6 +439,7 @@ mod tests {
             .runtime_snapshots
             .push(tailtriage_core::RuntimeSnapshot {
                 at_unix_ms: 10,
+                at_run_us: None,
                 alive_tasks: Some(3),
                 global_queue_depth: Some(4),
                 local_queue_depth: Some(5),
@@ -482,6 +489,7 @@ mod tests {
         runtime_run.runtime_snapshots = vec![
             RuntimeSnapshot {
                 at_unix_ms: 1_000,
+                at_run_us: None,
                 alive_tasks: None,
                 global_queue_depth: None,
                 local_queue_depth: None,
@@ -490,6 +498,7 @@ mod tests {
             },
             RuntimeSnapshot {
                 at_unix_ms: 2_200,
+                at_run_us: None,
                 alive_tasks: None,
                 global_queue_depth: None,
                 local_queue_depth: None,
@@ -546,6 +555,7 @@ mod tests {
         let mut runtime_run = empty_run("runtime");
         runtime_run.runtime_snapshots = vec![RuntimeSnapshot {
             at_unix_ms: 2_200,
+            at_run_us: None,
             alive_tasks: None,
             global_queue_depth: None,
             local_queue_depth: None,
@@ -573,6 +583,7 @@ mod tests {
         let mut runtime_run = empty_run("runtime");
         runtime_run.runtime_snapshots = vec![RuntimeSnapshot {
             at_unix_ms: 1_900,
+            at_run_us: None,
             alive_tasks: None,
             global_queue_depth: None,
             local_queue_depth: None,

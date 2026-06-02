@@ -5,18 +5,19 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::config::Config;
-use crate::time::{finish_interval, start_interval, FinishedInterval, IntervalStart};
+use crate::time::{FinishedInterval, IntervalStart, RunClock};
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
-    unix_time_ms, BuildError, InFlightSnapshot, Outcome, QueueEvent, QueueTimer, RequestEvent,
-    RequestOptions, Run, RunEndReason, RunMetadata, RuntimeSnapshot, SinkError, StageEvent,
-    StageTimer, UnfinishedRequestSample,
+    BuildError, InFlightSnapshot, Outcome, QueueEvent, QueueTimer, RequestEvent, RequestOptions,
+    Run, RunEndReason, RunMetadata, RuntimeSnapshot, SinkError, StageEvent, StageTimer,
+    UnfinishedRequestSample,
 };
 
 /// Per-run collector that records request events and writes the final artifact.
 pub struct Tailtriage {
     pub(crate) run: Mutex<Run>,
+    pub(crate) clock: RunClock,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
     pending_requests: Mutex<HashMap<u64, PendingRequest>>,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
@@ -231,7 +232,8 @@ impl Tailtriage {
             return Err(BuildError::EmptyServiceName);
         }
 
-        let now = unix_time_ms();
+        let clock = RunClock::new();
+        let now = clock.start_unix_ms();
         let run = Run::new(RunMetadata {
             run_id: config.run_id.unwrap_or_else(generate_run_id),
             service_name: config.service_name,
@@ -251,6 +253,7 @@ impl Tailtriage {
 
         Ok(Self {
             run: Mutex::new(run),
+            clock,
             inflight_counts: Mutex::new(HashMap::new()),
             pending_requests: Mutex::new(HashMap::new()),
             sink: config.sink,
@@ -386,7 +389,7 @@ impl Tailtriage {
         };
 
         let mut guard = lock_run(&self.run);
-        let finalized_at = unix_time_ms();
+        let finalized_at = crate::unix_time_ms();
         guard.metadata.finished_at_unix_ms = finalized_at;
         guard.metadata.finalized_at_unix_ms = Some(finalized_at);
         if pending_count > 0 {
@@ -441,9 +444,11 @@ impl Tailtriage {
             *entry
         };
 
+        let sample = self.clock.sample();
         self.record_inflight_snapshot(InFlightSnapshot {
             gauge: gauge.clone(),
-            at_unix_ms: unix_time_ms(),
+            at_unix_ms: sample.unix_ms,
+            at_run_us: Some(sample.run_elapsed_us),
             count,
         });
 
@@ -455,7 +460,11 @@ impl Tailtriage {
     }
 
     /// Records one runtime metrics sample captured by an integration crate.
-    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+    pub fn record_runtime_snapshot(&self, mut snapshot: RuntimeSnapshot) {
+        if snapshot.at_run_us.is_none() {
+            snapshot.at_run_us = Some(self.clock.sample().run_elapsed_us);
+        }
+
         if self.truncation_state.runtime_snapshots.is_saturated() {
             self.truncation_state.runtime_snapshots.increment_drop();
             self.notify_limits_hit_transition();
@@ -604,7 +613,7 @@ impl Tailtriage {
             .unwrap_or_else(|| generate_request_id(&route));
         let pending_key = PENDING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let kind = options.kind;
-        let interval_start = start_interval();
+        let interval_start = self.clock.start_interval();
         let pending = PendingRequest {
             request_id: request_id.clone(),
             route: route.clone(),
@@ -708,7 +717,7 @@ impl RequestCompletion<'_> {
             return;
         }
 
-        let finished = finish_interval(self.interval_start);
+        let finished = self.tailtriage.clock.finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             debug_assert!(
@@ -818,7 +827,7 @@ impl OwnedRequestCompletion {
             return;
         }
 
-        let finished = finish_interval(self.interval_start);
+        let finished = self.tailtriage.clock.finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             self.finished = true;
@@ -847,7 +856,9 @@ fn request_event_from_finished_interval(
         route: pending.route,
         kind: pending.kind,
         started_at_unix_ms: finished.started_at_unix_ms,
+        started_at_run_us: finished.started_at_run_us,
         finished_at_unix_ms: finished.finished_at_unix_ms,
+        finished_at_run_us: finished.finished_at_run_us,
         latency_us: finished.duration_us,
         outcome: outcome.into_string(),
     }
@@ -920,7 +931,7 @@ fn generate_request_id(route: &str) -> String {
         .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
         .collect::<String>();
     let sequence = REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    format!("{route_prefix}-{}-{sequence}", unix_time_ms())
+    format!("{route_prefix}-{}-{sequence}", crate::unix_time_ms())
 }
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
