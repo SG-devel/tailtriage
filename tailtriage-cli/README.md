@@ -68,6 +68,15 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 - `tailtriage-span-jsonl`
 - `compatible`
 
+Tracing import `tt.*` field types:
+
+- `tt.success`: optional bool; strings `"true"` and `"false"` are also accepted case-insensitively.
+- `tt.depth_at_start`: optional non-negative integer. Do not record it with debug formatting.
+- `tt.outcome`: optional non-empty string.
+- `tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, and `tt.queue`: scalar strings.
+
+Use `tt.depth_at_start = depth_u64` for queue depth. `tt.depth_at_start = ?depth` may produce a debug-formatted value and be rejected.
+
 Behavior:
 - `tailtriage-span-jsonl` enforces wrapper-only parsing.
 - `tailtriage-span-jsonl` is the default library contract: non-wrapper non-empty JSON records are hard errors.
