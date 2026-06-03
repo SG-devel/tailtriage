@@ -604,6 +604,7 @@ impl TracingIntakeSessionBuilder {
 
 impl TracingRecorderBuilder {
     /// Returns selected capture mode for import conversion semantics.
+    #[cfg(feature = "tokio")]
     #[must_use]
     pub(crate) fn selected_mode(&self) -> CaptureMode {
         self.options.mode_value()
