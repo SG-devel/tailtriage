@@ -1716,6 +1716,94 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
 }
 
 #[test]
+fn run_builder_rejects_inverted_request_run_relative_fields() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut request = test_request_event("req");
+    request.started_at_run_us = Some(20);
+    request.finished_at_run_us = Some(10);
+
+    let err = builder.push_request(request).expect_err("should fail");
+    assert!(matches!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "RequestEvent",
+            field: "finished_at_run_us",
+            ref reason,
+        } if reason == "must be >= started_at_run_us"
+    ));
+}
+
+#[test]
+fn run_builder_rejects_inverted_stage_run_relative_fields() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_run_us = Some(20);
+    stage.finished_at_run_us = Some(10);
+
+    let err = builder.push_stage(stage).expect_err("should fail");
+    assert!(matches!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "StageEvent",
+            field: "finished_at_run_us",
+            ref reason,
+        } if reason == "must be >= started_at_run_us"
+    ));
+}
+
+#[test]
+fn run_builder_rejects_inverted_queue_run_relative_fields() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_run_us = Some(20);
+    queue.waited_until_run_us = Some(10);
+
+    let err = builder.push_queue(queue).expect_err("should fail");
+    assert!(matches!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "QueueEvent",
+            field: "waited_until_run_us",
+            ref reason,
+        } if reason == "must be >= waited_from_run_us"
+    ));
+}
+
+#[test]
+fn run_builder_accepts_incomplete_run_relative_fields() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request_start_only = test_request_event("req-start-only");
+    request_start_only.started_at_run_us = Some(10);
+    builder.push_request(request_start_only).expect("ok");
+
+    let mut request_finish_only = test_request_event("req-finish-only");
+    request_finish_only.finished_at_run_us = Some(20);
+    builder.push_request(request_finish_only).expect("ok");
+
+    let mut stage_start_only = test_stage_event("req", "stage-start-only");
+    stage_start_only.started_at_run_us = Some(10);
+    builder.push_stage(stage_start_only).expect("ok");
+
+    let mut stage_finish_only = test_stage_event("req", "stage-finish-only");
+    stage_finish_only.finished_at_run_us = Some(20);
+    builder.push_stage(stage_finish_only).expect("ok");
+
+    let mut queue_start_only = test_queue_event("req", "queue-start-only");
+    queue_start_only.waited_from_run_us = Some(10);
+    builder.push_queue(queue_start_only).expect("ok");
+
+    let mut queue_finish_only = test_queue_event("req", "queue-finish-only");
+    queue_finish_only.waited_until_run_us = Some(20);
+    builder.push_queue(queue_finish_only).expect("ok");
+
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 2);
+    assert_eq!(run.stages.len(), 2);
+    assert_eq!(run.queues.len(), 2);
+}
+
+#[test]
 fn run_builder_accepts_authoritative_request_latency_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
