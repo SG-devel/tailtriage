@@ -1723,6 +1723,74 @@ fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
 }
 
 #[test]
+fn temporal_sort_uses_unix_start_when_only_some_requests_have_run_relative_start() {
+    let mut run = test_run();
+    run.requests = (1..=20).map(sample_request).collect();
+
+    for request in &mut run.requests {
+        let id = request
+            .request_id
+            .strip_prefix("req-")
+            .expect("test request id should use req- prefix")
+            .parse::<u64>()
+            .expect("test request id should end with an integer");
+        request.started_at_unix_ms = id;
+        request.finished_at_unix_ms = id + 1;
+        if id > 10 {
+            request.started_at_run_us = Some(id - 10);
+            request.finished_at_run_us = Some(id - 10 + 100);
+        }
+    }
+
+    for id in 1..=10 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{id}"),
+            queue: "ingress".into(),
+            wait_us: 900,
+            waited_from_unix_ms: id,
+            waited_from_run_us: None,
+            waited_until_unix_ms: id + 1,
+            waited_until_run_us: None,
+            depth_at_start: Some(9),
+        });
+    }
+    for id in 11..=20 {
+        run.stages.push(StageEvent {
+            request_id: format!("req-{id}"),
+            stage: "db".into(),
+            started_at_unix_ms: id,
+            started_at_run_us: None,
+            finished_at_unix_ms: id + 1,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "early")
+        .expect("early temporal segment should be emitted");
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "late")
+        .expect("late temporal segment should be emitted");
+    assert_eq!(
+        early.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(
+        late.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+}
+
+#[test]
 fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
     let mut run = test_run();
     run.requests = (1..=20).map(sample_request).collect();
