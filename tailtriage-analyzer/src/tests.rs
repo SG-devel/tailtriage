@@ -1876,6 +1876,66 @@ fn temporal_segments_with_complete_run_relative_fields_do_not_warn_about_fallbac
 }
 
 #[test]
+fn temporal_segments_sort_complete_run_relative_starts_by_run_time() {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|idx| RequestEvent {
+            request_id: format!("req-{idx:02}"),
+            route: "/t".into(),
+            kind: None,
+            started_at_unix_ms: 1,
+            started_at_run_us: Some((19 - idx) * 1_000),
+            finished_at_unix_ms: 1,
+            finished_at_run_us: Some((19 - idx) * 1_000 + 100),
+            latency_us: if idx >= 10 { 1_000 } else { 6_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    assert_eq!(report.temporal_segments[0].name, "early");
+    assert_eq!(report.temporal_segments[1].name, "late");
+    assert_eq!(report.temporal_segments[0].p95_latency_us, Some(1_000));
+    assert_eq!(report.temporal_segments[1].p95_latency_us, Some(6_000));
+}
+
+#[test]
+fn temporal_segments_sort_partial_run_relative_starts_by_unix_time() {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|idx| RequestEvent {
+            request_id: format!("req-{idx:02}"),
+            route: "/t".into(),
+            kind: None,
+            started_at_unix_ms: idx + 1,
+            started_at_run_us: if idx >= 10 {
+                Some((19 - idx) * 1_000)
+            } else {
+                None
+            },
+            finished_at_unix_ms: idx + 2,
+            finished_at_run_us: if idx >= 10 {
+                Some((19 - idx) * 1_000 + 100)
+            } else {
+                None
+            },
+            latency_us: if idx < 10 { 1_000 } else { 6_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    assert_eq!(report.temporal_segments[0].name, "early");
+    assert_eq!(report.temporal_segments[1].name, "late");
+    assert_eq!(report.temporal_segments[0].p95_latency_us, Some(1_000));
+    assert_eq!(report.temporal_segments[1].p95_latency_us, Some(6_000));
+}
+
+#[test]
 fn temporal_segments_not_emitted_when_no_meaningful_difference() {
     let mut run = test_run();
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
