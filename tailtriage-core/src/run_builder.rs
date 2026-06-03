@@ -380,6 +380,17 @@ fn validate_request_event(event: &RequestEvent) -> Result<(), RunBuilderEventErr
             "must be >= started_at_unix_ms",
         ));
     }
+    if let (Some(started_at_run_us), Some(finished_at_run_us)) =
+        (event.started_at_run_us, event.finished_at_run_us)
+    {
+        if finished_at_run_us < started_at_run_us {
+            return Err(invalid_event(
+                "RequestEvent",
+                "finished_at_run_us",
+                "must be >= started_at_run_us",
+            ));
+        }
+    }
     if event.outcome.trim().is_empty() {
         return Err(invalid_event(
             "RequestEvent",
@@ -407,6 +418,17 @@ fn validate_stage_event(event: &StageEvent) -> Result<(), RunBuilderEventError> 
             "must be >= started_at_unix_ms",
         ));
     }
+    if let (Some(started_at_run_us), Some(finished_at_run_us)) =
+        (event.started_at_run_us, event.finished_at_run_us)
+    {
+        if finished_at_run_us < started_at_run_us {
+            return Err(invalid_event(
+                "StageEvent",
+                "finished_at_run_us",
+                "must be >= started_at_run_us",
+            ));
+        }
+    }
     Ok(())
 }
 fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> {
@@ -426,6 +448,17 @@ fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> 
             "waited_until_unix_ms",
             "must be >= waited_from_unix_ms",
         ));
+    }
+    if let (Some(waited_from_run_us), Some(waited_until_run_us)) =
+        (event.waited_from_run_us, event.waited_until_run_us)
+    {
+        if waited_until_run_us < waited_from_run_us {
+            return Err(invalid_event(
+                "QueueEvent",
+                "waited_until_run_us",
+                "must be >= waited_from_run_us",
+            ));
+        }
     }
     Ok(())
 }
