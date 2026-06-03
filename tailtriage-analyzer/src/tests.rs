@@ -1802,6 +1802,74 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
 }
 
 #[test]
+fn temporal_mixed_clock_snapshots_fallback_to_unix_per_snapshot() {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|idx| RequestEvent {
+            request_id: format!("req-{idx:02}"),
+            route: "/t".into(),
+            kind: None,
+            started_at_unix_ms: if idx < 10 { idx + 1 } else { idx + 20 },
+            started_at_run_us: Some(if idx < 10 {
+                idx * 1_000
+            } else {
+                20_000 + idx * 1_000
+            }),
+            finished_at_unix_ms: if idx < 10 { idx + 2 } else { idx + 21 },
+            finished_at_run_us: Some(if idx < 10 {
+                idx * 1_000 + 100
+            } else {
+                20_000 + idx * 1_000 + 100
+            }),
+            latency_us: if idx < 10 { 1_000 } else { 6_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.runtime_snapshots = vec![RuntimeSnapshot {
+        at_unix_ms: 5,
+        at_run_us: None,
+        global_queue_depth: Some(50),
+        local_queue_depth: Some(50),
+        alive_tasks: Some(100),
+        blocking_queue_depth: Some(0),
+        remote_schedule_count: None,
+    }];
+    run.inflight = vec![tailtriage_core::InFlightSnapshot {
+        at_unix_ms: 5,
+        at_run_us: None,
+        gauge: "http.server.requests".into(),
+        count: 7,
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "early")
+        .expect("early temporal segment should be emitted");
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "late")
+        .expect("late temporal segment should be emitted");
+
+    assert_eq!(early.evidence_quality.runtime_snapshot_count, 1);
+    assert_eq!(early.evidence_quality.inflight_snapshot_count, 1);
+    assert_eq!(late.evidence_quality.runtime_snapshot_count, 0);
+    assert_eq!(late.evidence_quality.inflight_snapshot_count, 0);
+    assert!(early
+        .warnings
+        .iter()
+        .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    assert!(!late
+        .warnings
+        .iter()
+        .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+}
+
+#[test]
 fn temporal_segments_fallback_for_older_artifacts_warns() {
     let mut run = test_run();
     run.requests = (1..=20).map(sample_request).collect();

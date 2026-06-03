@@ -13,9 +13,10 @@ pub(super) const TEMPORAL_OVERLAP_ATTRIBUTION_WARNING: &str = "Segment windows o
 pub(super) const TEMPORAL_WALL_CLOCK_FALLBACK_WARNING: &str = "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing.";
 
 #[derive(Clone, Copy)]
-enum SegmentWindow {
-    RunRelative { start: u64, finish: u64 },
-    Unix { start: u64, finish: u64 },
+struct SegmentWindow {
+    unix_start: u64,
+    unix_finish: u64,
+    run_relative: Option<(u64, u64)>,
 }
 
 fn all_requests_have_run_relative_start(requests: &[RequestEvent]) -> bool {
@@ -73,55 +74,71 @@ fn segment_unix_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
     Some((start, finish))
 }
 
-fn filter_segment_runtime_and_inflight(run: &mut Run, source: &Run, window: SegmentWindow) {
-    match window {
-        SegmentWindow::RunRelative { start, finish } => {
-            run.runtime_snapshots = source
-                .runtime_snapshots
-                .iter()
-                .filter(|snapshot| {
-                    snapshot
-                        .at_run_us
-                        .is_some_and(|at| at >= start && at <= finish)
-                })
-                .cloned()
-                .collect();
-            run.inflight = source
-                .inflight
-                .iter()
-                .filter(|snapshot| {
-                    snapshot
-                        .at_run_us
-                        .is_some_and(|at| at >= start && at <= finish)
-                })
-                .cloned()
-                .collect();
-        }
-        SegmentWindow::Unix { start, finish } => {
-            run.runtime_snapshots = source
-                .runtime_snapshots
-                .iter()
-                .filter(|snapshot| snapshot.at_unix_ms >= start && snapshot.at_unix_ms <= finish)
-                .cloned()
-                .collect();
-            run.inflight = source
-                .inflight
-                .iter()
-                .filter(|snapshot| snapshot.at_unix_ms >= start && snapshot.at_unix_ms <= finish)
-                .cloned()
-                .collect();
-        }
+fn retain_runtime_snapshot(
+    snapshot: &tailtriage_core::RuntimeSnapshot,
+    window: SegmentWindow,
+) -> (bool, bool) {
+    retain_snapshot_at(snapshot.at_unix_ms, snapshot.at_run_us, window)
+}
+
+fn retain_inflight_snapshot(
+    snapshot: &tailtriage_core::InFlightSnapshot,
+    window: SegmentWindow,
+) -> (bool, bool) {
+    retain_snapshot_at(snapshot.at_unix_ms, snapshot.at_run_us, window)
+}
+
+fn retain_snapshot_at(
+    at_unix_ms: u64,
+    at_run_us: Option<u64>,
+    window: SegmentWindow,
+) -> (bool, bool) {
+    if let (Some((start, finish)), Some(at)) = (window.run_relative, at_run_us) {
+        return (at >= start && at <= finish, false);
     }
+
+    let retained = at_unix_ms >= window.unix_start && at_unix_ms <= window.unix_finish;
+    let used_mixed_clock_fallback =
+        retained && window.run_relative.is_some() && at_run_us.is_none();
+    (retained, used_mixed_clock_fallback)
+}
+
+fn filter_segment_runtime_and_inflight(run: &mut Run, source: &Run, window: SegmentWindow) -> bool {
+    let mut used_mixed_clock_fallback = false;
+
+    run.runtime_snapshots = source
+        .runtime_snapshots
+        .iter()
+        .filter(|snapshot| {
+            let (retained, used_fallback) = retain_runtime_snapshot(snapshot, window);
+            used_mixed_clock_fallback |= used_fallback;
+            retained
+        })
+        .cloned()
+        .collect();
+
+    run.inflight = source
+        .inflight
+        .iter()
+        .filter(|snapshot| {
+            let (retained, used_fallback) = retain_inflight_snapshot(snapshot, window);
+            used_mixed_clock_fallback |= used_fallback;
+            retained
+        })
+        .cloned()
+        .collect();
+
+    used_mixed_clock_fallback
 }
 
 fn filtered_run_for_temporal_segment(
     run: &Run,
     request_ids: &[String],
     window: SegmentWindow,
-) -> Run {
+) -> (Run, bool) {
     let mut filtered = route::filtered_run_for_route(run, request_ids);
-    filter_segment_runtime_and_inflight(&mut filtered, run, window);
-    filtered
+    let used_mixed_clock_fallback = filter_segment_runtime_and_inflight(&mut filtered, run, window);
+    (filtered, used_mixed_clock_fallback)
 }
 
 pub(super) fn temporal_segments(
@@ -143,24 +160,25 @@ pub(super) fn temporal_segments(
     }
     let build = |name: &str, seg: &[RequestEvent]| {
         let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
-        let (start, finish) = segment_unix_window(seg)
-            .map_or((None, None), |(start, finish)| (Some(start), Some(finish)));
+        let unix_window = segment_unix_window(seg);
+        let (start, finish) =
+            unix_window.map_or((None, None), |(start, finish)| (Some(start), Some(finish)));
         let run_relative_window = segment_run_relative_window(seg);
         let used_unix_fallback = run_relative_window.is_none();
-        let window = run_relative_window
-            .map(|(start, finish)| SegmentWindow::RunRelative { start, finish })
-            .or_else(|| {
-                segment_unix_window(seg)
-                    .map(|(start, finish)| SegmentWindow::Unix { start, finish })
-            });
-        let mut analyzed = match window {
-            Some(window) => analyze_run_internal(
-                &filtered_run_for_temporal_segment(run, &ids, window),
-                options,
+        let (segment_run, used_mixed_clock_fallback) = match unix_window {
+            Some((unix_start, unix_finish)) => filtered_run_for_temporal_segment(
+                run,
+                &ids,
+                SegmentWindow {
+                    unix_start,
+                    unix_finish,
+                    run_relative: run_relative_window,
+                },
             ),
-            None => analyze_run_internal(&route::filtered_run_for_route(run, &ids), options),
+            None => (route::filtered_run_for_route(run, &ids), false),
         };
-        if used_unix_fallback {
+        let mut analyzed = analyze_run_internal(&segment_run, options);
+        if used_unix_fallback || used_mixed_clock_fallback {
             analyzed
                 .warnings
                 .push(TEMPORAL_WALL_CLOCK_FALLBACK_WARNING.to_string());
