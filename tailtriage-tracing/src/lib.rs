@@ -185,15 +185,20 @@ where
                     else {
                         continue;
                     };
+                    let (started_at_run_us, finished_at_run_us) = sanitized_run_relative_offsets(
+                        &span,
+                        options.strict_mode(),
+                        &mut warnings,
+                    )?;
                     parsed_requests.push(ParsedRequestEvent {
                         event: RequestEvent {
                             request_id,
                             route,
                             kind: None,
                             started_at_unix_ms: span.started_at_unix_ms(),
-                            started_at_run_us: span.started_at_run_us_ref(),
+                            started_at_run_us,
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            finished_at_run_us: span.finished_at_run_us_ref(),
+                            finished_at_run_us,
                             latency_us: elapsed_duration_us(
                                 &span,
                                 options.strict_mode(),
@@ -216,14 +221,19 @@ where
                         OptionalField::Value(success) => success,
                         OptionalField::Invalid => continue,
                     };
+                    let (started_at_run_us, finished_at_run_us) = sanitized_run_relative_offsets(
+                        &span,
+                        options.strict_mode(),
+                        &mut warnings,
+                    )?;
                     parsed_stages.push(ParsedStageEvent {
                         event: StageEvent {
                             request_id,
                             stage,
                             started_at_unix_ms: span.started_at_unix_ms(),
-                            started_at_run_us: span.started_at_run_us_ref(),
+                            started_at_run_us,
                             finished_at_unix_ms: span.finished_at_unix_ms(),
-                            finished_at_run_us: span.finished_at_run_us_ref(),
+                            finished_at_run_us,
                             latency_us: elapsed_duration_us(
                                 &span,
                                 options.strict_mode(),
@@ -246,13 +256,18 @@ where
                             OptionalField::Value(depth) => Some(depth),
                             OptionalField::Invalid => continue,
                         };
+                    let (waited_from_run_us, waited_until_run_us) = sanitized_run_relative_offsets(
+                        &span,
+                        options.strict_mode(),
+                        &mut warnings,
+                    )?;
                     queues.push(QueueEvent {
                         request_id,
                         queue,
                         waited_from_unix_ms: span.started_at_unix_ms(),
-                        waited_from_run_us: span.started_at_run_us_ref(),
+                        waited_from_run_us,
                         waited_until_unix_ms: span.finished_at_unix_ms(),
-                        waited_until_run_us: span.finished_at_run_us_ref(),
+                        waited_until_run_us,
                         wait_us: elapsed_duration_us(&span, options.strict_mode(), &mut warnings)?,
                         depth_at_start,
                     });
@@ -724,6 +739,58 @@ fn timestamp_derived_duration_us(started_at_unix_ms: u64, finished_at_unix_ms: u
         .saturating_mul(1000)
 }
 
+fn sanitized_run_relative_offsets(
+    span: &SpanRecord,
+    strict: bool,
+    warnings: &mut Vec<ImportWarning>,
+) -> Result<(Option<u64>, Option<u64>), ImportError> {
+    match (span.started_at_run_us_ref(), span.finished_at_run_us_ref()) {
+        (Some(started_at_run_us), Some(finished_at_run_us))
+            if finished_at_run_us >= started_at_run_us =>
+        {
+            Ok((Some(started_at_run_us), Some(finished_at_run_us)))
+        }
+        (Some(started_at_run_us), Some(finished_at_run_us)) => {
+            let message = format!(
+                "span '{}' run-relative timing is inverted: start={} finish={}; dropped run-relative offsets",
+                span.name(),
+                started_at_run_us,
+                finished_at_run_us
+            );
+            if strict {
+                return Err(ImportError::StrictViolation(message));
+            }
+            warnings.push(ImportWarning::new(message));
+            Ok((None, None))
+        }
+        (Some(offset), None) => {
+            let message = format!(
+                "span '{}' incomplete run-relative timing: started_at_run_us={} finished_at_run_us missing; dropped run-relative offsets",
+                span.name(),
+                offset
+            );
+            if strict {
+                return Err(ImportError::StrictViolation(message));
+            }
+            warnings.push(ImportWarning::new(message));
+            Ok((None, None))
+        }
+        (None, Some(offset)) => {
+            let message = format!(
+                "span '{}' incomplete run-relative timing: started_at_run_us missing finished_at_run_us={}; dropped run-relative offsets",
+                span.name(),
+                offset
+            );
+            if strict {
+                return Err(ImportError::StrictViolation(message));
+            }
+            warnings.push(ImportWarning::new(message));
+            Ok((None, None))
+        }
+        (None, None) => Ok((None, None)),
+    }
+}
+
 fn elapsed_duration_us(
     span: &SpanRecord,
     strict: bool,
@@ -765,6 +832,8 @@ fn is_durable_conversion_warning(message: &str) -> bool {
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
         || message.contains("duration_us differs from timestamp-derived duration")
+        || message.contains("run-relative timing is inverted")
+        || message.contains("incomplete run-relative timing")
         || message.contains("missing optional 'tt.outcome'; assumed 'ok'")
         || message.contains("missing optional 'tt.success'; assumed true")
 }
@@ -1024,6 +1093,167 @@ mod tests {
         assert_eq!(run.stages[0].finished_at_run_us, Some(15_010));
         assert_eq!(run.queues[0].waited_from_run_us, Some(2_010));
         assert_eq!(run.queues[0].waited_until_run_us, Some(3_010));
+    }
+
+    #[test]
+    fn non_strict_inverted_request_run_relative_offsets_are_dropped_with_warning() {
+        let spans = vec![SpanRecord::new("req", 100, 120)
+            .started_at_run_us(20_000)
+            .finished_at_run_us(10_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].started_at_run_us, None);
+        assert_eq!(imported.run().requests[0].finished_at_run_us, None);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("run-relative timing is inverted")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped run-relative offsets")));
+    }
+
+    #[test]
+    fn strict_inverted_request_run_relative_offsets_fail() {
+        let spans = vec![SpanRecord::new("req", 100, 120)
+            .started_at_run_us(20_000)
+            .finished_at_run_us(10_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
+            .expect_err("strict import should reject inverted run-relative offsets");
+
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("run-relative timing is inverted"));
+    }
+
+    #[test]
+    fn non_strict_incomplete_request_run_relative_offsets_are_dropped_with_warning() {
+        let spans = vec![SpanRecord::new("req", 100, 120)
+            .started_at_run_us(10_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].started_at_run_us, None);
+        assert_eq!(imported.run().requests[0].finished_at_run_us, None);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("incomplete run-relative timing")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped run-relative offsets")));
+    }
+
+    #[test]
+    fn non_strict_inverted_queue_run_relative_offsets_are_dropped_with_warning() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("q", 102, 103)
+                .started_at_run_us(3_000)
+                .finished_at_run_us(2_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].waited_from_run_us, None);
+        assert_eq!(imported.run().queues[0].waited_until_run_us, None);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("run-relative timing is inverted")));
+    }
+
+    #[test]
+    fn strict_inverted_queue_run_relative_offsets_fail() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("q", 102, 103)
+                .started_at_run_us(3_000)
+                .finished_at_run_us(2_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
+            .expect_err("strict import should reject inverted queue run-relative offsets");
+
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("run-relative timing is inverted"));
+    }
+
+    #[test]
+    fn non_strict_incomplete_queue_run_relative_offsets_are_dropped_with_warning() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("q", 102, 103)
+                .finished_at_run_us(3_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+
+        assert_eq!(imported.run().queues.len(), 1);
+        assert_eq!(imported.run().queues[0].waited_from_run_us, None);
+        assert_eq!(imported.run().queues[0].waited_until_run_us, None);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("incomplete run-relative timing")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("dropped run-relative offsets")));
+    }
+
+    #[test]
+    fn strict_incomplete_queue_run_relative_offsets_fail() {
+        let spans = vec![
+            SpanRecord::new("req", 100, 120)
+                .field(TT_KIND, "request")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_ROUTE, "/a"),
+            SpanRecord::new("q", 102, 103)
+                .finished_at_run_us(3_000)
+                .field(TT_KIND, "queue")
+                .field(TT_REQUEST_ID, "r1")
+                .field(TT_QUEUE, "permits"),
+        ];
+
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
+            .expect_err("strict import should reject incomplete run-relative offsets");
+
+        assert!(matches!(err, ImportError::StrictViolation(_)));
+        assert!(err.to_string().contains("incomplete run-relative timing"));
     }
 
     #[test]
