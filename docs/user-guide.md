@@ -76,6 +76,7 @@ tailtriage analyze tailtriage-run.json
 
 - Offline import does not ingest runtime snapshots or in-flight snapshots.
 - Tracing-only runs do not fabricate runtime snapshots, so executor/blocking-pressure evidence can be weaker or absent.
+- Artifacts with run-relative monotonic offsets give temporal segmentation a more stable within-run ordering; older or partial imported artifacts fall back to Unix-ms timestamp anchors.
 
 #### Zero-request artifacts
 

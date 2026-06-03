@@ -6,7 +6,7 @@ use tailtriage_core::{
 use super::temporal::{
     apply_temporal_overlap_attribution_warning, has_material_p95_shift,
     TEMPORAL_OVERLAP_ATTRIBUTION_WARNING, TEMPORAL_P95_SHIFT_WARNING,
-    TEMPORAL_SUSPECT_SHIFT_WARNING,
+    TEMPORAL_SUSPECT_SHIFT_WARNING, TEMPORAL_WALL_CLOCK_FALLBACK_WARNING,
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
@@ -2044,6 +2044,113 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
+}
+
+fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|i| {
+            let mut request = sample_request(i + 1);
+            let id = i + 1;
+            let start_run_us = id * 10_000;
+            request.started_at_run_us = Some(start_run_us);
+            request.finished_at_run_us = Some(start_run_us + 5_000);
+            request
+        })
+        .collect();
+    for i in 1..=10 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 2_000,
+            waited_from_unix_ms: i,
+            waited_from_run_us: Some(i * 10_000),
+            waited_until_unix_ms: i + 1,
+            waited_until_run_us: Some(i * 10_000 + 2_000),
+            depth_at_start: Some(12),
+        });
+    }
+    for i in 11usize..=20usize {
+        if let Some(req) = run.requests.get_mut(i - 1) {
+            req.latency_us = 8_000;
+            req.finished_at_run_us = req.started_at_run_us.map(|start| start + 8_000);
+        }
+        let i_u64 = u64::try_from(i).expect("test index should fit in u64");
+        run.stages.push(StageEvent {
+            request_id: format!("req-{i}"),
+            stage: "db".into(),
+            started_at_unix_ms: i_u64,
+            started_at_run_us: Some(i_u64 * 10_000),
+            finished_at_unix_ms: i_u64 + 1,
+            finished_at_run_us: Some(i_u64 * 10_000 + 7_000),
+            latency_us: 7_000,
+            success: true,
+        });
+    }
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(50_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(20),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 15,
+            at_run_us: Some(150_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(20),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(50_000),
+            gauge: "http.server.requests".into(),
+            count: 1,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 15,
+            at_run_us: Some(150_000),
+            gauge: "http.server.requests".into(),
+            count: 1,
+        },
+    ];
+    run
+}
+
+#[test]
+fn temporal_segments_warn_only_when_run_relative_timing_is_incomplete() {
+    let complete_report = analyze_run(
+        &run_with_temporal_shift_and_run_relative_offsets(),
+        AnalyzeOptions::default(),
+    );
+    assert_eq!(complete_report.temporal_segments.len(), 2);
+    for segment in &complete_report.temporal_segments {
+        assert!(!segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+
+    let mut incomplete_run = run_with_temporal_shift_and_run_relative_offsets();
+    for request in &mut incomplete_run.requests {
+        request.started_at_run_us = None;
+        request.finished_at_run_us = None;
+    }
+    let incomplete_report = analyze_run(&incomplete_run, AnalyzeOptions::default());
+    assert_eq!(incomplete_report.temporal_segments.len(), 2);
+    for segment in &incomplete_report.temporal_segments {
+        assert!(segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
 }
 
 #[test]
