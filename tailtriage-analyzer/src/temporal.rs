@@ -18,14 +18,34 @@ enum SegmentWindow {
     Unix { start: u64, finish: u64 },
 }
 
-fn request_temporal_sort_key(request: &RequestEvent) -> (bool, u64, &str) {
-    (
-        request.started_at_run_us.is_none(),
-        request
-            .started_at_run_us
-            .unwrap_or(request.started_at_unix_ms),
-        request.request_id.as_str(),
-    )
+fn all_requests_have_run_relative_start(requests: &[RequestEvent]) -> bool {
+    requests
+        .iter()
+        .all(|request| request.started_at_run_us.is_some())
+}
+
+fn sort_requests_for_temporal_segments(requests: &mut [RequestEvent]) {
+    if all_requests_have_run_relative_start(requests) {
+        requests.sort_by(|a, b| {
+            (
+                a.started_at_run_us
+                    .expect("checked by all_requests_have_run_relative_start"),
+                a.started_at_unix_ms,
+                a.request_id.as_str(),
+            )
+                .cmp(&(
+                    b.started_at_run_us
+                        .expect("checked by all_requests_have_run_relative_start"),
+                    b.started_at_unix_ms,
+                    b.request_id.as_str(),
+                ))
+        });
+    } else {
+        requests.sort_by(|a, b| {
+            (a.started_at_unix_ms, a.request_id.as_str())
+                .cmp(&(b.started_at_unix_ms, b.request_id.as_str()))
+        });
+    }
 }
 
 fn segment_run_relative_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
@@ -119,7 +139,7 @@ pub(super) fn temporal_segments(
         return vec![];
     }
     let mut requests = run.requests.clone();
-    requests.sort_by(|a, b| request_temporal_sort_key(a).cmp(&request_temporal_sort_key(b)));
+    sort_requests_for_temporal_segments(&mut requests);
     let split = requests.len() / 2;
     let (early, late) = requests.split_at(split);
     if early.len() < options.temporal.min_segment_request_count
