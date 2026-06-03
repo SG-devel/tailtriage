@@ -214,6 +214,7 @@ let json = render_json_pretty(&report)?;
 Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI output. Typed `Report` is the in-process analyzer result.
 
 Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
+Artifacts with run-relative monotonic offsets give temporal segmentation a more stable within-run ordering; older or partial imported artifacts fall back to Unix-ms timestamp anchors.
 
 ### Analyzer tuning examples
 

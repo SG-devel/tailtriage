@@ -1802,11 +1802,15 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
 }
 
 #[test]
-fn temporal_segments_fallback_for_older_artifacts_warns() {
+fn temporal_segments_with_incomplete_run_relative_fields_warn_about_fallback() {
     let mut run = test_run();
     run.requests = (1..=20).map(sample_request).collect();
-    for request in run.requests.iter_mut().skip(10) {
-        request.latency_us = 6_000;
+    for (idx, request) in run.requests.iter_mut().enumerate() {
+        let idx = u64::try_from(idx).expect("test index should fit in u64");
+        request.started_at_run_us = Some(idx * 1_000);
+        if idx >= 10 {
+            request.latency_us = 6_000;
+        }
     }
     run.runtime_snapshots = vec![
         RuntimeSnapshot {
