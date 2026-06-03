@@ -328,11 +328,32 @@ impl TracingTokioSessionBuilder {
     }
 }
 
+const MERGED_RUNTIME_RUN_OFFSET_WARNING: &str = "TracingTokioSession merged runtime snapshots from a separate runtime collector; runtime snapshot at_run_us offsets were cleared so temporal runtime attribution uses Unix-ms windows.";
+
+fn add_import_warning_once(run: &mut Run, warnings: &mut Vec<ImportWarning>, warning: &str) {
+    if !run.metadata.lifecycle_warnings.iter().any(|w| w == warning) {
+        run.metadata.lifecycle_warnings.push(warning.to_string());
+    }
+    if !warnings
+        .iter()
+        .any(|import_warning| import_warning.message() == warning)
+    {
+        warnings.push(ImportWarning::new(warning.to_string()));
+    }
+}
+
 fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
     let (mut tracing_run, mut warnings) = imported.into_parts();
+    let cleared_runtime_run_offsets = runtime_run
+        .runtime_snapshots
+        .iter()
+        .any(|snapshot| snapshot.at_run_us.is_some());
     tracing_run
         .runtime_snapshots
         .clone_from(&runtime_run.runtime_snapshots);
+    for snapshot in &mut tracing_run.runtime_snapshots {
+        snapshot.at_run_us = None;
+    }
     if !tracing_run.runtime_snapshots.is_empty() {
         let runtime_min = tracing_run
             .runtime_snapshots
@@ -365,26 +386,22 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
         runtime_run.truncation.dropped_runtime_snapshots;
     tracing_run.truncation.limits_hit =
         tracing_run.truncation.limits_hit || runtime_run.truncation.limits_hit;
+    if cleared_runtime_run_offsets && !runtime_run.runtime_snapshots.is_empty() {
+        add_import_warning_once(
+            &mut tracing_run,
+            &mut warnings,
+            MERGED_RUNTIME_RUN_OFFSET_WARNING,
+        );
+    }
     for warning in &runtime_run.metadata.lifecycle_warnings {
-        if !tracing_run.metadata.lifecycle_warnings.contains(warning) {
-            tracing_run
-                .metadata
-                .lifecycle_warnings
-                .push(warning.clone());
-        }
-        if !warnings
-            .iter()
-            .any(|import_warning| import_warning.message() == warning)
-        {
-            warnings.push(ImportWarning::new(warning.clone()));
-        }
+        add_import_warning_once(&mut tracing_run, &mut warnings, warning);
     }
     ImportedRun::new(tracing_run, warnings)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::merge_runtime_data;
+    use super::{merge_runtime_data, MERGED_RUNTIME_RUN_OFFSET_WARNING};
     use crate::{ImportWarning, ImportedRun};
     use std::time::Duration;
     use tailtriage_core::{CaptureMode, MemorySink, RuntimeSnapshot, Tailtriage};
@@ -517,6 +534,63 @@ mod tests {
             snapshot.at_unix_ms >= run.metadata.started_at_unix_ms
                 && snapshot.at_unix_ms <= run.metadata.finished_at_unix_ms
         }));
+    }
+
+    #[test]
+    fn merge_runtime_data_clears_runtime_snapshot_run_offsets_and_warns() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.metadata.started_at_unix_ms = 1_500;
+        tracing_run.metadata.finished_at_unix_ms = 1_800;
+        tracing_run.metadata.finalized_at_unix_ms = Some(1_800);
+        tracing_run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/r1".into(),
+            kind: Some("http".into()),
+            started_at_unix_ms: 1_600,
+            started_at_run_us: Some(100),
+            finished_at_unix_ms: 1_700,
+            finished_at_run_us: Some(200),
+            latency_us: 100,
+            outcome: "ok".into(),
+        });
+
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.runtime_snapshots = vec![RuntimeSnapshot {
+            at_unix_ms: 1_000,
+            at_run_us: Some(50_000),
+            alive_tasks: None,
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        }];
+
+        let merged = merge_runtime_data(ImportedRun::new(tracing_run, vec![]), &runtime_run);
+        let run = merged.run();
+        assert_eq!(run.runtime_snapshots.len(), 1);
+        assert_eq!(run.runtime_snapshots[0].at_run_us, None);
+        assert_eq!(run.runtime_snapshots[0].at_unix_ms, 1_000);
+        assert_eq!(run.requests[0].started_at_run_us, Some(100));
+        assert_eq!(run.requests[0].finished_at_run_us, Some(200));
+        assert_eq!(run.metadata.started_at_unix_ms, 1_000);
+        assert_eq!(run.metadata.finished_at_unix_ms, 1_800);
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(1_800));
+        assert_eq!(
+            run.metadata
+                .lifecycle_warnings
+                .iter()
+                .filter(|warning| warning.as_str() == MERGED_RUNTIME_RUN_OFFSET_WARNING)
+                .count(),
+            1
+        );
+        assert_eq!(
+            merged
+                .warnings()
+                .iter()
+                .filter(|warning| warning.message() == MERGED_RUNTIME_RUN_OFFSET_WARNING)
+                .count(),
+            1
+        );
     }
 
     #[test]
