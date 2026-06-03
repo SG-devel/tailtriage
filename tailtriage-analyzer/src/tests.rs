@@ -6,7 +6,7 @@ use tailtriage_core::{
 use super::temporal::{
     apply_temporal_overlap_attribution_warning, has_material_p95_shift,
     TEMPORAL_OVERLAP_ATTRIBUTION_WARNING, TEMPORAL_P95_SHIFT_WARNING,
-    TEMPORAL_SUSPECT_SHIFT_WARNING,
+    TEMPORAL_SUSPECT_SHIFT_WARNING, TEMPORAL_WALL_CLOCK_FALLBACK_WARNING,
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
@@ -118,6 +118,54 @@ fn latency_percentiles_use_duration_fields_not_timestamp_subtraction() {
     assert_eq!(report.p50_latency_us, Some(50_000));
     assert_eq!(report.p95_latency_us, Some(50_000));
     assert_eq!(report.p99_latency_us, Some(50_000));
+}
+
+fn temporal_shift_run(with_complete_run_relative: bool) -> Run {
+    let mut run = test_run();
+    run.requests = (0..40)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/test".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            started_at_run_us: with_complete_run_relative.then_some(i * 1_000),
+            finished_at_unix_ms: i + 1,
+            finished_at_run_us: with_complete_run_relative.then_some(i * 1_000 + 900),
+            latency_us: if i < 20 { 2_000 } else { 5_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.queues = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, r)| QueueEvent {
+            request_id: r.request_id.clone(),
+            queue: "q".into(),
+            wait_us: if i < 20 { 1_500 } else { 100 },
+            waited_from_unix_ms: r.started_at_unix_ms,
+            waited_from_run_us: with_complete_run_relative.then_some(i as u64 * 1_000),
+            waited_until_unix_ms: r.finished_at_unix_ms,
+            waited_until_run_us: with_complete_run_relative.then_some(i as u64 * 1_000 + 100),
+            depth_at_start: Some(3),
+        })
+        .collect();
+    run.stages = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, r)| StageEvent {
+            request_id: r.request_id.clone(),
+            stage: "db".into(),
+            started_at_unix_ms: r.started_at_unix_ms,
+            started_at_run_us: with_complete_run_relative.then_some(i as u64 * 1_000 + 100),
+            finished_at_unix_ms: r.finished_at_unix_ms,
+            finished_at_run_us: with_complete_run_relative.then_some(i as u64 * 1_000 + 900),
+            latency_us: if i < 20 { 200 } else { 4_400 },
+            success: true,
+        })
+        .collect();
+    run
 }
 
 fn runtime_snapshot(
@@ -2854,53 +2902,33 @@ fn default_options_compat_route_breakdowns_case() {
 
 #[test]
 fn default_options_compat_temporal_segments_case() {
-    let mut run = test_run();
-    run.requests = (0..40)
-        .map(|i| RequestEvent {
-            request_id: format!("req-{i}"),
-            route: "/test".into(),
-            kind: None,
-            started_at_unix_ms: i,
-            started_at_run_us: None,
-            finished_at_unix_ms: i + 1,
-            finished_at_run_us: None,
-            latency_us: if i < 20 { 2_000 } else { 5_000 },
-            outcome: "ok".into(),
-        })
-        .collect();
-    run.queues = run
-        .requests
-        .iter()
-        .enumerate()
-        .map(|(i, r)| QueueEvent {
-            request_id: r.request_id.clone(),
-            queue: "q".into(),
-            wait_us: if i < 20 { 1_500 } else { 100 },
-            waited_from_unix_ms: 1,
-            waited_from_run_us: None,
-            waited_until_unix_ms: 2,
-            waited_until_run_us: None,
-            depth_at_start: Some(3),
-        })
-        .collect();
-    run.stages = run
-        .requests
-        .iter()
-        .enumerate()
-        .map(|(i, r)| StageEvent {
-            request_id: r.request_id.clone(),
-            stage: "db".into(),
-            started_at_unix_ms: 1,
-            started_at_run_us: None,
-            finished_at_unix_ms: 2,
-            finished_at_run_us: None,
-            latency_us: if i < 20 { 200 } else { 4_400 },
-            success: true,
-        })
-        .collect();
+    let run = temporal_shift_run(false);
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert!(!report.temporal_segments.is_empty());
     assert_default_report_has_no_analyzer_config(&report);
+}
+
+#[test]
+fn temporal_segments_warn_only_when_wall_clock_fallback_is_used() {
+    let complete_report = analyze_run(&temporal_shift_run(true), AnalyzeOptions::default());
+    assert!(!complete_report.temporal_segments.is_empty());
+    assert!(complete_report
+        .temporal_segments
+        .iter()
+        .all(|segment| !segment
+            .warnings
+            .iter()
+            .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING)));
+
+    let incomplete_report = analyze_run(&temporal_shift_run(false), AnalyzeOptions::default());
+    assert!(!incomplete_report.temporal_segments.is_empty());
+    assert!(incomplete_report
+        .temporal_segments
+        .iter()
+        .all(|segment| segment
+            .warnings
+            .iter()
+            .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING)));
 }
 
 #[test]

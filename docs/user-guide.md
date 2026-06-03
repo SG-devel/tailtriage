@@ -61,6 +61,7 @@ tailtriage analyze tailtriage-run.json
 
 - `tailtriage import tracing-spans-jsonl` writes Run JSON, not Report JSON.
 - Analysis is a separate `tailtriage analyze tailtriage-run.json` step.
+- Artifacts with run-relative monotonic offsets give temporal segmentation a more stable within-run ordering; older or partial imported artifacts fall back to Unix-ms timestamp anchors.
 
 #### Strict vs non-strict
 
