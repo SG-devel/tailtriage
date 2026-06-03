@@ -92,36 +92,6 @@ impl RunClock {
     }
 }
 
-/// Starts a measured interval using a wall-clock sample and monotonic instant.
-#[allow(dead_code)]
-#[must_use]
-pub(crate) fn start_interval() -> IntervalStart {
-    let started_at_unix_ms = unix_time_ms();
-    let started = Instant::now();
-
-    IntervalStart {
-        started_at_unix_ms,
-        started_at_run_us: None,
-        started,
-    }
-}
-
-/// Finishes a measured interval using wall-clock finish time and monotonic duration.
-#[allow(dead_code)]
-#[must_use]
-pub(crate) fn finish_interval(start: IntervalStart) -> FinishedInterval {
-    let finished = Instant::now();
-    let finished_at_unix_ms = unix_time_ms();
-
-    FinishedInterval {
-        started_at_unix_ms: start.started_at_unix_ms,
-        started_at_run_us: start.started_at_run_us,
-        finished_at_unix_ms,
-        finished_at_run_us: None,
-        duration_us: duration_to_us(finished.duration_since(start.started)),
-    }
-}
-
 /// Converts a [`Duration`] to microseconds, saturating at [`u64::MAX`].
 #[must_use]
 pub(crate) fn duration_to_us(duration: Duration) -> u64 {
@@ -148,10 +118,7 @@ pub fn unix_time_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        duration_to_unix_ms, duration_to_us, finish_interval, start_interval,
-        system_time_to_unix_ms, RunClock,
-    };
+    use super::{duration_to_unix_ms, duration_to_us, system_time_to_unix_ms, RunClock};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -165,20 +132,6 @@ mod tests {
     }
 
     #[test]
-    fn finish_interval_preserves_timestamp_ordering() {
-        let start = start_interval();
-        std::thread::sleep(Duration::from_millis(1));
-
-        let finished = finish_interval(start);
-
-        assert_eq!(finished.started_at_unix_ms, start.started_at_unix_ms);
-        assert!(finished.finished_at_unix_ms >= finished.started_at_unix_ms);
-        assert_eq!(finished.started_at_run_us, None);
-        assert_eq!(finished.finished_at_run_us, None);
-        assert!(finished.duration_us > 0);
-    }
-
-    #[test]
     fn run_clock_intervals_include_run_relative_offsets() {
         let clock = RunClock::new();
         let start = clock.start_interval();
@@ -186,9 +139,15 @@ mod tests {
 
         let finished = clock.finish_interval(start);
 
+        assert!(finished.started_at_run_us.is_some());
+        assert!(finished.finished_at_run_us.is_some());
+
+        let started_at_run_us = finished.started_at_run_us.unwrap();
+        let finished_at_run_us = finished.finished_at_run_us.unwrap();
+
         assert_eq!(finished.started_at_run_us, start.started_at_run_us);
+        assert!(finished_at_run_us >= started_at_run_us);
         assert!(finished.finished_at_unix_ms >= finished.started_at_unix_ms);
-        assert!(finished.finished_at_run_us >= finished.started_at_run_us);
         assert!(finished.duration_us > 0);
         assert!(clock.run_started_at_unix_ms() <= finished.finished_at_unix_ms);
     }
