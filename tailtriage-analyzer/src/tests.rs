@@ -1802,6 +1802,96 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
 }
 
 #[test]
+fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
+    let mut run = test_run();
+    run.requests = (1..=20).map(sample_request).collect();
+
+    for (idx, request) in run.requests.iter_mut().enumerate() {
+        let idx = u64::try_from(idx + 1).expect("test index should fit in u64");
+        request.started_at_run_us = Some(idx * 10_000);
+        request.finished_at_run_us = Some(idx * 10_000 + 5_000);
+        if idx > 10 {
+            request.latency_us = 6_000;
+        }
+    }
+
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 5,
+            at_run_us: None,
+            global_queue_depth: Some(50),
+            local_queue_depth: Some(50),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 15,
+            at_run_us: None,
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(150_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 5,
+            at_run_us: None,
+            gauge: "http.server.requests".into(),
+            count: 2,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 15,
+            at_run_us: None,
+            gauge: "http.server.requests".into(),
+            count: 9,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(150_000),
+            gauge: "http.server.requests".into(),
+            count: 9,
+        },
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "early")
+        .expect("early temporal segment should be emitted");
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "late")
+        .expect("late temporal segment should be emitted");
+
+    assert_eq!(early.evidence_quality.runtime_snapshot_count, 1);
+    assert_eq!(early.evidence_quality.inflight_snapshot_count, 1);
+    assert_eq!(late.evidence_quality.runtime_snapshot_count, 2);
+    assert_eq!(late.evidence_quality.inflight_snapshot_count, 2);
+    for segment in &report.temporal_segments {
+        assert!(segment
+            .warnings
+            .iter()
+            .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+}
+
+#[test]
 fn temporal_segments_fallback_for_older_artifacts_warns() {
     let mut run = test_run();
     run.requests = (1..=20).map(sample_request).collect();
