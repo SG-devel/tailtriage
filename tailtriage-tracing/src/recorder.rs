@@ -713,22 +713,24 @@ where
         if !(metadata_candidate || initial_candidate) {
             return;
         }
+        let started_at_unix_ms = tailtriage_core::unix_time_ms();
         let started_instant = Instant::now();
+
         let mut state = lock_state(&self.state);
         if state.open.len() >= self.limits.max_open_spans {
             state.dropped_open_spans = state.dropped_open_spans.saturating_add(1);
             return;
         }
-        let open_span = OpenSpan {
-            id: Some(id.into_u64().to_string()),
+        let open_span = open_span_from_start_sample(
+            Some(id.into_u64().to_string()),
             parent_id,
-            name: attrs.metadata().name().to_owned(),
-            fields: visitor.fields,
-            started_at_unix_ms: tailtriage_core::unix_time_ms(),
-            started_at_run_us: duration_us_between(state.start_instant, started_instant),
+            attrs.metadata().name().to_owned(),
+            visitor.fields,
+            started_at_unix_ms,
             started_instant,
-            is_tt_candidate: metadata_candidate || initial_candidate,
-        };
+            state.start_instant,
+            metadata_candidate || initial_candidate,
+        );
         state.open.insert(id.into_u64(), open_span);
     }
 
@@ -780,6 +782,29 @@ where
                 self.semantic_max_requests,
             );
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn open_span_from_start_sample(
+    id: Option<String>,
+    parent_id: Option<String>,
+    name: String,
+    fields: BTreeMap<String, FieldValue>,
+    started_at_unix_ms: u64,
+    started_instant: Instant,
+    recorder_start_instant: Instant,
+    is_tt_candidate: bool,
+) -> OpenSpan {
+    OpenSpan {
+        id,
+        parent_id,
+        name,
+        fields,
+        started_at_unix_ms,
+        started_at_run_us: duration_us_between(recorder_start_instant, started_instant),
+        started_instant,
+        is_tt_candidate,
     }
 }
 
@@ -1297,6 +1322,30 @@ mod tests {
             .build()
             .expect("collector")
             .snapshot()
+    }
+
+    #[test]
+    fn open_span_from_start_sample_uses_supplied_start_times() {
+        let started_at_unix_ms = 123_456_789;
+        let recorder_start = Instant::now();
+        let started_instant = recorder_start
+            .checked_add(std::time::Duration::from_micros(42))
+            .expect("started instant within range");
+
+        let open = open_span_from_start_sample(
+            Some("span-1".to_owned()),
+            Some("parent-1".to_owned()),
+            "request".to_owned(),
+            BTreeMap::new(),
+            started_at_unix_ms,
+            started_instant,
+            recorder_start,
+            true,
+        );
+
+        assert_eq!(open.started_at_unix_ms, started_at_unix_ms);
+        assert_eq!(open.started_at_run_us, 42);
+        assert_eq!(open.started_instant, started_instant);
     }
 
     #[test]
