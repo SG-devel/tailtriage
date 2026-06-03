@@ -1716,6 +1716,94 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
 }
 
 #[test]
+fn run_builder_rejects_inverted_request_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut request = test_request_event("req");
+    request.started_at_run_us = Some(20);
+    request.finished_at_run_us = Some(19);
+
+    let err = builder
+        .push_request(request)
+        .expect_err("inverted request run-relative offsets should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "RequestEvent",
+            field: "finished_at_run_us",
+            reason: "must be >= started_at_run_us".to_string(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_inverted_stage_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_run_us = Some(20);
+    stage.finished_at_run_us = Some(19);
+
+    let err = builder
+        .push_stage(stage)
+        .expect_err("inverted stage run-relative offsets should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "StageEvent",
+            field: "finished_at_run_us",
+            reason: "must be >= started_at_run_us".to_string(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_inverted_queue_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_run_us = Some(20);
+    queue.waited_until_run_us = Some(19);
+
+    let err = builder
+        .push_queue(queue)
+        .expect_err("inverted queue run-relative offsets should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "QueueEvent",
+            field: "waited_until_run_us",
+            reason: "must be >= waited_from_run_us".to_string(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_accepts_incomplete_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_run_us = Some(10);
+    request.finished_at_run_us = None;
+    builder.push_request(request).expect("request accepted");
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_run_us = None;
+    stage.finished_at_run_us = Some(20);
+    builder.push_stage(stage).expect("stage accepted");
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_run_us = Some(30);
+    queue.waited_until_run_us = None;
+    builder.push_queue(queue).expect("queue accepted");
+
+    let run = builder.finish();
+    assert_eq!(run.requests[0].started_at_run_us, Some(10));
+    assert_eq!(run.requests[0].finished_at_run_us, None);
+    assert_eq!(run.stages[0].started_at_run_us, None);
+    assert_eq!(run.stages[0].finished_at_run_us, Some(20));
+    assert_eq!(run.queues[0].waited_from_run_us, Some(30));
+    assert_eq!(run.queues[0].waited_until_run_us, None);
+}
+
+#[test]
 fn run_builder_accepts_authoritative_request_latency_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
