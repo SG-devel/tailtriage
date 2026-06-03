@@ -1802,16 +1802,25 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
 }
 
 #[test]
-fn temporal_segments_fallback_for_older_artifacts_warns() {
+fn temporal_segments_fallback_for_incomplete_run_relative_fields_warns() {
     let mut run = test_run();
     run.requests = (1..=20).map(sample_request).collect();
-    for request in run.requests.iter_mut().skip(10) {
-        request.latency_us = 6_000;
+    for (idx, request) in run.requests.iter_mut().enumerate() {
+        let idx = u64::try_from(idx).expect("test index should fit in u64");
+        request.started_at_run_us = Some(idx * 1_000);
+        request.finished_at_run_us = if idx == 0 || idx == 10 {
+            None
+        } else {
+            Some(idx * 1_000 + 100)
+        };
+        if idx >= 10 {
+            request.latency_us = 6_000;
+        }
     }
     run.runtime_snapshots = vec![
         RuntimeSnapshot {
             at_unix_ms: 2,
-            at_run_us: None,
+            at_run_us: Some(2_000),
             global_queue_depth: Some(50),
             local_queue_depth: Some(50),
             alive_tasks: Some(100),
@@ -1820,7 +1829,7 @@ fn temporal_segments_fallback_for_older_artifacts_warns() {
         },
         RuntimeSnapshot {
             at_unix_ms: 12,
-            at_run_us: None,
+            at_run_us: Some(12_000),
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             alive_tasks: Some(100),
@@ -1831,13 +1840,13 @@ fn temporal_segments_fallback_for_older_artifacts_warns() {
     run.inflight = vec![
         tailtriage_core::InFlightSnapshot {
             at_unix_ms: 2,
-            at_run_us: None,
+            at_run_us: Some(2_000),
             gauge: "http.server.requests".into(),
             count: 2,
         },
         tailtriage_core::InFlightSnapshot {
             at_unix_ms: 12,
-            at_run_us: None,
+            at_run_us: Some(12_000),
             gauge: "http.server.requests".into(),
             count: 9,
         },

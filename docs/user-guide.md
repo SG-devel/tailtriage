@@ -38,6 +38,8 @@ Use `tailtriage-tracing` when your service already uses Rust `tracing` and alrea
 
 This path converts tracing-shaped request, stage, and queue evidence into standard Run artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend. For one work item, every request, stage, and queue span must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by `tt.request_id`.
 
+Artifacts with run-relative monotonic offsets give temporal segmentation a more stable within-run ordering; older or partial imported artifacts fall back to Unix-ms timestamp anchors.
+
 Install for typed records plus JSONL import APIs (default feature set):
 
 ```bash
