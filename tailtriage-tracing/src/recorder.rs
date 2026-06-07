@@ -871,7 +871,11 @@ fn push_completed_candidate_with_kind_aware_retention(
         return;
     }
 
-    if !state.completed_queues.is_empty() {
+    if let Some(index) = retained_duplicate_request_candidate_position(state) {
+        state.completed_requests.remove(index);
+        state.dropped_completed_request_candidates =
+            state.dropped_completed_request_candidates.saturating_add(1);
+    } else if !state.completed_queues.is_empty() {
         state.completed_queues.pop();
         state.evicted_child_candidates_to_preserve_request = state
             .evicted_child_candidates_to_preserve_request
@@ -881,10 +885,6 @@ fn push_completed_candidate_with_kind_aware_retention(
         state.evicted_child_candidates_to_preserve_request = state
             .evicted_child_candidates_to_preserve_request
             .saturating_add(1);
-    } else if let Some(index) = retained_duplicate_request_candidate_position(state) {
-        state.completed_requests.remove(index);
-        state.dropped_completed_request_candidates =
-            state.dropped_completed_request_candidates.saturating_add(1);
     } else {
         state.dropped_completed_request_candidates =
             state.dropped_completed_request_candidates.saturating_add(1);
@@ -2300,12 +2300,12 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_errors_when_raw_cap_evicts_retained_duplicate_request() {
+    fn raw_completed_candidate_cap_evicts_retained_duplicate_before_useful_child_evidence() {
         let recorder = TracingRecorder::builder("svc")
-            .strict(true)
             .max_completed_candidate_spans(3)
             .capture_limits(CaptureLimits {
                 max_requests: 3,
+                max_stages: 10,
                 ..CaptureMode::Light.core_defaults()
             })
             .build()
@@ -2325,16 +2325,75 @@ mod tests {
                 tt.route = "/a-duplicate"
             ));
             drop(tracing::info_span!(
+                "stage-r1",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+            drop(tracing::info_span!(
                 "request-2",
                 tt.kind = "request",
                 tt.request_id = "r2",
                 tt.route = "/b"
             ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        let run = imported.run();
+        let request_ids = run
+            .requests
+            .iter()
+            .map(|request| request.request_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(request_ids, vec!["r1", "r2"]);
+        assert_eq!(run.requests.len(), 2);
+        assert_eq!(run.stages.len(), 1);
+        assert_eq!(run.stages[0].request_id, "r1");
+        assert_eq!(run.stages[0].stage, "db");
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("dropped 1 completed request candidate span(s)")
+                && w.message().contains("max_completed_candidate_spans=3")
+        }));
+    }
+
+    #[test]
+    fn strict_mode_errors_when_raw_cap_evicts_retained_duplicate_request() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_completed_candidate_spans(3)
+            .capture_limits(CaptureLimits {
+                max_requests: 3,
+                max_stages: 10,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
             drop(tracing::info_span!(
-                "request-3",
+                "request-1",
                 tt.kind = "request",
-                tt.request_id = "r3",
-                tt.route = "/c"
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request-1-duplicate",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a-duplicate"
+            ));
+            drop(tracing::info_span!(
+                "stage-r1",
+                tt.kind = "stage",
+                tt.request_id = "r1",
+                tt.stage = "db"
+            ));
+            drop(tracing::info_span!(
+                "request-2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
             ));
         });
 
