@@ -69,7 +69,7 @@ Consumes run artifacts from disk, validates schema/loader rules, invokes `tailtr
 ### `tailtriage-tracing`
 
 A narrow intake bridge for tracing-shaped completed spans and live `tt.*` span recording.
-It converts/imports tracing intake into standard core `Run` artifacts, including stable completed-span JSONL as an intermediate input format (`tailtriage.tracing-span.v1`), does not implement OpenTelemetry/OTLP, and does not change Run schema or analyzer behavior.
+It converts/imports tracing evidence into standard core `Run` artifacts, including stable completed-span JSONL as an intermediate input format (`tailtriage.tracing-span.v1`), does not implement OpenTelemetry/OTLP, and does not introduce a tracing-specific analyzer path.
 
 ## Relationship model
 
