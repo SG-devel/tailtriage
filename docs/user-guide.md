@@ -32,6 +32,130 @@ cargo add tailtriage --features axum
 
 The `controller` and `tokio` namespaces are available with default features; `axum` remains opt-in.
 
+### Using existing tracing spans
+
+Use `tailtriage-tracing` when your service already uses Rust `tracing` and already has stable per-request correlation IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
+
+This path converts tracing-shaped request, stage, and queue evidence into standard Run artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend. For one work item, every request, stage, and queue span must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by `tt.request_id`.
+
+Install for typed records plus JSONL import APIs (default feature set):
+
+```bash
+cargo add tailtriage-tracing
+```
+
+A) Completed-span JSONL intake path:
+
+```bash
+tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout --output tailtriage-run.json
+tailtriage analyze tailtriage-run.json
+```
+
+#### What this imports
+
+- Completed tailtriage tracing span JSONL.
+- The stable wrapper shape is `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
+- Ordinary `tracing_subscriber::fmt().json()` logs are unsupported and rejected.
+
+#### What this writes
+
+- `tailtriage import tracing-spans-jsonl` writes Run JSON, not Report JSON.
+- Analysis is a separate `tailtriage analyze tailtriage-run.json` step.
+
+#### Strict vs non-strict
+
+- `--strict` fails malformed or incomplete `tt.*` spans.
+- Non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages.
+
+#### Retention limits
+
+- Offline import exposes request/stage/queue retention options because those are the imported evidence types.
+- It does not expose runtime-snapshot or in-flight-snapshot limit flags.
+
+#### Runtime evidence
+
+- Offline import does not ingest runtime snapshots or in-flight snapshots.
+- Tracing-only runs do not fabricate runtime snapshots, so executor/blocking-pressure evidence can be weaker or absent.
+- Artifacts with run-relative monotonic offsets give temporal segmentation a more stable within-run ordering; older or partial imported artifacts fall back to Unix-ms timestamp anchors.
+
+#### Zero-request artifacts
+
+- Persisted CLI artifacts require at least one completed request.
+- In-process library snapshots may still be zero-request for inspection.
+
+#### Completed-span JSONL caveat
+
+- Completed-span JSONL is retained replay/debug evidence and omits warning/truncation metadata from the full Run artifact.
+- Run JSON is preferred for the complete persisted artifact.
+
+B) Direct Run JSON path with async span instrumentation (`live` feature required):
+
+```bash
+cargo add tailtriage-tracing --features live
+cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
+```
+
+
+```rust,no_run
+use tailtriage_tracing::TracingIntakeSession;
+use tracing::Instrument as _;
+use tracing_subscriber::prelude::*;
+
+async fn work() {
+    // Your request work goes here.
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let session = TracingIntakeSession::builder("checkout-service")
+        .run_json_path("target/tailtriage-examples/checkout.run.json")
+        .build()?;
+    tracing_subscriber::registry()
+        .with(session.layer())
+        .init(); // startup-only: global subscriber installation for this process
+    {
+        let span = tracing::info_span!(
+            "request",
+            tt.kind = "request",
+            tt.request_id = "req-1",
+            tt.route = "/checkout",
+            tt.outcome = "ok",
+        );
+        work().instrument(span).await;
+    } // the request span is closed before shutdown
+    let imported = session.shutdown()?;
+    let _ = imported;
+    Ok(())
+}
+```
+
+Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure. Every request, stage, and queue span for one work item must carry the same `tt.request_id`; missing or inconsistent IDs cause child stage/queue evidence to be skipped or weakened.
+
+`tt.outcome` on request spans is optional: missing values default to `ok` with a warning; recommended common labels are `ok`, `error`, `timeout`, `cancelled`, and `rejected`; custom non-empty labels are preserved exactly.
+
+Live tracing intake only tracks spans that are tailtriage candidates at span creation time. Declare `tt.*` fields when the span is created. If a value is filled later, declare it with `tracing::field::Empty` and then call `span.record(...)`. Do not add brand-new `tt.*` fields later with `span.record(...)` and expect the span to be tracked.
+
+In service code, add `session.layer()` beside your existing tracing layers and install the resulting subscriber in the application's normal process-wide/global subscriber setup. `set_default` is scoped to the current thread and guard lifetime; service startup should install the tailtriage layer in the process-wide subscriber setup.
+
+Then analyze directly:
+
+```bash
+tailtriage analyze target/tailtriage-examples/checkout.run.json
+```
+
+Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
+
+Tokio runtime sampler coupling via `TracingTokioSession` requires the `tokio` feature. By default it starts a background sampler; deterministic demos/validation can disable it with `disable_background_sampler()` and inject snapshots manually with `record_runtime_snapshot(...)`. Use `run_json_path(...)` to write Run JSON on shutdown, then analyze separately with `tailtriage analyze <run.json>`:
+
+```bash
+cargo add tailtriage-tracing --features tokio
+cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
+```
+
+For the full tracing setup details and both flows, see `tailtriage-tracing/README.md`.
+
 ## 2) Core workflow: capture -> analyze -> next check -> re-run
 
 ### Capture
@@ -68,6 +192,7 @@ Read output in this order:
 
 Then run one targeted check, change one thing, and re-run under comparable load.
 
+For services that already emit `tracing` spans, see “Using existing tracing spans” above for the JSONL import and live recorder paths.
 
 ## 3) In-process analysis (embedded Rust)
 
@@ -235,6 +360,7 @@ Key constraints:
 - start inside an active Tokio runtime
 - one successful sampler start per run
 - runtime snapshot retention is bounded by core limits
+- Tokio tracing sessions use the same core `CaptureMode`/`CaptureLimits`/`CaptureLimitsOverride` model (no tracing-specific retention knob)
 - some runtime fields require `tokio_unstable`
 
 Sampler details: [tailtriage-tokio/README.md](../tailtriage-tokio/README.md)

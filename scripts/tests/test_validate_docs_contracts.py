@@ -36,6 +36,7 @@ class ValidateDocsContractsTests(unittest.TestCase):
                 "tailtriage-axum/src/lib.rs",
                 "tailtriage-analyzer/src/lib.rs",
                 "tailtriage-cli/src/lib.rs",
+                "tailtriage-tracing/src/lib.rs",
             )
             paths = []
             for rel in rels:
@@ -591,8 +592,9 @@ use tailtriage_cli::analyze::{analyze_run, render_text};
             diagnostics = repo_root / "docs" / "diagnostics.md"
             architecture = repo_root / "docs" / "architecture.md"
             cli_readme = repo_root / "tailtriage-cli" / "README.md"
+            tracing_readme = repo_root / "tailtriage-tracing" / "README.md"
             analyzer_readme = repo_root / "tailtriage-analyzer" / "README.md"
-            for path in (docs_index, user_guide, diagnostics, architecture, cli_readme, analyzer_readme):
+            for path in (docs_index, user_guide, diagnostics, architecture, cli_readme, tracing_readme, analyzer_readme):
                 path.parent.mkdir(parents=True, exist_ok=True)
             root_readme.write_text(clean_text, encoding="utf-8")
             docs_index.write_text(clean_text, encoding="utf-8")
@@ -600,6 +602,7 @@ use tailtriage_cli::analyze::{analyze_run, render_text};
             diagnostics.write_text(clean_text, encoding="utf-8")
             architecture.write_text(clean_text, encoding="utf-8")
             cli_readme.write_text(clean_text, encoding="utf-8")
+            tracing_readme.write_text(clean_text, encoding="utf-8")
             analyzer_readme.write_text(analyzer_text, encoding="utf-8")
 
             with (

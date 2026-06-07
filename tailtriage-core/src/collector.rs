@@ -3,9 +3,9 @@ use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use crate::config::Config;
+use crate::time::{FinishedInterval, IntervalStart, RunClock};
 use crate::InflightGuard;
 use crate::RunSink;
 use crate::{
@@ -23,6 +23,7 @@ pub struct Tailtriage {
     pub(crate) mode: crate::CaptureMode,
     pub(crate) effective_core_config: crate::EffectiveCoreConfig,
     pub(crate) limits: crate::CaptureLimits,
+    pub(crate) run_clock: RunClock,
     pub(crate) strict_lifecycle: bool,
     truncation_state: TruncationState,
     runtime_sampler_registered: AtomicBool,
@@ -97,8 +98,7 @@ struct PendingRequest {
     request_id: String,
     route: String,
     kind: Option<String>,
-    started_at_unix_ms: u64,
-    started: Instant,
+    interval_start: IntervalStart,
 }
 
 impl std::fmt::Debug for Tailtriage {
@@ -196,6 +196,7 @@ pub struct OwnedRequestHandle {
 pub struct RequestCompletion<'a> {
     tailtriage: &'a Tailtriage,
     pending_key: u64,
+    interval_start: IntervalStart,
     finished: bool,
 }
 
@@ -208,6 +209,7 @@ pub struct RequestCompletion<'a> {
 pub struct OwnedRequestCompletion {
     tailtriage: Arc<Tailtriage>,
     pending_key: u64,
+    interval_start: IntervalStart,
     finished: bool,
 }
 
@@ -230,7 +232,8 @@ impl Tailtriage {
             return Err(BuildError::EmptyServiceName);
         }
 
-        let now = unix_time_ms();
+        let run_clock = RunClock::new();
+        let now = run_clock.run_started_at_unix_ms();
         let run = Run::new(RunMetadata {
             run_id: config.run_id.unwrap_or_else(generate_run_id),
             service_name: config.service_name,
@@ -256,6 +259,7 @@ impl Tailtriage {
             mode: config.mode,
             effective_core_config: config.effective_core,
             limits: config.effective_core.capture_limits,
+            run_clock,
             strict_lifecycle: config.strict_lifecycle,
             truncation_state: TruncationState::default(),
             runtime_sampler_registered: AtomicBool::new(false),
@@ -292,7 +296,8 @@ impl Tailtriage {
         route: impl Into<String>,
         options: RequestOptions,
     ) -> StartedRequest<'_> {
-        let (request_id, route, kind, pending_key) = self.start_request(route.into(), options);
+        let (request_id, route, kind, pending_key, interval_start) =
+            self.start_request(route.into(), options);
 
         StartedRequest {
             handle: RequestHandle {
@@ -304,6 +309,7 @@ impl Tailtriage {
             completion: RequestCompletion {
                 tailtriage: self,
                 pending_key,
+                interval_start,
                 finished: false,
             },
         }
@@ -325,7 +331,8 @@ impl Tailtriage {
         route: impl Into<String>,
         options: RequestOptions,
     ) -> OwnedStartedRequest {
-        let (request_id, route, kind, pending_key) = self.start_request(route.into(), options);
+        let (request_id, route, kind, pending_key, interval_start) =
+            self.start_request(route.into(), options);
 
         OwnedStartedRequest {
             handle: OwnedRequestHandle {
@@ -337,6 +344,7 @@ impl Tailtriage {
             completion: OwnedRequestCompletion {
                 tailtriage: Arc::clone(self),
                 pending_key,
+                interval_start,
                 finished: false,
             },
         }
@@ -436,9 +444,11 @@ impl Tailtriage {
             *entry
         };
 
+        let sample = self.run_clock.sample();
         self.record_inflight_snapshot(InFlightSnapshot {
             gauge: gauge.clone(),
-            at_unix_ms: unix_time_ms(),
+            at_unix_ms: sample.unix_ms,
+            at_run_us: Some(sample.run_elapsed_us),
             count,
         });
 
@@ -450,24 +460,23 @@ impl Tailtriage {
     }
 
     /// Records one runtime metrics sample captured by an integration crate.
-    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+    pub fn record_runtime_snapshot(&self, mut snapshot: RuntimeSnapshot) {
         if self.truncation_state.runtime_snapshots.is_saturated() {
             self.truncation_state.runtime_snapshots.increment_drop();
             self.notify_limits_hit_transition();
             return;
         }
 
+        if snapshot.at_run_us.is_none() {
+            snapshot.at_run_us = Some(self.run_clock.sample().run_elapsed_us);
+        }
+
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.runtime_snapshots.len() >= self.limits.max_runtime_snapshots {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_runtime_snapshots =
-                    run.truncation.dropped_runtime_snapshots.saturating_add(1);
+            if crate::retention::push_runtime_snapshot_bounded(&mut run, self.limits, snapshot) {
                 self.truncation_state.runtime_snapshots.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.runtime_snapshots.push(snapshot);
             }
         }
         if notify_limits_hit {
@@ -510,13 +519,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.stages.len() >= self.limits.max_stages {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_stages = run.truncation.dropped_stages.saturating_add(1);
+            if crate::retention::push_stage_bounded(&mut run, self.limits, event) {
                 self.truncation_state.stages.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.stages.push(event);
             }
         }
         if notify_limits_hit {
@@ -534,13 +539,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.queues.len() >= self.limits.max_queues {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_queues = run.truncation.dropped_queues.saturating_add(1);
+            if crate::retention::push_queue_bounded(&mut run, self.limits, event) {
                 self.truncation_state.queues.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.queues.push(event);
             }
         }
         if notify_limits_hit {
@@ -548,24 +549,23 @@ impl Tailtriage {
         }
     }
 
-    pub(crate) fn record_inflight_snapshot(&self, snapshot: InFlightSnapshot) {
+    pub(crate) fn record_inflight_snapshot(&self, mut snapshot: InFlightSnapshot) {
         if self.truncation_state.inflight.is_saturated() {
             self.truncation_state.inflight.increment_drop();
             self.notify_limits_hit_transition();
             return;
         }
 
+        if snapshot.at_run_us.is_none() {
+            snapshot.at_run_us = Some(self.run_clock.sample().run_elapsed_us);
+        }
+
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.inflight.len() >= self.limits.max_inflight_snapshots {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_inflight_snapshots =
-                    run.truncation.dropped_inflight_snapshots.saturating_add(1);
+            if crate::retention::push_inflight_snapshot_bounded(&mut run, self.limits, snapshot) {
                 self.truncation_state.inflight.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.inflight.push(snapshot);
             }
         }
         if notify_limits_hit {
@@ -583,13 +583,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
-            if run.requests.len() >= self.limits.max_requests {
-                run.truncation.limits_hit = true;
-                run.truncation.dropped_requests = run.truncation.dropped_requests.saturating_add(1);
+            if crate::retention::push_request_bounded(&mut run, self.limits, event) {
                 self.truncation_state.requests.mark_saturated();
                 notify_limits_hit = true;
-            } else {
-                run.requests.push(event);
             }
         }
         if notify_limits_hit {
@@ -615,22 +611,22 @@ impl Tailtriage {
         &self,
         route: String,
         options: RequestOptions,
-    ) -> (String, String, Option<String>, u64) {
+    ) -> (String, String, Option<String>, u64, IntervalStart) {
         let request_id = options
             .request_id
             .unwrap_or_else(|| generate_request_id(&route));
         let pending_key = PENDING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let kind = options.kind;
+        let interval_start = self.run_clock.start_interval();
         let pending = PendingRequest {
             request_id: request_id.clone(),
             route: route.clone(),
             kind: kind.clone(),
-            started_at_unix_ms: unix_time_ms(),
-            started: Instant::now(),
+            interval_start,
         };
         lock_pending(&self.pending_requests).insert(pending_key, pending);
 
-        (request_id, route, kind, pending_key)
+        (request_id, route, kind, pending_key, interval_start)
     }
 }
 
@@ -725,6 +721,10 @@ impl RequestCompletion<'_> {
             return;
         }
 
+        let finished = self
+            .tailtriage
+            .run_clock
+            .finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             debug_assert!(
@@ -736,15 +736,10 @@ impl RequestCompletion<'_> {
         };
         self.finished = true;
 
-        self.tailtriage.record_request_event(RequestEvent {
-            request_id: pending.request_id,
-            route: pending.route,
-            kind: pending.kind,
-            started_at_unix_ms: pending.started_at_unix_ms,
-            finished_at_unix_ms: unix_time_ms(),
-            latency_us: duration_to_us(pending.started.elapsed()),
-            outcome: outcome.into_string(),
-        });
+        self.tailtriage
+            .record_request_event(request_event_from_finished_interval(
+                pending, finished, outcome,
+            ));
     }
 }
 
@@ -839,6 +834,10 @@ impl OwnedRequestCompletion {
             return;
         }
 
+        let finished = self
+            .tailtriage
+            .run_clock
+            .finish_interval(self.interval_start);
         let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
         let Some(pending) = pending else {
             self.finished = true;
@@ -846,15 +845,32 @@ impl OwnedRequestCompletion {
         };
         self.finished = true;
 
-        self.tailtriage.record_request_event(RequestEvent {
-            request_id: pending.request_id,
-            route: pending.route,
-            kind: pending.kind,
-            started_at_unix_ms: pending.started_at_unix_ms,
-            finished_at_unix_ms: unix_time_ms(),
-            latency_us: duration_to_us(pending.started.elapsed()),
-            outcome: outcome.into_string(),
-        });
+        self.tailtriage
+            .record_request_event(request_event_from_finished_interval(
+                pending, finished, outcome,
+            ));
+    }
+}
+
+fn request_event_from_finished_interval(
+    pending: PendingRequest,
+    finished: FinishedInterval,
+    outcome: Outcome,
+) -> RequestEvent {
+    debug_assert_eq!(
+        pending.interval_start.started_at_unix_ms,
+        finished.started_at_unix_ms
+    );
+    RequestEvent {
+        request_id: pending.request_id,
+        route: pending.route,
+        kind: pending.kind,
+        started_at_unix_ms: finished.started_at_unix_ms,
+        started_at_run_us: finished.started_at_run_us,
+        finished_at_unix_ms: finished.finished_at_unix_ms,
+        finished_at_run_us: finished.finished_at_run_us,
+        latency_us: finished.duration_us,
+        outcome: outcome.into_string(),
     }
 }
 
@@ -901,11 +917,7 @@ fn lock_pending(
     }
 }
 
-pub(crate) fn duration_to_us(duration: Duration) -> u64 {
-    duration.as_micros().try_into().unwrap_or(u64::MAX)
-}
-
-fn generate_run_id() -> String {
+pub(crate) fn generate_run_id() -> String {
     format!("run-{}", uuid::Uuid::new_v4())
 }
 

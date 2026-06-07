@@ -155,6 +155,14 @@ Finalization timestamps:
 - Older artifacts may deserialize with `metadata.finalized_at_unix_ms == None`.
 - When `finalized_at_unix_ms` is present, prefer that field as the finalization signal; `finished_at_unix_ms` remains for backward compatibility.
 
+## Timing model
+
+- Duration fields in microseconds (`latency_us`, `wait_us`, stage `latency_us`) are authoritative for elapsed-time analysis.
+- Unix millisecond timestamps are wall-clock anchors for log correlation, artifact readability, and coarse temporal grouping.
+- Wall-clock timestamps can be coarse and can move if the system clock changes.
+- Analyzer scoring uses duration fields for latency, queue wait, and stage duration.
+- Temporal segmentation prefers run-relative monotonic offsets when present and falls back to Unix-ms wall-clock anchors for older or imported artifacts without complete run-relative timing.
+
 ## Capture modes
 
 Modes change retention defaults only. They do not change lifecycle semantics and do **not** auto-start runtime sampling.
@@ -166,6 +174,36 @@ Override limits with:
 
 - `capture_limits(...)` (full override)
 - `capture_limits_override(...)` (field-level override)
+
+## Advanced: assembling completed run artifacts
+
+Most users should use `Tailtriage::builder(...)` for live request instrumentation.
+Use `RunBuilder` only when you already have completed request, stage, queue, in-flight, or runtime evidence and need to assemble a standard `Run` artifact.
+
+`RunBuilder` is intended for import/conversion paths. It does not perform live lifecycle tracking. `RunBuilder::new` validates top-level run timestamp ordering. Each `push_*` call validates required event/snapshot shape and timestamp ordering before retention is applied. Completed request latency, stage latency, and queue wait fields are authoritative evidence; `RunBuilder` does not synthesize, repair, or reject those durations based on wall-clock timestamp deltas. It applies the same bounded retention/truncation semantics as live core capture, so events beyond configured `CaptureLimits` are dropped without error and `Run.truncation` counters are updated. `RunBuilder` does not validate cross-event correlation (for example a stage without a matching request) and does not synthesize lifecycle completions. For assembled/imported artifacts, host and pid default to `None`, and generated run IDs use the same core run-id semantics as live capture.
+
+```rust,no_run
+use tailtriage_core::{RequestEvent, RunBuilder, RunBuilderOptions};
+
+fn assemble_run() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = RunBuilder::new(RunBuilderOptions::new("checkout-service"))?;
+    builder.push_request(RequestEvent {
+        request_id: "req-1".into(),
+        route: "/test".into(),
+        kind: Some("http".into()),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 1_000,
+        outcome: "ok".into(),
+    })?;
+
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    Ok(())
+}
+```
 
 ## What this crate does not do
 

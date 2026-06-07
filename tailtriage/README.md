@@ -124,6 +124,7 @@ If you want a smaller core-only dependency surface, use `tailtriage-core` direct
 - `tailtriage-core`: framework-agnostic instrumentation primitives and artifact model
 - `tailtriage-controller`: repeated bounded capture windows
 - `tailtriage-tokio`: Tokio runtime-pressure sampling
+- `tailtriage-tracing`: optional narrow tracing intake bridge for teams already emitting Rust `tracing` spans; converts tracing-shaped evidence into standard `tailtriage_core::Run` values
 - `tailtriage-axum`: Axum request-boundary integration
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts

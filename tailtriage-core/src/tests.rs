@@ -140,8 +140,69 @@ fn queue_stage_and_inflight_are_recorded() {
 
     let snapshot = tailtriage.snapshot();
     assert_eq!(snapshot.inflight.len(), 2);
+    assert!(snapshot
+        .inflight
+        .iter()
+        .all(|snapshot| snapshot.at_run_us.is_some()));
     assert_eq!(snapshot.queues.len(), 1);
     assert_eq!(snapshot.stages.len(), 1);
+}
+
+#[test]
+fn request_stage_and_queue_timing_preserves_order_after_sleep() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-sleep-timing.json");
+    let started = tailtriage.begin_request_with(
+        "/sleep",
+        RequestOptions::new().request_id("req-sleep").kind("http"),
+    );
+    let request = started.handle;
+
+    futures_executor::block_on(request.queue("permit").await_on(async {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }));
+    futures_executor::block_on(request.stage("db").await_value(async {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(1));
+    started.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.stages.len(), 1);
+    assert_eq!(snapshot.queues.len(), 1);
+
+    let request = &snapshot.requests[0];
+    assert!(request.finished_at_unix_ms >= request.started_at_unix_ms);
+    let request_started_at_run_us = request
+        .started_at_run_us
+        .expect("native request should have run-relative start");
+    let request_finished_at_run_us = request
+        .finished_at_run_us
+        .expect("native request should have run-relative finish");
+    assert!(request_finished_at_run_us >= request_started_at_run_us);
+    assert!(request.latency_us > 0);
+
+    let stage = &snapshot.stages[0];
+    assert!(stage.finished_at_unix_ms >= stage.started_at_unix_ms);
+    let stage_started_at_run_us = stage
+        .started_at_run_us
+        .expect("native stage should have run-relative start");
+    let stage_finished_at_run_us = stage
+        .finished_at_run_us
+        .expect("native stage should have run-relative finish");
+    assert!(stage_finished_at_run_us >= stage_started_at_run_us);
+    assert!(stage.latency_us > 0);
+
+    let queue = &snapshot.queues[0];
+    assert!(queue.waited_until_unix_ms >= queue.waited_from_unix_ms);
+    let queue_waited_from_run_us = queue
+        .waited_from_run_us
+        .expect("native queue should have run-relative wait start");
+    let queue_waited_until_run_us = queue
+        .waited_until_run_us
+        .expect("native queue should have run-relative wait end");
+    assert!(queue_waited_until_run_us >= queue_waited_from_run_us);
+    assert!(queue.wait_us > 0);
 }
 
 #[test]
@@ -312,6 +373,7 @@ fn capture_limits_apply_to_all_sections() {
     second.completion.finish_ok();
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: None,
@@ -320,6 +382,7 @@ fn capture_limits_apply_to_all_sections() {
     });
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(2),
         global_queue_depth: Some(2),
         local_queue_depth: None,
@@ -525,6 +588,7 @@ fn saturation_preserves_exact_drop_counts_across_sections() {
     for i in 1..=3 {
         tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
             at_unix_ms: crate::unix_time_ms(),
+            at_run_us: None,
             alive_tasks: Some(i),
             global_queue_depth: Some(i),
             local_queue_depth: None,
@@ -568,6 +632,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
 
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: None,
@@ -576,6 +641,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
     });
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(2),
         global_queue_depth: Some(2),
         local_queue_depth: None,
@@ -584,6 +650,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
     });
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(3),
         global_queue_depth: Some(3),
         local_queue_depth: None,
@@ -626,6 +693,7 @@ fn unsaturated_runs_keep_zero_truncation_counters() {
     started.completion.finish_ok();
     tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
         at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
         alive_tasks: Some(1),
         global_queue_depth: Some(1),
         local_queue_depth: None,
@@ -698,11 +766,44 @@ fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
                 "sample": []
             }
         },
-        "requests": [],
-        "stages": [],
-        "queues": [],
-        "inflight": [],
-        "runtime_snapshots": [],
+        "requests": [{
+            "request_id": "req-legacy",
+            "route": "/legacy",
+            "kind": null,
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "outcome": "ok"
+        }],
+        "stages": [{
+            "request_id": "req-legacy",
+            "stage": "db",
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "success": true
+        }],
+        "queues": [{
+            "request_id": "req-legacy",
+            "queue": "permit",
+            "waited_from_unix_ms": 1,
+            "waited_until_unix_ms": 2,
+            "wait_us": 10,
+            "depth_at_start": null
+        }],
+        "inflight": [{
+            "gauge": "active",
+            "at_unix_ms": 1,
+            "count": 1
+        }],
+        "runtime_snapshots": [{
+            "at_unix_ms": 1,
+            "alive_tasks": 1,
+            "global_queue_depth": null,
+            "local_queue_depth": null,
+            "blocking_queue_depth": null,
+            "remote_schedule_count": null
+        }],
         "truncation": {
             "dropped_requests": 0,
             "dropped_stages": 0,
@@ -716,6 +817,14 @@ fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
     assert_eq!(parsed.metadata.mode, CaptureMode::Investigation);
     assert!(parsed.metadata.effective_core_config.is_none());
     assert!(parsed.metadata.finalized_at_unix_ms.is_none());
+    assert_eq!(parsed.requests[0].started_at_run_us, None);
+    assert_eq!(parsed.requests[0].finished_at_run_us, None);
+    assert_eq!(parsed.stages[0].started_at_run_us, None);
+    assert_eq!(parsed.stages[0].finished_at_run_us, None);
+    assert_eq!(parsed.queues[0].waited_from_run_us, None);
+    assert_eq!(parsed.queues[0].waited_until_run_us, None);
+    assert_eq!(parsed.inflight[0].at_run_us, None);
+    assert_eq!(parsed.runtime_snapshots[0].at_run_us, None);
 }
 
 #[test]
@@ -738,11 +847,44 @@ fn run_deserialization_ignores_unknown_metadata_fields() {
             },
             "future_metadata_field": "still-compatible"
         },
-        "requests": [],
-        "stages": [],
-        "queues": [],
-        "inflight": [],
-        "runtime_snapshots": [],
+        "requests": [{
+            "request_id": "req-legacy",
+            "route": "/legacy",
+            "kind": null,
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "outcome": "ok"
+        }],
+        "stages": [{
+            "request_id": "req-legacy",
+            "stage": "db",
+            "started_at_unix_ms": 1,
+            "finished_at_unix_ms": 2,
+            "latency_us": 10,
+            "success": true
+        }],
+        "queues": [{
+            "request_id": "req-legacy",
+            "queue": "permit",
+            "waited_from_unix_ms": 1,
+            "waited_until_unix_ms": 2,
+            "wait_us": 10,
+            "depth_at_start": null
+        }],
+        "inflight": [{
+            "gauge": "active",
+            "at_unix_ms": 1,
+            "count": 1
+        }],
+        "runtime_snapshots": [{
+            "at_unix_ms": 1,
+            "alive_tasks": 1,
+            "global_queue_depth": null,
+            "local_queue_depth": null,
+            "blocking_queue_depth": null,
+            "remote_schedule_count": null
+        }],
         "truncation": {
             "dropped_requests": 0,
             "dropped_stages": 0,
@@ -923,4 +1065,813 @@ fn dropping_unfinished_completion_panics_in_debug() {
         result.is_err(),
         "unfinished completion should panic in debug"
     );
+}
+
+#[test]
+fn run_builder_creates_empty_run_with_explicit_metadata() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 20,
+        max_queues: 30,
+        max_inflight_snapshots: 40,
+        max_runtime_snapshots: 50,
+    };
+    let mut builder = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("payments")
+            .service_version("1.2.3")
+            .run_id("run-explicit")
+            .mode(CaptureMode::Investigation)
+            .capture_limits(limits)
+            .strict_lifecycle(true)
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(200)
+            .finalized_at_unix_ms(300)
+            .host("svc-host")
+            .pid(42)
+            .run_end_reason(crate::RunEndReason::Shutdown),
+    )
+    .expect("builder should succeed");
+    builder
+        .push_request(crate::RequestEvent {
+            request_id: "r1".into(),
+            route: "/x".into(),
+            kind: None,
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 10,
+            outcome: "ok".into(),
+        })
+        .expect("ok");
+    let run = builder.finish();
+
+    assert_eq!(run.metadata.service_name, "payments");
+    assert_eq!(run.metadata.service_version.as_deref(), Some("1.2.3"));
+    assert_eq!(run.metadata.run_id, "run-explicit");
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
+    assert_eq!(run.metadata.finished_at_unix_ms, 200);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(300));
+    assert_eq!(run.metadata.mode, CaptureMode::Investigation);
+    assert_eq!(run.metadata.host.as_deref(), Some("svc-host"));
+    assert_eq!(run.metadata.pid, Some(42));
+    assert_eq!(
+        run.metadata.run_end_reason,
+        Some(crate::RunEndReason::Shutdown)
+    );
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(
+        run.metadata.effective_core_config.expect("present"),
+        crate::EffectiveCoreConfig {
+            mode: CaptureMode::Investigation,
+            capture_limits: limits,
+            strict_lifecycle: true
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_blank_service_name() {
+    let err = crate::RunBuilder::new(crate::RunBuilderOptions::new("  ")).expect_err("should fail");
+    assert_eq!(err, BuildError::EmptyServiceName);
+}
+
+#[test]
+fn run_builder_default_run_ids_are_unique() {
+    let first = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    let second = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    assert_ne!(first.metadata.run_id, second.metadata.run_id);
+}
+
+#[test]
+fn run_builder_defaults_host_and_pid_to_none() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    assert!(run.metadata.host.is_none());
+    assert!(run.metadata.pid.is_none());
+}
+
+#[test]
+fn run_builder_default_finalized_timestamp_is_some() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+    assert!(run.metadata.finalized_at_unix_ms.is_some());
+}
+
+#[test]
+fn run_builder_defaults_finalized_timestamp_to_finished_timestamp() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(200),
+    )
+    .expect("ok")
+    .finish();
+    assert_eq!(run.metadata.finished_at_unix_ms, 200);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
+}
+
+#[test]
+fn run_builder_preserves_explicit_finalized_timestamp() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(200)
+            .finalized_at_unix_ms(777),
+    )
+    .expect("ok")
+    .finish();
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(777));
+}
+
+#[test]
+fn run_builder_preserves_explicit_timestamps_exactly() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(150)
+            .finalized_at_unix_ms(200),
+    )
+    .expect("ok")
+    .finish();
+
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
+    assert_eq!(run.metadata.finished_at_unix_ms, 150);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
+}
+
+#[test]
+fn run_builder_allows_equal_timestamp_bounds() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(100)
+            .finalized_at_unix_ms(100),
+    )
+    .expect("ok")
+    .finish();
+
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
+    assert_eq!(run.metadata.finished_at_unix_ms, 100);
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(100));
+}
+
+#[test]
+fn run_builder_rejects_finished_before_started() {
+    let err = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(99),
+    )
+    .expect_err("should fail");
+
+    assert_eq!(
+        err,
+        BuildError::InvalidRunTimeBounds {
+            started_at_unix_ms: 100,
+            finished_at_unix_ms: 99
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_finalized_before_finished() {
+    let err = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(100)
+            .finished_at_unix_ms(150)
+            .finalized_at_unix_ms(149),
+    )
+    .expect_err("should fail");
+
+    assert_eq!(
+        err,
+        BuildError::InvalidFinalizationTime {
+            finished_at_unix_ms: 150,
+            finalized_at_unix_ms: 149
+        }
+    );
+}
+
+#[test]
+fn run_builder_default_timestamps_produce_valid_finalized_run() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("ok")
+        .finish();
+
+    assert!(run.metadata.finalized_at_unix_ms.is_some());
+    assert!(run.metadata.finished_at_unix_ms >= run.metadata.started_at_unix_ms);
+    assert!(
+        run.metadata.finalized_at_unix_ms.expect("finalized") >= run.metadata.finished_at_unix_ms
+    );
+}
+#[test]
+fn run_builder_strict_lifecycle_in_effective_core_config() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").strict_lifecycle(true))
+        .expect("ok")
+        .finish();
+    assert!(
+        run.metadata
+            .effective_core_config
+            .expect("present")
+            .strict_lifecycle
+    );
+}
+
+#[test]
+fn run_builder_set_run_end_reason_if_absent_only_sets_once() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    builder.set_run_end_reason_if_absent(crate::RunEndReason::Shutdown);
+    builder.set_run_end_reason_if_absent(crate::RunEndReason::ManualDisarm);
+    let run = builder.finish();
+    assert_eq!(
+        run.metadata.run_end_reason,
+        Some(crate::RunEndReason::Shutdown)
+    );
+}
+
+#[test]
+fn run_builder_preserves_lifecycle_warnings() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    builder.add_lifecycle_warning("warning-1");
+    builder.add_lifecycle_warning("warning-2");
+    let run = builder.finish();
+    assert_eq!(
+        run.metadata.lifecycle_warnings,
+        vec!["warning-1", "warning-2"]
+    );
+}
+
+#[test]
+fn run_builder_preserves_unfinished_requests() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    builder.set_unfinished_requests(crate::UnfinishedRequests {
+        count: 2,
+        sample: vec![crate::UnfinishedRequestSample {
+            request_id: "a".into(),
+            route: "/r".into(),
+        }],
+    });
+    let run = builder.finish();
+    assert_eq!(run.metadata.unfinished_requests.count, 2);
+    assert_eq!(run.metadata.unfinished_requests.sample.len(), 1);
+}
+
+fn test_request_event(request_id: &str) -> crate::RequestEvent {
+    crate::RequestEvent {
+        request_id: request_id.to_string(),
+        route: "/test".to_string(),
+        kind: None,
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 10,
+        outcome: "ok".to_string(),
+    }
+}
+
+fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
+    crate::StageEvent {
+        request_id: request_id.to_string(),
+        stage: stage.to_string(),
+        started_at_unix_ms: 3,
+        started_at_run_us: None,
+        finished_at_unix_ms: 4,
+        finished_at_run_us: None,
+        latency_us: 11,
+        success: true,
+    }
+}
+
+fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
+    crate::QueueEvent {
+        request_id: request_id.to_string(),
+        queue: queue.to_string(),
+        waited_from_unix_ms: 5,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 6,
+        waited_until_run_us: None,
+        wait_us: 12,
+        depth_at_start: Some(1),
+    }
+}
+
+#[test]
+fn run_builder_applies_request_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 1,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder
+        .push_request(test_request_event("req-1"))
+        .expect("ok");
+    builder
+        .push_request(test_request_event("req-2"))
+        .expect("ok");
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.requests[0].request_id, "req-1");
+    assert_eq!(run.truncation.dropped_requests, 1);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_applies_stage_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 1,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder
+        .push_stage(test_stage_event("req-1", "stage-1"))
+        .expect("ok");
+    builder
+        .push_stage(test_stage_event("req-2", "stage-2"))
+        .expect("ok");
+    let run = builder.finish();
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.stages[0].stage, "stage-1");
+    assert_eq!(run.truncation.dropped_stages, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_applies_queue_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 1,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder
+        .push_queue(test_queue_event("req-1", "queue-1"))
+        .expect("ok");
+    builder
+        .push_queue(test_queue_event("req-2", "queue-2"))
+        .expect("ok");
+    let run = builder.finish();
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.queues[0].queue, "queue-1");
+    assert_eq!(run.truncation.dropped_queues, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 1,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder
+        .push_inflight_snapshot(crate::InFlightSnapshot {
+            gauge: "g".to_string(),
+            at_unix_ms: 7,
+            at_run_us: None,
+            count: 1,
+        })
+        .expect("ok");
+    builder
+        .push_inflight_snapshot(crate::InFlightSnapshot {
+            gauge: "g".to_string(),
+            at_unix_ms: 8,
+            at_run_us: None,
+            count: 2,
+        })
+        .expect("ok");
+    let run = builder.finish();
+    assert_eq!(run.inflight.len(), 1);
+    assert_eq!(run.inflight[0].count, 1);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 1,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder
+        .push_runtime_snapshot(crate::RuntimeSnapshot {
+            at_unix_ms: 9,
+            at_run_us: None,
+            alive_tasks: Some(1),
+            global_queue_depth: Some(2),
+            local_queue_depth: Some(3),
+            blocking_queue_depth: Some(4),
+            remote_schedule_count: Some(5),
+        })
+        .expect("ok");
+    builder
+        .push_runtime_snapshot(crate::RuntimeSnapshot {
+            at_unix_ms: 10,
+            at_run_us: None,
+            alive_tasks: Some(2),
+            global_queue_depth: Some(3),
+            local_queue_depth: Some(4),
+            blocking_queue_depth: Some(5),
+            remote_schedule_count: Some(6),
+        })
+        .expect("ok");
+    let run = builder.finish();
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert_eq!(run.runtime_snapshots[0].at_unix_ms, 9);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_does_not_report_truncation_within_limits() {
+    let limits = CaptureLimits {
+        max_requests: 10,
+        max_stages: 10,
+        max_queues: 10,
+        max_inflight_snapshots: 10,
+        max_runtime_snapshots: 10,
+    };
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
+            .expect("ok");
+    builder
+        .push_request(test_request_event("req-1"))
+        .expect("ok");
+    builder
+        .push_stage(test_stage_event("req-1", "stage-1"))
+        .expect("ok");
+    builder
+        .push_queue(test_queue_event("req-1", "queue-1"))
+        .expect("ok");
+    builder
+        .push_inflight_snapshot(crate::InFlightSnapshot {
+            gauge: "g".to_string(),
+            at_unix_ms: 11,
+            at_run_us: None,
+            count: 1,
+        })
+        .expect("ok");
+    builder
+        .push_runtime_snapshot(crate::RuntimeSnapshot {
+            at_unix_ms: 12,
+            at_run_us: None,
+            alive_tasks: Some(1),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            blocking_queue_depth: Some(1),
+            remote_schedule_count: Some(1),
+        })
+        .expect("ok");
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.inflight.len(), 1);
+    assert_eq!(run.runtime_snapshots.len(), 1);
+    assert_eq!(run.truncation.dropped_requests, 0);
+    assert_eq!(run.truncation.dropped_stages, 0);
+    assert_eq!(run.truncation.dropped_queues, 0);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 0);
+    assert_eq!(run.truncation.dropped_runtime_snapshots, 0);
+    assert!(!run.truncation.limits_hit);
+    assert!(!run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_uses_mode_default_limits_when_limits_not_explicit() {
+    let default_limits = CaptureMode::Light.core_defaults();
+    let mut builder =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").mode(CaptureMode::Light))
+            .expect("ok");
+    for i in 0..(default_limits.max_requests + 2) {
+        builder
+            .push_request(test_request_event(&format!("req-{}", i + 1)))
+            .expect("ok");
+    }
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), default_limits.max_requests);
+    assert_eq!(run.truncation.dropped_requests, 2);
+    assert!(run.truncation.limits_hit);
+    assert!(run.truncation.is_truncated());
+}
+
+#[test]
+fn run_builder_valid_pushes_return_ok() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    assert!(builder.push_request(test_request_event("req")).is_ok());
+    assert!(builder.push_stage(test_stage_event("req", "db")).is_ok());
+    assert!(builder
+        .push_queue(test_queue_event("req", "permits"))
+        .is_ok());
+    assert!(builder
+        .push_inflight_snapshot(crate::InFlightSnapshot {
+            gauge: "inflight".into(),
+            at_unix_ms: 1,
+            at_run_us: None,
+            count: 1,
+        })
+        .is_ok());
+    assert!(builder
+        .push_runtime_snapshot(crate::RuntimeSnapshot {
+            at_unix_ms: 0,
+            at_run_us: None,
+            alive_tasks: None,
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        })
+        .is_ok());
+}
+
+#[test]
+fn run_builder_event_validation_rejects_invalid_shapes() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut request = test_request_event("req");
+    request.request_id = " ".into();
+    assert!(builder.push_request(request).is_err());
+
+    let mut request = test_request_event("req");
+    request.route = "\t".into();
+    assert!(builder.push_request(request).is_err());
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 5;
+    request.finished_at_unix_ms = 4;
+    assert!(builder.push_request(request).is_err());
+
+    let mut request = test_request_event("req");
+    request.outcome = " ".into();
+    assert!(builder.push_request(request).is_err());
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 2;
+    request.finished_at_unix_ms = 2;
+    request.latency_us = 0;
+    assert!(builder.push_request(request).is_ok());
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.request_id = " ".into();
+    assert!(builder.push_stage(stage).is_err());
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.stage = " ".into();
+    assert!(builder.push_stage(stage).is_err());
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_unix_ms = 8;
+    stage.finished_at_unix_ms = 7;
+    assert!(builder.push_stage(stage).is_err());
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_unix_ms = 3;
+    stage.finished_at_unix_ms = 4;
+    stage.latency_us = 1_000;
+    assert!(builder.push_stage(stage).is_ok());
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.request_id = " ".into();
+    assert!(builder.push_queue(queue).is_err());
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.queue = " ".into();
+    assert!(builder.push_queue(queue).is_err());
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_unix_ms = 3;
+    queue.waited_until_unix_ms = 2;
+    assert!(builder.push_queue(queue).is_err());
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_unix_ms = 5;
+    queue.waited_until_unix_ms = 6;
+    queue.wait_us = 1_000;
+    assert!(builder.push_queue(queue).is_ok());
+
+    assert!(builder
+        .push_inflight_snapshot(crate::InFlightSnapshot {
+            gauge: " ".into(),
+            at_unix_ms: 1,
+            at_run_us: None,
+            count: 1,
+        })
+        .is_err());
+}
+
+#[test]
+fn run_builder_rejects_inverted_request_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut request = test_request_event("req");
+    request.started_at_run_us = Some(20);
+    request.finished_at_run_us = Some(19);
+
+    let err = builder
+        .push_request(request)
+        .expect_err("inverted request run-relative offsets should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "RequestEvent",
+            field: "finished_at_run_us",
+            reason: "must be >= started_at_run_us".to_string(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_inverted_stage_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_run_us = Some(20);
+    stage.finished_at_run_us = Some(19);
+
+    let err = builder
+        .push_stage(stage)
+        .expect_err("inverted stage run-relative offsets should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "StageEvent",
+            field: "finished_at_run_us",
+            reason: "must be >= started_at_run_us".to_string(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_rejects_inverted_queue_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_run_us = Some(20);
+    queue.waited_until_run_us = Some(19);
+
+    let err = builder
+        .push_queue(queue)
+        .expect_err("inverted queue run-relative offsets should fail");
+    assert_eq!(
+        err,
+        crate::RunBuilderEventError::InvalidEvent {
+            event: "QueueEvent",
+            field: "waited_until_run_us",
+            reason: "must be >= waited_from_run_us".to_string(),
+        }
+    );
+}
+
+#[test]
+fn run_builder_accepts_incomplete_run_relative_offsets() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_run_us = Some(10);
+    request.finished_at_run_us = None;
+    builder.push_request(request).expect("request accepted");
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_run_us = None;
+    stage.finished_at_run_us = Some(20);
+    builder.push_stage(stage).expect("stage accepted");
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_run_us = Some(30);
+    queue.waited_until_run_us = None;
+    builder.push_queue(queue).expect("queue accepted");
+
+    let run = builder.finish();
+    assert_eq!(run.requests[0].started_at_run_us, Some(10));
+    assert_eq!(run.requests[0].finished_at_run_us, None);
+    assert_eq!(run.stages[0].started_at_run_us, None);
+    assert_eq!(run.stages[0].finished_at_run_us, Some(20));
+    assert_eq!(run.queues[0].waited_from_run_us, Some(30));
+    assert_eq!(run.queues[0].waited_until_run_us, None);
+}
+
+#[test]
+fn run_builder_accepts_authoritative_request_latency_when_timestamps_disagree() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 10;
+    request.finished_at_unix_ms = 11;
+    request.latency_us = 50_000;
+
+    builder.push_request(request).expect("push should succeed");
+    let run = builder.finish();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.requests[0].latency_us, 50_000);
+}
+
+#[test]
+fn run_builder_accepts_authoritative_stage_latency_when_timestamps_disagree() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut stage = test_stage_event("req", "stage");
+    stage.started_at_unix_ms = 20;
+    stage.finished_at_unix_ms = 21;
+    stage.latency_us = 50_000;
+
+    builder.push_stage(stage).expect("push should succeed");
+    let run = builder.finish();
+    assert_eq!(run.stages.len(), 1);
+    assert_eq!(run.stages[0].latency_us, 50_000);
+}
+
+#[test]
+fn run_builder_accepts_authoritative_queue_wait_when_timestamps_disagree() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut queue = test_queue_event("req", "queue");
+    queue.waited_from_unix_ms = 30;
+    queue.waited_until_unix_ms = 31;
+    queue.wait_us = 50_000;
+
+    builder.push_queue(queue).expect("push should succeed");
+    let run = builder.finish();
+    assert_eq!(run.queues.len(), 1);
+    assert_eq!(run.queues[0].wait_us, 50_000);
+}
+
+#[test]
+fn run_builder_zero_duration_timestamps_with_zero_duration_are_accepted() {
+    let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
+
+    let mut request = test_request_event("req");
+    request.started_at_unix_ms = 2;
+    request.finished_at_unix_ms = 2;
+    request.latency_us = 0;
+    assert!(builder.push_request(request).is_ok());
+}
+
+#[test]
+fn record_runtime_snapshot_stamps_run_relative_time_when_missing() {
+    let tailtriage = build_for_test("runtime", "runtime-run-relative.json");
+    tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: crate::unix_time_ms(),
+        at_run_us: None,
+        alive_tasks: Some(1),
+        global_queue_depth: None,
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.runtime_snapshots[0].at_run_us.is_some());
 }

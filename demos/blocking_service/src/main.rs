@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use demo_support::{init_collector, parse_demo_args, DemoMode};
+use demo_support::{parse_demo_args, DemoMode, RuntimeDemoInstrumentation};
 use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
 
 struct ModeSettings {
@@ -38,6 +38,7 @@ impl ModeSettings {
 
 fn main() -> anyhow::Result<()> {
     let args = parse_demo_args("demos/blocking_service/artifacts/blocking-run.json")?;
+    let capture_config = args.capture_config();
     let settings = ModeSettings::for_mode(args.mode);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -47,16 +48,31 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("failed to build Tokio runtime")?;
 
-    runtime.block_on(run_demo(args.output_path, settings))
+    runtime.block_on(run_demo(
+        args.output_path,
+        settings,
+        args.instrumentation,
+        capture_config,
+    ))
 }
 
-async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Result<()> {
-    let tailtriage = init_collector("blocking_service_demo", &output_path)?;
+async fn run_demo(
+    output_path: PathBuf,
+    settings: ModeSettings,
+    mode: demo_support::InstrumentationMode,
+    capture: demo_support::DemoCaptureConfig,
+) -> anyhow::Result<()> {
+    let instrumentation = Arc::new(RuntimeDemoInstrumentation::new(
+        "blocking_service_demo",
+        &output_path,
+        mode,
+        capture,
+    )?);
 
     let pending_blocking = Arc::new(AtomicU64::new(0));
 
     let sampler = {
-        let tailtriage = Arc::clone(&tailtriage);
+        let instrumentation = Arc::clone(&instrumentation);
         let pending_blocking = Arc::clone(&pending_blocking);
 
         tokio::spawn(async move {
@@ -64,8 +80,9 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
             for _ in 0..200 {
                 ticker.tick().await;
                 let pending = pending_blocking.load(Ordering::SeqCst);
-                tailtriage.record_runtime_snapshot(RuntimeSnapshot {
+                instrumentation.record_runtime_snapshot(RuntimeSnapshot {
                     at_unix_ms: unix_time_ms(),
+                    at_run_us: None,
                     alive_tasks: None,
                     global_queue_depth: Some(0),
                     local_queue_depth: None,
@@ -80,41 +97,40 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
     let mut tasks = Vec::with_capacity(capacity);
 
     for request_number in 0..settings.offered_requests {
-        let tailtriage = Arc::clone(&tailtriage);
+        let instrumentation = Arc::clone(&instrumentation);
         let pending_blocking = Arc::clone(&pending_blocking);
         let blocking_work = settings.blocking_work;
 
         tasks.push(tokio::spawn(async move {
             let request_id = format!("request-{request_number}");
-            let started = tailtriage.begin_request_with(
-                "/blocking-demo",
-                tailtriage_core::RequestOptions::new().request_id(request_id.clone()),
-            );
-            let request = started.handle.clone();
-
-            {
-                let _inflight = request.inflight("blocking_service_inflight");
-                let _wait = request
-                    .queue("dispatch_overhead")
-                    .await_on(tokio::time::sleep(Duration::from_micros(10)))
-                    .await;
-
-                pending_blocking.fetch_add(1, Ordering::SeqCst);
-                let handle = tokio::task::spawn_blocking(move || {
-                    std::thread::sleep(blocking_work);
-                });
-
-                request
-                    .stage("spawn_blocking_path")
-                    .await_value(async {
-                        handle
-                            .await
-                            .expect("spawn_blocking workload should complete");
-                    })
-                    .await;
-                pending_blocking.fetch_sub(1, Ordering::SeqCst);
-            }
-            started.completion.finish(tailtriage_core::Outcome::Ok);
+            instrumentation
+                .run_request(
+                    "/blocking-demo",
+                    request_id.clone(),
+                    tailtriage_core::Outcome::Ok,
+                    |request| async move {
+                        let _inflight = request.inflight("blocking_service_inflight");
+                        request
+                            .queue_wait(
+                                "dispatch_overhead",
+                                0,
+                                tokio::time::sleep(Duration::from_micros(10)),
+                            )
+                            .await;
+                        pending_blocking.fetch_add(1, Ordering::SeqCst);
+                        let handle =
+                            tokio::task::spawn_blocking(move || std::thread::sleep(blocking_work));
+                        request
+                            .stage("spawn_blocking_path", async {
+                                handle
+                                    .await
+                                    .expect("spawn_blocking workload should complete");
+                            })
+                            .await;
+                        pending_blocking.fetch_sub(1, Ordering::SeqCst);
+                    },
+                )
+                .await;
         }));
 
         if request_number % settings.inter_arrival_pause_every == 0 {
@@ -128,7 +144,10 @@ async fn run_demo(output_path: PathBuf, settings: ModeSettings) -> anyhow::Resul
 
     sampler.await.context("sampler task panicked")?;
 
-    tailtriage.shutdown()?;
+    Arc::into_inner(instrumentation)
+        .expect("instrumentation still referenced")
+        .shutdown(&output_path)
+        .await?;
     println!("wrote {}", output_path.display());
 
     Ok(())

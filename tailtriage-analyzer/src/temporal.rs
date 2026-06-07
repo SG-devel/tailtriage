@@ -1,7 +1,8 @@
 use tailtriage_core::{RequestEvent, Run};
 
 use super::{
-    analyze_run_internal, AnalyzeOptions, DiagnosisKind, SignalCoverageStatus, TemporalSegment,
+    analyze_run_internal, AnalyzeOptions, DiagnosisKind, Report, SignalCoverageStatus,
+    TemporalSegment,
 };
 use crate::route;
 
@@ -10,27 +11,142 @@ pub(super) const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show 
 pub(super) const TEMPORAL_P95_SHIFT_WARNING: &str =
     "Temporal segments show a large p95 latency shift between early and late requests.";
 pub(super) const TEMPORAL_OVERLAP_ATTRIBUTION_WARNING: &str = "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate.";
+pub(super) const TEMPORAL_WALL_CLOCK_FALLBACK_WARNING: &str = "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing.";
+
+#[derive(Clone, Copy)]
+struct SegmentWindow {
+    unix_start: u64,
+    unix_finish: u64,
+    run_relative: Option<(u64, u64)>,
+}
+
+fn all_requests_have_run_relative_start(requests: &[RequestEvent]) -> bool {
+    requests
+        .iter()
+        .all(|request| request.started_at_run_us.is_some())
+}
+
+fn sort_requests_for_temporal_segments(requests: &mut [RequestEvent]) {
+    if all_requests_have_run_relative_start(requests) {
+        requests.sort_by(|a, b| {
+            a.started_at_run_us
+                .unwrap()
+                .cmp(&b.started_at_run_us.unwrap())
+                .then_with(|| a.started_at_unix_ms.cmp(&b.started_at_unix_ms))
+                .then_with(|| a.request_id.cmp(&b.request_id))
+        });
+    } else {
+        requests.sort_by(|a, b| {
+            a.started_at_unix_ms
+                .cmp(&b.started_at_unix_ms)
+                .then_with(|| a.request_id.cmp(&b.request_id))
+        });
+    }
+}
+
+fn segment_run_relative_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
+    if !requests
+        .iter()
+        .all(|request| request.started_at_run_us.is_some() && request.finished_at_run_us.is_some())
+    {
+        return None;
+    }
+
+    let start = requests
+        .iter()
+        .filter_map(|request| request.started_at_run_us)
+        .min()?;
+    let finish = requests
+        .iter()
+        .filter_map(|request| request.finished_at_run_us)
+        .max()?;
+    Some((start, finish))
+}
+
+fn segment_unix_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
+    let start = requests
+        .iter()
+        .map(|request| request.started_at_unix_ms)
+        .min()?;
+    let finish = requests
+        .iter()
+        .map(|request| request.finished_at_unix_ms)
+        .max()?;
+    Some((start, finish))
+}
+
+fn retain_segment_sample(
+    at_unix_ms: u64,
+    at_run_us: Option<u64>,
+    window: SegmentWindow,
+) -> (bool, bool) {
+    if let (Some((start, finish)), Some(at)) = (window.run_relative, at_run_us) {
+        return (at >= start && at <= finish, false);
+    }
+
+    let retained = at_unix_ms >= window.unix_start && at_unix_ms <= window.unix_finish;
+    let used_unix_fallback = retained && window.run_relative.is_some() && at_run_us.is_none();
+    (retained, used_unix_fallback)
+}
+
+fn filter_segment_runtime_and_inflight(run: &mut Run, source: &Run, window: SegmentWindow) -> bool {
+    let mut used_unix_fallback = false;
+    run.runtime_snapshots = source
+        .runtime_snapshots
+        .iter()
+        .filter(|snapshot| {
+            let (retained, used_fallback) =
+                retain_segment_sample(snapshot.at_unix_ms, snapshot.at_run_us, window);
+            used_unix_fallback |= used_fallback;
+            retained
+        })
+        .cloned()
+        .collect();
+    run.inflight = source
+        .inflight
+        .iter()
+        .filter(|snapshot| {
+            let (retained, used_fallback) =
+                retain_segment_sample(snapshot.at_unix_ms, snapshot.at_run_us, window);
+            used_unix_fallback |= used_fallback;
+            retained
+        })
+        .cloned()
+        .collect();
+    used_unix_fallback
+}
 
 fn filtered_run_for_temporal_segment(
     run: &Run,
     request_ids: &[String],
-    start: u64,
-    end: u64,
-) -> Run {
+    window: SegmentWindow,
+) -> (Run, bool) {
     let mut filtered = route::filtered_run_for_route(run, request_ids);
-    filtered.runtime_snapshots = run
-        .runtime_snapshots
-        .iter()
-        .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= end)
-        .cloned()
-        .collect();
-    filtered.inflight = run
-        .inflight
-        .iter()
-        .filter(|s| s.at_unix_ms >= start && s.at_unix_ms <= end)
-        .cloned()
-        .collect();
-    filtered
+    let used_unix_fallback = filter_segment_runtime_and_inflight(&mut filtered, run, window);
+    (filtered, used_unix_fallback)
+}
+
+fn temporal_segment_from_report(
+    name: &str,
+    analyzed: Report,
+    start: Option<u64>,
+    finish: Option<u64>,
+) -> TemporalSegment {
+    TemporalSegment {
+        name: name.to_string(),
+        request_count: analyzed.request_count,
+        started_at_unix_ms: start,
+        finished_at_unix_ms: finish,
+        p50_latency_us: analyzed.p50_latency_us,
+        p95_latency_us: analyzed.p95_latency_us,
+        p99_latency_us: analyzed.p99_latency_us,
+        p95_queue_share_permille: analyzed.p95_queue_share_permille,
+        p95_service_share_permille: analyzed.p95_service_share_permille,
+        evidence_quality: analyzed.evidence_quality,
+        primary_suspect: analyzed.primary_suspect,
+        secondary_suspects: analyzed.secondary_suspects,
+        warnings: analyzed.warnings,
+    }
 }
 
 pub(super) fn temporal_segments(
@@ -42,11 +158,7 @@ pub(super) fn temporal_segments(
         return vec![];
     }
     let mut requests = run.requests.clone();
-    requests.sort_by(|a, b| {
-        a.started_at_unix_ms
-            .cmp(&b.started_at_unix_ms)
-            .then_with(|| a.request_id.cmp(&b.request_id))
-    });
+    sort_requests_for_temporal_segments(&mut requests);
     let split = requests.len() / 2;
     let (early, late) = requests.split_at(split);
     if early.len() < options.temporal.min_segment_request_count
@@ -56,14 +168,26 @@ pub(super) fn temporal_segments(
     }
     let build = |name: &str, seg: &[RequestEvent]| {
         let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
-        let start = seg.iter().map(|r| r.started_at_unix_ms).min();
-        let finish = seg.iter().map(|r| r.finished_at_unix_ms).max();
-        let mut analyzed = match (start, finish) {
-            (Some(s), Some(f)) => {
-                analyze_run_internal(&filtered_run_for_temporal_segment(run, &ids, s, f), options)
-            }
-            _ => analyze_run_internal(&route::filtered_run_for_route(run, &ids), options),
+        let Some((unix_start, unix_finish)) = segment_unix_window(seg) else {
+            let analyzed = analyze_run_internal(&route::filtered_run_for_route(run, &ids), options);
+            return temporal_segment_from_report(name, analyzed, None, None);
         };
+        let start = Some(unix_start);
+        let finish = Some(unix_finish);
+        let run_relative_window = segment_run_relative_window(seg);
+        let window = SegmentWindow {
+            unix_start,
+            unix_finish,
+            run_relative: run_relative_window,
+        };
+        let (filtered, used_snapshot_unix_fallback) =
+            filtered_run_for_temporal_segment(run, &ids, window);
+        let mut analyzed = analyze_run_internal(&filtered, options);
+        if run_relative_window.is_none() || used_snapshot_unix_fallback {
+            analyzed
+                .warnings
+                .push(TEMPORAL_WALL_CLOCK_FALLBACK_WARNING.to_string());
+        }
         let sparse_runtime =
             analyzed.evidence_quality.runtime_snapshots != SignalCoverageStatus::Present;
         let sparse_inflight =
@@ -77,21 +201,7 @@ pub(super) fn temporal_segments(
                 .warnings
                 .push(TEMPORAL_RUNTIME_ATTRIBUTION_WARNING.to_string());
         }
-        TemporalSegment {
-            name: name.to_string(),
-            request_count: analyzed.request_count,
-            started_at_unix_ms: start,
-            finished_at_unix_ms: finish,
-            p50_latency_us: analyzed.p50_latency_us,
-            p95_latency_us: analyzed.p95_latency_us,
-            p99_latency_us: analyzed.p99_latency_us,
-            p95_queue_share_permille: analyzed.p95_queue_share_permille,
-            p95_service_share_permille: analyzed.p95_service_share_permille,
-            evidence_quality: analyzed.evidence_quality,
-            primary_suspect: analyzed.primary_suspect,
-            secondary_suspects: analyzed.secondary_suspects,
-            warnings: analyzed.warnings,
-        }
+        temporal_segment_from_report(name, analyzed, start, finish)
     };
     let mut early_seg = build("early", early);
     let mut late_seg = build("late", late);

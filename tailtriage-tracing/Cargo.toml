@@ -1,0 +1,61 @@
+[package]
+name = "tailtriage-tracing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tracing intake bridge for converting tt.* spans into tailtriage Run artifacts"
+documentation = "https://docs.rs/tailtriage-tracing"
+readme = "README.md"
+keywords = ["tokio", "tracing", "latency", "diagnostics", "triage"]
+categories = ["asynchronous", "development-tools::debugging", "development-tools::profiling"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "src/**",
+  "examples/**",
+]
+
+[features]
+default = ["jsonl"]
+jsonl = ["dep:serde_json"]
+live = ["jsonl", "dep:tracing", "dep:tracing-subscriber"]
+tokio = ["live", "dep:tailtriage-tokio", "dep:tokio"]
+
+[dependencies]
+tailtriage-core.workspace = true
+tailtriage-tokio = { workspace = true, optional = true }
+tokio = { version = "1", features = ["rt", "sync", "time"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"], optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tailtriage-analyzer.workspace = true
+futures-executor = "0.3"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+
+[[example]]
+name = "completed_span_jsonl_export"
+required-features = ["live"]
+
+[[example]]
+name = "live_recorder"
+required-features = ["live"]
+
+[[example]]
+name = "live_session_to_run"
+required-features = ["live"]
+
+[[example]]
+name = "tokio_session_to_run"
+required-features = ["tokio"]
