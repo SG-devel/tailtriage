@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Write as _;
 use std::io::Write;
@@ -837,39 +837,100 @@ fn push_completed_candidate_with_kind_aware_retention(
     let total = state.completed_requests.len()
         + state.completed_stages.len()
         + state.completed_queues.len();
-    if total < limits.max_completed_candidate_spans {
-        push_record_by_kind(state, record, kind);
-        return;
-    }
-
-    match kind {
-        "request" => {
-            if state.completed_requests.len() >= semantic_max_requests {
-                state.dropped_completed_request_candidates =
-                    state.dropped_completed_request_candidates.saturating_add(1);
-                return;
-            }
-
-            if !state.completed_queues.is_empty() {
-                state.completed_queues.pop();
-            } else if !state.completed_stages.is_empty() {
-                state.completed_stages.pop();
-            } else {
-                state.dropped_completed_request_candidates =
-                    state.dropped_completed_request_candidates.saturating_add(1);
-                return;
-            }
-
-            state.evicted_child_candidates_to_preserve_request = state
-                .evicted_child_candidates_to_preserve_request
-                .saturating_add(1);
-            state.completed_requests.push(record);
-        }
-        "stage" | "queue" => {
+    if kind != "request" {
+        if total < limits.max_completed_candidate_spans {
+            push_record_by_kind(state, record, kind);
+        } else if matches!(kind, "stage" | "queue") {
             state.dropped_completed_child_candidates =
                 state.dropped_completed_child_candidates.saturating_add(1);
         }
-        _ => {}
+        return;
+    }
+
+    if total + 1 < limits.max_completed_candidate_spans {
+        state.completed_requests.push(record);
+        return;
+    }
+
+    if retained_request_id_is_represented(state, &record)
+        || unique_retained_request_id_count(&state.completed_requests) >= semantic_max_requests
+    {
+        state.dropped_completed_request_candidates =
+            state.dropped_completed_request_candidates.saturating_add(1);
+        return;
+    }
+
+    if total < limits.max_completed_candidate_spans {
+        state.completed_requests.push(record);
+        return;
+    }
+
+    if !state.completed_queues.is_empty() {
+        state.completed_queues.pop();
+        state.evicted_child_candidates_to_preserve_request = state
+            .evicted_child_candidates_to_preserve_request
+            .saturating_add(1);
+    } else if !state.completed_stages.is_empty() {
+        state.completed_stages.pop();
+        state.evicted_child_candidates_to_preserve_request = state
+            .evicted_child_candidates_to_preserve_request
+            .saturating_add(1);
+    } else if let Some(index) = retained_duplicate_request_candidate_position(state) {
+        state.completed_requests.remove(index);
+        state.dropped_completed_request_candidates =
+            state.dropped_completed_request_candidates.saturating_add(1);
+    } else {
+        state.dropped_completed_request_candidates =
+            state.dropped_completed_request_candidates.saturating_add(1);
+        return;
+    }
+
+    state.completed_requests.push(record);
+}
+
+fn unique_retained_request_id_count(records: &[SpanRecord]) -> usize {
+    records
+        .iter()
+        .filter_map(valid_request_id_from_span)
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+fn retained_request_id_is_represented(state: &RecorderState, record: &SpanRecord) -> bool {
+    let Some(incoming_request_id) = valid_request_id_from_span(record) else {
+        return false;
+    };
+
+    state
+        .completed_requests
+        .iter()
+        .filter_map(valid_request_id_from_span)
+        .any(|retained_request_id| retained_request_id == incoming_request_id)
+}
+
+fn retained_duplicate_request_candidate_position(state: &RecorderState) -> Option<usize> {
+    for index in (0..state.completed_requests.len()).rev() {
+        let Some(request_id) = valid_request_id_from_span(&state.completed_requests[index]) else {
+            continue;
+        };
+        if state.completed_requests[..index]
+            .iter()
+            .filter_map(valid_request_id_from_span)
+            .any(|retained_request_id| retained_request_id == request_id)
+        {
+            return Some(index);
+        }
+    }
+
+    None
+}
+
+fn valid_request_id_from_span(record: &SpanRecord) -> Option<&str> {
+    match record.fields().get("tt.request_id") {
+        Some(FieldValue::String(request_id)) if !request_id.trim().is_empty() => {
+            Some(request_id.as_str())
+        }
+        _ => None,
     }
 }
 
@@ -2175,6 +2236,90 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn raw_completed_candidate_cap_drops_duplicate_request_before_later_unique_request() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(2)
+            .capture_limits(CaptureLimits {
+                max_requests: 2,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request-1-duplicate",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a-duplicate"
+            ));
+            drop(tracing::info_span!(
+                "request-2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        let request_ids = imported
+            .run()
+            .requests
+            .iter()
+            .map(|request| request.request_id.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(request_ids, BTreeSet::from(["r1", "r2"]));
+        assert_eq!(imported.run().requests.len(), 2);
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("dropped 1 completed request candidate span(s)")
+                && w.message().contains("max_completed_candidate_spans=2")
+        }));
+    }
+
+    #[test]
+    fn raw_completed_candidate_cap_drops_unique_request_when_semantic_request_retention_is_exhausted(
+    ) {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(2)
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request-2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].request_id, "r1");
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("would not fit semantic max_requests retention")
+        }));
     }
 
     #[test]
