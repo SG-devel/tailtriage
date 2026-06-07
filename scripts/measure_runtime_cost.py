@@ -20,11 +20,27 @@ MODES = (
     "core_investigation_tokio_sampler",
     "core_light_drop_path",
     "core_investigation_drop_path",
+    "tracing_light",
+    "tracing_light_tokio_sampler",
+    "tracing_light_drop_path",
 )
 UNSATURATED_CORE_MODES = ("core_light", "core_investigation")
 SATURATED_DROP_PATH_MODES = ("core_light_drop_path", "core_investigation_drop_path")
 TOKIO_SAMPLER_MODES = ("core_light_tokio_sampler", "core_investigation_tokio_sampler")
-METRIC_KEYS = ("throughput_rps", "latency_p50_ms", "latency_p95_ms", "latency_p99_ms")
+METRIC_KEYS = (
+    "throughput_rps",
+    "latency_p50_ms",
+    "latency_p95_ms",
+    "latency_p99_ms",
+    "artifact_finalize_ms",
+    "analyze_ms",
+    "report_render_ms",
+    "run_requests",
+    "run_stages",
+    "run_queues",
+    "runtime_snapshots",
+    "lifecycle_warning_count",
+)
 DEFAULT_REQUESTS = 6000
 DEFAULT_CONCURRENCY = 64
 DEFAULT_WORK_MS = 3
@@ -35,6 +51,9 @@ QUALITY_NOISY = "noisy"
 QUALITY_UNSTABLE = "unstable"
 QUALITY_INSUFFICIENT_DATA = "insufficient_data"
 MIN_ROUNDS_FOR_STABLE = 4
+TRACING_PARITY_P95_HARD_LIMIT = 1.10
+TRACING_PARITY_THROUGHPUT_HARD_FLOOR = 0.90
+TRACING_PARITY_SOFT_WARNING_BAND = 0.02
 
 DELTA_VS_BASELINE_MODE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Baked-in overhead", ("baked_in_no_request_context",)),
@@ -57,6 +76,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work-ms", type=int, default=int(os.environ.get("WORK_MS", str(DEFAULT_WORK_MS))))
     parser.add_argument("--rounds", type=int, default=int(os.environ.get("ROUNDS", str(DEFAULT_ROUNDS))))
     parser.add_argument("--warmup-rounds", type=int, default=int(os.environ.get("WARMUP_ROUNDS", str(DEFAULT_WARMUP_ROUNDS))))
+    parser.add_argument(
+        "--print-json",
+        action="store_true",
+        help="Print the full summary JSON in addition to the compact report.",
+    )
     return parser.parse_args()
 
 
@@ -81,6 +105,15 @@ def summarize_values(values: list[float]) -> dict[str, float]:
         "stdev": stdev,
         "cv": stdev / abs(mean) if mean else 0.0,
     }
+
+
+def safe_ratio(comparison: float, reference: float) -> float | None:
+    if reference <= 0:
+        return None
+    ratio = comparison / reference
+    if ratio != ratio or ratio in (float("inf"), float("-inf")):
+        return None
+    return ratio
 
 
 def paired_delta_rows(measured_rounds: list[dict], mode: str, metric: str) -> list[float]:
@@ -141,6 +174,14 @@ def summarize_mode_metrics(by_mode: dict[str, list[dict]], mode: str) -> dict:
             ),
             "limit_reached_rounds": sum(1 for entry in truncations if entry["limits_reached"]),
         }
+    summary["effective_tokio_sampler_config_present_rounds"] = sum(
+        1 for row in by_mode[mode] if row.get("effective_tokio_sampler_config_present")
+    )
+    summary["inflight_supported"] = bool(by_mode[mode][0].get("inflight_supported"))
+    summary["drop_path_signal_present_rounds"] = sum(
+        1 for row in by_mode[mode] if row.get("drop_path_signal_present")
+    )
+    summary["artifact_path_last"] = by_mode[mode][-1].get("artifact_path")
     return summary
 
 
@@ -229,6 +270,7 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
         "incremental_runtime_sampler_overhead_pct": {
             "Incremental runtime sampler overhead": {},
         },
+        "tracing_vs_native_ratios": {},
     }
 
     for mode in MODES:
@@ -263,13 +305,132 @@ def summarize(raw_path: Path, summary_path: Path) -> dict:
             for metric in METRIC_KEYS
         },
     }
+    abs_m = summary["absolute_metrics"]
+    summary["tracing_vs_native_ratios"] = {
+        "core_light_vs_baseline_latency_p95": safe_ratio(
+            abs_m["core_light"]["latency_p95_ms"]["median"], abs_m["baseline"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_vs_baseline_latency_p95": safe_ratio(
+            abs_m["tracing_light"]["latency_p95_ms"]["median"], abs_m["baseline"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_vs_core_light_latency_p95": safe_ratio(
+            abs_m["tracing_light"]["latency_p95_ms"]["median"], abs_m["core_light"]["latency_p95_ms"]["median"]
+        ),
+        "core_light_tokio_sampler_vs_core_light_latency_p95": safe_ratio(
+            abs_m["core_light_tokio_sampler"]["latency_p95_ms"]["median"], abs_m["core_light"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_tokio_sampler_vs_tracing_light_latency_p95": safe_ratio(
+            abs_m["tracing_light_tokio_sampler"]["latency_p95_ms"]["median"], abs_m["tracing_light"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95": safe_ratio(
+            abs_m["tracing_light_tokio_sampler"]["latency_p95_ms"]["median"], abs_m["core_light_tokio_sampler"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95": safe_ratio(
+            abs_m["tracing_light_drop_path"]["latency_p95_ms"]["median"], abs_m["core_light_drop_path"]["latency_p95_ms"]["median"]
+        ),
+        "tracing_light_vs_core_light_throughput": safe_ratio(
+            abs_m["tracing_light"]["throughput_rps"]["median"], abs_m["core_light"]["throughput_rps"]["median"]
+        ),
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput": safe_ratio(
+            abs_m["tracing_light_tokio_sampler"]["throughput_rps"]["median"], abs_m["core_light_tokio_sampler"]["throughput_rps"]["median"]
+        ),
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput": safe_ratio(
+            abs_m["tracing_light_drop_path"]["throughput_rps"]["median"], abs_m["core_light_drop_path"]["throughput_rps"]["median"]
+        ),
+        "tracing_finalize_vs_native_finalize": safe_ratio(
+            abs_m["tracing_light"]["artifact_finalize_ms"]["median"], abs_m["core_light"]["artifact_finalize_ms"]["median"]
+        ),
+        "tracing_analyze_vs_native_analyze": safe_ratio(
+            abs_m["tracing_light"]["analyze_ms"]["median"], abs_m["core_light"]["analyze_ms"]["median"]
+        ),
+        "tracing_render_vs_native_render": safe_ratio(
+            abs_m["tracing_light"]["report_render_ms"]["median"], abs_m["core_light"]["report_render_ms"]["median"]
+        ),
+    }
 
     quality, reasons = assess_quality(summary, measured_rounds)
     summary["measurement_quality"] = quality
     summary["stability_warning"] = None if quality == QUALITY_STABLE else reasons
+    _validate_sanity(summary)
 
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return summary
+
+
+def _validate_sanity(summary: dict) -> None:
+    abs_m = summary["absolute_metrics"]
+    required = ("core_light", "tracing_light", "tracing_light_tokio_sampler")
+    for mode in MODES:
+        if abs_m[mode]["throughput_rps"]["median"] <= 0:
+            raise SystemExit(f"{mode} throughput must be > 0")
+        if abs_m[mode]["latency_p95_ms"]["median"] <= 0:
+            raise SystemExit(f"{mode} p95 must be > 0")
+    for mode in required:
+        if abs_m[mode]["run_requests"]["median"] <= 0 or abs_m[mode]["run_stages"]["median"] <= 0 or abs_m[mode]["run_queues"]["median"] <= 0:
+            raise SystemExit(f"{mode} must record request/stage/queue evidence")
+    if abs_m["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] <= 0:
+        raise SystemExit("tracing_light_tokio_sampler must have runtime snapshots")
+    if abs_m["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] <= 0:
+        raise SystemExit("tracing_light_tokio_sampler must include sampler metadata")
+    if abs_m["tracing_light_drop_path"]["drop_path_signal_present_rounds"] <= 0:
+        raise SystemExit("tracing_light_drop_path must include drop-path signal")
+    ratios = summary["tracing_vs_native_ratios"]
+    required_ratio_keys = (
+        "tracing_light_vs_core_light_latency_p95",
+        "tracing_light_vs_core_light_throughput",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95",
+        "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput",
+        "tracing_light_drop_path_vs_core_light_drop_path_latency_p95",
+        "tracing_light_drop_path_vs_core_light_drop_path_throughput",
+    )
+    for key in required_ratio_keys:
+        value = ratios.get(key)
+        if value is None:
+            raise SystemExit(f"{key} is required and cannot be null (likely zero/missing denominator)")
+        if value != value or value in (float("inf"), float("-inf")):
+            raise SystemExit(f"{key} must be finite (not NaN or infinity)")
+
+    warnings = evaluate_tracing_parity(ratios)
+    for warning in warnings:
+        print(f"WARNING: {warning}", file=sys.stderr)
+
+
+def evaluate_tracing_parity(ratios: dict[str, float]) -> list[str]:
+    warnings: list[str] = []
+    pairs = (
+        ("tracing_light", "tracing_light_vs_core_light_latency_p95", "tracing_light_vs_core_light_throughput"),
+        (
+            "tracing_light_tokio_sampler",
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95",
+            "tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput",
+        ),
+        (
+            "tracing_light_drop_path",
+            "tracing_light_drop_path_vs_core_light_drop_path_latency_p95",
+            "tracing_light_drop_path_vs_core_light_drop_path_throughput",
+        ),
+    )
+
+    for mode_label, latency_key, throughput_key in pairs:
+        latency_ratio = ratios[latency_key]
+        if latency_ratio > TRACING_PARITY_P95_HARD_LIMIT:
+            raise SystemExit(f"{latency_key} exceeds parity threshold (>{TRACING_PARITY_P95_HARD_LIMIT}x)")
+        if latency_ratio > (1.0 + TRACING_PARITY_SOFT_WARNING_BAND):
+            warnings.append(
+                f"{mode_label} p95 is {latency_ratio:.2f}x native; "
+                "within hard threshold but above 2% warning band"
+            )
+
+        throughput_ratio = ratios[throughput_key]
+        if throughput_ratio < TRACING_PARITY_THROUGHPUT_HARD_FLOOR:
+            raise SystemExit(f"{throughput_key} is below parity threshold (<{TRACING_PARITY_THROUGHPUT_HARD_FLOOR}x)")
+        if throughput_ratio < (1.0 - TRACING_PARITY_SOFT_WARNING_BAND):
+            warnings.append(
+                f"{mode_label} throughput is {throughput_ratio:.2f}x native; "
+                "within hard threshold but below 2% warning band"
+            )
+
+    return warnings
 
 
 def build_release_binary(root_dir: Path) -> Path:
@@ -326,6 +487,10 @@ def run_mode(binary_path: Path, mode: str, args: argparse.Namespace, artifact_di
     return json.loads(output[-1])
 
 
+def ratio_text(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}x"
+
+
 def main() -> None:
     args = parse_args()
     if args.requests <= 0 or args.concurrency <= 0 or args.work_ms <= 0:
@@ -372,9 +537,75 @@ def main() -> None:
         for reason in summary["stability_warning"] or []:
             print(f" - {reason}", file=sys.stderr)
 
-    print(json.dumps(summary, indent=2))
+    parity_warnings = evaluate_tracing_parity(summary.get("tracing_vs_native_ratios", {}))
+    ratios = summary.get("tracing_vs_native_ratios", {})
+    rows = (
+        (
+            "tracing_light / core_light",
+            ratios.get("tracing_light_vs_core_light_latency_p95"),
+            ratios.get("tracing_light_vs_core_light_throughput"),
+        ),
+        (
+            "tracing_sampler / native_sampler",
+            ratios.get("tracing_light_tokio_sampler_vs_core_light_tokio_sampler_latency_p95"),
+            ratios.get("tracing_light_tokio_sampler_vs_core_light_tokio_sampler_throughput"),
+        ),
+        (
+            "tracing_drop_path / native_drop_path",
+            ratios.get("tracing_light_drop_path_vs_core_light_drop_path_latency_p95"),
+            ratios.get("tracing_light_drop_path_vs_core_light_drop_path_throughput"),
+        ),
+    )
+    print("Runtime-cost CI smoke summary")
+    print(
+        "requests="
+        f"{summary['requests']} concurrency={summary['concurrency']} work_ms={summary['work_ms']} "
+        f"warmup_rounds={summary['warmup_rounds']} measured_rounds={summary['measured_rounds']} "
+        f"quality={summary['measurement_quality']}"
+    )
+    print()
+    print("GATED tracing/native runtime-path ratios")
+    print("| comparison | p95 ratio | throughput ratio | status |")
+    print("|---|---:|---:|---|")
+    for name, p95_ratio, throughput_ratio in rows:
+        p95_text = "n/a" if p95_ratio is None else f"{p95_ratio:.2f}x"
+        throughput_text = "n/a" if throughput_ratio is None else f"{throughput_ratio:.2f}x"
+        status = "ok"
+        if (p95_ratio is not None and p95_ratio > TRACING_PARITY_P95_HARD_LIMIT) or (
+            throughput_ratio is not None and throughput_ratio < TRACING_PARITY_THROUGHPUT_HARD_FLOOR
+        ):
+            status = "fail"
+        elif (p95_ratio is not None and p95_ratio > (1.0 + TRACING_PARITY_SOFT_WARNING_BAND)) or (
+            throughput_ratio is not None and throughput_ratio < (1.0 - TRACING_PARITY_SOFT_WARNING_BAND)
+        ):
+            status = "warn"
+        print(f"| {name} | {p95_text} | {throughput_text} | {status} |")
+    print()
+    print("Informational post-run ratios")
+    print("| comparison | ratio |")
+    print("|---|---:|")
+    print(f"| tracing finalize / native finalize | {ratio_text(ratios.get('tracing_finalize_vs_native_finalize'))} |")
+    print(f"| tracing analyze / native analyze | {ratio_text(ratios.get('tracing_analyze_vs_native_analyze'))} |")
+    print(f"| tracing render / native render | {ratio_text(ratios.get('tracing_render_vs_native_render'))} |")
+    print()
+    print("Warnings")
+    if parity_warnings:
+        for warning in parity_warnings:
+            print(f"- WARNING: {warning}")
+    if summary["measurement_quality"] != QUALITY_STABLE:
+        print(
+            f"- WARNING: measurement quality is {summary['measurement_quality']}; rerun on a quieter machine for stronger conclusions."
+        )
+        for reason in summary["stability_warning"] or []:
+            print(f"- {reason}")
+    if not parity_warnings and summary["measurement_quality"] == QUALITY_STABLE:
+        print("- none")
+    print()
+    print("Artifacts")
     print(f"raw results: {raw_path}")
     print(f"summary: {summary_path}")
+    if args.print_json:
+        print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

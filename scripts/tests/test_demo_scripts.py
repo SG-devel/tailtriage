@@ -135,6 +135,330 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(args.command, "diagnosis-matrix")
         self.assertEqual(args.scenario, ["queue", "executor"])
 
+    def test_parse_args_accepts_validate_tracing_parity(self) -> None:
+        args = parse_args(["validate-tracing-parity", "queue", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "queue")
+        self.assertEqual(args.profile, "dev")
+
+    def test_parse_args_accepts_validate_tracing_parity_retry_storm(self) -> None:
+        args = parse_args(["validate-tracing-parity", "retry-storm"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "retry-storm")
+
+    def test_parse_args_accepts_validate_tracing_parity_blocking(self) -> None:
+        args = parse_args(["validate-tracing-parity", "blocking", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "blocking")
+
+    def test_parse_args_accepts_validate_tracing_parity_executor(self) -> None:
+        args = parse_args(["validate-tracing-parity", "executor", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "executor")
+
+    def test_parse_args_accepts_validate_tracing_parity_all(self) -> None:
+        args = parse_args(["validate-tracing-parity", "all", "--profile", "dev"])
+        self.assertEqual(args.command, "validate-tracing-parity")
+        self.assertEqual(args.scenario, "all")
+
+    def test_parse_args_accepts_validate_tracing_retention_parity(self) -> None:
+        args = parse_args(["validate-tracing-retention-parity", "--profile", "release"])
+        self.assertEqual(args.command, "validate-tracing-retention-parity")
+        self.assertEqual(args.profile, "release")
+
+    @patch("demo_tool._require_equal")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_retention_parity_uses_tiny_limits_three(
+        self,
+        parity_config_mock,
+        run_and_analyze_mock,
+        load_run_mock,
+        require_equal_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+        }
+        load_run_mock.side_effect = [{}, {}, {}, {}]
+        demo_tool.validate_tracing_retention_parity(Path("/tmp/repo"), profile="release")
+
+        calls = run_and_analyze_mock.call_args_list
+        self.assertEqual(len(calls), 4)
+        for call in calls:
+            extra_args = call.kwargs["extra_demo_args"]
+            self.assertIn("--mode", extra_args)
+            self.assertIn(extra_args[extra_args.index("--mode") + 1], {"light", "investigation"})
+            self.assertEqual(extra_args[extra_args.index("--max-requests") + 1], "3")
+            self.assertEqual(extra_args[extra_args.index("--max-stages") + 1], "3")
+            self.assertEqual(extra_args[extra_args.index("--max-queues") + 1], "3")
+        self.assertTrue(require_equal_mock.called)
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_non_runtime_artifact_rejects_runtime_snapshot_fabrication(
+        self,
+        parity_config_mock,
+        _run_and_analyze_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/queue-demo",
+            "expected_kind": "application_queue_saturation",
+            "queues": {"worker_permit"},
+            "stages": {"simulated_work"},
+            "require_p95_improvement": True,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        fake_run = {
+            "requests": [{"route": "/queue-demo"}],
+            "stages": [{"stage": "simulated_work"}],
+            "queues": [{"queue": "worker_permit", "depth_at_start": 1}],
+            "runtime_snapshots": [{"global_queue_depth": 1}],
+            "metadata": {
+                "mode": "light",
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+                "effective_tokio_sampler_config": None,
+            },
+            "scenario_label": "queue",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        with patch("demo_tool._load_run", side_effect=[fake_run] * 8), patch.object(
+            Path, "exists", return_value=True
+        ):
+            with self.assertRaisesRegex(
+                SystemExit,
+                r"scenario=queue.*instrumentation=tracing.*artifact=before-light-tracing-run\.json.*field=runtime_snapshots.*expected=\[\].*actual=\[\{'global_queue_depth': 1\}\]",
+            ):
+                demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_artifacts_include_mode_and_instrumentation(
+        self,
+        parity_config_mock,
+        run_and_analyze_mock,
+        load_run_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/queue-demo",
+            "expected_kind": "application_queue_saturation",
+            "queues": {"worker_permit"},
+            "stages": {"simulated_work"},
+            "require_p95_improvement": False,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        light_run = {
+            "requests": [{"route": "/queue-demo"}],
+            "stages": [{"stage": "simulated_work"}],
+            "queues": [{"queue": "worker_permit", "depth_at_start": 1}],
+            "runtime_snapshots": [],
+            "metadata": {
+                "mode": "light",
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+                "effective_tokio_sampler_config": None,
+            },
+            "scenario_label": "queue",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        investigation_run = {
+            **light_run,
+            "metadata": {
+                **light_run["metadata"],
+                "mode": "investigation",
+            },
+        }
+        load_run_mock.side_effect = ([light_run] * 4) + ([investigation_run] * 4)
+        with patch.object(Path, "exists", return_value=True):
+            demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
+        artifact_basenames = {call.args[2].name for call in run_and_analyze_mock.call_args_list}
+        self.assertEqual(len(artifact_basenames), 8)
+        self.assertIn("before-light-native-run.json", artifact_basenames)
+        self.assertIn("before-light-tracing-run.json", artifact_basenames)
+        self.assertIn("after-investigation-native-run.json", artifact_basenames)
+        self.assertIn("after-investigation-tracing-run.json", artifact_basenames)
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_fails_when_capture_mode_metadata_is_wrong(
+        self,
+        parity_config_mock,
+        run_and_analyze_mock,
+        load_run_mock,
+        load_report_json_mock,
+    ) -> None:
+        del run_and_analyze_mock
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/queue-demo",
+            "expected_kind": "application_queue_saturation",
+            "queues": {"worker_permit"},
+            "stages": {"simulated_work"},
+            "require_p95_improvement": False,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "application_queue_saturation", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        light_run = {
+            "requests": [{"route": "/queue-demo"}],
+            "stages": [{"stage": "simulated_work"}],
+            "queues": [{"queue": "worker_permit", "depth_at_start": 1}],
+            "runtime_snapshots": [],
+            "metadata": {
+                "mode": "light",
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+                "effective_tokio_sampler_config": None,
+            },
+            "scenario_label": "queue",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        load_run_mock.side_effect = [light_run] * 8
+        with patch.object(Path, "exists", return_value=True):
+            with self.assertRaisesRegex(
+                SystemExit,
+                r"scenario=queue.*capture_mode=investigation.*artifact=before-investigation-native-run\.json.*field=metadata\.mode.*expected='investigation'.*actual='light'",
+            ):
+                demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_runtime_sensitive_accepts_manual_disabled_sampler_warning(
+        self,
+        parity_config_mock,
+        _run_and_analyze_mock,
+        load_run_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/blocking-demo",
+            "expected_kind": "blocking_pool_pressure",
+            "queues": {"dispatch_overhead"},
+            "stages": {"spawn_blocking_path"},
+            "require_p95_improvement": False,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "blocking_pool_pressure", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        light_run = {
+            "requests": [{"route": "/blocking-demo"}],
+            "stages": [{"stage": "spawn_blocking_path"}],
+            "queues": [{"queue": "dispatch_overhead", "depth_at_start": 1}],
+            "runtime_snapshots": [{"blocking_queue_depth": 1}],
+            "metadata": {
+                "mode": "light",
+                "lifecycle_warnings": [
+                    "tailtriage-tracing session ran with background runtime sampling disabled; runtime snapshots rely on manual record_runtime_snapshot(...) calls"
+                ],
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+            },
+            "scenario_label": "blocking",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        investigation_run = {**light_run, "metadata": {**light_run["metadata"], "mode": "investigation"}}
+        load_run_mock.side_effect = ([light_run] * 4) + ([investigation_run] * 4)
+        with patch.object(Path, "exists", return_value=True):
+            demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
+
+    @patch("demo_tool.load_report_json")
+    @patch("demo_tool._load_run")
+    @patch("demo_tool.run_and_analyze")
+    @patch("demo_tool._tracing_parity_config")
+    def test_validate_tracing_parity_runtime_sensitive_rejects_sampler_metadata_without_disabled_warning(
+        self,
+        parity_config_mock,
+        _run_and_analyze_mock,
+        load_run_mock,
+        load_report_json_mock,
+    ) -> None:
+        parity_config_mock.return_value = {
+            "demo_manifest": Path("/tmp/demo/Cargo.toml"),
+            "artifact_dir": Path("/tmp/demo/artifacts"),
+            "route": "/blocking-demo",
+            "expected_kind": "blocking_pool_pressure",
+            "queues": {"dispatch_overhead"},
+            "stages": {"spawn_blocking_path"},
+            "require_p95_improvement": False,
+        }
+        report = {
+            "request_count": 1,
+            "p95_latency_us": 10,
+            "primary_suspect": {"kind": "blocking_pool_pressure", "score": 10},
+            "secondary_suspects": [],
+        }
+        load_report_json_mock.side_effect = [report] * 8
+        light_run = {
+            "requests": [{"route": "/blocking-demo"}],
+            "stages": [{"stage": "spawn_blocking_path"}],
+            "queues": [{"queue": "dispatch_overhead", "depth_at_start": 1}],
+            "runtime_snapshots": [{"blocking_queue_depth": 1}],
+            "metadata": {
+                "mode": "light",
+                "lifecycle_warnings": [],
+                "effective_tokio_sampler_config": {"interval_ms": 10},
+                "effective_core_config": {"capture_limits": {"max_requests": 3, "max_stages": 3, "max_queues": 3}},
+            },
+            "scenario_label": "blocking",
+            "truncation": {"dropped_requests": 0, "dropped_stages": 0, "dropped_queues": 0, "limits_hit": False},
+        }
+        investigation_run = {**light_run, "metadata": {**light_run["metadata"], "mode": "investigation"}}
+        load_run_mock.side_effect = ([light_run] * 4) + ([investigation_run] * 4)
+        with patch.object(Path, "exists", return_value=True):
+            with self.assertRaisesRegex(
+                SystemExit,
+                r"expected disabled-background-sampler lifecycle warning in deterministic runtime-sensitive tracing run before-light-tracing-run\.json",
+            ):
+                demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
+
+    def test_parity_failure_message_contains_scenario_field_expected_actual(self) -> None:
+        with self.assertRaisesRegex(
+            SystemExit,
+            "scenario=queue.*field=metadata.mode.*expected='light'.*actual='investigation'",
+        ):
+            demo_tool._require_equal(
+                scenario="queue",
+                instrumentation="native",
+                artifact_path="artifact.json",
+                field="metadata.mode",
+                expected="light",
+                actual="investigation",
+            )
+
     def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},

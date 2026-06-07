@@ -1,7 +1,5 @@
-use std::time::Instant;
-
-use crate::collector::{duration_to_us, lock_map};
-use crate::{unix_time_ms, InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
+use crate::collector::lock_map;
+use crate::{InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
 #[derive(Debug)]
@@ -26,9 +24,11 @@ impl Drop for InflightGuard<'_> {
             *entry
         };
 
+        let sample = self.tailtriage.run_clock.sample();
         self.tailtriage.record_inflight_snapshot(InFlightSnapshot {
             gauge: self.gauge.clone(),
-            at_unix_ms: unix_time_ms(),
+            at_unix_ms: sample.unix_ms,
+            at_run_us: Some(sample.run_elapsed_us),
             count,
         });
     }
@@ -64,18 +64,19 @@ impl StageTimer<'_> {
             return fut.await;
         }
 
-        let started_at_unix_ms = unix_time_ms();
-        let started = Instant::now();
+        let interval_start = self.tailtriage.run_clock.start_interval();
         let value = fut.await;
-        let finished_at_unix_ms = unix_time_ms();
+        let finished = self.tailtriage.run_clock.finish_interval(interval_start);
         let success = value.is_ok();
 
         self.tailtriage.record_stage_event(StageEvent {
             request_id: self.request_id,
             stage: self.stage,
-            started_at_unix_ms,
-            finished_at_unix_ms,
-            latency_us: duration_to_us(started.elapsed()),
+            started_at_unix_ms: finished.started_at_unix_ms,
+            started_at_run_us: finished.started_at_run_us,
+            finished_at_unix_ms: finished.finished_at_unix_ms,
+            finished_at_run_us: finished.finished_at_run_us,
+            latency_us: finished.duration_us,
             success,
         });
 
@@ -94,17 +95,18 @@ impl StageTimer<'_> {
             return fut.await;
         }
 
-        let started_at_unix_ms = unix_time_ms();
-        let started = Instant::now();
+        let interval_start = self.tailtriage.run_clock.start_interval();
         let value = fut.await;
-        let finished_at_unix_ms = unix_time_ms();
+        let finished = self.tailtriage.run_clock.finish_interval(interval_start);
 
         self.tailtriage.record_stage_event(StageEvent {
             request_id: self.request_id,
             stage: self.stage,
-            started_at_unix_ms,
-            finished_at_unix_ms,
-            latency_us: duration_to_us(started.elapsed()),
+            started_at_unix_ms: finished.started_at_unix_ms,
+            started_at_run_us: finished.started_at_run_us,
+            finished_at_unix_ms: finished.finished_at_unix_ms,
+            finished_at_run_us: finished.finished_at_run_us,
+            latency_us: finished.duration_us,
             success: true,
         });
 
@@ -143,17 +145,18 @@ impl QueueTimer<'_> {
             return fut.await;
         }
 
-        let waited_from_unix_ms = unix_time_ms();
-        let started = Instant::now();
+        let interval_start = self.tailtriage.run_clock.start_interval();
         let value = fut.await;
-        let waited_until_unix_ms = unix_time_ms();
+        let finished = self.tailtriage.run_clock.finish_interval(interval_start);
 
         self.tailtriage.record_queue_event(QueueEvent {
             request_id: self.request_id,
             queue: self.queue,
-            waited_from_unix_ms,
-            waited_until_unix_ms,
-            wait_us: duration_to_us(started.elapsed()),
+            waited_from_unix_ms: finished.started_at_unix_ms,
+            waited_from_run_us: finished.started_at_run_us,
+            waited_until_unix_ms: finished.finished_at_unix_ms,
+            waited_until_run_us: finished.finished_at_run_us,
+            wait_us: finished.duration_us,
             depth_at_start: self.depth_at_start,
         });
 

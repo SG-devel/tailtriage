@@ -42,6 +42,79 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Import completed tailtriage `tt.*` tracing span JSONL into Run JSON:
+
+```bash
+tailtriage import tracing-spans-jsonl spans.jsonl --service checkout --output tailtriage-run.json
+```
+
+With optional metadata flags, strict validation, and explicit format:
+
+```bash
+tailtriage import tracing-spans-jsonl spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict \
+  --input-format tailtriage-span-jsonl
+```
+
+
+`tailtriage import tracing-spans-jsonl` imports **completed tailtriage `tt.*` tracing span JSONL** into **Run JSON** (not Report JSON).
+
+Accepted `tt.*` field types match tracing intake:
+
+- `tt.success`: optional bool; strings `"true"` and `"false"` are also accepted case-insensitively.
+- `tt.depth_at_start`: optional non-negative integer. Do not record it with debug formatting.
+- `tt.outcome`: optional non-empty string.
+- `tt.kind`, `tt.request_id`, `tt.route`, `tt.stage`, and `tt.queue`: scalar strings.
+
+Recommended stable input format is the tailtriage wrapper JSONL shape:
+
+```json
+{"format":"tailtriage.tracing-span.v1","span":{...}}
+```
+
+`--input-format` values:
+- `tailtriage-span-jsonl`
+- `compatible`
+
+Behavior:
+- `tailtriage-span-jsonl` enforces wrapper-only parsing.
+- `tailtriage-span-jsonl` is the default library contract: non-wrapper non-empty JSON records are hard errors.
+- `compatible` is only for pre-stable/internal normalized completed-span shapes with explicit start/end timestamps; it is not auto-detection and not generic tracing JSON import.
+- Close-event/fmt-like tracing log envelopes are unsupported import input.
+- Ordinary `tracing_subscriber::fmt().json()` logs are unsupported and rejected; timing is not guessed from JSONL line receive time.
+
+After import, run analysis separately:
+
+```bash
+tailtriage analyze tailtriage-run.json
+```
+
+Zero-request imports fail by design (the CLI loader requires at least one request).
+
+When paths include spaces, quote them in shell usage:
+
+```bash
+tailtriage import tracing-spans-jsonl "fixtures/tracing spans.jsonl" --service checkout --output "runs/imported run.json"
+```
+
+Import behavior checklist:
+
+- Imports completed tailtriage `tt.*` tracing span JSONL records in the documented shape.
+- Writes Run JSON through the normal local JSON artifact writer, not Report JSON.
+- Keeps analysis as a separate step: `tailtriage analyze tailtriage-run.json`.
+- Prints import warnings to stderr as `warning: ...`.
+- Uses the same `CaptureMode`/`CaptureLimits` semantics as native capture for request/stage/queue evidence retention.
+- Exposes request/stage/queue limit overrides because those are the evidence types offline CLI tracing import ingests.
+- Does not expose runtime-snapshot or in-flight-snapshot limit flags because this import path does not ingest those evidence types.
+- Does not fabricate runtime snapshots; executor/blocking-pressure interpretation remains limited unless runtime snapshots are also captured, for example via Tokio runtime sampling.
+- Treats malformed JSON input as fatal.
+- In non-strict mode, skips syntactically valid malformed/incomplete `tt.*` records with `warning: ...` lines.
+- Prefers `duration_us` as authoritative elapsed-time evidence when supplied; when it is absent, import derives duration from `finished_at_unix_ms - started_at_unix_ms`.
+- Rejects `duration_us`/timestamp-derived duration mismatches in `--strict` mode.
+- Warns but keeps `duration_us` in non-strict mode when supplied duration and timestamp-derived duration differ beyond tolerance.
+- Requires `--service` to be non-empty and not whitespace-only.
+- Fails when zero request events would be written, such as unrelated-only input or all-skipped malformed `tt.*` input, because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
+- Applies the same non-empty-request rule before persisting completed-span JSONL artifacts in tracing intake sessions.
+
 `tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`.
 
 The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
@@ -125,7 +198,7 @@ Then run one targeted check, change one thing, and re-run under comparable load.
 
 `route_breakdowns` is always present in JSON output and is usually an empty array. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal, such as different route-level primary suspects or a large route p95 latency spread. The global `primary_suspect` remains the primary full-run triage lead. Route breakdowns are supporting context only. They use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals, so they are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
 
-`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks detect material signal movement. The global `primary_suspect` remains global and unchanged by segment generation. Temporal segments are within-run hints, not proof of phase-specific root cause. Report warnings can explicitly call out large early/late p95 movement. Runtime and in-flight phase attribution uses timestamp-filtered segment windows and is limited when segment-filtered samples are sparse; when early/late windows overlap under concurrency, that timestamp-filtered runtime/in-flight attribution is approximate.
+`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks detect material signal movement. The global `primary_suspect` remains global and unchanged by segment generation. Temporal segments are within-run hints, not proof of phase-specific root cause. Report warnings can explicitly call out large early/late p95 movement. Temporal segments prefer run-relative monotonic offsets when present. Older or imported artifacts without complete run-relative offsets fall back to Unix-ms timestamp windows. Runtime and in-flight attribution remains approximate when samples are sparse or early/late windows overlap under concurrency.
 
 ## What the report contains
 
@@ -234,3 +307,5 @@ Use capture-side crates for that:
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling
 - `tailtriage-axum`: Axum request-boundary integration
+
+Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.

@@ -31,9 +31,18 @@ Normal CI keeps deterministic diagnostics and docs contracts as gates but does n
 | Deterministic corpus | Yes in normal CI and in `validation-snapshot.yml` | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
-| Runtime-cost measurement | Partially (non-blocking measure in CI) | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
+| Runtime-cost measurement | Yes (bounded hard-gated smoke in CI) + manual/local deeper runs | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
 | Collector-limit stress | Yes (smoke profile + summary validation) | bounded drop/truncation/warning/downgrade behavior under stress | zero drops under all load |
 | Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
+
+Tracing-intake contract coverage is currently validated by unit/package tests and examples that exercise:
+- stable wrapper fixture (`tailtriage.tracing-span.v1`)
+- wrapper-only import mode and compatible-mode behavior
+- CLI `--input-format` guardrails
+- `TracingIntakeSession` request/stage/queue capture and conversion
+- example compile/run coverage under package example tests
+
+These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim import support for ordinary tracing log JSON (`fmt().json` style output), do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
 
 ## Deterministic corpus validation
 The deterministic benchmark validates:
@@ -103,3 +112,9 @@ Snapshot artifacts include deterministic benchmark metrics, thresholds, git/ref 
 
 
 Optional manifest fields can validate expanded analyzer report surface on selected cases only: `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`. These checks are fixture-scoped and optional; cases that omit them continue to validate under the existing suspect/evidence/warning contract.
+
+## Tracing contract parity CI gates
+CI gates native/tracing contract parity for demo scenarios via `scripts/demo_tool.py validate-tracing-parity all --profile release`. Checks include scenario coverage, expected evidence presence, route coverage, capture-mode behavior across `light` and `investigation`, retention semantics, and runtime/non-runtime boundaries. These checks do not require byte-for-byte artifact equality or exact suspect-ranking equality in every scenario. The queue tiny-limit retention parity gate runs in both `light` and `investigation` and checks retained counts, dropped counters, `truncation.limits_hit`, and `metadata.effective_core_config`. Runtime-sensitive tracing scenarios (Tokio session coupling) use deterministic/manual runtime snapshots and require all of: non-empty runtime snapshots, scenario-specific runtime field evidence, and an explicit disabled-background-sampler lifecycle warning. Runtime-sensitive tracing contract parity does not rely on ambient sampler metadata/noise. Tracing-only scenarios must not fabricate runtime snapshots. These checks support repeatable triage evidence and do not prove universal production performance or root-cause certainty.
+
+
+TracingTokioSession validation paths may run deterministic/manual runtime snapshot mode (`disable_background_sampler()` + `record_runtime_snapshot(...)`) to remove sampler cadence noise. This supports repeatable triage evidence and does not claim causal proof.

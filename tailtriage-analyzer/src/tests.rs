@@ -6,7 +6,7 @@ use tailtriage_core::{
 use super::temporal::{
     apply_temporal_overlap_attribution_warning, has_material_p95_shift,
     TEMPORAL_OVERLAP_ATTRIBUTION_WARNING, TEMPORAL_P95_SHIFT_WARNING,
-    TEMPORAL_SUSPECT_SHIFT_WARNING,
+    TEMPORAL_SUSPECT_SHIFT_WARNING, TEMPORAL_WALL_CLOCK_FALLBACK_WARNING,
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
@@ -44,7 +44,9 @@ fn test_run() -> Run {
                 route: "/test".to_owned(),
                 kind: None,
                 started_at_unix_ms: 1,
+                started_at_run_us: None,
                 finished_at_unix_ms: 2,
+                finished_at_run_us: None,
                 latency_us: 1_000,
                 outcome: "ok".to_owned(),
             },
@@ -53,7 +55,9 @@ fn test_run() -> Run {
                 route: "/test".to_owned(),
                 kind: None,
                 started_at_unix_ms: 2,
+                started_at_run_us: None,
                 finished_at_unix_ms: 3,
+                finished_at_run_us: None,
                 latency_us: 1_000,
                 outcome: "ok".to_owned(),
             },
@@ -62,7 +66,9 @@ fn test_run() -> Run {
                 route: "/test".to_owned(),
                 kind: None,
                 started_at_unix_ms: 3,
+                started_at_run_us: None,
                 finished_at_unix_ms: 4,
+                finished_at_run_us: None,
                 latency_us: 1_000,
                 outcome: "ok".to_owned(),
             },
@@ -81,10 +87,37 @@ fn sample_request(id: u64) -> RequestEvent {
         route: "/t".into(),
         kind: None,
         started_at_unix_ms: id,
+        started_at_run_us: None,
         finished_at_unix_ms: id + 1,
+        finished_at_run_us: None,
         latency_us: 1_000,
         outcome: "ok".into(),
     }
+}
+
+#[test]
+fn latency_percentiles_use_duration_fields_not_timestamp_subtraction() {
+    let mut run = test_run();
+    run.metadata.started_at_unix_ms = 10;
+    run.metadata.finished_at_unix_ms = 11;
+    run.metadata.finalized_at_unix_ms = Some(11);
+    run.requests = vec![RequestEvent {
+        request_id: "req-duration".to_owned(),
+        route: "/timing".to_owned(),
+        kind: None,
+        started_at_unix_ms: 10,
+        started_at_run_us: Some(1_000),
+        finished_at_unix_ms: 11,
+        finished_at_run_us: Some(2_000),
+        latency_us: 50_000,
+        outcome: "ok".to_owned(),
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.p50_latency_us, Some(50_000));
+    assert_eq!(report.p95_latency_us, Some(50_000));
+    assert_eq!(report.p99_latency_us, Some(50_000));
 }
 
 fn runtime_snapshot(
@@ -94,6 +127,7 @@ fn runtime_snapshot(
 ) -> RuntimeSnapshot {
     RuntimeSnapshot {
         at_unix_ms: 1,
+        at_run_us: None,
         global_queue_depth: global,
         local_queue_depth: local,
         alive_tasks: Some(20),
@@ -110,7 +144,9 @@ fn downstream_stage_tie_break_is_deterministic() {
             request_id: "req-1".to_owned(),
             stage: "stage_a".to_owned(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 300,
             success: true,
         },
@@ -118,7 +154,9 @@ fn downstream_stage_tie_break_is_deterministic() {
             request_id: "req-2".to_owned(),
             stage: "stage_a".to_owned(),
             started_at_unix_ms: 2,
+            started_at_run_us: None,
             finished_at_unix_ms: 3,
+            finished_at_run_us: None,
             latency_us: 300,
             success: true,
         },
@@ -126,7 +164,9 @@ fn downstream_stage_tie_break_is_deterministic() {
             request_id: "req-3".to_owned(),
             stage: "stage_a".to_owned(),
             started_at_unix_ms: 3,
+            started_at_run_us: None,
             finished_at_unix_ms: 4,
+            finished_at_run_us: None,
             latency_us: 300,
             success: true,
         },
@@ -134,7 +174,9 @@ fn downstream_stage_tie_break_is_deterministic() {
             request_id: "req-1".to_owned(),
             stage: "stage_b".to_owned(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 300,
             success: true,
         },
@@ -142,7 +184,9 @@ fn downstream_stage_tie_break_is_deterministic() {
             request_id: "req-2".to_owned(),
             stage: "stage_b".to_owned(),
             started_at_unix_ms: 2,
+            started_at_run_us: None,
             finished_at_unix_ms: 3,
+            finished_at_run_us: None,
             latency_us: 300,
             success: true,
         },
@@ -150,7 +194,9 @@ fn downstream_stage_tie_break_is_deterministic() {
             request_id: "req-3".to_owned(),
             stage: "stage_b".to_owned(),
             started_at_unix_ms: 3,
+            started_at_run_us: None,
             finished_at_unix_ms: 4,
+            finished_at_run_us: None,
             latency_us: 300,
             success: true,
         },
@@ -179,11 +225,13 @@ fn inflight_trend_handles_constant_series() {
         tailtriage_core::InFlightSnapshot {
             gauge: "http".to_owned(),
             at_unix_ms: 10,
+            at_run_us: None,
             count: 3,
         },
         tailtriage_core::InFlightSnapshot {
             gauge: "http".to_owned(),
             at_unix_ms: 20,
+            at_run_us: None,
             count: 3,
         },
     ])
@@ -200,16 +248,19 @@ fn inflight_trend_handles_monotonic_increase() {
         tailtriage_core::InFlightSnapshot {
             gauge: "http".to_owned(),
             at_unix_ms: 10,
+            at_run_us: None,
             count: 1,
         },
         tailtriage_core::InFlightSnapshot {
             gauge: "http".to_owned(),
             at_unix_ms: 20,
+            at_run_us: None,
             count: 4,
         },
         tailtriage_core::InFlightSnapshot {
             gauge: "http".to_owned(),
             at_unix_ms: 30,
+            at_run_us: None,
             count: 6,
         },
     ])
@@ -373,7 +424,9 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 0,
+            waited_from_run_us: None,
             waited_until_unix_ms: 1,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         },
         QueueEvent {
@@ -381,7 +434,9 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         },
         QueueEvent {
@@ -389,7 +444,9 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 2,
+            waited_from_run_us: None,
             waited_until_unix_ms: 3,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         },
     ];
@@ -413,7 +470,9 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 0,
+            waited_from_run_us: None,
             waited_until_unix_ms: 1,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         },
         QueueEvent {
@@ -421,7 +480,9 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         },
     ];
@@ -465,7 +526,9 @@ fn downstream_beats_weak_blocking() {
             request_id: "req-1".into(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 900,
             success: true,
         },
@@ -473,7 +536,9 @@ fn downstream_beats_weak_blocking() {
             request_id: "req-2".into(),
             stage: "db".into(),
             started_at_unix_ms: 2,
+            started_at_run_us: None,
             finished_at_unix_ms: 3,
+            finished_at_run_us: None,
             latency_us: 900,
             success: true,
         },
@@ -481,7 +546,9 @@ fn downstream_beats_weak_blocking() {
             request_id: "req-3".into(),
             stage: "db".into(),
             started_at_unix_ms: 3,
+            started_at_run_us: None,
             finished_at_unix_ms: 4,
+            finished_at_run_us: None,
             latency_us: 900,
             success: true,
         },
@@ -503,7 +570,9 @@ fn score_100_is_reserved_for_overwhelming_queue_evidence() {
             route: "/test".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -515,7 +584,9 @@ fn score_100_is_reserved_for_overwhelming_queue_evidence() {
             request_id: r.request_id.clone(),
             queue: "q".into(),
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(20),
         })
@@ -556,7 +627,9 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
             route: "/test".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 4_000_000,
             outcome: "ok".into(),
         })
@@ -568,7 +641,9 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
             request_id: r.request_id.clone(),
             stage: "spawn_blocking_path".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 3_900_000,
             success: true,
         })
@@ -610,7 +685,9 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
             route: "/test".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 4_000_000,
             outcome: "ok".into(),
         })
@@ -622,7 +699,9 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
             request_id: r.request_id.clone(),
             stage: "spawn_blocking_path".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 3_900_000,
             success: true,
         })
@@ -717,7 +796,9 @@ fn evidence_quality_partial_for_runtime_partial_fields() {
             route: "/t".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -730,7 +811,9 @@ fn evidence_quality_partial_for_runtime_partial_fields() {
             queue: "q".into(),
             wait_us: 600,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(2),
         })
         .collect();
@@ -755,7 +838,9 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
             route: "/t".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -768,7 +853,9 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
             queue: "q".into(),
             wait_us: 500,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(2),
         })
         .collect();
@@ -779,7 +866,9 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
             request_id: r.request_id.clone(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 400,
             success: true,
         })
@@ -800,7 +889,9 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
             route: "/t".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -813,7 +904,9 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
             queue: "q".into(),
             wait_us: 500,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(2),
         })
         .collect();
@@ -824,7 +917,9 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
             request_id: r.request_id.clone(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 400,
             success: true,
         })
@@ -851,7 +946,9 @@ fn confidence_caps_do_not_change_score_ordering() {
             route: "/t".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -864,7 +961,9 @@ fn confidence_caps_do_not_change_score_ordering() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(8),
         })
         .collect();
@@ -875,7 +974,9 @@ fn confidence_caps_do_not_change_score_ordering() {
             request_id: r.request_id.clone(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 800,
             success: true,
         })
@@ -896,7 +997,9 @@ fn low_request_count_caps_primary_confidence_and_adds_note() {
             route: "/t".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -908,7 +1011,9 @@ fn low_request_count_caps_primary_confidence_and_adds_note() {
             request_id: r.request_id.clone(),
             queue: "q".into(),
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(18),
         })
@@ -931,7 +1036,9 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
             route: "/test".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -943,7 +1050,9 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
             request_id: r.request_id.clone(),
             queue: "q".into(),
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             wait_us: 985,
             depth_at_start: Some(15),
         })
@@ -952,11 +1061,13 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
         tailtriage_core::InFlightSnapshot {
             gauge: "http".into(),
             at_unix_ms: 1,
+            at_run_us: None,
             count: 1,
         },
         tailtriage_core::InFlightSnapshot {
             gauge: "http".into(),
             at_unix_ms: 2,
+            at_run_us: None,
             count: 10,
         },
     ];
@@ -978,7 +1089,9 @@ fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
             route: "/q".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -990,7 +1103,9 @@ fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
             request_id: r.request_id.clone(),
             queue: "q".into(),
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(15),
         })
@@ -1043,7 +1158,9 @@ fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
             route: "/s".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 5_000,
             outcome: "ok".into(),
         })
@@ -1055,7 +1172,9 @@ fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
             request_id: r.request_id.clone(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 10,
+            finished_at_run_us: None,
             latency_us: 4_800,
             success: true,
         })
@@ -1106,6 +1225,7 @@ fn runtime_partial_fields_cap_executor_or_blocking_confidence() {
     run.runtime_snapshots = (0..10)
         .map(|i| RuntimeSnapshot {
             at_unix_ms: i,
+            at_run_us: None,
             alive_tasks: Some(1),
             global_queue_depth: Some(5),
             local_queue_depth: Some(2),
@@ -1235,7 +1355,9 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
             route: "/q".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 1_000,
             outcome: "ok".into(),
         })
@@ -1247,7 +1369,9 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
             request_id: r.request_id.clone(),
             queue: "q".into(),
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(15),
         })
@@ -1324,7 +1448,9 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
             queue: "ingress".into(),
             wait_us: 9_000,
             waited_from_unix_ms: 0,
+            waited_from_run_us: None,
             waited_until_unix_ms: 1,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         });
     }
@@ -1333,7 +1459,9 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
             request_id: req_id.to_owned(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 1_900,
             success: true,
         });
@@ -1400,7 +1528,9 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
             queue: "ingress".into(),
             wait_us: 9_000,
             waited_from_unix_ms: 0,
+            waited_from_run_us: None,
             waited_until_unix_ms: 1,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         });
     }
@@ -1409,7 +1539,9 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
             request_id: req_id.to_owned(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 1_900,
             success: true,
         });
@@ -1456,7 +1588,9 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
             queue: "ingress".into(),
             wait_us: 7_400,
             waited_from_unix_ms: 0,
+            waited_from_run_us: None,
             waited_until_unix_ms: 1,
+            waited_until_run_us: None,
             depth_at_start: Some(7),
         });
     }
@@ -1506,7 +1640,9 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         });
     }
@@ -1518,6 +1654,375 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
         .find(|s| s.name == "early")
         .expect("early temporal segment should be emitted");
     assert_eq!(early.finished_at_unix_ms, Some(1000));
+}
+
+#[test]
+fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
+    let mut run = test_run();
+    run.requests = (1..=20).map(sample_request).collect();
+
+    for request in &mut run.requests {
+        let id = request
+            .request_id
+            .strip_prefix("req-")
+            .expect("test request id should use req- prefix")
+            .parse::<u64>()
+            .expect("test request id should end with an integer");
+        request.started_at_unix_ms = 100;
+        request.finished_at_unix_ms = 101;
+        request.started_at_run_us = Some((21 - id) * 1_000);
+        request.finished_at_run_us = Some((21 - id) * 1_000 + 100);
+    }
+
+    for id in 11..=20 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{id}"),
+            queue: "ingress".into(),
+            wait_us: 900,
+            waited_from_unix_ms: 100,
+            waited_from_run_us: None,
+            waited_until_unix_ms: 101,
+            waited_until_run_us: None,
+            depth_at_start: Some(9),
+        });
+    }
+    for id in 1..=10 {
+        run.stages.push(StageEvent {
+            request_id: format!("req-{id}"),
+            stage: "db".into(),
+            started_at_unix_ms: 100,
+            started_at_run_us: None,
+            finished_at_unix_ms: 101,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "early")
+        .expect("early temporal segment should be emitted");
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "late")
+        .expect("late temporal segment should be emitted");
+    assert_eq!(
+        early.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(
+        late.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+}
+
+#[test]
+fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
+    let mut run = test_run();
+    run.requests = (1..=20).map(sample_request).collect();
+
+    for (idx, request) in run.requests.iter_mut().enumerate() {
+        let idx = u64::try_from(idx).expect("test index should fit in u64");
+        request.started_at_unix_ms = 1;
+        request.finished_at_unix_ms = 1;
+        if idx < 10 {
+            request.started_at_run_us = Some(1_000 + idx * 100);
+            request.finished_at_run_us = Some(1_050 + idx * 100);
+        } else {
+            request.started_at_run_us = Some(10_000 + idx * 100);
+            request.finished_at_run_us = Some(10_050 + idx * 100);
+            request.latency_us = 6_000;
+        }
+    }
+
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(1_200),
+            global_queue_depth: Some(50),
+            local_queue_depth: Some(50),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(11_200),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(1_200),
+            gauge: "http.server.requests".into(),
+            count: 2,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 1,
+            at_run_us: Some(11_200),
+            gauge: "http.server.requests".into(),
+            count: 9,
+        },
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "early")
+        .expect("early temporal segment should be emitted");
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "late")
+        .expect("late temporal segment should be emitted");
+
+    assert_eq!(early.evidence_quality.runtime_snapshot_count, 1);
+    assert_eq!(early.evidence_quality.inflight_snapshot_count, 1);
+    assert_eq!(late.evidence_quality.runtime_snapshot_count, 1);
+    assert_eq!(late.evidence_quality.inflight_snapshot_count, 1);
+    assert!(early.p95_latency_us < late.p95_latency_us);
+    for segment in &report.temporal_segments {
+        assert!(!segment.warnings.iter().any(|warning| warning
+            == "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing."));
+    }
+}
+
+#[test]
+fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
+    let mut run = test_run();
+    run.requests = (1..=20).map(sample_request).collect();
+
+    for (idx, request) in run.requests.iter_mut().enumerate() {
+        let idx = u64::try_from(idx + 1).expect("test index should fit in u64");
+        request.started_at_run_us = Some(idx * 10_000);
+        request.finished_at_run_us = Some(idx * 10_000 + 5_000);
+        if idx > 10 {
+            request.latency_us = 6_000;
+        }
+    }
+
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 5,
+            at_run_us: None,
+            global_queue_depth: Some(50),
+            local_queue_depth: Some(50),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 15,
+            at_run_us: None,
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(150_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 5,
+            at_run_us: None,
+            gauge: "http.server.requests".into(),
+            count: 2,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 15,
+            at_run_us: None,
+            gauge: "http.server.requests".into(),
+            count: 9,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(150_000),
+            gauge: "http.server.requests".into(),
+            count: 9,
+        },
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "early")
+        .expect("early temporal segment should be emitted");
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|segment| segment.name == "late")
+        .expect("late temporal segment should be emitted");
+
+    assert_eq!(early.evidence_quality.runtime_snapshot_count, 1);
+    assert_eq!(early.evidence_quality.inflight_snapshot_count, 1);
+    assert_eq!(late.evidence_quality.runtime_snapshot_count, 2);
+    assert_eq!(late.evidence_quality.inflight_snapshot_count, 2);
+    for segment in &report.temporal_segments {
+        assert!(segment
+            .warnings
+            .iter()
+            .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+}
+
+#[test]
+fn temporal_segments_fallback_for_older_artifacts_warns() {
+    let mut run = test_run();
+    run.requests = (1..=20).map(sample_request).collect();
+    for request in run.requests.iter_mut().skip(10) {
+        request.latency_us = 6_000;
+    }
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 2,
+            at_run_us: None,
+            global_queue_depth: Some(50),
+            local_queue_depth: Some(50),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 12,
+            at_run_us: None,
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(100),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 2,
+            at_run_us: None,
+            gauge: "http.server.requests".into(),
+            count: 2,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 12,
+            at_run_us: None,
+            gauge: "http.server.requests".into(),
+            count: 9,
+        },
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.request_count, 20);
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert!(segment.warnings.iter().any(|warning| warning
+            == "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing."));
+    }
+}
+
+#[test]
+fn temporal_segments_with_complete_run_relative_fields_do_not_warn_about_fallback() {
+    let mut run = test_run();
+    run.requests = (1..=20).map(sample_request).collect();
+    for (idx, request) in run.requests.iter_mut().enumerate() {
+        let idx = u64::try_from(idx).expect("test index should fit in u64");
+        request.started_at_run_us = Some(idx * 1_000);
+        request.finished_at_run_us = Some(idx * 1_000 + 100);
+        if idx >= 10 {
+            request.latency_us = 6_000;
+        }
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    for segment in &report.temporal_segments {
+        assert!(!segment.warnings.iter().any(|warning| warning
+            == "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing."));
+    }
+}
+
+#[test]
+fn temporal_segments_sort_complete_run_relative_starts_by_run_time() {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|idx| RequestEvent {
+            request_id: format!("req-{idx:02}"),
+            route: "/t".into(),
+            kind: None,
+            started_at_unix_ms: 1,
+            started_at_run_us: Some((19 - idx) * 1_000),
+            finished_at_unix_ms: 1,
+            finished_at_run_us: Some((19 - idx) * 1_000 + 100),
+            latency_us: if idx >= 10 { 1_000 } else { 6_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    assert_eq!(report.temporal_segments[0].name, "early");
+    assert_eq!(report.temporal_segments[1].name, "late");
+    assert_eq!(report.temporal_segments[0].p95_latency_us, Some(1_000));
+    assert_eq!(report.temporal_segments[1].p95_latency_us, Some(6_000));
+}
+
+#[test]
+fn temporal_segments_sort_partial_run_relative_starts_by_unix_time() {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|idx| RequestEvent {
+            request_id: format!("req-{idx:02}"),
+            route: "/t".into(),
+            kind: None,
+            started_at_unix_ms: idx + 1,
+            started_at_run_us: if idx >= 10 {
+                Some((19 - idx) * 1_000)
+            } else {
+                None
+            },
+            finished_at_unix_ms: idx + 2,
+            finished_at_run_us: if idx >= 10 {
+                Some((19 - idx) * 1_000 + 100)
+            } else {
+                None
+            },
+            latency_us: if idx < 10 { 1_000 } else { 6_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.temporal_segments.len(), 2);
+    assert_eq!(report.temporal_segments[0].name, "early");
+    assert_eq!(report.temporal_segments[1].name, "late");
+    assert_eq!(report.temporal_segments[0].p95_latency_us, Some(1_000));
+    assert_eq!(report.temporal_segments[1].p95_latency_us, Some(6_000));
 }
 
 #[test]
@@ -1542,7 +2047,9 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: i,
+            waited_from_run_us: None,
             waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         });
     }
@@ -1551,7 +2058,9 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
             request_id: format!("req-{i}"),
             stage: "db".into(),
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 5_000,
             success: true,
         });
@@ -1615,7 +2124,9 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: i,
+            waited_from_run_us: None,
             waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         });
     }
@@ -1625,12 +2136,120 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
 }
 
+fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|i| {
+            let mut request = sample_request(i + 1);
+            let id = i + 1;
+            let start_run_us = id * 10_000;
+            request.started_at_run_us = Some(start_run_us);
+            request.finished_at_run_us = Some(start_run_us + 5_000);
+            request
+        })
+        .collect();
+    for i in 1..=10 {
+        run.queues.push(QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "q".into(),
+            wait_us: 2_000,
+            waited_from_unix_ms: i,
+            waited_from_run_us: Some(i * 10_000),
+            waited_until_unix_ms: i + 1,
+            waited_until_run_us: Some(i * 10_000 + 2_000),
+            depth_at_start: Some(12),
+        });
+    }
+    for i in 11usize..=20usize {
+        if let Some(req) = run.requests.get_mut(i - 1) {
+            req.latency_us = 8_000;
+            req.finished_at_run_us = req.started_at_run_us.map(|start| start + 8_000);
+        }
+        let i_u64 = u64::try_from(i).expect("test index should fit in u64");
+        run.stages.push(StageEvent {
+            request_id: format!("req-{i}"),
+            stage: "db".into(),
+            started_at_unix_ms: i_u64,
+            started_at_run_us: Some(i_u64 * 10_000),
+            finished_at_unix_ms: i_u64 + 1,
+            finished_at_run_us: Some(i_u64 * 10_000 + 7_000),
+            latency_us: 7_000,
+            success: true,
+        });
+    }
+    run.runtime_snapshots = vec![
+        RuntimeSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(50_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(20),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+        RuntimeSnapshot {
+            at_unix_ms: 15,
+            at_run_us: Some(150_000),
+            global_queue_depth: Some(1),
+            local_queue_depth: Some(1),
+            alive_tasks: Some(20),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        },
+    ];
+    run.inflight = vec![
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 5,
+            at_run_us: Some(50_000),
+            gauge: "http.server.requests".into(),
+            count: 1,
+        },
+        tailtriage_core::InFlightSnapshot {
+            at_unix_ms: 15,
+            at_run_us: Some(150_000),
+            gauge: "http.server.requests".into(),
+            count: 1,
+        },
+    ];
+    run
+}
+
+#[test]
+fn temporal_segments_warn_only_when_run_relative_timing_is_incomplete() {
+    let complete_report = analyze_run(
+        &run_with_temporal_shift_and_run_relative_offsets(),
+        AnalyzeOptions::default(),
+    );
+    assert_eq!(complete_report.temporal_segments.len(), 2);
+    for segment in &complete_report.temporal_segments {
+        assert!(!segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+
+    let mut incomplete_run = run_with_temporal_shift_and_run_relative_offsets();
+    for request in &mut incomplete_run.requests {
+        request.started_at_run_us = None;
+        request.finished_at_run_us = None;
+    }
+    let incomplete_report = analyze_run(&incomplete_run, AnalyzeOptions::default());
+    assert_eq!(incomplete_report.temporal_segments.len(), 2);
+    for segment in &incomplete_report.temporal_segments {
+        assert!(segment
+            .warnings
+            .iter()
+            .any(|w| w == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    }
+}
+
 #[test]
 fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segments() {
     let mut run = test_run();
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     run.runtime_snapshots = vec![RuntimeSnapshot {
         at_unix_ms: 1,
+        at_run_us: None,
         global_queue_depth: Some(2),
         local_queue_depth: Some(1),
         alive_tasks: Some(5),
@@ -1639,6 +2258,7 @@ fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segment
     }];
     run.inflight = vec![tailtriage_core::InFlightSnapshot {
         at_unix_ms: 1,
+        at_run_us: None,
         gauge: "http.server.requests".into(),
         count: 1,
     }];
@@ -1656,7 +2276,9 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
             queue: "q".into(),
             wait_us: 2_000,
             waited_from_unix_ms: i,
+            waited_from_run_us: None,
             waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
             depth_at_start: Some(12),
         });
     }
@@ -1665,7 +2287,9 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
             request_id: format!("req-{i}"),
             stage: "db".into(),
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: 9_000,
             success: true,
         });
@@ -1673,6 +2297,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(1))];
     run.inflight = vec![tailtriage_core::InFlightSnapshot {
         at_unix_ms: 1,
+        at_run_us: None,
         gauge: "http.server.requests".into(),
         count: 1,
     }];
@@ -1703,7 +2328,9 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
             queue: "q".into(),
             wait_us: 2_000,
             waited_from_unix_ms: i,
+            waited_from_run_us: None,
             waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
             depth_at_start: Some(12),
         });
     }
@@ -1716,7 +2343,9 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
             request_id: format!("req-{i}"),
             stage: "db".into(),
             started_at_unix_ms: i_u64,
+            started_at_run_us: None,
             finished_at_unix_ms: i_u64 + 1,
+            finished_at_run_us: None,
             latency_us: 9_000,
             success: true,
         });
@@ -2255,7 +2884,9 @@ fn default_options_compat_queue_saturation_case() {
             queue: "q".into(),
             wait_us: 900,
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         })
         .collect();
@@ -2278,7 +2909,9 @@ fn default_options_compat_blocking_pool_pressure_case() {
             request_id: r.request_id.clone(),
             stage: "spawn_blocking_path".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 3_900_000,
             success: true,
         })
@@ -2317,7 +2950,9 @@ fn default_options_compat_downstream_stage_dominates_case() {
             request_id: r.request_id.clone(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 900,
             success: true,
         })
@@ -2386,7 +3021,9 @@ fn default_options_compat_route_breakdowns_case() {
             queue: "ingress".into(),
             wait_us: 9_000,
             waited_from_unix_ms: 0,
+            waited_from_run_us: None,
             waited_until_unix_ms: 1,
+            waited_until_run_us: None,
             depth_at_start: Some(9),
         });
     }
@@ -2395,7 +3032,9 @@ fn default_options_compat_route_breakdowns_case() {
             request_id: req_id.to_owned(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: 1_900,
             success: true,
         });
@@ -2419,7 +3058,9 @@ fn default_options_compat_temporal_segments_case() {
             route: "/test".into(),
             kind: None,
             started_at_unix_ms: i,
+            started_at_run_us: None,
             finished_at_unix_ms: i + 1,
+            finished_at_run_us: None,
             latency_us: if i < 20 { 2_000 } else { 5_000 },
             outcome: "ok".into(),
         })
@@ -2433,7 +3074,9 @@ fn default_options_compat_temporal_segments_case() {
             queue: "q".into(),
             wait_us: if i < 20 { 1_500 } else { 100 },
             waited_from_unix_ms: 1,
+            waited_from_run_us: None,
             waited_until_unix_ms: 2,
+            waited_until_run_us: None,
             depth_at_start: Some(3),
         })
         .collect();
@@ -2445,7 +3088,9 @@ fn default_options_compat_temporal_segments_case() {
             request_id: r.request_id.clone(),
             stage: "db".into(),
             started_at_unix_ms: 1,
+            started_at_run_us: None,
             finished_at_unix_ms: 2,
+            finished_at_run_us: None,
             latency_us: if i < 20 { 200 } else { 4_400 },
             success: true,
         })
@@ -2557,7 +3202,9 @@ fn option_queueing_trigger_permille_changes_queue_suspect() {
             queue: "q".into(),
             wait_us: 400,
             waited_from_unix_ms: i,
+            waited_from_run_us: None,
             waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
             depth_at_start: Some(3),
         });
     }
@@ -2618,7 +3265,9 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
             queue: "q".into(),
             wait_us: 800,
             waited_from_unix_ms: i,
+            waited_from_run_us: None,
             waited_until_unix_ms: i + 1,
+            waited_until_run_us: None,
             depth_at_start: Some(12),
         });
     }

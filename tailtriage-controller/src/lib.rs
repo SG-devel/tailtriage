@@ -454,10 +454,11 @@ impl TailtriageController {
         builder = builder.strict_lifecycle(template.strict_lifecycle);
 
         let run = Arc::new(builder.build().map_err(EnableError::Build)?);
+        let generation_started_at_unix_ms = run.snapshot().metadata.started_at_unix_ms;
         let runtime = Arc::new(ActiveGenerationRuntime {
             state: ActiveGenerationState {
                 generation_id: next_generation,
-                started_at_unix_ms: tailtriage_core::unix_time_ms(),
+                started_at_unix_ms: generation_started_at_unix_ms,
                 artifact_path: artifact_path.clone(),
                 accepting_new_admissions: true,
                 closing: false,
@@ -1897,6 +1898,28 @@ mod tests {
     }
 
     #[test]
+    fn active_generation_started_at_matches_underlying_run_metadata() {
+        let output = test_output("generation-started-at-run-metadata");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let runtime = active_runtime(&controller);
+        let run_started_at = runtime.run.snapshot().metadata.started_at_unix_ms;
+
+        assert_eq!(active.started_at_unix_ms, run_started_at);
+        assert_eq!(runtime.state.started_at_unix_ms, run_started_at);
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
     fn initially_enabled_build_starts_first_active_generation() {
         let output = test_output("initially-enabled");
         let controller = TailtriageController::builder("checkout-service")
@@ -2103,6 +2126,7 @@ mod tests {
 
         runtime.run.record_runtime_snapshot(RuntimeSnapshot {
             at_unix_ms: tailtriage_core::unix_time_ms(),
+            at_run_us: None,
             alive_tasks: Some(1),
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
@@ -2111,6 +2135,7 @@ mod tests {
         });
         runtime.run.record_runtime_snapshot(RuntimeSnapshot {
             at_unix_ms: tailtriage_core::unix_time_ms(),
+            at_run_us: None,
             alive_tasks: Some(2),
             global_queue_depth: Some(2),
             local_queue_depth: Some(2),

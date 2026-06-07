@@ -20,6 +20,8 @@ The runtime sampler owns Tokio runtime sampler behavior:
 - runtime snapshot retention resolution
 - recording runtime snapshots into the same run artifact as core request data
 
+After startup, the sampler records an initial runtime snapshot promptly, then follows the configured cadence. Cadence is the target periodic sampling cadence, not a hard real-time guarantee; actual timing depends on Tokio scheduling and runtime conditions.
+
 Runtime snapshots help strengthen evidence for bottleneck families such as:
 
 - executor pressure
@@ -230,7 +232,7 @@ When you do not override sampler settings, this crate uses Tokio-owned defaults 
 - cadence: `100ms`
 - `max_runtime_snapshots = 50_000`
 
-These defaults apply only when the sampler is started.
+These defaults apply only when the sampler is started. The sampler records an initial sample promptly after start, then follows the configured target cadence; cadence is not a hard real-time guarantee.
 
 ### Resolution rules
 
@@ -342,11 +344,14 @@ For those surfaces, use:
 - `tailtriage-analyzer` for in-process analysis/report generation
 - `tailtriage-cli` for command-line analysis of saved artifacts
 
+When used alongside `tailtriage-tracing`, runtime-pressure evidence still depends on runtime snapshots captured by this crate (tracing spans alone do not produce runtime snapshots).
+
 ## Related crates
 
 - `tailtriage`: recommended default entry point
 - `tailtriage-core`: core request instrumentation and artifact writing
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-axum`: Axum middleware/extractor integration
+- `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped evidence into standard `tailtriage_core::Run` values
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts

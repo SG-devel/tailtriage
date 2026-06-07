@@ -104,6 +104,26 @@ Near-term tasks:
 - keep validation docs present-tense and stable, not PR-history oriented
 - update docs contract tests when public docs structure intentionally changes
 
+### 6) Tracing-intake adoption friction reduction
+
+Keep the optional tracing intake path clear for teams already using Rust `tracing`.
+
+Near-term tasks:
+
+- keep docs aligned to the implemented tracing-intake path:
+  - `TracingIntakeSession` as the primary live setup
+  - stable completed-span JSONL wrapper (`tailtriage.tracing-span.v1`)
+  - CLI `--input-format` guardrails (`compatible`, `tailtriage-span-jsonl`)
+  - golden wrapper fixture, examples, and contract tests for request/stage/queue + duration preservation
+- keep positioning explicit: tracing intake converts tracing-shaped evidence into standard Runs for the existing analyzer
+- preserve bounded claims: no tracing backend semantics, no OTel/OTLP, no observability-platform expansion
+- keep runtime-pressure guidance explicit: tracing-only imports usually lack runtime snapshots, so Tokio sampling remains the path for runtime-pressure evidence
+
+Current scope notes:
+- arbitrary `tracing_subscriber::fmt().json()` log parsing remains intentionally unsupported
+- OTel/OTLP remains out of scope
+- runtime-pressure evidence still requires runtime snapshots / Tokio sampler coupling
+
 ## Near-term sequencing
 
 Before the next public promotion or release:

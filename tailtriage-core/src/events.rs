@@ -223,6 +223,10 @@ pub struct UnfinishedRequestSample {
 }
 
 /// Per-request timing and status.
+///
+/// Duration fields are authoritative for elapsed-time analysis; Unix-ms
+/// timestamps are wall-clock anchors for correlation, readability, and coarse
+/// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestEvent {
     /// Correlation ID for the request.
@@ -233,8 +237,14 @@ pub struct RequestEvent {
     pub kind: Option<String>,
     /// Request start timestamp (milliseconds since epoch UTC).
     pub started_at_unix_ms: u64,
+    /// Request start offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_run_us: Option<u64>,
     /// Request completion timestamp (milliseconds since epoch UTC).
     pub finished_at_unix_ms: u64,
+    /// Request completion offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at_run_us: Option<u64>,
     /// Total request latency in microseconds.
     pub latency_us: u64,
     /// Logical outcome such as "ok", "error", or "timeout".
@@ -242,6 +252,10 @@ pub struct RequestEvent {
 }
 
 /// Timing record for one named stage.
+///
+/// Duration fields are authoritative for elapsed-time analysis; Unix-ms
+/// timestamps are wall-clock anchors for correlation, readability, and coarse
+/// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEvent {
     /// Parent request ID.
@@ -250,8 +264,14 @@ pub struct StageEvent {
     pub stage: String,
     /// Stage start timestamp (milliseconds since epoch UTC).
     pub started_at_unix_ms: u64,
+    /// Stage start offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_run_us: Option<u64>,
     /// Stage completion timestamp (milliseconds since epoch UTC).
     pub finished_at_unix_ms: u64,
+    /// Stage completion offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at_run_us: Option<u64>,
     /// Stage latency in microseconds.
     pub latency_us: u64,
     /// Whether the stage completed successfully (`Result::is_ok()` for
@@ -260,6 +280,10 @@ pub struct StageEvent {
 }
 
 /// Queue wait measurement for a request waiting on a queue/permit.
+///
+/// Duration fields are authoritative for elapsed-time analysis; Unix-ms
+/// timestamps are wall-clock anchors for correlation, readability, and coarse
+/// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueEvent {
     /// Parent request ID.
@@ -268,8 +292,14 @@ pub struct QueueEvent {
     pub queue: String,
     /// Queue wait start timestamp (milliseconds since epoch UTC).
     pub waited_from_unix_ms: u64,
+    /// Queue wait start offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waited_from_run_us: Option<u64>,
     /// Queue wait end timestamp (milliseconds since epoch UTC).
     pub waited_until_unix_ms: u64,
+    /// Queue wait end offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waited_until_run_us: Option<u64>,
     /// Total wait time in microseconds.
     pub wait_us: u64,
     /// Queue depth sample captured at wait start, if known.
@@ -277,21 +307,35 @@ pub struct QueueEvent {
 }
 
 /// Point-in-time in-flight gauge reading.
+///
+/// Snapshot timestamps are Unix-ms wall-clock anchors for correlation,
+/// readability, and coarse temporal grouping; runtime/in-flight attribution
+/// based on those anchors can be approximate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InFlightSnapshot {
     /// Gauge name.
     pub gauge: String,
     /// Timestamp (milliseconds since epoch UTC).
     pub at_unix_ms: u64,
+    /// Snapshot offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_run_us: Option<u64>,
     /// Number of in-flight units.
     pub count: u64,
 }
 
 /// Point-in-time runtime metrics sample.
+///
+/// Snapshot timestamps are Unix-ms wall-clock anchors for correlation,
+/// readability, and coarse temporal grouping; runtime/in-flight attribution
+/// based on those anchors can be approximate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     /// Timestamp (milliseconds since epoch UTC).
     pub at_unix_ms: u64,
+    /// Snapshot offset from run start, measured with a monotonic clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_run_us: Option<u64>,
     /// Number of alive tasks.
     pub alive_tasks: Option<u64>,
     /// Runtime global queue depth.
