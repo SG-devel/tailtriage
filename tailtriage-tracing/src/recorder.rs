@@ -852,7 +852,13 @@ fn push_completed_candidate_with_kind_aware_retention(
         return;
     }
 
-    if retained_request_id_is_represented(state, &record)
+    let Some(incoming_request_id) = valid_request_id_from_span(&record) else {
+        state.dropped_completed_request_candidates =
+            state.dropped_completed_request_candidates.saturating_add(1);
+        return;
+    };
+
+    if retained_request_id_is_represented(state, incoming_request_id)
         || unique_retained_request_id_count(&state.completed_requests) >= semantic_max_requests
     {
         state.dropped_completed_request_candidates =
@@ -896,11 +902,7 @@ fn unique_retained_request_id_count(records: &[SpanRecord]) -> usize {
         .len()
 }
 
-fn retained_request_id_is_represented(state: &RecorderState, record: &SpanRecord) -> bool {
-    let Some(incoming_request_id) = valid_request_id_from_span(record) else {
-        return false;
-    };
-
+fn retained_request_id_is_represented(state: &RecorderState, incoming_request_id: &str) -> bool {
     state
         .completed_requests
         .iter()
@@ -2236,6 +2238,115 @@ mod tests {
             .warnings()
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
+    }
+
+    #[test]
+    fn raw_completed_candidate_cap_evicts_retained_duplicate_for_later_unique_request() {
+        let recorder = TracingRecorder::builder("svc")
+            .max_completed_candidate_spans(3)
+            .capture_limits(CaptureLimits {
+                max_requests: 3,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request-1-duplicate",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a-duplicate"
+            ));
+            drop(tracing::info_span!(
+                "request-2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            ));
+            drop(tracing::info_span!(
+                "request-3",
+                tt.kind = "request",
+                tt.request_id = "r3",
+                tt.route = "/c"
+            ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        let request_ids = imported
+            .run()
+            .requests
+            .iter()
+            .map(|request| request.request_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(request_ids, vec!["r1", "r2", "r3"]);
+        assert_eq!(imported.run().requests.len(), 3);
+        assert!(imported
+            .run()
+            .requests
+            .iter()
+            .any(|request| request.request_id == "r3"));
+        assert!(imported.warnings().iter().any(|w| {
+            w.message()
+                .contains("dropped 1 completed request candidate span(s)")
+                && w.message().contains("max_completed_candidate_spans=3")
+        }));
+    }
+
+    #[test]
+    fn strict_mode_errors_when_raw_cap_evicts_retained_duplicate_request() {
+        let recorder = TracingRecorder::builder("svc")
+            .strict(true)
+            .max_completed_candidate_spans(3)
+            .capture_limits(CaptureLimits {
+                max_requests: 3,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a"
+            ));
+            drop(tracing::info_span!(
+                "request-1-duplicate",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a-duplicate"
+            ));
+            drop(tracing::info_span!(
+                "request-2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/b"
+            ));
+            drop(tracing::info_span!(
+                "request-3",
+                tt.kind = "request",
+                tt.request_id = "r3",
+                tt.route = "/c"
+            ));
+        });
+
+        let err = recorder
+            .snapshot_run()
+            .expect_err("strict should reject retained duplicate request eviction");
+        match err {
+            ImportError::StrictViolation(message) => {
+                assert!(message.contains("max_completed_candidate_spans"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]
