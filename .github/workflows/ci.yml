@@ -55,7 +55,7 @@ env:
 # - Ubuntu dev/release are the extended legs with split responsibilities.
 # - Ubuntu dev focuses on fast correctness checks, unit/helper tests, docs examples, diagnostics, and one cheap native demo smoke.
 # - Ubuntu release owns runtime/demo validation, tracing parity, collector/runtime-cost smoke, cargo doc, and cargo deny.
-# - Runtime-cost CI is a bounded diagnostic sanity check (not rigorous benchmark gating), and runtime-cost artifacts are validated in-place rather than uploaded.
+# - Runtime-cost CI is a bounded smoke gate with broad tracing/native sanity thresholds. It is not a rigorous benchmark suite and should not be interpreted as stable performance characterization; artifacts are validated in-place rather than uploaded.
 # - Windows/macOS run Cargo compile/lint/test coverage to catch OS-specific behavior.
 # - The external crates.io consumer smoke step remains intentionally disabled.
 jobs:
