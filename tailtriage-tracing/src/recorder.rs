@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Write as _;
 use std::io::Write;
@@ -837,6 +837,19 @@ fn push_completed_candidate_with_kind_aware_retention(
     let total = state.completed_requests.len()
         + state.completed_stages.len()
         + state.completed_queues.len();
+    let incoming_would_exhaust_raw_cap =
+        total.saturating_add(1) >= limits.max_completed_candidate_spans;
+
+    if kind == "request"
+        && incoming_would_exhaust_raw_cap
+        && (incoming_request_id_is_already_retained(&state.completed_requests, &record)
+            || unique_retained_request_id_count(&state.completed_requests) >= semantic_max_requests)
+    {
+        state.dropped_completed_request_candidates =
+            state.dropped_completed_request_candidates.saturating_add(1);
+        return;
+    }
+
     if total < limits.max_completed_candidate_spans {
         push_record_by_kind(state, record, kind);
         return;
@@ -844,7 +857,8 @@ fn push_completed_candidate_with_kind_aware_retention(
 
     match kind {
         "request" => {
-            if state.completed_requests.len() >= semantic_max_requests {
+            if unique_retained_request_id_count(&state.completed_requests) >= semantic_max_requests
+            {
                 state.dropped_completed_request_candidates =
                     state.dropped_completed_request_candidates.saturating_add(1);
                 return;
@@ -870,6 +884,36 @@ fn push_completed_candidate_with_kind_aware_retention(
                 state.dropped_completed_child_candidates.saturating_add(1);
         }
         _ => {}
+    }
+}
+
+fn unique_retained_request_id_count(completed_requests: &[SpanRecord]) -> usize {
+    completed_requests
+        .iter()
+        .filter_map(valid_request_id_from_record)
+        .collect::<BTreeSet<_>>()
+        .len()
+}
+
+fn incoming_request_id_is_already_retained(
+    completed_requests: &[SpanRecord],
+    incoming: &SpanRecord,
+) -> bool {
+    let Some(incoming_request_id) = valid_request_id_from_record(incoming) else {
+        return false;
+    };
+    completed_requests
+        .iter()
+        .filter_map(valid_request_id_from_record)
+        .any(|retained_request_id| retained_request_id == incoming_request_id)
+}
+
+fn valid_request_id_from_record(record: &SpanRecord) -> Option<&str> {
+    match record.fields().get("tt.request_id") {
+        Some(FieldValue::String(request_id)) if !request_id.trim().is_empty() => {
+            Some(request_id.as_str())
+        }
+        Some(_) | None => None,
     }
 }
 
@@ -1935,6 +1979,114 @@ mod tests {
             warning_text.contains("dropped 1 completed child candidate span")
                 || warning_text.contains("evicted 1 completed child candidate span")
         );
+    }
+
+    #[test]
+    fn raw_cap_duplicate_request_candidate_does_not_crowd_out_later_unique_request_root() {
+        let recorder = TracingRecorder::builder("svc")
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(2),
+                max_stages: Some(10),
+                max_queues: Some(10),
+                ..Default::default()
+            })
+            .max_completed_candidate_spans(2)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-r1-first",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/r1"
+            ));
+            drop(tracing::info_span!(
+                "request-r1-duplicate",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/r1-duplicate"
+            ));
+            drop(tracing::info_span!(
+                "request-r2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/r2"
+            ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        let run = imported.run();
+        let request_ids = run
+            .requests
+            .iter()
+            .map(|request| request.request_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(request_ids, vec!["r1", "r2"]);
+        assert!(run
+            .requests
+            .iter()
+            .all(|request| request.route != "/r1-duplicate"));
+        assert!(run.truncation.limits_hit);
+        assert_eq!(run.truncation.dropped_requests, 0);
+
+        let warning_text = imported
+            .warnings()
+            .iter()
+            .map(|warning| warning.message().to_string())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(warning_text.contains("dropped 1 completed request candidate span"));
+        assert!(warning_text.contains("max_completed_candidate_spans=2"));
+    }
+
+    #[test]
+    fn raw_cap_drops_later_unique_request_when_semantic_request_retention_is_exhausted() {
+        let recorder = TracingRecorder::builder("svc")
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(1),
+                max_stages: Some(10),
+                max_queues: Some(10),
+                ..Default::default()
+            })
+            .max_completed_candidate_spans(2)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-r1",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/r1"
+            ));
+            drop(tracing::info_span!(
+                "request-r2",
+                tt.kind = "request",
+                tt.request_id = "r2",
+                tt.route = "/r2"
+            ));
+        });
+
+        let imported = recorder.snapshot_run().unwrap();
+        let run = imported.run();
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.requests[0].request_id, "r1");
+        assert!(run
+            .requests
+            .iter()
+            .all(|request| request.request_id != "r2"));
+        assert!(run.truncation.limits_hit);
+        assert_eq!(run.truncation.dropped_requests, 0);
+
+        let warning_text = imported
+            .warnings()
+            .iter()
+            .map(|warning| warning.message().to_string())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(warning_text.contains("dropped 1 completed request candidate span"));
+        assert!(warning_text.contains("semantic max_requests retention"));
     }
 
     #[test]
