@@ -7,7 +7,10 @@
 //! and conversion to [`tailtriage_core::Run`] via [`run_from_span_records`].
 //! The `jsonl` feature adds JSONL import APIs.
 //! The `live` feature adds live in-memory recording APIs.
-//! It does not implement OpenTelemetry/OTLP and does not change analyzer behavior.
+//! It does not implement OpenTelemetry/OTLP. It converts tracing evidence into
+//! standard `tailtriage_core::Run` artifacts and does not introduce a
+//! tracing-specific analyzer path; Run JSON and the existing analyzer remain the
+//! center of the workflow.
 //!
 //! # Example
 //!
