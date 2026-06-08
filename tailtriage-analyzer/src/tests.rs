@@ -118,6 +118,12 @@ fn duplicate_completed_request_ids_emit_warning_without_panic() {
         .contains("Duplicate completed request_id values detected")
         && warning.contains("req-1")
         && warning.contains("request-scoped queue attribution")));
+    assert!(report
+        .evidence_quality
+        .limitations
+        .iter()
+        .any(|limitation| limitation
+            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -132,6 +138,12 @@ fn unique_completed_request_ids_do_not_emit_duplicate_warning() {
         .warnings
         .iter()
         .any(|warning| warning.contains("Duplicate completed request_id values detected")));
+    assert!(!report
+        .evidence_quality
+        .limitations
+        .iter()
+        .any(|limitation| limitation
+            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
 }
 
 #[test]
@@ -207,6 +219,16 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
         latency_us: 100,
         success: true,
     }];
+    run.queues = vec![QueueEvent {
+        request_id: "missing-queue-request".to_owned(),
+        queue: "worker".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 100,
+        depth_at_start: Some(1),
+    }];
 
     let report = analyze_run(&run, AnalyzeOptions::default());
 
@@ -216,6 +238,57 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
             && warning.contains("missing-stage-request")
             && warning.contains("strict artifact validation")
     }));
+    assert!(report.warnings.iter().any(|warning| {
+        warning.contains("Orphan queue request_id")
+            && warning.contains("missing-queue-request")
+            && warning.contains("strict artifact validation")
+    }));
+    assert!(report
+        .evidence_quality
+        .limitations
+        .iter()
+        .any(|limitation| limitation
+            == "Stage or queue evidence with no matching completed request_id cannot be reliably attributed."));
+}
+
+#[test]
+fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
+    let mut run = test_run();
+    run.stages = vec![StageEvent {
+        request_id: "req-1".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 100,
+        success: true,
+    }];
+    run.queues = vec![QueueEvent {
+        request_id: "req-2".to_owned(),
+        queue: "worker".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 100,
+        depth_at_start: Some(1),
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert!(!report
+        .evidence_quality
+        .limitations
+        .iter()
+        .any(|limitation| limitation
+            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
+    assert!(!report
+        .evidence_quality
+        .limitations
+        .iter()
+        .any(|limitation| limitation
+            == "Stage or queue evidence with no matching completed request_id cannot be reliably attributed."));
 }
 
 #[test]
