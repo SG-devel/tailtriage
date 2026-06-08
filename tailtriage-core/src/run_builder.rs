@@ -1,3 +1,4 @@
+use crate::request_ids::add_duplicate_completed_request_id_warning;
 use crate::{
     collector::generate_run_id, unix_time_ms, BuildError, CaptureLimits, CaptureMode,
     EffectiveCoreConfig, EffectiveTokioSamplerConfig, InFlightSnapshot, QueueEvent, RequestEvent,
@@ -345,7 +346,8 @@ impl RunBuilder {
     /// This does not perform lifecycle validation or synthesize missing
     /// completions.
     #[must_use]
-    pub fn finish(self) -> Run {
+    pub fn finish(mut self) -> Run {
+        add_duplicate_completed_request_id_warning(&mut self.run);
         self.run
     }
 }

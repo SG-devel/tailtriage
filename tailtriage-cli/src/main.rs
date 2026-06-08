@@ -2,7 +2,9 @@ use std::io::BufRead;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
+use tailtriage_analyzer::{
+    render_json_pretty, render_text, try_analyze_run, validate_artifact_strict,
+};
 use tailtriage_cli::artifact::load_run_artifact;
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
 use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
@@ -43,6 +45,9 @@ enum Command {
         /// Print analyzer option help and exit successfully.
         #[arg(long)]
         help_analyzer_options: bool,
+        /// Fail when request-scoped artifact invariants are ambiguous.
+        #[arg(long)]
+        strict_artifact: bool,
     },
 }
 
@@ -152,6 +157,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             analyzer_config,
             analyzer_set,
             help_analyzer_options,
+            strict_artifact,
         } => {
             if help_analyzer_options {
                 println!("{}", analyzer_options_help_text());
@@ -165,6 +171,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 )
             })?;
             let loaded = load_run_artifact(&run_json)?;
+            if strict_artifact {
+                validate_artifact_strict(&loaded.run)?;
+            }
             for warning in &loaded.warnings {
                 eprintln!("warning: {warning}");
             }
