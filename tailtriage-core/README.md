@@ -56,6 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For `Arc<Tailtriage>` flows that move request handles across spawned tasks or helper layers, use `begin_request_owned(...)` / `begin_request_with_owned(...)`. Owned handles keep the same lifecycle rule: instrumentation does not finish the request, and the completion token must be finished exactly once.
 
+`request_id` is the tailtriage per-run identity of one completed logical request/work item. It must be unique among completed requests in one `Run`; queue and stage events must reuse that ID only for the same logical request. If an external trace/correlation ID can repeat across retries, fanout branches, batch items, or attempts, build a unique tailtriage request ID from it (for example by appending attempt/span/branch/item information). Core preserves lifecycle safety with an internal pending key and does not reject duplicate explicit IDs by default, but finalized artifacts surface duplicate-ID lifecycle warnings because request-scoped attribution may be ambiguous. Users remain responsible for meaningful request-boundary semantics.
+
 ```rust,no_run
 use tailtriage_core::{RequestOptions, Tailtriage};
 

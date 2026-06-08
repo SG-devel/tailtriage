@@ -31,6 +31,51 @@ fn cli_json_output_is_valid_report_json() {
 }
 
 #[test]
+fn cli_analyze_warns_permissively_on_duplicate_request_ids() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("duplicate-run.json");
+    std::fs::write(&artifact_path, duplicate_request_id_artifact()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let report: serde_json::Value = serde_json::from_str(&stdout).expect("report should parse");
+    assert!(report["warnings"]
+        .as_array()
+        .expect("warnings should be array")
+        .iter()
+        .any(|warning| warning
+            .as_str()
+            .is_some_and(|w| w.contains("Duplicate completed request_id"))));
+}
+
+#[test]
+fn cli_analyze_strict_artifact_fails_duplicate_request_ids() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("duplicate-run.json");
+    std::fs::write(&artifact_path, duplicate_request_id_artifact()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("strict artifact validation failed"));
+    assert!(stderr.contains("duplicate completed request_id"));
+}
+
+#[test]
 fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("empty-requests.json");
@@ -1361,6 +1406,10 @@ fn parse_report_json(output: std::process::Output) -> serde_json::Value {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     serde_json::from_str(&stdout).expect("stdout should be valid json")
+}
+
+fn duplicate_request_id_artifact() -> &'static str {
+    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":3,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"},{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":2,"finished_at_unix_ms":3,"latency_us":11,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
 
 fn valid_cli_artifact_with_empty_requests() -> &'static str {

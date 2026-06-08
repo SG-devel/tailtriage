@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Serialize, Serializer};
 
@@ -24,6 +24,159 @@ const ROUTE_DIVERGENCE_WARNING: &str =
     "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
 const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
     "Runtime and in-flight signals are global and are not attributed to this route.";
+
+/// Warning emitted when a run has duplicate completed request IDs.
+pub const DUPLICATE_REQUEST_ID_WARNING: &str = "Duplicate completed request_id values found; request-scoped queue/stage attribution, route breakdowns, temporal segmentation, and downstream-stage matching may be ambiguous. Use one unique tailtriage request_id per completed logical request/work item in a Run.";
+
+/// Strict artifact validation failure for analyzer/CLI intake.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArtifactValidationError {
+    /// More than one completed request event used the same `request_id`.
+    DuplicateCompletedRequestId {
+        /// Duplicate request IDs sampled from the run.
+        request_ids: Vec<String>,
+    },
+    /// A stage event references a request ID absent from completed requests.
+    OrphanStageRequestId {
+        /// Orphan request IDs sampled from stage events.
+        request_ids: Vec<String>,
+    },
+    /// A queue event references a request ID absent from completed requests.
+    OrphanQueueRequestId {
+        /// Orphan request IDs sampled from queue events.
+        request_ids: Vec<String>,
+    },
+}
+
+impl std::fmt::Display for ArtifactValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DuplicateCompletedRequestId { request_ids } => write!(
+                f,
+                "strict artifact validation failed: duplicate completed request_id value(s): {}. request_id must identify one completed logical request/work item within one Run",
+                request_ids.join(", ")
+            ),
+            Self::OrphanStageRequestId { request_ids } => write!(
+                f,
+                "strict artifact validation failed: stage event request_id value(s) have no matching completed request: {}",
+                request_ids.join(", ")
+            ),
+            Self::OrphanQueueRequestId { request_ids } => write!(
+                f,
+                "strict artifact validation failed: queue event request_id value(s) have no matching completed request: {}",
+                request_ids.join(", ")
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ArtifactValidationError {}
+
+/// Validates request-scoped artifact invariants that are warnings in permissive analysis.
+///
+/// In strict mode, each completed `RequestEvent.request_id` must be unique in the
+/// run, and every stage/queue event must reference a completed request ID.
+///
+/// # Errors
+///
+/// Returns [`ArtifactValidationError`] when duplicate completed request IDs or
+/// orphan request-scoped stage/queue events are found.
+pub fn validate_run_artifact_strict(run: &Run) -> Result<(), ArtifactValidationError> {
+    let duplicates = duplicate_completed_request_ids(run);
+    if !duplicates.is_empty() {
+        return Err(ArtifactValidationError::DuplicateCompletedRequestId {
+            request_ids: duplicates,
+        });
+    }
+
+    let request_ids = completed_request_id_set(run);
+    let orphan_stages = run
+        .stages
+        .iter()
+        .filter(|stage| !request_ids.contains(stage.request_id.as_str()))
+        .map(|stage| stage.request_id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if !orphan_stages.is_empty() {
+        return Err(ArtifactValidationError::OrphanStageRequestId {
+            request_ids: orphan_stages,
+        });
+    }
+
+    let orphan_queues = run
+        .queues
+        .iter()
+        .filter(|queue| !request_ids.contains(queue.request_id.as_str()))
+        .map(|queue| queue.request_id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if !orphan_queues.is_empty() {
+        return Err(ArtifactValidationError::OrphanQueueRequestId {
+            request_ids: orphan_queues,
+        });
+    }
+
+    Ok(())
+}
+
+fn completed_request_id_set(run: &Run) -> BTreeSet<&str> {
+    run.requests
+        .iter()
+        .map(|request| request.request_id.as_str())
+        .collect()
+}
+
+fn duplicate_completed_request_ids(run: &Run) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for request in &run.requests {
+        if !seen.insert(request.request_id.as_str()) {
+            duplicates.insert(request.request_id.clone());
+        }
+    }
+    duplicates.into_iter().collect()
+}
+
+/// Strict analysis failure for artifact validation or analyzer option validation.
+#[derive(Debug)]
+pub enum StrictAnalyzeError {
+    /// Strict artifact validation failed before analysis.
+    Artifact(ArtifactValidationError),
+    /// Analyzer options failed semantic validation.
+    Config(AnalyzeConfigError),
+}
+
+impl std::fmt::Display for StrictAnalyzeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Artifact(error) => error.fmt(f),
+            Self::Config(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for StrictAnalyzeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Artifact(error) => Some(error),
+            Self::Config(error) => Some(error),
+        }
+    }
+}
+
+impl From<ArtifactValidationError> for StrictAnalyzeError {
+    fn from(error: ArtifactValidationError) -> Self {
+        Self::Artifact(error)
+    }
+}
+
+impl From<AnalyzeConfigError> for StrictAnalyzeError {
+    fn from(error: AnalyzeConfigError) -> Self {
+        Self::Config(error)
+    }
+}
 
 /// Evidence-ranked diagnosis categories produced by heuristic triage.
 ///
@@ -329,6 +482,24 @@ pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, Ana
     Ok(Analyzer::new(options).analyze_run(run))
 }
 
+/// Strictly validates one completed [`Run`] before analysis.
+///
+/// This preserves default permissive analysis for normal callers while giving
+/// CLI and library users an explicit fail-fast path for ambiguous request IDs
+/// or orphan request-scoped evidence.
+///
+/// # Errors
+///
+/// Returns [`StrictAnalyzeError`] when strict artifact validation fails or
+/// analyzer options fail semantic validation.
+pub fn analyze_run_strict(
+    run: &Run,
+    options: AnalyzeOptions,
+) -> Result<Report, StrictAnalyzeError> {
+    validate_run_artifact_strict(run)?;
+    Ok(try_analyze_run(run, options)?)
+}
+
 /// Renders analyzer [`Report`] JSON in compact form.
 ///
 /// This renders analyzer report JSON (the diagnosis output), not raw run artifact JSON.
@@ -575,6 +746,9 @@ fn ambiguity_warning(suspects: &[Suspect], options: &AnalyzeOptions) -> Option<S
 
 fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) -> Vec<String> {
     let mut warnings = evidence::truncation_warnings(run);
+    if !duplicate_completed_request_ids(run).is_empty() {
+        warnings.push(DUPLICATE_REQUEST_ID_WARNING.to_string());
+    }
     if run.requests.len() < options.evidence.low_completed_request_threshold {
         warnings.push(
             "Low completed-request count; diagnosis ranking may be unstable for this run window."

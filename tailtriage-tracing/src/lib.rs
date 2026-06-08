@@ -10,7 +10,10 @@
 //! It does not implement OpenTelemetry/OTLP. It converts tracing evidence into
 //! standard `tailtriage_core::Run` artifacts and does not introduce a
 //! tracing-specific analyzer path; Run JSON and the existing analyzer remain the
-//! center of the workflow.
+//! center of the workflow. `tt.request_id` is the unique tailtriage request ID
+//! for one completed logical request/work item in a run, not necessarily a raw
+//! distributed trace ID. Convert repeating external correlation IDs by adding
+//! attempt, span, branch, or item information.
 //!
 //! # Example
 //!
@@ -77,6 +80,7 @@ pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn ensure_persistable_run_with_warnings(
     run: &tailtriage_core::Run,
     warnings: &[ImportWarning],
@@ -107,8 +111,9 @@ pub(crate) fn persistable_zero_request_guidance() -> String {
 /// Spans without any `tt.*` fields are ignored silently. Spans with `tt.*`
 /// fields but missing `tt.kind` are treated as malformed tailtriage input.
 /// In non-strict mode, malformed `tt.*` spans are skipped and surfaced as
-/// warnings. In strict mode, the first malformed `tt.*` span returns an
-/// [`ImportError`].
+/// warnings. Duplicate completed request-span `tt.request_id` values are also
+/// warned and later duplicates are skipped. In strict mode, the first malformed
+/// `tt.*` span or duplicate completed request-span ID returns an [`ImportError`].
 /// # Errors
 ///
 /// Returns [`ImportError::StrictViolation`] when `options.strict(true)` is set

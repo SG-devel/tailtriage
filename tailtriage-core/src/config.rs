@@ -369,12 +369,16 @@ impl TailtriageBuilder {
 /// Optional request start settings used by [`crate::Tailtriage::begin_request_with`].
 ///
 /// When `request_id` is not provided, a request ID is generated automatically.
+/// Explicit IDs must identify one completed logical request/work item within
+/// the run. Do not reuse a broad external trace/correlation ID if it can repeat
+/// across retries, fanout branches, batch items, or attempts; add attempt/span/
+/// branch/item information to make the tailtriage request ID unique.
 ///
 /// `RequestOptions` configures start metadata only. It does not change request
 /// completion semantics: each request must still be finished exactly once.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RequestOptions {
-    /// Optional caller-provided request ID used for request correlation.
+    /// Optional caller-provided tailtriage request ID used for request-scoped attribution.
     pub request_id: Option<String>,
     /// Optional semantic request kind (for example `http` or `job`).
     pub kind: Option<String>,
@@ -387,7 +391,10 @@ impl RequestOptions {
         Self::default()
     }
 
-    /// Sets an explicit request ID for the next request context.
+    /// Sets an explicit tailtriage request ID for the next request context.
+    ///
+    /// The ID must be unique among completed requests in the run; stage/queue
+    /// evidence should reuse it only for the same logical request.
     #[must_use]
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());

@@ -78,6 +78,13 @@ tailtriage analyze tailtriage-run.json
 - Tracing-only runs do not fabricate runtime snapshots, so executor/blocking-pressure evidence can be weaker or absent.
 - Artifacts with run-relative monotonic offsets give temporal segmentation a more stable within-run ordering; older or partial imported artifacts fall back to Unix-ms timestamp anchors.
 
+
+### Request identity contract
+
+`request_id` is the tailtriage per-run identity of one completed logical request or work item. It must be unique among completed requests in one `Run`, and stage/queue events must reuse that ID only for the same logical request. External trace or correlation IDs can repeat across retries, fanout branches, batch items, or attempts; convert them into a unique tailtriage request ID, for example by adding attempt, span, branch, or item information.
+
+`tailtriage` cannot infer whether your chosen request boundary, retry model, fanout model, or propagation model is semantically correct. Users own meaningful instrumentation semantics. Duplicate completed IDs produce analyzer warnings by default because request-scoped attribution may be ambiguous; `tailtriage analyze --strict-artifact` fails fast on duplicate completed IDs and orphan stage/queue IDs. Tracing import keeps its stricter intake behavior: duplicate completed `tt.request_id` request spans fail in `--strict` mode and warn/skip later duplicates in non-strict mode.
+
 #### Zero-request artifacts
 
 - Persisted CLI artifacts require at least one completed request.
@@ -130,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure. Every request, stage, and queue span for one work item must carry the same `tt.request_id`; missing or inconsistent IDs cause child stage/queue evidence to be skipped or weakened.
+Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure. Every request, stage, and queue span for one work item must carry the same unique tailtriage `tt.request_id`; missing, duplicate, or inconsistent IDs cause child evidence to be skipped, warned, or treated as ambiguous.
 
 `tt.outcome` on request spans is optional: missing values default to `ok` with a warning; recommended common labels are `ok`, `error`, `timeout`, `cancelled`, and `rejected`; custom non-empty labels are preserved exactly.
 

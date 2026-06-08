@@ -1,7 +1,7 @@
 use serde::Serialize;
 use tailtriage_core::Run;
 
-use super::AnalyzeOptions;
+use super::{duplicate_completed_request_ids, AnalyzeOptions, DUPLICATE_REQUEST_ID_WARNING};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -177,6 +177,9 @@ fn evidence_limitations(
     options: &AnalyzeOptions,
 ) -> Vec<String> {
     let mut limitations = Vec::new();
+    if !duplicate_completed_request_ids(run).is_empty() {
+        limitations.push(DUPLICATE_REQUEST_ID_WARNING.to_string());
+    }
     if run.requests.len() < options.evidence.low_completed_request_threshold {
         limitations
             .push("Low completed-request count can make suspect ranking unstable.".to_string());

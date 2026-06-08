@@ -1875,3 +1875,65 @@ fn record_runtime_snapshot_stamps_run_relative_time_when_missing() {
     let snapshot = tailtriage.snapshot();
     assert!(snapshot.runtime_snapshots[0].at_run_us.is_some());
 }
+
+#[test]
+fn duplicate_explicit_request_ids_surface_lifecycle_warning() {
+    let sink = Arc::new(RecordingSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(Arc::clone(&sink))
+        .build()
+        .expect("build should succeed");
+    let first = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-duplicate"),
+    );
+    let second = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-duplicate"),
+    );
+
+    first.completion.finish_ok();
+    second.completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    let run = sink
+        .run
+        .lock()
+        .expect("lock should succeed")
+        .clone()
+        .expect("sink should receive run");
+    assert_eq!(run.requests.len(), 2);
+    assert!(run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("duplicate completed request_id")));
+}
+
+#[test]
+fn auto_generated_request_ids_are_warning_free() {
+    let sink = Arc::new(RecordingSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(Arc::clone(&sink))
+        .build()
+        .expect("build should succeed");
+    let first = tailtriage.begin_request("/invoice");
+    let second = tailtriage.begin_request("/invoice");
+
+    first.completion.finish_ok();
+    second.completion.finish_ok();
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    let run = sink
+        .run
+        .lock()
+        .expect("lock should succeed")
+        .clone()
+        .expect("sink should receive run");
+    assert_ne!(run.requests[0].request_id, run.requests[1].request_id);
+    assert!(!run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("duplicate completed request_id")));
+}

@@ -53,8 +53,8 @@ Each suspect includes:
 - `p50_latency_us` / `p95_latency_us` / `p99_latency_us`: request latency percentiles in microseconds.
 - `p95_queue_share_permille`: p95 queue-time share per request (0..1000 scale).
 - `p95_service_share_permille`: p95 service-time share per request (0..1000 scale).
-- `warnings[]`: analyzer/report warnings, especially truncation-related warnings from captured-data limits. Loader/lifecycle warnings (including unfinished-request warnings) are emitted separately by the CLI loader to stderr before the report output.
-- `evidence_quality`: structured signal coverage status, truncation counters, and overall evidence quality (`strong`/`partial`/`weak`).
+- `warnings[]`: analyzer/report warnings, including truncation-related warnings and duplicate completed `request_id` warnings that mean request-scoped attribution may be ambiguous. Loader/lifecycle warnings (including unfinished-request warnings) are emitted separately by the CLI loader to stderr before the report output.
+- `evidence_quality`: structured signal coverage status, truncation counters, duplicate-ID interpretation limitations, and overall evidence quality (`strong`/`partial`/`weak`).
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.
 - `secondary_suspects[]`: additional ranked suspects.
 - `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.

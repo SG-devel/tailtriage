@@ -185,7 +185,7 @@ tailtriage analyze <run.json>
 
 ## 6. Run artifact, analyzer, and CLI contracts
 
-Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context.
+Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context. `RequestEvent.request_id` is the per-run identity of one completed logical request/work item and must be unique among completed requests in one `Run`; stage and queue events must reuse a request ID only for that same logical request. External trace/correlation IDs that can repeat across retries, fanout branches, batch items, or attempts should be converted into unique tailtriage request IDs. The user remains responsible for meaningful request-boundary and propagation semantics.
 
 Direct capture lifecycle output options:
 
@@ -198,12 +198,13 @@ Analyzer output includes:
 - request count
 - p50/p95/p99 request latency
 - p95 queue/service share summaries
-- warnings, including analyzer/report warnings such as truncation and evidence-quality limitations
+- warnings, including analyzer/report warnings such as truncation, evidence-quality limitations, and duplicate completed request IDs that make request-scoped attribution ambiguous
 - primary and secondary suspects with evidence and next checks
 
 Schema contract:
 
 - artifacts require top-level `schema_version`
+- default analysis is permissive and warns on duplicate completed request IDs; strict artifact validation fails duplicate completed request IDs and orphan stage/queue request IDs
 - current supported schema version is `1`
 
 Artifact/report contract split:

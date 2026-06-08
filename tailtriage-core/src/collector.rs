@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -362,6 +362,7 @@ impl Tailtriage {
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
         self.truncation_state.merge_into(&mut run.truncation);
+        append_duplicate_completed_request_id_warning(&mut run);
         run
     }
 
@@ -406,6 +407,7 @@ impl Tailtriage {
         }
 
         self.truncation_state.merge_into(&mut guard.truncation);
+        append_duplicate_completed_request_id_warning(&mut guard);
         self.sink.write(&guard)
     }
 
@@ -850,6 +852,31 @@ impl OwnedRequestCompletion {
                 pending, finished, outcome,
             ));
     }
+}
+
+fn append_duplicate_completed_request_id_warning(run: &mut Run) {
+    let duplicate_ids = duplicate_completed_request_ids(run);
+    if duplicate_ids.is_empty() {
+        return;
+    }
+    let warning = format!(
+        "duplicate completed request_id value(s) detected in retained run artifact: {}; request_id must be unique per completed logical request/work item in one Run, and request-scoped attribution may be ambiguous",
+        duplicate_ids.join(", ")
+    );
+    if !run.metadata.lifecycle_warnings.contains(&warning) {
+        run.metadata.lifecycle_warnings.push(warning);
+    }
+}
+
+fn duplicate_completed_request_ids(run: &Run) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for request in &run.requests {
+        if !seen.insert(request.request_id.as_str()) {
+            duplicates.insert(request.request_id.clone());
+        }
+    }
+    duplicates.into_iter().collect()
 }
 
 fn request_event_from_finished_interval(

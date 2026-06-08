@@ -14,7 +14,7 @@ Use this crate when you already have a completed `tailtriage_core::Run` in memor
 
 Suspects are investigation leads, not proof of root cause.
 
-`tailtriage-analyzer` accepts any `tailtriage_core::Run` value. It is intended for completed/finalized captures or stable snapshots; callers that require finalized artifacts should validate that separately.
+`tailtriage-analyzer` accepts any `tailtriage_core::Run` value. It is intended for completed/finalized captures or stable snapshots; callers that require finalized artifacts should validate that separately. Default analysis is permissive: duplicate completed `request_id` values produce warnings and evidence-quality limitations rather than rejecting the run. Use `validate_run_artifact_strict(...)` or `analyze_run_strict(...)` when duplicate completed IDs or orphan stage/queue IDs should fail fast.
 
 ## Installation
 
@@ -126,7 +126,7 @@ Report transparency behavior:
 - `next_checks[]` gives targeted follow-up actions.
 - `score` ranks suspects inside one report; it is not a probability.
 - `confidence` is ranking strength and may be capped by missing, sparse, partial, or truncated evidence.
-- `warnings[]` and `evidence_quality` describe interpretation limits.
+- `warnings[]` and `evidence_quality` describe interpretation limits, including duplicate completed `request_id` values that can make request-scoped attribution ambiguous.
 - `route_breakdowns` and `temporal_segments`, when present, are supporting context only and do not override the global `primary_suspect`.
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON.
 

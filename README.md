@@ -238,14 +238,23 @@ if let Some(finalized_run) = sink.take_run() {
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Use `tailtriage analyze --strict-artifact tailtriage-run.json` when you want analyzer/CLI intake to fail fast on duplicate completed `request_id` values or orphan stage/queue events. Default analysis stays permissive and emits warnings so partial artifacts can still produce evidence-ranked suspects and next checks.
+
 Import completed tailtriage tracing span JSONL into a Run artifact first when needed:
 
 ```bash
 tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout --output tailtriage-run.json
 ```
 
-`tailtriage import tracing-spans-jsonl` imports completed tailtriage tracing span JSONL and writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr. Arbitrary `tracing_subscriber::fmt().json()` log JSON is not imported, and timing is not guessed from line receive time: completed spans must include explicit unix-ms start/end timestamps. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
+`tailtriage import tracing-spans-jsonl` imports completed tailtriage tracing span JSONL and writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans, including duplicate completed `tt.request_id` request spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr. Arbitrary `tracing_subscriber::fmt().json()` log JSON is not imported, and timing is not guessed from line receive time: completed spans must include explicit unix-ms start/end timestamps. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 Tracing-only imports can provide request/stage/queue evidence outside Tokio runtimes, but they do not fabricate runtime-pressure snapshots.
+
+
+### `request_id` contract
+
+`request_id` is the tailtriage per-run identity of one completed logical request or work item. Within one `Run`, every completed request should have a unique `request_id`, and stage/queue evidence should reuse that ID only for the same logical request. External trace or correlation IDs can repeat across retries, fanout branches, batch items, or attempts; convert those into a unique tailtriage request ID, for example by adding attempt, span, branch, or item information.
+
+`tailtriage` cannot infer whether your request boundary, retry model, fanout model, or propagation model is semantically correct. Users remain responsible for meaningful instrumentation. Duplicate completed IDs are warned by default because request-scoped attribution may be ambiguous; strict artifact validation can fail fast when you need that guardrail.
 
 Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).
 
