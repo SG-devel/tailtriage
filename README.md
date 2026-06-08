@@ -13,6 +13,12 @@ It produces a triage report with **evidence-ranked suspects** and **next checks*
 - Not an observability backend.
 - Not root-cause proof on its own.
 
+## Request ID contract
+
+A tailtriage `request_id` is the per-run identity of one completed logical request or work item. It must be unique among completed requests in one `Run`, and stage/queue evidence must reuse that ID only for the same logical request.
+
+If you start from an external trace or correlation ID that can repeat across retries, fanout branches, batch items, or attempts, convert it into a unique tailtriage request ID, for example by adding attempt, span, branch, or item information. `tailtriage` can warn about mechanically ambiguous IDs, but you remain responsible for choosing meaningful request boundaries and instrumentation semantics.
+
 ## When to use tailtriage
 
 | Symptom | tailtriage helps check |

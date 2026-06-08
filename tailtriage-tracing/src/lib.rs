@@ -12,6 +12,13 @@
 //! tracing-specific analyzer path; Run JSON and the existing analyzer remain the
 //! center of the workflow.
 //!
+//! `tt.request_id` is the tailtriage request ID: the per-run identity of one
+//! completed logical request/work item. It must be unique among completed
+//! request spans in one imported run, and stage/queue spans must reuse it only
+//! for that same logical request. Convert broad external trace/correlation IDs
+//! that can repeat across retries, fanout branches, batch items, or attempts
+//! into unique tailtriage request IDs before recording `tt.request_id`.
+//!
 //! # Example
 //!
 //! ```
@@ -103,6 +110,10 @@ pub(crate) fn persistable_zero_request_guidance() -> String {
 }
 
 /// Converts in-memory tracing span records into a `tailtriage_core::Run`.
+///
+/// `tt.request_id` must identify one completed logical request/work item within
+/// the imported run. Duplicate retained request IDs fail in strict mode and warn
+/// with later duplicate request events skipped in non-strict mode.
 ///
 /// Spans without any `tt.*` fields are ignored silently. Spans with `tt.*`
 /// fields but missing `tt.kind` are treated as malformed tailtriage input.

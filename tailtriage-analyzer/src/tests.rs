@@ -3443,3 +3443,123 @@ fn analyzer_toml_empty_pattern_fails_validation() {
         }
     ));
 }
+
+#[test]
+fn duplicate_completed_request_ids_emit_warning_without_panic() {
+    let mut run = test_run();
+    run.requests[1].request_id = "req-1".to_owned();
+    run.stages.push(StageEvent {
+        request_id: "req-1".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 900,
+        success: true,
+    });
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert!(report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Duplicate completed request_id")));
+    assert_eq!(report.request_count, 3);
+    assert!(matches!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates | DiagnosisKind::InsufficientEvidence
+    ));
+}
+
+#[test]
+fn unique_request_ids_emit_no_duplicate_id_warning() {
+    let run = test_run();
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert!(!report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Duplicate completed request_id")));
+}
+
+#[test]
+fn strict_artifact_validation_fails_duplicate_completed_request_id() {
+    let mut run = test_run();
+    run.requests[2].request_id = "req-1".to_owned();
+
+    let err = crate::validate_run_artifact_strict(&run)
+        .expect_err("duplicate completed request IDs should fail strict validation");
+
+    assert!(err.to_string().contains("duplicate completed request_id"));
+}
+
+#[test]
+fn strict_artifact_validation_fails_orphan_stage_and_queue_request_ids() {
+    let mut stage_run = test_run();
+    stage_run.stages.push(StageEvent {
+        request_id: "missing".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 1,
+        success: true,
+    });
+    let stage_err = crate::validate_run_artifact_strict(&stage_run)
+        .expect_err("orphan stage should fail strict validation");
+    assert!(stage_err.to_string().contains("stage 'db'"));
+
+    let mut queue_run = test_run();
+    queue_run.queues.push(QueueEvent {
+        request_id: "missing".to_owned(),
+        queue: "permits".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 1,
+        depth_at_start: None,
+    });
+    let queue_err = crate::validate_run_artifact_strict(&queue_run)
+        .expect_err("orphan queue should fail strict validation");
+    assert!(queue_err.to_string().contains("queue 'permits'"));
+}
+
+#[test]
+fn permissive_analysis_warns_for_orphan_stage_and_queue_request_ids() {
+    let mut run = test_run();
+    run.stages.push(StageEvent {
+        request_id: "missing-stage".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 1,
+        success: true,
+    });
+    run.queues.push(QueueEvent {
+        request_id: "missing-queue".to_owned(),
+        queue: "permits".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 1,
+        depth_at_start: None,
+    });
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert!(report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("stage event(s) reference request_id")));
+    assert!(report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("queue event(s) reference request_id")));
+}

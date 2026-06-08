@@ -58,6 +58,12 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 - `analyze_run_json` and `analyze_run_json_pretty` combine analysis + canonical JSON rendering
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
 
+## Artifact request ID checks
+
+The analyzer assumes each completed logical request/work item in one `Run` has one unique `request_id`, and that stage/queue evidence uses that ID only for the same logical request. Duplicate completed request IDs or orphan stage/queue IDs do not make default analysis fail, but they produce report warnings because request-scoped attribution, route breakdowns, temporal segmentation, and downstream-stage matching may be ambiguous.
+
+Use `validate_run_artifact_strict(...)` or `try_analyze_run_strict_artifact(...)` when those mechanical artifact issues should fail before producing triage output. This strict path checks duplicate completed request IDs and stage/queue IDs with no matching completed request. It still cannot infer whether the user's request boundary, retry model, fanout model, or propagation semantics are meaningful.
+
 ## Analyzer tuning options
 
 Start with defaults:

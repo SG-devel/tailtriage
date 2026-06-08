@@ -89,6 +89,14 @@ Contract details:
 - unfinished requests are surfaced as warnings/metadata
 - `strict_lifecycle(true)` makes `shutdown()` fail if unfinished requests remain
 
+Request ID contract:
+
+- `request_id` is the per-run identity of one completed logical request/work item
+- completed request IDs must be unique within one `Run`
+- stage and queue events must reuse a request ID only for the same logical request
+- external trace/correlation IDs that can repeat across retries, fanout branches, batch items, or attempts must be converted into a unique tailtriage request ID, such as by adding attempt/span/branch/item information
+- users remain responsible for meaningful request-boundary semantics and instrumentation correctness
+
 ### 5.4 Controller surface (`tailtriage-controller`)
 
 `TailtriageController` is for repeated bounded capture windows in long-lived services:
@@ -205,6 +213,8 @@ Schema contract:
 
 - artifacts require top-level `schema_version`
 - current supported schema version is `1`
+- default analysis is permissive for duplicate completed request IDs and orphan stage/queue IDs, but emits warnings because attribution may be ambiguous
+- strict artifact validation fails duplicate completed request IDs and stage/queue IDs with no matching completed request
 
 Artifact/report contract split:
 

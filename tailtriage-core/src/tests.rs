@@ -122,6 +122,36 @@ fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
     assert_eq!(snapshot.requests.len(), 2);
     assert_eq!(snapshot.requests[0].request_id, "req-duplicate");
     assert_eq!(snapshot.requests[1].request_id, "req-duplicate");
+    assert!(snapshot
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(
+            |warning| warning.contains("duplicate explicit request_id \'req-duplicate\'")
+                && warning.contains("request-scoped attribution")
+        ));
+}
+
+#[test]
+fn auto_generated_request_ids_remain_unique_and_warning_free() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-auto-id-warning-free.json");
+    let first = tailtriage.begin_request("/invoice");
+    let second = tailtriage.begin_request("/invoice");
+
+    first.completion.finish_ok();
+    second.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_ne!(
+        snapshot.requests[0].request_id,
+        snapshot.requests[1].request_id
+    );
+    assert!(!snapshot
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("duplicate explicit request_id")));
 }
 
 #[test]

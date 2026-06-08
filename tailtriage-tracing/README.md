@@ -18,7 +18,7 @@ Use this path when your service already uses Rust `tracing` and already has stab
 
 This crate converts tracing-shaped request, stage, and queue evidence into standard `tailtriage_core::Run` artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend.
 
-For one work item, every request, stage, and queue span must carry the same `tt.request_id`. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing or inconsistent IDs cause child evidence to be skipped or weakened.
+`tt.request_id` is the tailtriage request ID: the per-run identity of one completed logical request/work item, not necessarily a raw distributed trace ID. It must be unique among completed request spans in one imported `Run`. For one work item, every request, stage, and queue span must carry the same `tt.request_id`; stage/queue spans must reuse that ID only for the same logical request. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing, inconsistent, duplicate, or orphan IDs cause warnings, skipped evidence, or strict import failure. If an external trace/correlation ID can repeat across retries, fanout branches, batch items, or attempts, add attempt/span/branch/item information before recording `tt.request_id`.
 
 ## Feature flags
 
@@ -191,8 +191,8 @@ span.record("tt.outcome", "timeout");
 
 ## Strict vs non-strict
 
-- Strict mode: malformed/incomplete `tt.*` span records fail import/session conversion.
-- Non-strict mode: malformed/incomplete records are warned and skipped where implemented.
+- Strict mode: malformed/incomplete `tt.*` span records fail import/session conversion, including duplicate retained request `tt.request_id` values.
+- Non-strict mode: malformed/incomplete records are warned and skipped where implemented; duplicate retained request IDs warn and later duplicate request events are skipped.
 - Duration consistency rule: conversion derives duration from wall-clock bounds as `(finished_at_unix_ms - started_at_unix_ms) * 1000` only when `duration_us` is absent. If supplied `duration_us` differs from the timestamp-derived duration by more than `2_000` microseconds, strict conversion fails; non-strict conversion warns, keeps `duration_us` as authoritative elapsed-time evidence, and treats Unix timestamps as wall-clock anchors.
 - Child stage/queue containment uses a fixed `2` ms tolerance when checking whether child intervals fall inside retained request intervals.
 - That `2` ms containment tolerance is not configurable in this release (no CLI/API knob).

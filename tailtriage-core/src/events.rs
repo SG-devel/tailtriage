@@ -224,12 +224,19 @@ pub struct UnfinishedRequestSample {
 
 /// Per-request timing and status.
 ///
+/// `request_id` is the per-run identity of one completed logical request/work
+/// item. Completed request IDs must be unique within one [`Run`]. Related
+/// [`StageEvent`] and [`QueueEvent`] records must use the same ID only for the
+/// same logical request. External trace/correlation IDs that can repeat across
+/// retries, fanout branches, batch items, or attempts should be converted into
+/// unique tailtriage request IDs before capture/import.
+///
 /// Duration fields are authoritative for elapsed-time analysis; Unix-ms
 /// timestamps are wall-clock anchors for correlation, readability, and coarse
 /// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestEvent {
-    /// Correlation ID for the request.
+    /// Per-run tailtriage request ID for this completed logical request/work item.
     pub request_id: String,
     /// Route name, operation, or endpoint.
     pub route: String,
@@ -258,7 +265,7 @@ pub struct RequestEvent {
 /// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEvent {
-    /// Parent request ID.
+    /// Parent tailtriage request ID; must match the completed request this stage belongs to.
     pub request_id: String,
     /// Stage identifier.
     pub stage: String,
@@ -286,7 +293,7 @@ pub struct StageEvent {
 /// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueEvent {
-    /// Parent request ID.
+    /// Parent tailtriage request ID; must match the completed request this queue wait belongs to.
     pub request_id: String,
     /// Queue identifier.
     pub queue: String,

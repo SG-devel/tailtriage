@@ -1432,3 +1432,48 @@ fn valid_outcomes_fixture() -> &'static str {
 {"format":"tailtriage.tracing-span.v1","span":{"name":"http.request-5","started_at_unix_ms":1040,"finished_at_unix_ms":1050,"fields":{"tt.kind":"request","tt.request_id":"req-5","tt.route":"/checkout","tt.outcome":"rejected"}}}
 "#
 }
+
+#[test]
+fn cli_strict_artifact_rejects_duplicate_completed_request_id() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let path = dir.path().join("duplicate.json");
+    std::fs::write(&path, duplicate_request_id_artifact()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("duplicate completed request_id"));
+}
+
+#[test]
+fn cli_permissive_artifact_warns_for_duplicate_completed_request_id() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let path = dir.path().join("duplicate.json");
+    std::fs::write(&path, duplicate_request_id_artifact()).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+
+    let report = parse_report_json(output);
+    let warnings = report["warnings"]
+        .as_array()
+        .expect("warnings should exist");
+    assert!(warnings.iter().any(|warning| warning
+        .as_str()
+        .is_some_and(|warning| warning.contains("Duplicate completed request_id"))));
+}
+
+fn duplicate_request_id_artifact() -> &'static str {
+    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":3,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"dup","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"},{"request_id":"dup","route":"/","kind":null,"started_at_unix_ms":2,"finished_at_unix_ms":3,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
+}

@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::{Serialize, Serializer};
 
@@ -24,6 +24,52 @@ const ROUTE_DIVERGENCE_WARNING: &str =
     "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
 const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
     "Runtime and in-flight signals are global and are not attributed to this route.";
+
+/// Strict artifact validation errors for analyzer callers that want malformed
+/// request-scoped evidence to fail before triage output is produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArtifactValidationError {
+    /// More than one completed request used the same tailtriage request ID.
+    DuplicateCompletedRequestId {
+        /// Duplicate tailtriage request ID.
+        request_id: String,
+    },
+    /// A stage event references no completed request with the same tailtriage request ID.
+    OrphanStageRequestId {
+        /// Stage event request ID that has no completed request.
+        request_id: String,
+        /// Stage name attached to the orphan event.
+        stage: String,
+    },
+    /// A queue event references no completed request with the same tailtriage request ID.
+    OrphanQueueRequestId {
+        /// Queue event request ID that has no completed request.
+        request_id: String,
+        /// Queue name attached to the orphan event.
+        queue: String,
+    },
+}
+
+impl std::fmt::Display for ArtifactValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DuplicateCompletedRequestId { request_id } => write!(
+                f,
+                "strict artifact validation failed: duplicate completed request_id '{request_id}' makes request-scoped attribution ambiguous"
+            ),
+            Self::OrphanStageRequestId { request_id, stage } => write!(
+                f,
+                "strict artifact validation failed: stage '{stage}' references request_id '{request_id}' with no matching completed request"
+            ),
+            Self::OrphanQueueRequestId { request_id, queue } => write!(
+                f,
+                "strict artifact validation failed: queue '{queue}' references request_id '{request_id}' with no matching completed request"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ArtifactValidationError {}
 
 /// Evidence-ranked diagnosis categories produced by heuristic triage.
 ///
@@ -329,6 +375,96 @@ pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, Ana
     Ok(Analyzer::new(options).analyze_run(run))
 }
 
+/// Validates request-scoped artifact invariants that can make triage attribution ambiguous.
+///
+/// Strict validation fails on duplicate completed request IDs and on stage/queue
+/// evidence whose request ID has no matching completed request. Default analysis
+/// remains permissive and surfaces these conditions as warnings instead.
+///
+/// # Errors
+///
+/// Returns [`ArtifactValidationError`] for the first strict artifact invariant violation.
+pub fn validate_run_artifact_strict(run: &Run) -> Result<(), ArtifactValidationError> {
+    let mut seen = HashSet::new();
+    for request in &run.requests {
+        if !seen.insert(request.request_id.as_str()) {
+            return Err(ArtifactValidationError::DuplicateCompletedRequestId {
+                request_id: request.request_id.clone(),
+            });
+        }
+    }
+
+    for stage in &run.stages {
+        if !seen.contains(stage.request_id.as_str()) {
+            return Err(ArtifactValidationError::OrphanStageRequestId {
+                request_id: stage.request_id.clone(),
+                stage: stage.stage.clone(),
+            });
+        }
+    }
+
+    for queue in &run.queues {
+        if !seen.contains(queue.request_id.as_str()) {
+            return Err(ArtifactValidationError::OrphanQueueRequestId {
+                request_id: queue.request_id.clone(),
+                queue: queue.queue.clone(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Analyzes a run after strict request-scoped artifact validation.
+///
+/// Default [`analyze_run`] is permissive. Use this helper when duplicate
+/// completed request IDs or orphan stage/queue IDs should fail the analysis path.
+///
+/// # Errors
+///
+/// Returns [`ArtifactValidationError`] for strict artifact validation failures,
+/// or [`AnalyzeConfigError`] for invalid analyzer options.
+pub fn try_analyze_run_strict_artifact(
+    run: &Run,
+    options: AnalyzeOptions,
+) -> Result<Report, StrictAnalyzeError> {
+    validate_run_artifact_strict(run)?;
+    try_analyze_run(run, options).map_err(StrictAnalyzeError::AnalyzeConfig)
+}
+
+/// Error returned by [`try_analyze_run_strict_artifact`].
+#[derive(Debug)]
+pub enum StrictAnalyzeError {
+    /// Strict artifact validation failed.
+    Artifact(ArtifactValidationError),
+    /// Analyzer option validation failed.
+    AnalyzeConfig(AnalyzeConfigError),
+}
+
+impl From<ArtifactValidationError> for StrictAnalyzeError {
+    fn from(value: ArtifactValidationError) -> Self {
+        Self::Artifact(value)
+    }
+}
+
+impl std::fmt::Display for StrictAnalyzeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Artifact(error) => error.fmt(f),
+            Self::AnalyzeConfig(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for StrictAnalyzeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Artifact(error) => Some(error),
+            Self::AnalyzeConfig(error) => Some(error),
+        }
+    }
+}
+
 /// Renders analyzer [`Report`] JSON in compact form.
 ///
 /// This renders analyzer report JSON (the diagnosis output), not raw run artifact JSON.
@@ -573,8 +709,50 @@ fn ambiguity_warning(suspects: &[Suspect], options: &AnalyzeOptions) -> Option<S
     }
 }
 
+fn request_id_integrity_warnings(run: &Run) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for request in &run.requests {
+        if !seen.insert(request.request_id.as_str()) {
+            duplicates.insert(request.request_id.as_str());
+        }
+    }
+    if !duplicates.is_empty() {
+        warnings.push(format!(
+            "Duplicate completed request_id values found in this Run ({} duplicate ID(s)); request-scoped attribution, route breakdowns, temporal segmentation, and downstream-stage matching may be ambiguous. Use one unique tailtriage request_id per completed logical request/work item.",
+            duplicates.len()
+        ));
+    }
+
+    let completed_ids = seen;
+    let orphan_stage_count = run
+        .stages
+        .iter()
+        .filter(|stage| !completed_ids.contains(stage.request_id.as_str()))
+        .count();
+    if orphan_stage_count > 0 {
+        warnings.push(format!(
+            "{orphan_stage_count} stage event(s) reference request_id values with no matching completed request; downstream-stage attribution may be incomplete."
+        ));
+    }
+    let orphan_queue_count = run
+        .queues
+        .iter()
+        .filter(|queue| !completed_ids.contains(queue.request_id.as_str()))
+        .count();
+    if orphan_queue_count > 0 {
+        warnings.push(format!(
+            "{orphan_queue_count} queue event(s) reference request_id values with no matching completed request; queue attribution may be incomplete."
+        ));
+    }
+
+    warnings
+}
+
 fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) -> Vec<String> {
     let mut warnings = evidence::truncation_warnings(run);
+    warnings.extend(request_id_integrity_warnings(run));
     if run.requests.len() < options.evidence.low_completed_request_threshold {
         warnings.push(
             "Low completed-request count; diagnosis ranking may be unstable for this run window."
