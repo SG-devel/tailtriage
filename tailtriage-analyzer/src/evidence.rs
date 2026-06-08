@@ -1,7 +1,14 @@
+use std::collections::HashSet;
+
 use serde::Serialize;
 use tailtriage_core::Run;
 
-use super::AnalyzeOptions;
+use super::{duplicate_completed_request_ids, orphan_event_request_ids, AnalyzeOptions};
+
+const DUPLICATE_REQUEST_ID_LIMITATION: &str =
+    "Duplicate completed request_id values make request-scoped attribution ambiguous.";
+const ORPHAN_REQUEST_SCOPED_EVENT_LIMITATION: &str =
+    "Stage or queue evidence with no matching completed request_id cannot be reliably attributed.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -200,6 +207,26 @@ fn evidence_limitations(
             "Capture truncation dropped evidence and can reduce diagnosis completeness."
                 .to_string(),
         );
+    }
+    if !duplicate_completed_request_ids(run).is_empty() {
+        limitations.push(DUPLICATE_REQUEST_ID_LIMITATION.to_string());
+    }
+
+    let completed_ids = run
+        .requests
+        .iter()
+        .map(|request| request.request_id.as_str())
+        .collect::<HashSet<_>>();
+    let has_orphan_stage = !orphan_event_request_ids(&completed_ids, &run.stages, |stage| {
+        stage.request_id.as_str()
+    })
+    .is_empty();
+    let has_orphan_queue = !orphan_event_request_ids(&completed_ids, &run.queues, |queue| {
+        queue.request_id.as_str()
+    })
+    .is_empty();
+    if has_orphan_stage || has_orphan_queue {
+        limitations.push(ORPHAN_REQUEST_SCOPED_EVENT_LIMITATION.to_string());
     }
     limitations
 }

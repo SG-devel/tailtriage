@@ -14,11 +14,13 @@ It is **not**:
 
 ## When to use this crate
 
-Use this path when your service already uses Rust `tracing` and already has stable per-request correlation IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
+Use this path when your service already uses Rust `tracing` and already has stable per-work-item IDs that can be converted into unique tailtriage request IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
 
 This crate converts tracing-shaped request, stage, and queue evidence into standard `tailtriage_core::Run` artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend.
 
-For one work item, every request, stage, and queue span must carry the same `tt.request_id`. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing or inconsistent IDs cause child evidence to be skipped or weakened.
+For one completed logical request/work item, every request, stage, and queue span must carry the same `tt.request_id`. That `tt.request_id` is the unique tailtriage request ID for the completed request within one Run, not necessarily a raw distributed trace ID. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing, inconsistent, or duplicate IDs cause child evidence to be skipped, weakened, or reported as ambiguous.
+
+External trace/correlation IDs may repeat across retries, fanout branches, batch items, or attempts. When they can repeat, derive a unique tailtriage `tt.request_id` first, for example by adding attempt, span, branch, or item information. Users remain responsible for meaningful instrumentation and request-boundary semantics.
 
 ## Feature flags
 

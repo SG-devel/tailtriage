@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::config::Config;
+use crate::request_ids::add_duplicate_completed_request_id_warning;
 use crate::time::{FinishedInterval, IntervalStart, RunClock};
 use crate::InflightGuard;
 use crate::RunSink;
@@ -362,6 +363,7 @@ impl Tailtriage {
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
         self.truncation_state.merge_into(&mut run.truncation);
+        add_duplicate_completed_request_id_warning(&mut run);
         run
     }
 
@@ -406,6 +408,7 @@ impl Tailtriage {
         }
 
         self.truncation_state.merge_into(&mut guard.truncation);
+        add_duplicate_completed_request_id_warning(&mut guard);
         self.sink.write(&guard)
     }
 

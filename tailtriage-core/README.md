@@ -86,6 +86,7 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 `tailtriage-core` captures run data and finalizes through a sink. It does not perform analysis/report generation.
 
 - `LocalJsonSink` (or builder `.output(...)`) writes Run artifact JSON to disk.
+- `request_id` is the per-run tailtriage identity of one completed logical request/work item. Explicit IDs should be unique among completed requests in one Run; queue and stage events should reuse an ID only for evidence from that same logical request. Duplicate retained completed IDs are allowed for backward compatibility but surface a lifecycle warning because request-scoped attribution can be ambiguous.
 - `MemorySink` stores finalized typed `Run` values in memory.
 - `DiscardSink` finalizes lifecycle and drops the finalized `Run` without persisting output.
 
@@ -180,7 +181,7 @@ Override limits with:
 Most users should use `Tailtriage::builder(...)` for live request instrumentation.
 Use `RunBuilder` only when you already have completed request, stage, queue, in-flight, or runtime evidence and need to assemble a standard `Run` artifact.
 
-`RunBuilder` is intended for import/conversion paths. It does not perform live lifecycle tracking. `RunBuilder::new` validates top-level run timestamp ordering. Each `push_*` call validates required event/snapshot shape and timestamp ordering before retention is applied. Completed request latency, stage latency, and queue wait fields are authoritative evidence; `RunBuilder` does not synthesize, repair, or reject those durations based on wall-clock timestamp deltas. It applies the same bounded retention/truncation semantics as live core capture, so events beyond configured `CaptureLimits` are dropped without error and `Run.truncation` counters are updated. `RunBuilder` does not validate cross-event correlation (for example a stage without a matching request) and does not synthesize lifecycle completions. For assembled/imported artifacts, host and pid default to `None`, and generated run IDs use the same core run-id semantics as live capture.
+`RunBuilder` is intended for import/conversion paths. It does not perform live lifecycle tracking. `RunBuilder::new` validates top-level run timestamp ordering. Each `push_*` call validates required event/snapshot shape and timestamp ordering before retention is applied. Completed request latency, stage latency, and queue wait fields are authoritative evidence; `RunBuilder` does not synthesize, repair, or reject those durations based on wall-clock timestamp deltas. It applies the same bounded retention/truncation semantics as live core capture, so events beyond configured `CaptureLimits` are dropped without error and `Run.truncation` counters are updated. `RunBuilder` does not validate cross-event correlation (for example a stage without a matching request) and does not synthesize lifecycle completions. It surfaces a lifecycle warning when retained completed requests contain duplicate request IDs. For assembled/imported artifacts, host and pid default to `None`, and generated run IDs use the same core run-id semantics as live capture.
 
 ```rust,no_run
 use tailtriage_core::{RequestEvent, RunBuilder, RunBuilderOptions};
