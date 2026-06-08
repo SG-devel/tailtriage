@@ -999,6 +999,54 @@ fn request_handle_supports_fractured_code_usage() {
 }
 
 #[test]
+fn duplicate_explicit_request_ids_complete_independently_and_warn() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-duplicate-explicit.json");
+
+    let first = tailtriage.begin_request_with(
+        "/retry",
+        RequestOptions::new().request_id("external-trace-attempt"),
+    );
+    let second = tailtriage.begin_request_with(
+        "/retry",
+        RequestOptions::new().request_id("external-trace-attempt"),
+    );
+    first.completion.finish_ok();
+    second.completion.finish(Outcome::Error);
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_eq!(snapshot.requests[0].request_id, "external-trace-attempt");
+    assert_eq!(snapshot.requests[1].request_id, "external-trace-attempt");
+    assert_eq!(snapshot.requests[0].outcome, "ok");
+    assert_eq!(snapshot.requests[1].outcome, "error");
+    assert!(snapshot
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("duplicate explicit request_id")));
+}
+
+#[test]
+fn auto_generated_request_ids_remain_unique_and_warning_free() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-auto-ids.json");
+
+    tailtriage.begin_request("/auto").completion.finish_ok();
+    tailtriage.begin_request("/auto").completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_ne!(
+        snapshot.requests[0].request_id,
+        snapshot.requests[1].request_id
+    );
+    assert!(!snapshot
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("duplicate explicit request_id")));
+}
+
+#[test]
 fn shutdown_warns_with_unfinished_requests() {
     let tailtriage = build_for_test("payments", "tailtriage-core-unfinished.json");
     let started = tailtriage.begin_request("/unfinished");

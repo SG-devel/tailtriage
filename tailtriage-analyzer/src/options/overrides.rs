@@ -2,7 +2,8 @@
 use super::analyze_option_descriptors;
 use super::{AnalyzeConfigError, AnalyzeOptions};
 
-const VALID_OVERRIDE_PATHS: [&str; 29] = [
+const VALID_OVERRIDE_PATHS: [&str; 30] = [
+    "artifact.strict",
     "queueing.trigger_permille",
     "blocking.min_nonzero_samples_for_signal",
     "blocking.strong_p95_threshold",
@@ -88,6 +89,7 @@ fn apply_override_path(
     value: &str,
 ) -> Result<(), AnalyzeConfigError> {
     match path {
+        "artifact.strict" => options.artifact.strict = parse_bool(path, value)?,
         "queueing.trigger_permille" => options.queueing.trigger_permille = parse_u64(path, value)?,
         "blocking.min_nonzero_samples_for_signal" => {
             options.blocking.min_nonzero_samples_for_signal = parse_usize(path, value)?;
@@ -287,6 +289,7 @@ mod tests {
     fn every_valid_path_can_be_applied() {
         let mut opts = AnalyzeOptions::default();
         for (path, value) in [
+            ("artifact.strict", "true"),
             ("queueing.trigger_permille", "250"),
             ("blocking.min_nonzero_samples_for_signal", "3"),
             ("blocking.strong_p95_threshold", "15"),

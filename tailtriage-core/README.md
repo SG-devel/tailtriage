@@ -138,6 +138,12 @@ req.queue("ingress")
 # }
 ```
 
+## Request ID contract
+
+A tailtriage `request_id` is the per-run identity of one completed logical request/work item. It must be unique among completed requests in one `Run`. Queue and stage events must reuse that ID only for evidence from that same logical request.
+
+If an external trace/correlation ID can repeat across retries, fanout branches, batch items, or attempts, convert it into a unique tailtriage request ID first, for example by adding attempt/span/branch information. Native core still completes duplicate explicit IDs independently by using an internal pending key, but it records a best-effort metadata warning because request-scoped attribution can become ambiguous. Auto-generated IDs are unique for normal capture. Users remain responsible for meaningful instrumentation boundaries and propagation semantics.
+
 ## Lifecycle contract
 
 - `queue(...)`, `stage(...)`, and `inflight(...)` do **not** finish requests.

@@ -4,6 +4,12 @@
 
 Use this crate when you already have a completed `tailtriage_core::Run` in memory (or an equivalent stable snapshot) and want a typed triage report, text rendering, and canonical Report JSON rendering in your Rust process.
 
+## Request ID validation
+
+The analyzer assumes each completed logical request/work item in one `Run` has one unique `request_id`, and all queue/stage evidence for that request reuses the same ID. Duplicate completed IDs or orphan stage/queue IDs make request-scoped attribution ambiguous for evidence-ranked suspects and next checks.
+
+Default analysis is permissive and emits report warnings plus evidence-quality limitations. Use `AnalyzeOptions::default().strict_artifact(true)` when those mechanical artifact problems should fail analysis. This checks ID consistency only; users still own meaningful request-boundary, retry, fanout, and propagation semantics.
+
 ## What this crate does
 
 - analyzes one completed run/snapshot in batch

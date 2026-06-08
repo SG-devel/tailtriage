@@ -42,6 +42,14 @@ Machine-readable JSON output:
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Strict artifact validation for request-scoped ID consistency:
+
+```bash
+tailtriage analyze tailtriage-run.json --strict-artifact
+```
+
+Default analysis is permissive: duplicate completed request IDs or stage/queue IDs without a matching completed request produce report warnings. `--strict-artifact` fails those mechanical artifact problems. A tailtriage `request_id` identifies one completed logical request/work item inside one Run and must be unique among completed requests; broad trace/correlation IDs that can repeat across retries, fanout branches, batch items, or attempts should be converted into unique tailtriage IDs first.
+
 Import completed tailtriage `tt.*` tracing span JSONL into Run JSON:
 
 ```bash

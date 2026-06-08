@@ -40,6 +40,9 @@ enum Command {
         /// Analyzer override in `path=value` form; may be repeated.
         #[arg(long = "analyzer-set", value_name = "PATH=VALUE")]
         analyzer_set: Vec<String>,
+        /// Fail if request-scoped artifact evidence is ambiguous or orphaned.
+        #[arg(long)]
+        strict_artifact: bool,
         /// Print analyzer option help and exit successfully.
         #[arg(long)]
         help_analyzer_options: bool,
@@ -151,6 +154,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             format,
             analyzer_config,
             analyzer_set,
+            strict_artifact,
             help_analyzer_options,
         } => {
             if help_analyzer_options {
@@ -168,7 +172,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             for warning in &loaded.warnings {
                 eprintln!("warning: {warning}");
             }
-            let options = build_analyze_options(analyzer_config.as_deref(), &analyzer_set)?;
+            let options = build_analyze_options(analyzer_config.as_deref(), &analyzer_set)?
+                .strict_artifact(strict_artifact);
             let report = try_analyze_run(&loaded.run, options)?;
 
             match format {

@@ -81,6 +81,8 @@ Offline import expects completed tailtriage `tt.*` tracing span JSONL (not arbit
 
 Both paths convert tracing-shaped evidence into standard `tailtriage_core::Run` data and feed the same analyzer/report workflow (evidence-ranked suspects and next checks). Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
 
+`request_id` is the per-run identity of one completed logical request or work item. It must be unique among completed requests in one Run, and stage/queue evidence must reuse that ID only for the same logical request. If an external trace or correlation ID can repeat across retries, fanout branches, batch items, or attempts, convert it into a unique tailtriage request ID first, for example by adding attempt/span/branch information. `tailtriage` warns about duplicate completed IDs because request-scoped attribution can become ambiguous, but users remain responsible for meaningful request boundaries and propagation semantics.
+
 ## Why not just tokio-console or tokio-metrics?
 
 Those tools are complementary building blocks. `tailtriage` fills a different gap: it turns request lifecycle timing plus optional runtime signals into a focused triage loop:
@@ -236,6 +238,7 @@ if let Some(finalized_run) = sink.take_run() {
 
 ```bash
 tailtriage analyze tailtriage-run.json --format json
+tailtriage analyze tailtriage-run.json --strict-artifact
 ```
 
 Import completed tailtriage tracing span JSONL into a Run artifact first when needed:

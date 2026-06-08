@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Serialize, Serializer};
 
@@ -15,8 +15,8 @@ mod temporal;
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};
 pub use options::{
     analyze_option_descriptors, AnalyzeConfigError, AnalyzeOptionDescriptor, AnalyzeOptions,
-    BlockingOptions, ConfidenceOptions, DownstreamOptions, EvidenceOptions, ExecutorOptions,
-    QueueingOptions, RouteOptions, TemporalOptions,
+    ArtifactOptions, BlockingOptions, ConfidenceOptions, DownstreamOptions, EvidenceOptions,
+    ExecutorOptions, QueueingOptions, RouteOptions, TemporalOptions,
 };
 use tailtriage_core::{InFlightSnapshot, Run, RuntimeSnapshot};
 
@@ -323,9 +323,12 @@ pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
 ///
 /// # Errors
 ///
-/// Returns an error when options fail semantic validation.
+/// Returns an error when options fail semantic validation or strict artifact validation rejects the run.
 pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, AnalyzeConfigError> {
     options.validate()?;
+    if options.artifact.strict {
+        validate_artifact_strict(run)?;
+    }
     Ok(Analyzer::new(options).analyze_run(run))
 }
 
@@ -434,8 +437,23 @@ impl Analyzer {
     }
 
     /// Analyzes one completed [`Run`] (or stable snapshot equivalent) and returns a triage report.
+    ///
+    /// # Panics
+    ///
+    /// Panics when configured options fail semantic validation, or when strict
+    /// artifact validation is enabled and the run contains duplicate completed
+    /// request IDs or orphan stage/queue IDs. Use [`try_analyze_run`] to handle
+    /// those failures as errors.
     #[must_use]
     pub fn analyze_run(&self, run: &Run) -> Report {
+        if let Err(err) = self.options.validate() {
+            panic!("invalid AnalyzeOptions passed to Analyzer::analyze_run: {err}");
+        }
+        if self.options.artifact.strict {
+            if let Err(err) = validate_artifact_strict(run) {
+                panic!("invalid artifact passed to Analyzer::analyze_run: {err}");
+            }
+        }
         analyze_run_with_options(run, &self.options)
     }
 }
@@ -516,7 +534,12 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
 
     let warnings = analysis_warnings(run, &suspects, options);
-    let evidence_quality = evidence::evidence_quality(run, options);
+    let mut evidence_quality = evidence::evidence_quality(run, options);
+    for warning in artifact_validation_warnings(run) {
+        if !evidence_quality.limitations.contains(&warning) {
+            evidence_quality.limitations.push(warning);
+        }
+    }
 
     for suspect in &mut suspects {
         suspect.confidence = Confidence::from_score_with_options(suspect.score, options);
@@ -556,6 +579,88 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     }
 }
 
+fn validate_artifact_strict(run: &Run) -> Result<(), AnalyzeConfigError> {
+    let warnings = artifact_validation_warnings(run);
+    if warnings.is_empty() {
+        Ok(())
+    } else {
+        Err(AnalyzeConfigError::ArtifactValidation {
+            message: warnings.join("; "),
+        })
+    }
+}
+
+fn artifact_validation_warnings(run: &Run) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if let Some(warning) = duplicate_completed_request_id_warning(run) {
+        warnings.push(warning);
+    }
+    warnings.extend(orphan_request_id_warnings(run));
+    warnings
+}
+
+fn duplicate_completed_request_id_warning(run: &Run) -> Option<String> {
+    let mut seen = BTreeSet::<&str>::new();
+    let mut duplicates = BTreeSet::<&str>::new();
+    for request in &run.requests {
+        if !seen.insert(request.request_id.as_str()) {
+            duplicates.insert(request.request_id.as_str());
+        }
+    }
+    if duplicates.is_empty() {
+        return None;
+    }
+
+    let sample = duplicates
+        .iter()
+        .take(5)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "Duplicate completed request_id value(s) in this Run ({sample}); request-scoped attribution may be ambiguous for queue attribution, route breakdowns, temporal segmentation, and downstream-stage matching. tailtriage request_id must be unique per completed logical request/work item within one Run."
+    ))
+}
+
+fn orphan_request_id_warnings(run: &Run) -> Vec<String> {
+    let completed = run
+        .requests
+        .iter()
+        .map(|request| request.request_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut orphan_stage_ids = BTreeSet::<&str>::new();
+    for stage in &run.stages {
+        if !completed.contains(stage.request_id.as_str()) {
+            orphan_stage_ids.insert(stage.request_id.as_str());
+        }
+    }
+    let mut orphan_queue_ids = BTreeSet::<&str>::new();
+    for queue in &run.queues {
+        if !completed.contains(queue.request_id.as_str()) {
+            orphan_queue_ids.insert(queue.request_id.as_str());
+        }
+    }
+
+    let mut warnings = Vec::new();
+    if !orphan_stage_ids.is_empty() {
+        warnings.push(format!(
+            "Stage events reference request_id value(s) with no matching completed request in this Run ({}); downstream-stage attribution may be incomplete.",
+            sample_request_ids(&orphan_stage_ids)
+        ));
+    }
+    if !orphan_queue_ids.is_empty() {
+        warnings.push(format!(
+            "Queue events reference request_id value(s) with no matching completed request in this Run ({}); queue attribution may be incomplete.",
+            sample_request_ids(&orphan_queue_ids)
+        ));
+    }
+    warnings
+}
+
+fn sample_request_ids(ids: &BTreeSet<&str>) -> String {
+    ids.iter().take(5).copied().collect::<Vec<_>>().join(", ")
+}
+
 fn ambiguity_warning(suspects: &[Suspect], options: &AnalyzeOptions) -> Option<String> {
     let mut ranked = suspects
         .iter()
@@ -575,6 +680,7 @@ fn ambiguity_warning(suspects: &[Suspect], options: &AnalyzeOptions) -> Option<S
 
 fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) -> Vec<String> {
     let mut warnings = evidence::truncation_warnings(run);
+    warnings.extend(artifact_validation_warnings(run));
     if run.requests.len() < options.evidence.low_completed_request_threshold {
         warnings.push(
             "Low completed-request count; diagnosis ranking may be unstable for this run window."

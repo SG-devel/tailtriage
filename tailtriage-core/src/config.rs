@@ -374,7 +374,12 @@ impl TailtriageBuilder {
 /// completion semantics: each request must still be finished exactly once.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RequestOptions {
-    /// Optional caller-provided request ID used for request correlation.
+    /// Optional caller-provided tailtriage request ID.
+    ///
+    /// This identifies one completed logical request/work item within one Run
+    /// and must be unique among completed requests. If an external trace or
+    /// correlation ID can repeat across retries, fanout branches, batch items,
+    /// or attempts, include attempt/span/branch information before using it here.
     pub request_id: Option<String>,
     /// Optional semantic request kind (for example `http` or `job`).
     pub kind: Option<String>,
@@ -387,7 +392,11 @@ impl RequestOptions {
         Self::default()
     }
 
-    /// Sets an explicit request ID for the next request context.
+    /// Sets an explicit tailtriage request ID for the next request context.
+    ///
+    /// The value must identify one completed logical request/work item within
+    /// one Run. Duplicate explicit IDs are completed independently but surfaced
+    /// as metadata warnings because attribution may be ambiguous.
     #[must_use]
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());

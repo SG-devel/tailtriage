@@ -98,6 +98,7 @@ struct PendingRequest {
     request_id: String,
     route: String,
     kind: Option<String>,
+    explicit_request_id: bool,
     interval_start: IntervalStart,
 }
 
@@ -573,7 +574,7 @@ impl Tailtriage {
         }
     }
 
-    fn record_request_event(&self, event: RequestEvent) {
+    fn record_request_event(&self, event: RequestEvent, explicit_request_id: bool) {
         if self.truncation_state.requests.is_saturated() {
             self.truncation_state.requests.increment_drop();
             self.notify_limits_hit_transition();
@@ -583,6 +584,9 @@ impl Tailtriage {
         let mut notify_limits_hit = false;
         {
             let mut run = lock_run(&self.run);
+            if explicit_request_id {
+                warn_on_duplicate_explicit_request_id(&mut run, &event.request_id);
+            }
             if crate::retention::push_request_bounded(&mut run, self.limits, event) {
                 self.truncation_state.requests.mark_saturated();
                 notify_limits_hit = true;
@@ -612,6 +616,7 @@ impl Tailtriage {
         route: String,
         options: RequestOptions,
     ) -> (String, String, Option<String>, u64, IntervalStart) {
+        let explicit_request_id = options.request_id.is_some();
         let request_id = options
             .request_id
             .unwrap_or_else(|| generate_request_id(&route));
@@ -622,6 +627,7 @@ impl Tailtriage {
             request_id: request_id.clone(),
             route: route.clone(),
             kind: kind.clone(),
+            explicit_request_id,
             interval_start,
         };
         lock_pending(&self.pending_requests).insert(pending_key, pending);
@@ -736,10 +742,11 @@ impl RequestCompletion<'_> {
         };
         self.finished = true;
 
-        self.tailtriage
-            .record_request_event(request_event_from_finished_interval(
-                pending, finished, outcome,
-            ));
+        let explicit_request_id = pending.explicit_request_id;
+        self.tailtriage.record_request_event(
+            request_event_from_finished_interval(pending, finished, outcome),
+            explicit_request_id,
+        );
     }
 }
 
@@ -845,10 +852,33 @@ impl OwnedRequestCompletion {
         };
         self.finished = true;
 
-        self.tailtriage
-            .record_request_event(request_event_from_finished_interval(
-                pending, finished, outcome,
-            ));
+        let explicit_request_id = pending.explicit_request_id;
+        self.tailtriage.record_request_event(
+            request_event_from_finished_interval(pending, finished, outcome),
+            explicit_request_id,
+        );
+    }
+}
+
+fn warn_on_duplicate_explicit_request_id(run: &mut Run, request_id: &str) {
+    if !run
+        .requests
+        .iter()
+        .any(|request| request.request_id == request_id)
+    {
+        return;
+    }
+
+    let warning = format!(
+        "duplicate explicit request_id '{request_id}' completed in this run; request-scoped attribution may be ambiguous. tailtriage request_id values must be unique per completed logical request/work item within one Run"
+    );
+    if !run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|existing| existing == &warning)
+    {
+        run.metadata.lifecycle_warnings.push(warning);
     }
 }
 

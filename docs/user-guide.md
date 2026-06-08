@@ -36,7 +36,7 @@ The `controller` and `tokio` namespaces are available with default features; `ax
 
 Use `tailtriage-tracing` when your service already uses Rust `tracing` and already has stable per-request correlation IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
 
-This path converts tracing-shaped request, stage, and queue evidence into standard Run artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend. For one work item, every request, stage, and queue span must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by `tt.request_id`.
+This path converts tracing-shaped request, stage, and queue evidence into standard Run artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend. `tt.request_id` is the tailtriage per-run request ID: it identifies one completed logical request/work item and must be unique among completed requests in that Run. For one work item, every request, stage, and queue span must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by `tt.request_id`. If a trace/correlation ID can repeat across retries, fanout branches, batch items, or attempts, derive a unique tailtriage ID first, such as `trace_id:span_id` or `trace_id:attempt`.
 
 Install for typed records plus JSONL import APIs (default feature set):
 
@@ -66,6 +66,7 @@ tailtriage analyze tailtriage-run.json
 
 - `--strict` fails malformed or incomplete `tt.*` spans.
 - Non-strict mode skips malformed `tt.*` spans and prints `warning: ...` messages.
+- `tailtriage analyze --strict-artifact` fails duplicate completed request IDs and orphan stage/queue IDs; default analysis remains permissive and reports warnings.
 
 #### Retention limits
 
@@ -130,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure. Every request, stage, and queue span for one work item must carry the same `tt.request_id`; missing or inconsistent IDs cause child stage/queue evidence to be skipped or weakened.
+Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure. Every request, stage, and queue span for one work item must carry the same unique tailtriage `tt.request_id`; missing, inconsistent, or duplicate completed IDs cause child stage/queue evidence to be skipped, weakened, or warned as ambiguous. Users still own the semantic request boundary, retry model, fanout model, and propagation correctness.
 
 `tt.outcome` on request spans is optional: missing values default to `ok` with a warning; recommended common labels are `ok`, `error`, `timeout`, `cancelled`, and `rejected`; custom non-empty labels are preserved exactly.
 

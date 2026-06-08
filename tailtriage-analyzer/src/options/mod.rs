@@ -41,6 +41,16 @@ pub struct AnalyzeOptions {
     pub route: RouteOptions,
     /// Temporal-shift thresholds for optional early/late triage segment summaries.
     pub temporal: TemporalOptions,
+    /// Artifact-shape validation controls for analyzer inputs.
+    pub artifact: ArtifactOptions,
+}
+
+/// Artifact-shape validation options.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct ArtifactOptions {
+    /// Fail analysis on ambiguous request-scoped artifact evidence instead of emitting warnings.
+    pub strict: bool,
 }
 
 /// Queue-saturation suspect thresholds.
@@ -247,6 +257,16 @@ fn push_non_default_override(
         path: path.to_string(),
         value,
     });
+}
+
+fn artifact_non_default_overrides(
+    out: &mut Vec<AnalyzeConfigOverrideSummary>,
+    options: &AnalyzeOptions,
+    defaults: &AnalyzeOptions,
+) {
+    if options.artifact.strict != defaults.artifact.strict {
+        push_non_default_override(out, "artifact.strict", options.artifact.strict.to_string());
+    }
 }
 
 fn queueing_non_default_overrides(
@@ -561,6 +581,7 @@ impl AnalyzeOptions {
     pub fn non_default_overrides(&self) -> Vec<AnalyzeConfigOverrideSummary> {
         let defaults = Self::default();
         let mut out = Vec::new();
+        artifact_non_default_overrides(&mut out, self, &defaults);
         queueing_non_default_overrides(&mut out, self, &defaults);
         blocking_non_default_overrides(&mut out, self, &defaults);
         executor_non_default_overrides(&mut out, self, &defaults);
@@ -571,6 +592,16 @@ impl AnalyzeOptions {
         temporal_non_default_overrides(&mut out, self, &defaults);
         out.sort_by(|a, b| a.path.cmp(&b.path));
         out
+    }
+    /// Enables or disables strict artifact validation.
+    ///
+    /// Strict validation fails analysis for duplicate completed request IDs and
+    /// stage/queue events whose `request_id` does not match a completed request.
+    /// Default analysis is permissive and emits warnings instead.
+    #[must_use]
+    pub const fn strict_artifact(mut self, strict: bool) -> Self {
+        self.artifact.strict = strict;
+        self
     }
     /// Applies queueing-option edits and returns updated options for fluent setup.
     #[must_use]
@@ -784,6 +815,11 @@ pub enum AnalyzeConfigError {
         /// TOML parsing or decoding error details.
         message: String,
     },
+    /// Strict artifact validation rejected request-scoped evidence.
+    ArtifactValidation {
+        /// Validation failure detail.
+        message: String,
+    },
 }
 impl Display for AnalyzeConfigError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -814,6 +850,9 @@ impl Display for AnalyzeConfigError {
                 "unsupported schema_version {found}; supported {supported}"
             ),
             Self::InvalidToml { message } => write!(f, "invalid toml: {message}"),
+            Self::ArtifactValidation { message } => {
+                write!(f, "strict artifact validation failed: {message}")
+            }
         }
     }
 }

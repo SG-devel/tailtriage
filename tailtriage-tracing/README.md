@@ -20,6 +20,12 @@ This crate converts tracing-shaped request, stage, and queue evidence into stand
 
 For one work item, every request, stage, and queue span must carry the same `tt.request_id`. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing or inconsistent IDs cause child evidence to be skipped or weakened.
 
+## Request ID contract for `tt.request_id`
+
+`tt.request_id` must be the tailtriage per-run ID for one completed logical request/work item. It must be unique among completed request spans in the imported or live Run, and stage/queue spans must reuse that ID only for the same logical request.
+
+Do not pass a broad distributed trace/correlation ID directly if it can repeat across retries, fanout branches, batch items, or attempts. Derive a unique tailtriage ID first, for example `trace_id:span_id`, `trace_id:attempt`, or `trace_id:branch`. Tracing import treats duplicate completed `tt.request_id` as bad input: strict mode fails, while non-strict mode warns and skips according to the import policy. `tailtriage` cannot infer whether your chosen boundary is semantically correct; it can only triage evidence you correlate consistently.
+
 ## Feature flags
 
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.

@@ -158,7 +158,7 @@ Prefer moderate intervals and bounded runs before increasing density.
 
 ## Operating with tracing-based runs
 
-Tracing intake works best when request correlation is already reliable. Every request, stage, and queue span for one work item must carry the same `tt.request_id`; missing or inconsistent `tt.request_id` causes child stage/queue evidence to be skipped or weakened. Native capture is the recommended first path when correlation is not already available.
+Tracing intake works best when request correlation is already reliable. `tt.request_id` must be the unique tailtriage per-run ID for one completed logical request/work item, not necessarily a raw distributed trace ID. Every request, stage, and queue span for one work item must carry that same `tt.request_id`; missing, inconsistent, or duplicate completed IDs can make request-scoped attribution ambiguous. Convert external trace/correlation IDs that can repeat across retries, fanout branches, batch items, or attempts into unique tailtriage IDs, for example by adding attempt/span/branch information. Native capture is the recommended first path when correlation is not already available.
 
 Tracing import expects completed tailtriage `tt.*` tracing span JSONL, not ordinary tracing log JSON (`fmt().json` output is a common non-supported example). Import writes Run JSON (not Report JSON), and analysis is a separate step after import (`tailtriage analyze`). Completed-span JSONL is not a production trace archive and does not preserve warning/truncation context; prefer Run JSON when the artifact itself must carry that context. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection. Timing is not guessed from line receive time, so completed spans must include explicit unix-ms start/end timestamps. OTel/OTLP intake remains out of scope on this path.
 
@@ -172,7 +172,7 @@ Important limits for production interpretation:
 
 `TracingTokioSession` uses the same core capture-limit model as native Tokio sampling for runtime snapshot retention. For `TracingTokioSession`, run metadata time bounds cover both retained tracing evidence and retained runtime snapshots. There is no tracing-specific `max_runtime_snapshots(...)` builder method; configure explicit caps with `capture_limits_override(CaptureLimitsOverride { max_runtime_snapshots: Some(...), ..Default::default() })`. Tracing-only runs still do not fabricate runtime snapshots. `TracingTokioSession` starts background sampling by default, but deterministic/manual runtime-sensitive workflows can call `disable_background_sampler()` and inject snapshots via `record_runtime_snapshot(...)`; runtime-sensitive tracing contract parity requires non-empty runtime snapshots, scenario-specific runtime field evidence, and the explicit disabled-background-sampler lifecycle warning (not ambient sampler metadata/noise). These are repeatable triage leads, not root-cause proof.
 
-Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
+Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof. Use `tailtriage analyze --strict-artifact` in operational validation when duplicate completed request IDs or orphan stage/queue IDs should fail the run instead of only appearing as warnings.
 
 ## Artifact sizing and retention expectations
 

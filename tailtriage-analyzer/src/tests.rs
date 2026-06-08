@@ -10,9 +10,9 @@ use super::temporal::{
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
-    render_json_pretty, render_text, AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind,
-    EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
-    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+    render_json_pretty, render_text, try_analyze_run, AnalyzeConfigError, AnalyzeOptions,
+    Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report,
+    SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -93,6 +93,102 @@ fn sample_request(id: u64) -> RequestEvent {
         latency_us: 1_000,
         outcome: "ok".into(),
     }
+}
+
+fn duplicate_request_id_warning_present(report: &Report) -> bool {
+    report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Duplicate completed request_id"))
+}
+
+#[test]
+fn duplicate_completed_request_ids_emit_warning_and_do_not_panic() {
+    let mut run = test_run();
+    run.requests[1].request_id = "req-1".to_owned();
+    run.stages = vec![StageEvent {
+        request_id: "req-1".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 900,
+        success: true,
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert!(duplicate_request_id_warning_present(&report));
+    assert!(report
+        .evidence_quality
+        .limitations
+        .iter()
+        .any(|limitation| limitation.contains("Duplicate completed request_id")));
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::InsufficientEvidence
+    );
+}
+
+#[test]
+fn unique_completed_request_ids_emit_no_duplicate_id_warning() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+
+    assert!(!duplicate_request_id_warning_present(&report));
+}
+
+#[test]
+fn strict_artifact_validation_fails_duplicate_completed_request_ids() {
+    let mut run = test_run();
+    run.requests[2].request_id = "req-1".to_owned();
+
+    let err = try_analyze_run(&run, AnalyzeOptions::default().strict_artifact(true))
+        .expect_err("strict artifact validation should fail duplicates");
+
+    assert!(matches!(err, AnalyzeConfigError::ArtifactValidation { .. }));
+    assert!(err.to_string().contains("Duplicate completed request_id"));
+}
+
+#[test]
+fn strict_artifact_validation_fails_orphan_stage_and_queue_ids() {
+    let mut run = test_run();
+    run.stages = vec![StageEvent {
+        request_id: "missing-stage-parent".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 900,
+        success: true,
+    }];
+    run.queues = vec![QueueEvent {
+        request_id: "missing-queue-parent".to_owned(),
+        queue: "permits".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 800,
+        depth_at_start: Some(2),
+    }];
+
+    let permissive = analyze_run(&run, AnalyzeOptions::default());
+    assert!(permissive
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Stage events reference request_id")));
+    assert!(permissive
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Queue events reference request_id")));
+
+    let err = try_analyze_run(&run, AnalyzeOptions::default().strict_artifact(true))
+        .expect_err("strict artifact validation should fail orphan evidence");
+    let message = err.to_string();
+    assert!(message.contains("Stage events reference request_id"));
+    assert!(message.contains("Queue events reference request_id"));
 }
 
 #[test]
@@ -2489,6 +2585,7 @@ fn compact_and_pretty_report_json_are_value_equivalent() {
 #[test]
 fn analyze_options_defaults_match_v1_surface() {
     let options = AnalyzeOptions::default();
+    assert!(!options.artifact.strict);
     assert_eq!(options.queueing.trigger_permille, 300);
     assert_eq!(options.blocking.min_nonzero_samples_for_signal, 2);
     assert_eq!(options.blocking.strong_p95_threshold, 12);
@@ -2689,6 +2786,7 @@ fn descriptors_have_unique_and_exact_v1_paths() {
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(paths.len(), descriptors.len());
     let expected = [
+        "artifact.strict",
         "queueing.trigger_permille",
         "blocking.min_nonzero_samples_for_signal",
         "blocking.strong_p95_threshold",
@@ -2729,6 +2827,7 @@ fn descriptors_have_unique_and_exact_v1_paths() {
 fn descriptor_defaults_match_analyze_options_defaults() {
     let opts = AnalyzeOptions::default();
     let expected = std::collections::BTreeMap::from([
+        ("artifact.strict", opts.artifact.strict.to_string()),
         (
             "queueing.trigger_permille",
             opts.queueing.trigger_permille.to_string(),

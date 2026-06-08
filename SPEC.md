@@ -187,6 +187,8 @@ tailtriage analyze <run.json>
 
 Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context.
 
+`request_id` is the per-run identity of one completed logical request/work item. Completed request events in one `Run` must have unique `request_id` values, and stage/queue events must use a completed request's ID only for evidence from that same logical request. External trace/correlation IDs that can repeat across retries, fanout branches, batch items, or attempts must be converted into unique tailtriage request IDs, such as by appending attempt/span/branch information. `tailtriage` can warn or strictly reject mechanically ambiguous IDs, but users remain responsible for meaningful instrumentation boundaries and propagation semantics.
+
 Direct capture lifecycle output options:
 
 - default direct capture writes a local run artifact JSON through `LocalJsonSink`
