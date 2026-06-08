@@ -374,7 +374,14 @@ impl TailtriageBuilder {
 /// completion semantics: each request must still be finished exactly once.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RequestOptions {
-    /// Optional caller-provided request ID used for request correlation.
+    /// Optional caller-provided tailtriage request ID.
+    ///
+    /// The ID identifies one completed logical request/work item within one
+    /// [`crate::Run`]. It should be unique among completed requests in that
+    /// run. Queue and stage instrumentation from the request handle reuses
+    /// this ID only for the same logical request. External IDs that can repeat
+    /// across retries, fanout branches, batch items, or attempts should be
+    /// expanded before being supplied here.
     pub request_id: Option<String>,
     /// Optional semantic request kind (for example `http` or `job`).
     pub kind: Option<String>,
@@ -387,7 +394,11 @@ impl RequestOptions {
         Self::default()
     }
 
-    /// Sets an explicit request ID for the next request context.
+    /// Sets an explicit tailtriage request ID for the next request context.
+    ///
+    /// Duplicate explicit IDs are not rejected by core, but retained
+    /// duplicates are surfaced as lifecycle warnings because request-scoped
+    /// attribution may be ambiguous.
     #[must_use]
     pub fn request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());

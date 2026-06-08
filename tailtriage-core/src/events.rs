@@ -229,7 +229,14 @@ pub struct UnfinishedRequestSample {
 /// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestEvent {
-    /// Correlation ID for the request.
+    /// Per-run identity for one completed logical request/work item.
+    ///
+    /// This ID must be unique among completed requests in one [`Run`].
+    /// External trace/correlation IDs that can repeat across retries, fanout
+    /// branches, batch items, or attempts should be expanded with attempt,
+    /// span, branch, or item information before becoming a tailtriage
+    /// `request_id`. Users remain responsible for meaningful instrumentation
+    /// and request-boundary semantics.
     pub request_id: String,
     /// Route name, operation, or endpoint.
     pub route: String,
@@ -258,7 +265,10 @@ pub struct RequestEvent {
 /// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StageEvent {
-    /// Parent request ID.
+    /// Parent tailtriage request ID for the same logical request/work item.
+    ///
+    /// This must match a completed [`RequestEvent::request_id`] and must not
+    /// be reused for evidence from a different logical request.
     pub request_id: String,
     /// Stage identifier.
     pub stage: String,
@@ -286,7 +296,10 @@ pub struct StageEvent {
 /// grouping, and may be coarse or move with system clock changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueEvent {
-    /// Parent request ID.
+    /// Parent tailtriage request ID for the same logical request/work item.
+    ///
+    /// This must match a completed [`RequestEvent::request_id`] and must not
+    /// be reused for evidence from a different logical request.
     pub request_id: String,
     /// Queue identifier.
     pub queue: String,

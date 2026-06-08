@@ -187,6 +187,8 @@ tailtriage analyze <run.json>
 
 Run artifacts include request, stage, queue, in-flight, and optional runtime snapshot data plus metadata/truncation context.
 
+`RequestEvent.request_id` is the per-run identity of one completed logical request/work item. It must be unique among completed requests in one `Run`. `StageEvent.request_id` and `QueueEvent.request_id` must reuse that ID only for evidence from the same logical request. External trace/correlation IDs that can repeat across retries, fanout branches, batch items, or attempts must be converted into a unique tailtriage request ID, for example by adding attempt, span, branch, or item information. The artifact schema records mechanical evidence; users remain responsible for semantically meaningful instrumentation and request-boundary choices.
+
 Direct capture lifecycle output options:
 
 - default direct capture writes a local run artifact JSON through `LocalJsonSink`
@@ -199,6 +201,7 @@ Analyzer output includes:
 - p50/p95/p99 request latency
 - p95 queue/service share summaries
 - warnings, including analyzer/report warnings such as truncation and evidence-quality limitations
+- duplicate completed request ID warnings in permissive analysis when request-scoped attribution may be ambiguous
 - primary and secondary suspects with evidence and next checks
 
 Schema contract:

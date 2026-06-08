@@ -122,6 +122,65 @@ fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
     assert_eq!(snapshot.requests.len(), 2);
     assert_eq!(snapshot.requests[0].request_id, "req-duplicate");
     assert_eq!(snapshot.requests[1].request_id, "req-duplicate");
+    assert!(snapshot.metadata.lifecycle_warnings.iter().any(|warning| {
+        warning.contains("duplicate completed request_id")
+            && warning.contains("req-duplicate")
+            && warning.contains("request-scoped attribution")
+    }));
+}
+
+#[test]
+fn generated_request_ids_remain_warning_free_after_completion() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-generated-id-no-warning.json");
+    let first = tailtriage.begin_request("/invoice");
+    let second = tailtriage.begin_request("/invoice");
+    first.completion.finish_ok();
+    second.completion.finish_ok();
+
+    let snapshot = tailtriage.snapshot();
+
+    assert_eq!(snapshot.requests.len(), 2);
+    assert_ne!(
+        snapshot.requests[0].request_id,
+        snapshot.requests[1].request_id
+    );
+    assert!(snapshot
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .all(|warning| !warning.contains("duplicate completed request_id")));
+}
+
+#[test]
+fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
+    let sink = Arc::new(RecordingSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(Arc::clone(&sink))
+        .build()
+        .expect("build should succeed");
+    let first = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-duplicate"),
+    );
+    let second = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-duplicate"),
+    );
+    first.completion.finish_ok();
+    second.completion.finish_ok();
+
+    tailtriage.shutdown().expect("shutdown should succeed");
+
+    let written = sink
+        .run
+        .lock()
+        .expect("lock should succeed")
+        .clone()
+        .expect("sink should receive run");
+    assert_eq!(written.requests.len(), 2);
+    assert!(written.metadata.lifecycle_warnings.iter().any(|warning| {
+        warning.contains("duplicate completed request_id") && warning.contains("req-duplicate")
+    }));
 }
 
 #[test]

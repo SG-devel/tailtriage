@@ -10,9 +10,10 @@ use super::temporal::{
 };
 use crate::{
     analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
-    render_json_pretty, render_text, AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind,
-    EvidenceQuality, EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
-    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+    render_json_pretty, render_text, validate_artifact_strict, AnalyzeConfigError, AnalyzeOptions,
+    ArtifactValidationError, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
+    InflightTrend, Report, SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING,
+    ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -93,6 +94,128 @@ fn sample_request(id: u64) -> RequestEvent {
         latency_us: 1_000,
         outcome: "ok".into(),
     }
+}
+
+#[test]
+fn duplicate_completed_request_ids_emit_warning_without_panic() {
+    let mut run = test_run();
+    run.requests[1].request_id = "req-1".to_owned();
+    run.queues = vec![QueueEvent {
+        request_id: "req-1".to_owned(),
+        queue: "worker".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 500,
+        depth_at_start: Some(3),
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.request_count, 3);
+    assert!(report.warnings.iter().any(|warning| warning
+        .contains("Duplicate completed request_id values detected")
+        && warning.contains("req-1")
+        && warning.contains("request-scoped queue attribution")));
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+}
+
+#[test]
+fn unique_completed_request_ids_do_not_emit_duplicate_warning() {
+    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+
+    assert!(!report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Duplicate completed request_id values detected")));
+}
+
+#[test]
+fn strict_artifact_validation_fails_duplicate_completed_request_ids() {
+    let mut run = test_run();
+    run.requests[2].request_id = "req-1".to_owned();
+
+    let err =
+        validate_artifact_strict(&run).expect_err("duplicate ids should fail strict validation");
+
+    assert!(matches!(
+        err,
+        ArtifactValidationError::DuplicateCompletedRequestId { ref request_ids }
+            if request_ids == &vec!["req-1".to_owned()]
+    ));
+}
+
+#[test]
+fn strict_artifact_validation_fails_orphan_stage_and_queue_request_ids() {
+    let mut stage_run = test_run();
+    stage_run.stages = vec![StageEvent {
+        request_id: "missing-stage-request".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 100,
+        success: true,
+    }];
+    let stage_err = validate_artifact_strict(&stage_run)
+        .expect_err("orphan stage id should fail strict validation");
+    assert!(matches!(
+        stage_err,
+        ArtifactValidationError::OrphanRequestScopedEvent {
+            section: "stage",
+            ref request_ids,
+        } if request_ids == &vec!["missing-stage-request".to_owned()]
+    ));
+
+    let mut queue_run = test_run();
+    queue_run.queues = vec![QueueEvent {
+        request_id: "missing-queue-request".to_owned(),
+        queue: "worker".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 100,
+        depth_at_start: Some(1),
+    }];
+    let queue_err = validate_artifact_strict(&queue_run)
+        .expect_err("orphan queue id should fail strict validation");
+    assert!(matches!(
+        queue_err,
+        ArtifactValidationError::OrphanRequestScopedEvent {
+            section: "queue",
+            ref request_ids,
+        } if request_ids == &vec!["missing-queue-request".to_owned()]
+    ));
+}
+
+#[test]
+fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
+    let mut run = test_run();
+    run.stages = vec![StageEvent {
+        request_id: "missing-stage-request".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 100,
+        success: true,
+    }];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.request_count, 3);
+    assert!(report.warnings.iter().any(|warning| {
+        warning.contains("Orphan stage request_id")
+            && warning.contains("missing-stage-request")
+            && warning.contains("strict artifact validation")
+    }));
 }
 
 #[test]

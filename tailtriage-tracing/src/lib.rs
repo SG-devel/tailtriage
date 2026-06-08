@@ -77,6 +77,7 @@ pub fn ensure_persistable_run_has_requests(run: &tailtriage_core::Run) -> Result
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn ensure_persistable_run_with_warnings(
     run: &tailtriage_core::Run,
     warnings: &[ImportWarning],

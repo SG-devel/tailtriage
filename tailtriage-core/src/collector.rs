@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -362,6 +362,7 @@ impl Tailtriage {
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
         self.truncation_state.merge_into(&mut run.truncation);
+        add_duplicate_completed_request_id_warning(&mut run);
         run
     }
 
@@ -406,6 +407,7 @@ impl Tailtriage {
         }
 
         self.truncation_state.merge_into(&mut guard.truncation);
+        add_duplicate_completed_request_id_warning(&mut guard);
         self.sink.write(&guard)
     }
 
@@ -890,6 +892,41 @@ impl Drop for OwnedRequestCompletion {
             "tailtriage request completion dropped without finish(...), finish_ok(), or finish_result(...)"
         );
     }
+}
+
+fn add_duplicate_completed_request_id_warning(run: &mut Run) {
+    let duplicates = duplicate_completed_request_ids(run);
+    if duplicates.is_empty() {
+        return;
+    }
+    let warning = format!(
+        "duplicate completed request_id value(s) detected in retained request events: {}. request_id should be unique per completed logical request/work item in one Run; request-scoped attribution may be ambiguous.",
+        duplicates.join(", ")
+    );
+    if !run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|existing| existing == &warning)
+    {
+        run.metadata.lifecycle_warnings.push(warning);
+    }
+}
+
+fn duplicate_completed_request_ids(run: &Run) -> Vec<String> {
+    let mut seen = HashSet::<&str>::new();
+    let mut duplicates = HashSet::<&str>::new();
+    for request in &run.requests {
+        if !seen.insert(request.request_id.as_str()) {
+            duplicates.insert(request.request_id.as_str());
+        }
+    }
+    let mut duplicates = duplicates
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    duplicates.sort();
+    duplicates
 }
 
 pub(crate) fn lock_run(run: &Mutex<Run>) -> std::sync::MutexGuard<'_, Run> {

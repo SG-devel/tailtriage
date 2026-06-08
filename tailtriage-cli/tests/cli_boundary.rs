@@ -146,6 +146,85 @@ fn cli_analyzer_set_beats_toml_and_repeated_overrides_are_last_wins() {
 }
 
 #[test]
+fn analyze_strict_artifact_rejects_duplicate_completed_request_ids() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("duplicate-ids.json");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}]"#,
+        r#""requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"},{"request_id":"req1","route":"/retry","kind":null,"started_at_unix_ms":3,"finished_at_unix_ms":4,"latency_us":20,"outcome":"ok"}]"#,
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("strict artifact validation failed"));
+    assert!(stderr.contains("duplicate completed request_id"));
+    assert!(stderr.contains("req1"));
+}
+
+#[test]
+fn analyze_permissive_artifact_warns_on_duplicate_completed_request_ids() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("duplicate-ids.json");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}]"#,
+        r#""requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"},{"request_id":"req1","route":"/retry","kind":null,"started_at_unix_ms":3,"finished_at_unix_ms":4,"latency_us":20,"outcome":"ok"}]"#,
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let report: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be json");
+    let warnings = report["warnings"]
+        .as_array()
+        .expect("warnings should be array");
+    assert!(warnings
+        .iter()
+        .any(|warning| warning.as_str().is_some_and(|text| text
+            .contains("Duplicate completed request_id values detected")
+            && text.contains("req1"))));
+}
+
+#[test]
+fn analyze_strict_artifact_rejects_orphan_stage_request_ids() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("orphan-stage.json");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""stages":[]"#,
+        r#""stages":[{"request_id":"missing","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"success":true}]"#,
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("orphan stage request_id"));
+    assert!(stderr.contains("missing"));
+}
+
+#[test]
 fn cli_misspelled_analyzer_set_reports_suggestion() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = write_valid_artifact(&dir);
