@@ -26,7 +26,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.2.0"
+version = "0.3.0"
 repository = "https://github.com/SG-devel/tailtriage"
 
 [workspace.lints.rust]
@@ -38,11 +38,11 @@ all = "warn"
 pedantic = "warn"
 
 [workspace.dependencies]
-tailtriage = { version = "0.2.0", path = "tailtriage" }
-tailtriage-core = { version = "0.2.0", path = "tailtriage-core" }
-tailtriage-analyzer = { version = "0.2.0", path = "tailtriage-analyzer" }
-tailtriage-controller = { version = "0.2.0", path = "tailtriage-controller" }
-tailtriage-tokio = { version = "0.2.0", path = "tailtriage-tokio" }
-tailtriage-axum = { version = "0.2.0", path = "tailtriage-axum" }
-tailtriage-tracing = { version = "0.2.0", path = "tailtriage-tracing" }
-demo-support = { version = "0.2.0", path = "demos/demo_support" }
+tailtriage = { version = "0.3.0", path = "tailtriage" }
+tailtriage-core = { version = "0.3.0", path = "tailtriage-core" }
+tailtriage-analyzer = { version = "0.3.0", path = "tailtriage-analyzer" }
+tailtriage-controller = { version = "0.3.0", path = "tailtriage-controller" }
+tailtriage-tokio = { version = "0.3.0", path = "tailtriage-tokio" }
+tailtriage-axum = { version = "0.3.0", path = "tailtriage-axum" }
+tailtriage-tracing = { version = "0.3.0", path = "tailtriage-tracing" }
+demo-support = { version = "0.3.0", path = "demos/demo_support" }
