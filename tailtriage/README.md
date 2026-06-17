@@ -2,7 +2,7 @@
 
 `tailtriage` is the recommended default entry point for **Tokio tail-latency triage**.
 
-It re-exports `tailtriage-core` at the crate root and exposes integration namespaces for controller workflows, Tokio runtime sampling, and Axum request boundaries. `controller` and `tokio` are enabled by default; `axum` remains opt-in.
+It re-exports `tailtriage-core` at the crate root and exposes integration namespaces for controller workflows, Tokio runtime sampling, tracing intake, and Axum request boundaries. `controller` and `tokio` are enabled by default; `axum` and tracing intake remain opt-in.
 
 ## What problem this solves
 
@@ -35,10 +35,13 @@ For direct capture or repeated controller-managed capture windows:
 cargo add tailtriage
 ```
 
-Optional integration:
+Optional integrations:
 
 ```bash
 cargo add tailtriage --features axum
+cargo add tailtriage --features tracing
+cargo add tailtriage --features tracing-live
+cargo add tailtriage --features tracing-tokio
 ```
 
 `tailtriage` captures request/runtime evidence. Install analyzer/report tooling based on how you work.
@@ -98,6 +101,7 @@ Choose a focused crate only when you need a narrower boundary:
 - `tailtriage-core`: framework-agnostic instrumentation primitives
 - `tailtriage-controller`: repeated bounded windows
 - `tailtriage-tokio`: runtime-pressure sampling and Tokio primitive helper trait (`TokioRequestHandleExt`)
+- `tailtriage-tracing`: tracing span intake bridge for JSONL import, live recording, and optional Tokio-coupled tracing sessions
 - `tailtriage-axum`: Axum request-boundary wiring
 
 ## Feature flags
@@ -105,9 +109,12 @@ Choose a focused crate only when you need a narrower boundary:
 - `controller` _(default)_: enables `tailtriage::controller`
 - `tokio` _(default)_: enables `tailtriage::tokio`
 - `axum` _(opt-in)_: enables `tailtriage::axum`
-- `full`: enables `controller`, `tokio`, and `axum`
+- `tracing` _(opt-in)_: enables `tailtriage::tracing` with typed tracing import APIs
+- `tracing-live` _(opt-in)_: enables live tracing recorder/session APIs
+- `tracing-tokio` _(opt-in)_: enables Tokio-coupled tracing sessions
+- `full`: enables `controller`, `tokio`, `axum`, and `tracing-tokio`
 
-Docs.rs note: `tailtriage` docs are built with `all-features = true`. In downstream crates, `tailtriage::tokio` is available with defaults, while `tailtriage::axum` remains feature-gated.
+Docs.rs note: `tailtriage` docs are built with `all-features = true`. In downstream crates, `tailtriage::tokio` is available with defaults, while `tailtriage::axum` and `tailtriage::tracing` remain feature-gated.
 
 If you want a smaller core-only dependency surface, use `tailtriage-core` directly or depend on `tailtriage` with `default-features = false`.
 

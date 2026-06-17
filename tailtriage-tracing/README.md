@@ -31,6 +31,8 @@ External trace/correlation IDs may repeat across retries, fanout branches, batch
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
+The same APIs are also available through the default `tailtriage` crate when enabling its `tracing`, `tracing-live`, or `tracing-tokio` façade features.
+
 For live tracing intake sessions, `tailtriage-tracing` enables optional dependencies behind feature flags, but applications that call `tracing::...` or `tracing_subscriber::...` directly still need explicit app dependencies:
 
 ```bash
