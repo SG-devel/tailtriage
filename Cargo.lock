@@ -817,6 +817,7 @@ dependencies = [
  "tailtriage-controller",
  "tailtriage-core",
  "tailtriage-tokio",
+ "tailtriage-tracing",
 ]
 
 [[package]]
