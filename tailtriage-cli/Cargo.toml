@@ -27,7 +27,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tailtriage-core.workspace = true
 tailtriage-analyzer.workspace = true
-tailtriage-tracing = { workspace = true, default-features = false, features = ["jsonl"] }
+tailtriage-tracing = { workspace = true, features = ["jsonl"] }
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
