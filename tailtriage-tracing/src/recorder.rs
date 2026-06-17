@@ -12,8 +12,9 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    duration_within_tolerance, ensure_persistable_run_with_warnings, run_from_span_records,
-    FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord, TT_KIND,
+    duration_within_derived_tolerance, duration_within_tolerance,
+    ensure_persistable_run_with_warnings, run_from_span_records, FieldValue, ImportError,
+    ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
@@ -524,7 +525,21 @@ fn span_with_replay_safe_duration(
     started_at_unix_ms: u64,
     finished_at_unix_ms: u64,
 ) -> SpanRecord {
-    if duration_within_tolerance(duration_us, started_at_unix_ms, finished_at_unix_ms) {
+    let unix_safe = duration_within_tolerance(duration_us, started_at_unix_ms, finished_at_unix_ms);
+
+    let run_relative_safe = match (span.started_at_run_us_ref(), span.finished_at_run_us_ref()) {
+        (Some(started_at_run_us), Some(finished_at_run_us))
+            if finished_at_run_us >= started_at_run_us =>
+        {
+            duration_within_derived_tolerance(
+                duration_us,
+                finished_at_run_us.saturating_sub(started_at_run_us),
+            )
+        }
+        _ => false,
+    };
+
+    if unix_safe || run_relative_safe {
         span.duration_us(duration_us)
     } else {
         span
@@ -4184,7 +4199,7 @@ mod tests {
             .iter()
             .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("stage".into())))
             .expect("stage span");
-        assert_eq!(stage.duration_us_ref(), None);
+        assert_eq!(stage.duration_us_ref(), Some(70_000));
         assert_eq!(stage.started_at_run_us_ref(), Some(2_000));
         assert_eq!(stage.finished_at_run_us_ref(), Some(72_000));
 
@@ -4192,13 +4207,39 @@ mod tests {
             .iter()
             .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("queue".into())))
             .expect("queue span");
-        assert_eq!(queue.duration_us_ref(), None);
+        assert_eq!(queue.duration_us_ref(), Some(30_000));
         assert_eq!(queue.started_at_run_us_ref(), Some(3_000));
         assert_eq!(queue.finished_at_run_us_ref(), Some(33_000));
     }
 
     #[test]
-    fn completed_span_jsonl_omits_contradictory_durations_for_strict_replay() {
+    fn completed_span_jsonl_export_preserves_duration_when_run_relative_offsets_match() {
+        let mut run = empty_run();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/a".into(),
+            kind: None,
+            started_at_unix_ms: 10,
+            started_at_run_us: Some(1_000),
+            finished_at_unix_ms: 11,
+            finished_at_run_us: Some(51_000),
+            latency_us: 50_000,
+            outcome: "ok".into(),
+        });
+
+        let spans = retained_span_records_from_run(&run);
+
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].duration_us_ref(), Some(50_000));
+
+        let imported =
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap();
+
+        assert_eq!(imported.run().requests[0].latency_us, 50_000);
+    }
+
+    #[test]
+    fn completed_span_jsonl_preserves_run_relative_safe_durations_for_strict_replay() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let run = run_with_replay_safe_and_contradictory_durations();
@@ -4226,13 +4267,13 @@ mod tests {
             .iter()
             .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("stage".into())))
             .expect("stage span");
-        assert_eq!(stage.duration_us_ref(), None);
+        assert_eq!(stage.duration_us_ref(), Some(70_000));
 
         let queue = records
             .iter()
             .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("queue".into())))
             .expect("queue span");
-        assert_eq!(queue.duration_us_ref(), None);
+        assert_eq!(queue.duration_us_ref(), Some(30_000));
 
         let replay = crate::jsonl::import_jsonl_path_with_mode(
             &spans_path,
@@ -4243,10 +4284,10 @@ mod tests {
         assert_eq!(replay.run().requests[0].latency_us, 2_500);
         assert_eq!(replay.run().requests[0].started_at_run_us, Some(1_000));
         assert_eq!(replay.run().requests[0].finished_at_run_us, Some(3_500));
-        assert_eq!(replay.run().stages[0].latency_us, 1_000);
+        assert_eq!(replay.run().stages[0].latency_us, 70_000);
         assert_eq!(replay.run().stages[0].started_at_run_us, Some(2_000));
         assert_eq!(replay.run().stages[0].finished_at_run_us, Some(72_000));
-        assert_eq!(replay.run().queues[0].wait_us, 1_000);
+        assert_eq!(replay.run().queues[0].wait_us, 30_000);
         assert_eq!(replay.run().queues[0].waited_from_run_us, Some(3_000));
         assert_eq!(replay.run().queues[0].waited_until_run_us, Some(33_000));
     }

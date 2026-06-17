@@ -205,6 +205,8 @@ where
                             finished_at_run_us,
                             latency_us: elapsed_duration_us(
                                 &span,
+                                started_at_run_us,
+                                finished_at_run_us,
                                 options.strict_mode(),
                                 &mut warnings,
                             )?,
@@ -240,6 +242,8 @@ where
                             finished_at_run_us,
                             latency_us: elapsed_duration_us(
                                 &span,
+                                started_at_run_us,
+                                finished_at_run_us,
                                 options.strict_mode(),
                                 &mut warnings,
                             )?,
@@ -272,7 +276,13 @@ where
                         waited_from_run_us,
                         waited_until_unix_ms: span.finished_at_unix_ms(),
                         waited_until_run_us,
-                        wait_us: elapsed_duration_us(&span, options.strict_mode(), &mut warnings)?,
+                        wait_us: elapsed_duration_us(
+                            &span,
+                            waited_from_run_us,
+                            waited_until_run_us,
+                            options.strict_mode(),
+                            &mut warnings,
+                        )?,
                         depth_at_start,
                     });
                 }
@@ -728,13 +738,17 @@ fn required_string(
 pub(crate) const TRACE_TIME_TOLERANCE_US: u64 = 2_000;
 pub(crate) const TRACE_TIME_TOLERANCE_MS: u64 = TRACE_TIME_TOLERANCE_US / 1_000;
 
+pub(crate) fn duration_within_derived_tolerance(duration_us: u64, derived_us: u64) -> bool {
+    duration_us.abs_diff(derived_us) <= TRACE_TIME_TOLERANCE_US
+}
+
 pub(crate) fn duration_within_tolerance(
     duration_us: u64,
     started_at_unix_ms: u64,
     finished_at_unix_ms: u64,
 ) -> bool {
     let derived_us = timestamp_derived_duration_us(started_at_unix_ms, finished_at_unix_ms);
-    duration_us.abs_diff(derived_us) <= TRACE_TIME_TOLERANCE_US
+    duration_within_derived_tolerance(duration_us, derived_us)
 }
 
 fn timestamp_derived_duration_us(started_at_unix_ms: u64, finished_at_unix_ms: u64) -> u64 {
@@ -795,36 +809,67 @@ fn sanitized_run_relative_offsets(
     }
 }
 
+fn run_relative_derived_duration_us(
+    started_at_run_us: Option<u64>,
+    finished_at_run_us: Option<u64>,
+) -> Option<u64> {
+    Some(finished_at_run_us?.saturating_sub(started_at_run_us?))
+}
+
 fn elapsed_duration_us(
     span: &SpanRecord,
+    started_at_run_us: Option<u64>,
+    finished_at_run_us: Option<u64>,
     strict: bool,
     warnings: &mut Vec<ImportWarning>,
 ) -> Result<u64, ImportError> {
-    let derived_us =
+    let unix_derived_us =
         timestamp_derived_duration_us(span.started_at_unix_ms(), span.finished_at_unix_ms());
+    let run_relative_derived_us =
+        run_relative_derived_duration_us(started_at_run_us, finished_at_run_us);
+
     let Some(duration_us) = span.duration_us_ref() else {
-        return Ok(derived_us);
+        return Ok(run_relative_derived_us.unwrap_or(unix_derived_us));
     };
-    if duration_within_tolerance(
-        duration_us,
-        span.started_at_unix_ms(),
-        span.finished_at_unix_ms(),
-    ) {
+
+    if let Some(run_relative_derived_us) = run_relative_derived_us {
+        if duration_within_derived_tolerance(duration_us, run_relative_derived_us) {
+            return Ok(duration_us);
+        }
+
+        let message = format!(
+            "span '{}' duration_us differs from run-relative duration beyond tolerance: duration_us={} run_relative_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; duration_us was retained as authoritative elapsed-time evidence; Unix timestamps remain wall-clock anchors",
+            span.name(),
+            duration_us,
+            run_relative_derived_us,
+        );
+
+        if strict {
+            return Err(ImportError::StrictViolation(message));
+        }
+
+        warnings.push(ImportWarning::new(message));
         return Ok(duration_us);
     }
+
+    if duration_within_derived_tolerance(duration_us, unix_derived_us) {
+        return Ok(duration_us);
+    }
+
     if strict {
         return Err(ImportError::StrictViolation(format!(
             "span '{}' duration_us differs from timestamp-derived duration beyond tolerance: duration_us={} timestamp_derived_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; strict import rejected the mismatch; Unix timestamps remain wall-clock anchors",
             span.name(),
             duration_us,
-            derived_us
+            unix_derived_us
         )));
     }
+
     warnings.push(ImportWarning::new(format!(
         "span '{}' duration_us differs from timestamp-derived duration beyond tolerance: duration_us={} timestamp_derived_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; duration_us was retained as authoritative elapsed-time evidence; Unix timestamps remain wall-clock anchors",
         span.name(),
         duration_us,
-        derived_us
+        unix_derived_us
     )));
     Ok(duration_us)
 }
@@ -836,6 +881,7 @@ fn is_durable_conversion_warning(message: &str) -> bool {
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
         || message.contains("duration_us differs from timestamp-derived duration")
+        || message.contains("duration_us differs from run-relative duration")
         || message.contains("run-relative timing is inverted")
         || message.contains("incomplete run-relative timing")
         || message.contains("missing optional 'tt.outcome'; assumed 'ok'")
@@ -1097,6 +1143,78 @@ mod tests {
         assert_eq!(run.stages[0].finished_at_run_us, Some(15_010));
         assert_eq!(run.queues[0].waited_from_run_us, Some(2_010));
         assert_eq!(run.queues[0].waited_until_run_us, Some(3_010));
+    }
+
+    #[test]
+    fn missing_duration_uses_run_relative_delta_before_unix_bounds() {
+        let spans = vec![SpanRecord::new("req", 10, 11)
+            .started_at_run_us(1_000)
+            .finished_at_run_us(51_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+
+        assert_eq!(imported.run().requests[0].latency_us, 50_000);
+    }
+
+    #[test]
+    fn strict_duration_matching_run_relative_allows_wall_clock_mismatch() {
+        let spans = vec![SpanRecord::new("req", 10, 11)
+            .started_at_run_us(1_000)
+            .finished_at_run_us(51_000)
+            .duration_us(50_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+
+        let imported =
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap();
+
+        assert_eq!(imported.run().requests[0].latency_us, 50_000);
+    }
+
+    #[test]
+    fn strict_duration_mismatching_run_relative_fails_even_if_unix_matches() {
+        let spans = vec![SpanRecord::new("req", 10, 60)
+            .started_at_run_us(1_000)
+            .finished_at_run_us(11_000)
+            .duration_us(50_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+
+        let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
+            .expect_err("strict import should reject duration/run-relative mismatch");
+
+        assert!(err
+            .to_string()
+            .contains("duration_us differs from run-relative duration"));
+    }
+
+    #[test]
+    fn non_strict_duration_mismatching_run_relative_warns_and_retains_duration() {
+        let spans = vec![SpanRecord::new("req", 10, 60)
+            .started_at_run_us(1_000)
+            .finished_at_run_us(11_000)
+            .duration_us(50_000)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, "r1")
+            .field(TT_ROUTE, "/a")];
+
+        let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+
+        assert_eq!(imported.run().requests[0].latency_us, 50_000);
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("duration_us differs from run-relative duration")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("duration_us differs from run-relative duration")));
     }
 
     #[test]
