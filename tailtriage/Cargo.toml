@@ -21,13 +21,17 @@ default = ["controller", "tokio"]
 controller = ["dep:tailtriage-controller"]
 tokio = ["dep:tailtriage-tokio"]
 axum = ["dep:tailtriage-axum"]
-full = ["controller", "tokio", "axum"]
+tracing = ["dep:tailtriage-tracing", "tailtriage-tracing/jsonl"]
+tracing-live = ["tracing", "tailtriage-tracing/live"]
+tracing-tokio = ["tokio", "tracing-live", "tailtriage-tracing/tokio"]
+full = ["controller", "tokio", "axum", "tracing-tokio"]
 
 [dependencies]
 tailtriage-core.workspace = true
 tailtriage-controller = { workspace = true, optional = true }
 tailtriage-tokio = { workspace = true, optional = true }
 tailtriage-axum = { workspace = true, optional = true }
+tailtriage-tracing = { workspace = true, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true

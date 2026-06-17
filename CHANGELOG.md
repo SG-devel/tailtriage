@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.0] - 2026-06-17
+
+### Added
+
+- New `tailtriage-tracing` crate for converting `tt.*` tracing span evidence into standard tailtriage `Run` artifacts.
+- Optional `tailtriage` facade features for tracing intake integrations.
+- JSONL tracing import support for persisted span records.
+- Live in-memory tracing recorder APIs for collecting completed tracing spans and converting them into tailtriage runs.
+- Optional Tokio session integration for coupling tracing intake with Tokio runtime sampling.
+- CLI tracing import command for producing analyzable tailtriage Run JSON from tracing JSONL input.
+- Semantic `tt.*` tracing field convention for request, stage, and queue spans.
+
+### Changed
+
+- Expanded the release surface from direct instrumentation-only workflows to include tracing-based intake workflows.
+- Kept tracing import output aligned with the existing Run JSON artifact contract and analyzer path rather than introducing a separate tracing-specific analyzer.
+- Tightened imported tracing evidence validation around required fields, malformed `tt.*` spans, duplicate request IDs, child-span correlation, timestamp ordering, and persistable zero-request artifacts.
+- Added durable import warnings to Run metadata so conversion-quality issues remain visible during later analysis.
+
+### Fixed
+
+- Prevented persisted tracing imports from silently producing analyzer-hostile zero-request Run artifacts.
+- Improved handling of tracing spans with missing optional outcome/success fields by defaulting conservatively while surfacing warnings.
+- Improved correlation of imported stage and queue spans to retained request intervals, including truncation accounting when matching requests exceed capture limits.
+
 ## [0.2.0] - 2026-05-08
 
 ### Added

@@ -63,6 +63,7 @@ Supporting repository areas:
 - `tailtriage::controller::TailtriageController` (repeated bounded windows)
 - `tailtriage::tokio` (default-enabled runtime sampler/helper namespace; sampler start stays explicit)
 - `tailtriage::axum` (optional Axum ergonomics)
+- `tailtriage::tracing` (optional tracing intake namespace; JSONL import APIs, live recording APIs with `tracing-live`, and Tokio-coupled sessions with `tracing-tokio`)
 
 For a smaller core-only dependency surface, use `tailtriage-core` directly or use `tailtriage` with `default-features = false`.
 
@@ -159,6 +160,8 @@ Analyzer configuration contract:
 ### 5.9 Optional tracing intake (`tailtriage-tracing`)
 
 `tailtriage-tracing` is an optional integration surface for services that already emit Rust `tracing` spans.
+
+Users can depend on `tailtriage-tracing` directly for the narrow crate boundary, or enable the `tailtriage` façade features (`tracing`, `tracing-live`, `tracing-tokio`) to access the same APIs under `tailtriage::tracing`.
 
 - primary live path is `TracingIntakeSession` / `TracingIntakeSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
 - live session output can write standard Run JSON on shutdown via `run_json_path(...)`

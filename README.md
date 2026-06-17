@@ -42,9 +42,12 @@ Optional integrations:
 
 ```bash
 cargo add tailtriage --features axum
+cargo add tailtriage --features tracing
+cargo add tailtriage --features tracing-live
+cargo add tailtriage --features tracing-tokio
 ```
 
-`controller` and `tokio` are enabled by default on `tailtriage`; `axum` remains opt-in.
+`controller` and `tokio` are enabled by default on `tailtriage`; `axum` and tracing intake remain opt-in.
 
 If you want a smaller core-only dependency surface, use `tailtriage-core` directly or depend on `tailtriage` with `default-features = false`.
 
@@ -68,16 +71,16 @@ Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust c
 
 ### Already using tracing?
 
-If your service already emits `tracing` spans, use `tailtriage-tracing` as a narrow tracing intake bridge. Native capture remains the default path for new integrations.
+If your service already emits `tracing` spans, use `tailtriage --features tracing-live` when you want the default crate façade (`tailtriage::tracing`) for live tracing intake, or use `tailtriage-tracing` directly when you want the narrow crate boundary. Native capture remains the default path for new integrations.
 
-Offline import expects completed tailtriage `tt.*` tracing span JSONL (not arbitrary tracing log JSON), requires explicit unix-ms timing, and writes Run JSON before a separate `tailtriage analyze` step.
+Offline import expects completed tailtriage `tt.*` tracing span JSONL (not arbitrary tracing log JSON), requires explicit Unix-ms start/end timestamps, and uses complete run-relative monotonic offsets when present for duration derivation/validation.
 
 - Offline JSONL import:
   ```bash
   tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout --output tailtriage-run.json
   tailtriage analyze tailtriage-run.json
   ```
-- Live session path: first install `tailtriage-tracing` with `live` (`cargo add tailtriage-tracing --features live`), then add `tailtriage_tracing::TracingIntakeSession` and `session.layer()` beside your existing subscriber setup.
+- Live session path: install either `tailtriage --features tracing-live` for `tailtriage::tracing::TracingIntakeSession` or `tailtriage-tracing --features live` for `tailtriage_tracing::TracingIntakeSession`, then add `session.layer()` beside your existing subscriber setup.
 
 Both paths convert tracing-shaped evidence into standard `tailtriage_core::Run` data and feed the same analyzer/report workflow (evidence-ranked suspects and next checks). Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
 
@@ -133,6 +136,7 @@ From `tailtriage`:
 - `tailtriage::controller::TailtriageController` — repeated arm/disarm bounded capture windows for long-lived services
 - `tailtriage::tokio` _(default-enabled)_ — runtime-pressure sampling
 - `tailtriage::axum` _(optional feature)_ — Axum middleware/extractor ergonomics
+- `tailtriage::tracing` _(optional feature)_ — tracing intake bridge for `tt.*` span JSONL import, live recording, and optional Tokio-coupled tracing sessions
 
 ## When to choose the controller
 
@@ -251,7 +255,7 @@ Import completed tailtriage tracing span JSONL into a Run artifact first when ne
 tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout --output tailtriage-run.json
 ```
 
-`tailtriage import tracing-spans-jsonl` imports completed tailtriage tracing span JSONL and writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr. Arbitrary `tracing_subscriber::fmt().json()` log JSON is not imported, and timing is not guessed from line receive time: completed spans must include explicit unix-ms start/end timestamps. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
+`tailtriage import tracing-spans-jsonl` imports completed tailtriage tracing span JSONL and writes **Run JSON** (capture artifact and CLI input), not Report JSON. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr. Arbitrary `tracing_subscriber::fmt().json()` log JSON is not imported, and timing is not guessed from line receive time: completed spans must include explicit Unix-ms start/end timestamps; complete run-relative monotonic offsets are optional and, when present, are preferred for elapsed-duration derivation and validation. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
 Tracing-only imports can provide request/stage/queue evidence outside Tokio runtimes, but they do not fabricate runtime-pressure snapshots.
 
 Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).

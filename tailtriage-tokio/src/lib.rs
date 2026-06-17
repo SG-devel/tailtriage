@@ -1288,10 +1288,9 @@ mod helper_tests {
                 .expect("join ok"),
             42
         );
-        assert!(req
-            .join_task("join_panic", tokio::spawn(async { panic!("boom") }))
-            .await
-            .is_err());
+        let handle = tokio::spawn(std::future::pending::<()>());
+        handle.abort();
+        assert!(req.join_task("join_cancelled", handle).await.is_err());
         assert_eq!(
             req.timeout_stage("timeout_ok", Duration::from_millis(50), async { 11usize })
                 .await,
@@ -1304,10 +1303,11 @@ mod helper_tests {
             .await;
         assert_eq!(nested, Ok(Err("inner")));
         assert!(req
-            .timeout_stage("timeout_elapsed", Duration::from_millis(5), async {
-                tokio::time::sleep(Duration::from_millis(30)).await;
-                1usize
-            })
+            .timeout_stage(
+                "timeout_elapsed",
+                Duration::from_millis(20),
+                std::future::pending::<usize>(),
+            )
             .await
             .is_err());
         assert_eq!(
@@ -1341,7 +1341,7 @@ mod helper_tests {
         assert_eq!(snap.stages.len(), 7);
         let stage = |name: &str| snap.stages.iter().find(|s| s.stage == name).unwrap();
         assert!(stage("join_ok").success);
-        assert!(!stage("join_panic").success);
+        assert!(!stage("join_cancelled").success);
         assert!(stage("timeout_ok").success);
         assert!(!stage("timeout_elapsed").success);
         assert!(stage("timeout_nested").success);
