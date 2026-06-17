@@ -28,17 +28,26 @@ Optional integrations:
 
 ```bash
 cargo add tailtriage --features axum
+cargo add tailtriage --features tracing
+cargo add tailtriage --features tracing-live
+cargo add tailtriage --features tracing-tokio
 ```
 
-The `controller` and `tokio` namespaces are available with default features; `axum` remains opt-in.
+The `controller` and `tokio` namespaces are available with default features; `axum` and tracing intake remain opt-in.
 
 ### Using existing tracing spans
 
-Use `tailtriage-tracing` when your service already uses Rust `tracing` and already has stable per-work-item IDs that can be converted into unique tailtriage request IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
+Use `tailtriage --features tracing-live` when you want the default crate façade (`tailtriage::tracing`) for live tracing intake, or use `tailtriage-tracing` directly when you want the narrow crate boundary. This path is for services that already use Rust `tracing` and already have stable per-work-item IDs that can be converted into unique tailtriage request IDs. New integrations without existing tracing/correlation should start with native `tailtriage` capture first.
 
 This path converts tracing-shaped request, stage, and queue evidence into standard Run artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend. For one completed logical request/work item, every request, stage, and queue span must carry the same `tt.request_id`; child stage/queue evidence is correlated to retained request evidence by `tt.request_id`. The `tt.request_id` value must be unique among completed requests in one Run.
 
-Install for typed records plus JSONL import APIs (default feature set):
+Install the façade for typed records plus JSONL import APIs:
+
+```bash
+cargo add tailtriage --features tracing
+```
+
+Or install the focused crate directly:
 
 ```bash
 cargo add tailtriage-tracing
@@ -91,6 +100,14 @@ tailtriage analyze tailtriage-run.json
 B) Direct Run JSON path with async span instrumentation (`live` feature required):
 
 ```bash
+cargo add tailtriage --features tracing-live
+cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
+```
+
+Direct crate equivalent:
+
+```bash
 cargo add tailtriage-tracing --features live
 cargo add tracing tracing-subscriber
 cargo add tokio --features macros,rt-multi-thread
@@ -98,7 +115,7 @@ cargo add tokio --features macros,rt-multi-thread
 
 
 ```rust,no_run
-use tailtriage_tracing::TracingIntakeSession;
+use tailtriage::tracing::TracingIntakeSession;
 use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
@@ -147,6 +164,14 @@ tailtriage analyze target/tailtriage-examples/checkout.run.json
 Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
 
 Tokio runtime sampler coupling via `TracingTokioSession` requires the `tokio` feature. By default it starts a background sampler; deterministic demos/validation can disable it with `disable_background_sampler()` and inject snapshots manually with `record_runtime_snapshot(...)`. Use `run_json_path(...)` to write Run JSON on shutdown, then analyze separately with `tailtriage analyze <run.json>`:
+
+```bash
+cargo add tailtriage --features tracing-tokio
+cargo add tracing tracing-subscriber
+cargo add tokio --features macros,rt-multi-thread
+```
+
+Direct crate equivalent:
 
 ```bash
 cargo add tailtriage-tracing --features tokio

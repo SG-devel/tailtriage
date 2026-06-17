@@ -14,7 +14,7 @@ This is the canonical user documentation index for `tailtriage`.
 
 Most users should start with `tailtriage`.
 
-- [`tailtriage`](../tailtriage/README.md) — recommended default entry point; re-exports core APIs and exposes default-enabled controller + Tokio integrations, with Axum still opt-in.
+- [`tailtriage`](../tailtriage/README.md) — recommended default entry point; re-exports core APIs and exposes default-enabled controller + Tokio integrations, with Axum and tracing intake opt-in.
 - [`tailtriage-core`](../tailtriage-core/README.md) — smallest framework-agnostic capture surface.
 - [`tailtriage-controller`](../tailtriage-controller/README.md) — repeated bounded capture windows for long-lived services, including TOML config and reload behavior.
 - [`tailtriage-tokio`](../tailtriage-tokio/README.md) — Tokio runtime-pressure sampling and Tokio primitive helper trait; RuntimeSampler start remains explicit.
@@ -33,13 +33,14 @@ Use these docs when wiring `tailtriage` into a service or interpreting output. A
 - [Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md) — typed in-process report contract and rendering API.
 - [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — saved-artifact loading, schema validation, and text/JSON output.
 
-## Controller and runtime integrations
+## Controller, runtime, framework, and tracing integrations
 
 Use these docs when running repeated capture windows or adding runtime/framework signal.
 
 - [Controller README (`tailtriage-controller`)](../tailtriage-controller/README.md) — arm/disarm lifecycle, capture generations, TOML field reference, run-end policy, and reload semantics.
 - [Tokio runtime sampler README (`tailtriage-tokio`)](../tailtriage-tokio/README.md) — runtime-pressure enrichment, feature requirements, and sampling constraints.
 - [Axum adapter README (`tailtriage-axum`)](../tailtriage-axum/README.md) — request-boundary wiring for Axum services.
+- [Tracing intake README (`tailtriage-tracing`)](../tailtriage-tracing/README.md) — optional bridge for teams already emitting Rust `tracing` spans; converts `tt.*` span evidence into standard Run artifacts for the existing analyzer workflow.
 
 ## Validation, cost, and limits
 

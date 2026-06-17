@@ -25,6 +25,7 @@ Provides one all-in-one entry point for:
 - direct capture (`tailtriage::Tailtriage`)
 - controller windows (`tailtriage::controller::TailtriageController`)
 - optional runtime sampler module (`tailtriage::tokio`)
+- optional tracing intake module (`tailtriage::tracing`)
 - optional Axum adapter module (`tailtriage::axum`)
 
 ### `tailtriage-controller`
@@ -77,6 +78,7 @@ It converts/imports tracing evidence into standard `tailtriage_core::Run` artifa
 - **Controller windows:** long-lived services can collect repeated bounded runs without restart.
 - **Optional runtime enrichment:** runtime sampler increases evidence quality when runtime pressure is ambiguous.
 - **Optional framework ergonomics:** Axum adapter reduces boundary wiring while keeping explicit instrumentation in business logic.
+- **Optional tracing intake:** teams already emitting Rust `tracing` spans can convert `tt.*` request/stage/queue evidence into the same Run artifact and analyzer workflow.
 - **Artifact analysis:** CLI performs file-based diagnosis from captured evidence.
 
 ## Boundary and claims
