@@ -837,18 +837,21 @@ fn elapsed_duration_us(
             return Ok(duration_us);
         }
 
-        let message = format!(
+        if strict {
+            return Err(ImportError::StrictViolation(format!(
+                "span '{}' duration_us differs from run-relative duration beyond tolerance: duration_us={} run_relative_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; strict import rejected the mismatch; Unix timestamps remain wall-clock anchors",
+                span.name(),
+                duration_us,
+                run_relative_derived_us,
+            )));
+        }
+
+        warnings.push(ImportWarning::new(format!(
             "span '{}' duration_us differs from run-relative duration beyond tolerance: duration_us={} run_relative_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; duration_us was retained as authoritative elapsed-time evidence; Unix timestamps remain wall-clock anchors",
             span.name(),
             duration_us,
             run_relative_derived_us,
-        );
-
-        if strict {
-            return Err(ImportError::StrictViolation(message));
-        }
-
-        warnings.push(ImportWarning::new(message));
+        )));
         return Ok(duration_us);
     }
 
@@ -1188,9 +1191,10 @@ mod tests {
         let err = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
             .expect_err("strict import should reject duration/run-relative mismatch");
 
-        assert!(err
-            .to_string()
-            .contains("duration_us differs from run-relative duration"));
+        let message = err.to_string();
+        assert!(message.contains("duration_us differs from run-relative duration"));
+        assert!(message.contains("strict import rejected the mismatch"));
+        assert!(!message.contains("duration_us was retained"));
     }
 
     #[test]

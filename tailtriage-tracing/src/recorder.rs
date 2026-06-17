@@ -525,21 +525,23 @@ fn span_with_replay_safe_duration(
     started_at_unix_ms: u64,
     finished_at_unix_ms: u64,
 ) -> SpanRecord {
-    let unix_safe = duration_within_tolerance(duration_us, started_at_unix_ms, finished_at_unix_ms);
+    let run_relative_derived_us =
+        match (span.started_at_run_us_ref(), span.finished_at_run_us_ref()) {
+            (Some(started_at_run_us), Some(finished_at_run_us))
+                if finished_at_run_us >= started_at_run_us =>
+            {
+                Some(finished_at_run_us.saturating_sub(started_at_run_us))
+            }
+            _ => None,
+        };
 
-    let run_relative_safe = match (span.started_at_run_us_ref(), span.finished_at_run_us_ref()) {
-        (Some(started_at_run_us), Some(finished_at_run_us))
-            if finished_at_run_us >= started_at_run_us =>
-        {
-            duration_within_derived_tolerance(
-                duration_us,
-                finished_at_run_us.saturating_sub(started_at_run_us),
-            )
-        }
-        _ => false,
+    let replay_safe = if let Some(run_relative_derived_us) = run_relative_derived_us {
+        duration_within_derived_tolerance(duration_us, run_relative_derived_us)
+    } else {
+        duration_within_tolerance(duration_us, started_at_unix_ms, finished_at_unix_ms)
     };
 
-    if unix_safe || run_relative_safe {
+    if replay_safe {
         span.duration_us(duration_us)
     } else {
         span
@@ -4210,6 +4212,33 @@ mod tests {
         assert_eq!(queue.duration_us_ref(), Some(30_000));
         assert_eq!(queue.started_at_run_us_ref(), Some(3_000));
         assert_eq!(queue.finished_at_run_us_ref(), Some(33_000));
+    }
+
+    #[test]
+    fn completed_span_jsonl_export_omits_duration_when_run_relative_offsets_disagree_even_if_unix_matches(
+    ) {
+        let mut run = empty_run();
+        run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/a".into(),
+            kind: None,
+            started_at_unix_ms: 10,
+            started_at_run_us: Some(1_000),
+            finished_at_unix_ms: 60,
+            finished_at_run_us: Some(11_000),
+            latency_us: 50_000,
+            outcome: "ok".into(),
+        });
+
+        let spans = retained_span_records_from_run(&run);
+
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].duration_us_ref(), None);
+
+        let imported =
+            run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap();
+
+        assert_eq!(imported.run().requests[0].latency_us, 10_000);
     }
 
     #[test]
