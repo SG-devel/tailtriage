@@ -32,7 +32,7 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
         request
             .queue("ingress")
             .with_depth_at_start(12)
-            .await_on(tokio::time::sleep(std::time::Duration::from_millis(4)))
+            .await_on(tokio::time::sleep(std::time::Duration::from_millis(40)))
             .await;
         request
             .stage("local_work")
@@ -47,7 +47,8 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind.as_str(),
-        "application_queue_saturation"
+        "application_queue_saturation",
+        "unexpected report: {report:#?}"
     );
 }
 

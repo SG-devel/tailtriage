@@ -14,6 +14,7 @@ pub use tailtriage_core::*;
 ///
 /// Enable with the `axum` feature.
 pub use tailtriage_axum as axum;
+
 #[cfg(feature = "controller")]
 #[cfg_attr(docsrs, doc(cfg(feature = "controller")))]
 /// Controller integration namespace (`tailtriage::controller`).
@@ -26,6 +27,14 @@ pub use tailtriage_controller as controller;
 ///
 /// Enabled by default via the `tokio` feature.
 pub use tailtriage_tokio as tokio;
+
+#[cfg(feature = "tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tracing")))]
+/// Tracing intake bridge namespace (`tailtriage::tracing`).
+///
+/// Enable with the `tracing` feature. `tracing-live` and `tracing-tokio`
+/// expose progressively richer live and Tokio-coupled session APIs.
+pub use tailtriage_tracing as tracing;
 
 #[cfg(test)]
 mod tests {
@@ -59,5 +68,11 @@ mod tests {
     #[test]
     fn axum_namespace_reexport_compiles() {
         let _name = crate::axum::crate_name();
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn tracing_namespace_reexport_compiles() {
+        let _options = crate::tracing::ImportOptions::new("default-tracing");
     }
 }

@@ -67,4 +67,5 @@ jobs:
           retention-days: 90
 
       - name: TODO release attach
-        run: echo "TODO: optionally attach snapshot artifact to GitHub Releases in a follow-up task."
+        run: |
+          echo "TODO: optionally attach snapshot artifact to GitHub Releases in a follow-up task."
