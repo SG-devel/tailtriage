@@ -742,6 +742,7 @@ pub(crate) fn duration_within_derived_tolerance(duration_us: u64, derived_us: u6
     duration_us.abs_diff(derived_us) <= TRACE_TIME_TOLERANCE_US
 }
 
+#[cfg(feature = "live")]
 pub(crate) fn duration_within_tolerance(
     duration_us: u64,
     started_at_unix_ms: u64,
