@@ -23,6 +23,7 @@ EXPECTED_PACKAGES = [
     "tailtriage-tokio",
     "tailtriage-axum",
     "tailtriage-controller",
+    "tailtriage-tracing",
 ]
 
 
@@ -188,6 +189,15 @@ def render_scorecard(metrics, env):
     parts.append("\n## Confidence bucket accuracy\n")
     for k, v in sorted(metrics.get("confidence_bucket_accuracy", {}).items()):
         parts.append(f"- {k}: accuracy={v.get('accuracy')} total={v.get('total')} correct={v.get('correct')}")
+    parts.append("\n## Validated paths\n")
+    validated_path_labels = {
+        "analysis_report": "analysis_report fixtures",
+        "synthetic_analysis_report": "synthetic_analysis_report fixtures",
+        "run_artifact": "tailtriage-cli analyze run_artifact",
+        "tracing_span_jsonl": "tailtriage-cli import tracing-spans-jsonl -> analyze",
+    }
+    for k, label in validated_path_labels.items():
+        parts.append(f"- {label}: {metrics.get('validated_paths', {}).get(k, 0)}")
     parts.append("\n## Failed cases\n")
     parts.append(render_failed_cases(metrics.get("failed_cases", [])))
     parts.append("## Non-claims\n")
