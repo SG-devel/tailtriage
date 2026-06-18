@@ -32,6 +32,7 @@ def _run_cli_json(command, *, case_id, artifact_path, context):
     if result.returncode != 0:
         raise ValueError(
             f"{context} failed for case {case_id} ({artifact_path})\n"
+            f"exit_code: {result.returncode}\n"
             f"command: {' '.join(command)}\n"
             f"stdout: {result.stdout.strip() or '<empty>'}\n"
             f"stderr: {result.stderr.strip() or '<empty>'}"
@@ -92,6 +93,7 @@ def _import_tracing_span_jsonl_then_analyze(case, artifact_path):
         if import_result.returncode != 0:
             raise ValueError(
                 f"tracing_span_jsonl import failed for case {case['id']} ({artifact_path})\n"
+                f"exit_code: {import_result.returncode}\n"
                 f"command: {' '.join(import_command)}\n"
                 f"stdout: {import_result.stdout.strip() or '<empty>'}\n"
                 f"stderr: {import_result.stderr.strip() or '<empty>'}"
@@ -99,6 +101,7 @@ def _import_tracing_span_jsonl_then_analyze(case, artifact_path):
         if not tmp_run.exists():
             raise ValueError(
                 f"tracing_span_jsonl import did not create run artifact for case {case['id']} ({artifact_path})\n"
+                f"exit_code: {import_result.returncode}\n"
                 f"command: {' '.join(import_command)}\n"
                 f"stdout: {import_result.stdout.strip() or '<empty>'}\n"
                 f"stderr: {import_result.stderr.strip() or '<empty>'}"

@@ -19,6 +19,7 @@ from scripts.diagnostic_benchmark import run as run_diagnostic_benchmark
 EXPECTED_PACKAGES = [
     "tailtriage",
     "tailtriage-core",
+    "tailtriage-analyzer",
     "tailtriage-cli",
     "tailtriage-tokio",
     "tailtriage-axum",
