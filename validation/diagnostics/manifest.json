@@ -1107,6 +1107,40 @@
       }
     },
     {
+      "id": "tracing_queue_dominant",
+      "artifact": "corpus/tracing-queue-dominant.jsonl",
+      "artifact_type": "tracing_span_jsonl",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "tracing",
+        "import",
+        "queue",
+        "raw-run"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": [
+        "No runtime snapshots captured"
+      ],
+      "top1_required": true,
+      "notes": "Tracing JSONL fixture validates import tracing-spans-jsonl into Run JSON and CLI analysis of queue-dominant evidence.",
+      "expected_evidence_quality": "strong",
+      "expected_signal_statuses": {
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing"
+      }
+    },
+    {
       "id": "raw_low_request_insufficient",
       "artifact": "corpus/run-artifacts/low-request-insufficient.json",
       "artifact_type": "run_artifact",

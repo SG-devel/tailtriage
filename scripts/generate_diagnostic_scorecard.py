@@ -23,7 +23,15 @@ EXPECTED_PACKAGES = [
     "tailtriage-tokio",
     "tailtriage-axum",
     "tailtriage-controller",
+    "tailtriage-tracing",
 ]
+
+VALIDATED_PATH_LABELS = {
+    "analysis_report": "analysis_report fixtures",
+    "synthetic_analysis_report": "synthetic_analysis_report fixtures",
+    "run_artifact": "tailtriage-cli analyze run_artifact",
+    "tracing_span_jsonl": "tailtriage-cli import tracing-spans-jsonl -> analyze",
+}
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -71,6 +79,12 @@ def get_tailtriage_versions(repo_root: Path):
         elif isinstance(version, dict) and version.get("workspace") is True:
             versions[name] = workspace_version
     return {"workspace_package_version": workspace_version, "packages": versions}
+
+
+def manifest_validated_paths(manifest_path: Path):
+    manifest = json.loads(manifest_path.read_bytes())
+    artifact_types = {case.get("artifact_type") for case in manifest.get("cases", [])}
+    return [label for key, label in VALIDATED_PATH_LABELS.items() if key in artifact_types]
 
 
 def manifest_and_artifact_hashes(manifest_path: Path):
@@ -160,6 +174,7 @@ def collect_environment(repo_root: Path, manifest_path: Path, snapshot_label, th
             "manifest_sha256": manifest_sha,
             "referenced_artifacts_sha256": artifacts_sha,
             "thresholds": thresholds,
+            "validated_paths": manifest_validated_paths(manifest_path),
         },
     }
 
@@ -178,7 +193,10 @@ def render_scorecard(metrics, env):
     parts = ["# Diagnostic validation scorecard\n", "## Snapshot\n", f"- Generated at (UTC): {env['generated_at_utc']}", f"- Snapshot label: {env.get('snapshot_label')}", f"- Git SHA: {env['git'].get('sha')}", f"- Git tag: {env['git'].get('tag')}", f"- Git describe: {env['git'].get('describe')}\n", "## Environment\n", f"- tailtriage workspace package version: {env['tailtriage'].get('workspace_package_version')}"]
     for k, v in env["tailtriage"]["packages"].items():
         parts.append(f"- {k}: {v}")
-    parts.extend([f"- GitHub run: {env['github_actions'].get('run_id')} ({env['github_actions'].get('ref')})", f"- Runner: {env['github_actions'].get('runner_os')} {env['github_actions'].get('runner_arch')} / {env['github_actions'].get('image_version')}", f"- Python: {env['software'].get('python')}", f"- rustc: {env['software'].get('rustc')}", f"- cargo: {env['software'].get('cargo')}", f"- CPU model: {env['hardware'].get('cpu_model')}", f"- Logical cores: {env['hardware'].get('logical_cores')}", f"- Memory KiB: {env['hardware'].get('memory_total_kib')}\n", "## Inputs\n", f"- Manifest SHA256: {env['inputs']['manifest_sha256']}", f"- Referenced artifacts SHA256: {env['inputs']['referenced_artifacts_sha256']}", f"- Thresholds: {json.dumps(env['inputs']['thresholds'], sort_keys=True)}\n", "## Metrics\n", "| metric | value |", "|---|---:|"])
+    parts.extend([f"- GitHub run: {env['github_actions'].get('run_id')} ({env['github_actions'].get('ref')})", f"- Runner: {env['github_actions'].get('runner_os')} {env['github_actions'].get('runner_arch')} / {env['github_actions'].get('image_version')}", f"- Python: {env['software'].get('python')}", f"- rustc: {env['software'].get('rustc')}", f"- cargo: {env['software'].get('cargo')}", f"- CPU model: {env['hardware'].get('cpu_model')}", f"- Logical cores: {env['hardware'].get('logical_cores')}", f"- Memory KiB: {env['hardware'].get('memory_total_kib')}\n", "## Inputs\n", f"- Manifest SHA256: {env['inputs']['manifest_sha256']}", f"- Referenced artifacts SHA256: {env['inputs']['referenced_artifacts_sha256']}", f"- Thresholds: {json.dumps(env['inputs']['thresholds'], sort_keys=True)}\n", "## Validated paths"])
+    for path in env["inputs"].get("validated_paths", []):
+        parts.append(f"- {path}")
+    parts.extend(["\n## Metrics\n", "| metric | value |", "|---|---:|"])
     for k in metric_keys:
         parts.append(f"| {k} | {metrics.get(k)} |")
     parts.append(f"| failed_case_count | {len(metrics.get('failed_cases', []))} |\n")
