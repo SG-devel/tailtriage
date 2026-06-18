@@ -1107,6 +1107,37 @@
       }
     },
     {
+      "id": "tracing_queue_dominant",
+      "artifact": "corpus/tracing-queue-dominant.jsonl",
+      "artifact_type": "tracing_span_jsonl",
+      "ground_truth": "application_queue_saturation",
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "tags": [
+        "tracing",
+        "import",
+        "queue"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": [],
+      "top1_required": true,
+      "notes": "Completed tailtriage tracing span JSONL fixture validates CLI import to Run JSON, CLI analyze, and queue-dominant diagnosis behavior.",
+      "expected_evidence_quality": "strong",
+      "expected_signal_statuses": {
+        "queues": "present",
+        "stages": "present",
+        "runtime_snapshots": "missing"
+      }
+    },
+    {
       "id": "raw_low_request_insufficient",
       "artifact": "corpus/run-artifacts/low-request-insufficient.json",
       "artifact_type": "run_artifact",
