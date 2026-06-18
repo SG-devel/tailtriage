@@ -1261,6 +1261,32 @@
       "top1_required": true,
       "notes": "Raw run fixture with truncation validates warning propagation and conservative confidence.",
       "max_primary_confidence": "medium"
+    },
+    {
+      "id": "tracing_queue_dominant",
+      "artifact": "corpus/tracing-queue-dominant.jsonl",
+      "artifact_type": "tracing_span_jsonl",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "queue",
+        "tracing",
+        "import",
+        "corpus"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "notes": "Tracing JSONL import fixture has dominant queue waits and validates import-to-analyze diagnosis behavior.",
+      "expected_warnings": [],
+      "top1_required": true,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation"
+      ],
+      "must_include_next_checks": []
     }
   ]
 }

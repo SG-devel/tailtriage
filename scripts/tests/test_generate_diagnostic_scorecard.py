@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.generate_diagnostic_scorecard import collect_environment, generate_scorecard, get_tailtriage_versions, manifest_and_artifact_hashes, render_failed_cases, render_scorecard, sha256_bytes
+from scripts.generate_diagnostic_scorecard import collect_environment, collect_validated_paths, generate_scorecard, get_tailtriage_versions, manifest_and_artifact_hashes, render_failed_cases, render_scorecard, sha256_bytes
 
 
 class GenerateScorecardTests(unittest.TestCase):
@@ -33,6 +33,20 @@ class GenerateScorecardTests(unittest.TestCase):
             h2 = manifest_and_artifact_hashes(root / "manifest.json")[1]
             self.assertNotEqual(h1, h2)
 
+
+    def test_collect_validated_paths_counts_manifest_artifact_types(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "manifest.json"
+            path.write_text(json.dumps({"cases": [
+                {"artifact_type": "analysis_report"},
+                {"artifact_type": "run_artifact"},
+                {"artifact_type": "tracing_span_jsonl"},
+            ]}), encoding="utf-8")
+            paths = collect_validated_paths(path)
+        self.assertEqual(paths["analysis_report fixtures"], 1)
+        self.assertEqual(paths["tailtriage-cli analyze run_artifact"], 1)
+        self.assertEqual(paths["tailtriage-cli import tracing-spans-jsonl -> analyze"], 1)
+
     def test_render_contains_non_claims_and_metrics(self):
         env = {"generated_at_utc": "t", "snapshot_label": "s", "git": {"sha": "a", "tag": "v1", "describe": "d"}, "tailtriage": {"workspace_package_version": "1", "packages": {"tailtriage": "1"}}, "github_actions": {"run_id": None, "ref": None, "runner_os": None, "runner_arch": None, "image_version": None}, "software": {"python": "3", "rustc": "r", "cargo": "c"}, "hardware": {"cpu_model": "cpu", "logical_cores": 1, "memory_total_kib": 2}, "inputs": {"manifest_sha256": "m", "referenced_artifacts_sha256": "a", "thresholds": {"min_top1": 0.75}}}
         metrics = {"failed_cases": [], "per_ground_truth_counts": {}, "confidence_bucket_accuracy": {}}
@@ -42,6 +56,7 @@ class GenerateScorecardTests(unittest.TestCase):
         self.assertIn("failed_case_count", text)
         self.assertIn("not root-cause proof", text)
         self.assertIn("## Confidence bucket accuracy", text)
+        self.assertIn("## Validated paths", text)
 
     def test_render_includes_confidence_bucket_accuracy_rows(self):
         env = {"generated_at_utc": "t", "snapshot_label": "s", "git": {"sha": "a", "tag": "v1", "describe": "d"}, "tailtriage": {"workspace_package_version": "1", "packages": {"tailtriage": "1"}}, "github_actions": {"run_id": None, "ref": None, "runner_os": None, "runner_arch": None, "image_version": None}, "software": {"python": "3", "rustc": "r", "cargo": "c"}, "hardware": {"cpu_model": "cpu", "logical_cores": 1, "memory_total_kib": 2}, "inputs": {"manifest_sha256": "m", "referenced_artifacts_sha256": "a", "thresholds": {"min_top1": 0.75}}}
@@ -82,6 +97,7 @@ class GenerateScorecardTests(unittest.TestCase):
             environment = json.loads((out_dir / "environment.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["total_cases"], 1)
             self.assertEqual(environment["tailtriage"]["workspace_package_version"], "1.2.3")
+            self.assertEqual(environment["validated_paths"]["analysis_report fixtures"], 1)
 
 
 if __name__ == "__main__":

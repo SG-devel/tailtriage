@@ -23,7 +23,15 @@ EXPECTED_PACKAGES = [
     "tailtriage-tokio",
     "tailtriage-axum",
     "tailtriage-controller",
+    "tailtriage-tracing",
 ]
+
+VALIDATED_PATH_LABELS = {
+    "analysis_report": "analysis_report fixtures",
+    "synthetic_analysis_report": "synthetic_analysis_report fixtures",
+    "run_artifact": "tailtriage-cli analyze run_artifact",
+    "tracing_span_jsonl": "tailtriage-cli import tracing-spans-jsonl -> analyze",
+}
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -111,6 +119,16 @@ def _linux_mem_kib():
     return None
 
 
+def collect_validated_paths(manifest_path: Path):
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    counts = {}
+    for case in manifest.get("cases", []):
+        artifact_type = case.get("artifact_type")
+        label = VALIDATED_PATH_LABELS.get(artifact_type, artifact_type)
+        counts[label] = counts.get(label, 0) + 1
+    return counts
+
+
 def collect_environment(repo_root: Path, manifest_path: Path, snapshot_label, thresholds):
     manifest_sha, artifacts_sha = manifest_and_artifact_hashes(manifest_path)
     return {
@@ -155,6 +173,7 @@ def collect_environment(repo_root: Path, manifest_path: Path, snapshot_label, th
             "logical_cores": os.cpu_count(),
             "memory_total_kib": _linux_mem_kib(),
         },
+        "validated_paths": collect_validated_paths(manifest_path),
         "inputs": {
             "manifest": str(manifest_path.relative_to(repo_root)),
             "manifest_sha256": manifest_sha,
@@ -178,6 +197,10 @@ def render_scorecard(metrics, env):
     parts = ["# Diagnostic validation scorecard\n", "## Snapshot\n", f"- Generated at (UTC): {env['generated_at_utc']}", f"- Snapshot label: {env.get('snapshot_label')}", f"- Git SHA: {env['git'].get('sha')}", f"- Git tag: {env['git'].get('tag')}", f"- Git describe: {env['git'].get('describe')}\n", "## Environment\n", f"- tailtriage workspace package version: {env['tailtriage'].get('workspace_package_version')}"]
     for k, v in env["tailtriage"]["packages"].items():
         parts.append(f"- {k}: {v}")
+    parts.append("\n## Validated paths\n")
+    for label, count in sorted(env.get("validated_paths", {}).items()):
+        parts.append(f"- {label}: {count} case(s)")
+    parts.append("\n")
     parts.extend([f"- GitHub run: {env['github_actions'].get('run_id')} ({env['github_actions'].get('ref')})", f"- Runner: {env['github_actions'].get('runner_os')} {env['github_actions'].get('runner_arch')} / {env['github_actions'].get('image_version')}", f"- Python: {env['software'].get('python')}", f"- rustc: {env['software'].get('rustc')}", f"- cargo: {env['software'].get('cargo')}", f"- CPU model: {env['hardware'].get('cpu_model')}", f"- Logical cores: {env['hardware'].get('logical_cores')}", f"- Memory KiB: {env['hardware'].get('memory_total_kib')}\n", "## Inputs\n", f"- Manifest SHA256: {env['inputs']['manifest_sha256']}", f"- Referenced artifacts SHA256: {env['inputs']['referenced_artifacts_sha256']}", f"- Thresholds: {json.dumps(env['inputs']['thresholds'], sort_keys=True)}\n", "## Metrics\n", "| metric | value |", "|---|---:|"])
     for k in metric_keys:
         parts.append(f"| {k} | {metrics.get(k)} |")

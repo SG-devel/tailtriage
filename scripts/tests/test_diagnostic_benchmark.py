@@ -99,6 +99,7 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "artifact_type"):
             db.validate_manifest(self.make_manifest(bad))
         db.validate_manifest(self.make_manifest(self.make_case(artifact_type="run_artifact")))
+        db.validate_manifest(self.make_manifest(self.make_case(artifact_type="tracing_span_jsonl")))
 
     def test_manifest_ground_truth_and_required_top2_rules(self):
         with self.assertRaisesRegex(ValueError, "unknown ground_truth"):
@@ -178,6 +179,47 @@ class DiagnosticBenchmarkTests(unittest.TestCase):
                     db.load_case_report(case, Path(td))
                 with self.assertRaisesRegex(ValueError, str(artifact_path.resolve())):
                     db.load_case_report(case, Path(td))
+
+
+    def test_tracing_span_jsonl_imports_then_analyzes_via_cli(self):
+        case = self.make_case(artifact_type="tracing_span_jsonl", artifact="spans.jsonl", id="trace-case")
+        fake_report = valid_report()
+        with tempfile.TemporaryDirectory() as td:
+            artifact_path = Path(td) / case["artifact"]
+            artifact_path.write_text("{}\n", encoding="utf-8")
+            with mock.patch("scripts.diagnostic_benchmark.subprocess.run") as mocked_run:
+                mocked_run.side_effect = [
+                    mock.Mock(returncode=0, stdout="", stderr=""),
+                    mock.Mock(returncode=0, stdout=json.dumps(fake_report), stderr=""),
+                ]
+                loaded = db.load_case_report(case, Path(td))
+        self.assertEqual(loaded["primary_suspect"]["kind"], fake_report["primary_suspect"]["kind"])
+        self.assertEqual(mocked_run.call_count, 2)
+        import_cmd = mocked_run.call_args_list[0].args[0]
+        analyze_cmd = mocked_run.call_args_list[1].args[0]
+        self.assertIn("import", import_cmd)
+        self.assertIn("tracing-spans-jsonl", import_cmd)
+        self.assertIn(str(artifact_path.resolve()), import_cmd)
+        self.assertIn("--service", import_cmd)
+        self.assertIn("validation-tracing", import_cmd)
+        self.assertIn("analyze", analyze_cmd)
+        self.assertEqual(analyze_cmd[-2:], ["--format", "json"])
+
+    def test_tracing_span_jsonl_import_failure_includes_command_output_and_fixture(self):
+        case = self.make_case(artifact_type="tracing_span_jsonl", artifact="spans.jsonl", id="trace-fail")
+        with tempfile.TemporaryDirectory() as td:
+            artifact_path = Path(td) / case["artifact"]
+            artifact_path.write_text("bad\n", encoding="utf-8")
+            with mock.patch("scripts.diagnostic_benchmark.subprocess.run") as mocked_run:
+                mocked_run.return_value = mock.Mock(returncode=2, stdout="import stdout", stderr="import stderr")
+                with self.assertRaises(ValueError) as ctx:
+                    db.load_case_report(case, Path(td))
+        message = str(ctx.exception)
+        self.assertIn("trace-fail", message)
+        self.assertIn(str(artifact_path.resolve()), message)
+        self.assertIn("tracing-spans-jsonl", message)
+        self.assertIn("import stdout", message)
+        self.assertIn("import stderr", message)
 
     # Report validation tests
     def test_report_missing_primary_fails(self):

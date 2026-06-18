@@ -2,6 +2,7 @@
 import argparse
 import json
 import subprocess
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -25,6 +26,75 @@ def load_json(path):
         return json.load(f)
 
 
+def _format_command_detail(command, result):
+    stderr = result.stderr.strip()
+    stdout = result.stdout.strip()
+    return (
+        f"command: {' '.join(command)}\n"
+        f"exit_code: {result.returncode}\n"
+        f"stdout:\n{stdout or '<empty>'}\n"
+        f"stderr:\n{stderr or '<empty>'}"
+    )
+
+
+def _load_report_from_cli_analyze(case, artifact_path, artifact_type):
+    command = [
+        "cargo",
+        "run",
+        "--quiet",
+        "-p",
+        "tailtriage-cli",
+        "--",
+        "analyze",
+        str(artifact_path),
+        "--format",
+        "json",
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = _format_command_detail(command, result)
+        raise ValueError(
+            f"{artifact_type} analyze failed for case {case['id']} fixture {artifact_path}:\n{detail}"
+        )
+    output = result.stdout.strip()
+    if not output:
+        raise ValueError(f"{artifact_type} analyze produced empty output for case {case['id']} fixture {artifact_path}")
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError as err:
+        raise ValueError(
+            f"{artifact_type} analyze emitted invalid JSON for case {case['id']} fixture {artifact_path}: {err}\n"
+            f"stdout:\n{output}"
+        ) from err
+
+
+def _load_tracing_span_jsonl_report(case, artifact_path):
+    with tempfile.TemporaryDirectory(prefix=f"tailtriage-diagnostic-{case['id']}-") as tmpdir:
+        run_path = Path(tmpdir) / "imported-run.json"
+        command = [
+            "cargo",
+            "run",
+            "--quiet",
+            "-p",
+            "tailtriage-cli",
+            "--",
+            "import",
+            "tracing-spans-jsonl",
+            str(artifact_path),
+            "--service",
+            "validation-tracing",
+            "--output",
+            str(run_path),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            detail = _format_command_detail(command, result)
+            raise ValueError(
+                f"tracing_span_jsonl import failed for case {case['id']} fixture {artifact_path}:\n{detail}"
+            )
+        return _load_report_from_cli_analyze(case, run_path, "tracing_span_jsonl")
+
+
 def load_case_report(case, root):
     artifact_path = (root / case["artifact"]).resolve()
     artifact_type = case["artifact_type"]
@@ -34,31 +104,9 @@ def load_case_report(case, root):
             raise ValueError(f"analysis_report requires report.primary_suspect.score for case {case['id']} ({artifact_path})")
         return report
     if artifact_type == "run_artifact":
-        command = [
-            "cargo",
-            "run",
-            "--quiet",
-            "-p",
-            "tailtriage-cli",
-            "--",
-            "analyze",
-            str(artifact_path),
-            "--format",
-            "json",
-        ]
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            stdout = result.stdout.strip()
-            detail = stderr or stdout or "no output"
-            raise ValueError(f"run_artifact analyze failed for case {case['id']} ({artifact_path}): {detail}")
-        output = result.stdout.strip()
-        if not output:
-            raise ValueError(f"run_artifact analyze produced empty output for case {case['id']} ({artifact_path})")
-        try:
-            return json.loads(output)
-        except json.JSONDecodeError as err:
-            raise ValueError(f"run_artifact analyze emitted invalid JSON for case {case['id']} ({artifact_path}): {err}") from err
+        return _load_report_from_cli_analyze(case, artifact_path, artifact_type)
+    if artifact_type == "tracing_span_jsonl":
+        return _load_tracing_span_jsonl_report(case, artifact_path)
     raise ValueError(f"unsupported artifact_type {artifact_type} for case {case['id']}")
 
 
@@ -80,8 +128,8 @@ def validate_manifest(manifest):
         seen.add(cid)
         if not isinstance(case["artifact"], str) or not case["artifact"].strip():
             raise ValueError(f"artifact must be a non-empty string for {cid}")
-        if case["artifact_type"] not in {"analysis_report", "synthetic_analysis_report", "run_artifact"}:
-            raise ValueError(f"artifact_type must be analysis_report, synthetic_analysis_report, or run_artifact for {cid}")
+        if case["artifact_type"] not in {"analysis_report", "synthetic_analysis_report", "run_artifact", "tracing_span_jsonl"}:
+            raise ValueError(f"artifact_type must be analysis_report, synthetic_analysis_report, run_artifact, or tracing_span_jsonl for {cid}")
         gt = case["ground_truth"]
         if gt not in ALLOWED_GROUND_TRUTH:
             raise ValueError(f"unknown ground_truth for {cid}: {gt}")
