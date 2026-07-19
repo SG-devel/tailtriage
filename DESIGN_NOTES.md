@@ -28,7 +28,7 @@ The design should be judged by whether it:
 | Capture model      | Artifact-based analysis                      | Reproducible and testable                       | Extra workflow step                  |
 | Workspace          | Multiple crates                              | Dependency and responsibility separation        | More complexity                      |
 | CLI                | First-class analyzer                         | Useful for validation and offline investigation | Extra public interface               |
-| Collector behavior | Bounded retention with truncation summaries  | Avoid unbounded memory risk                     | Partial data under stress            |
+| Collector behavior | Bounded retained event vectors with truncation summaries | Avoid unbounded artifact growth for retained evidence | Pending request bookkeeping is not capture-limited |
 | Overhead claims    | Machine/workload scoped                      | Credible measurement                            | Less marketable                      |
 | Validation         | Controlled demos first                       | Known injected causes                           | Synthetic limits                     |
 | AI usage           | AI-assisted implementation under specs/tests | Productivity without abandoning ownership       | Requires clear ownership and review  |
@@ -241,9 +241,9 @@ This sacrifices plug-and-play compatibility with arbitrary tracing output.
 
 The project values diagnostic precision over broad ingestion.
 
-### Future possibility
+### Current tracing bridge
 
-Tracing import could be added later if there is a clear mapping from span metadata to `tailtriage` concepts.
+A narrow tracing bridge now exists through `tailtriage-tracing`. It is not a generic tracing analyzer: it relies on explicit `tt.*` span conventions, can write standard `Run` JSON or completed-span JSONL, and feeds the same analyzer/report workflow as native capture. Arbitrary `tracing_subscriber::fmt().json()` scraping and OTel/OTLP ingestion remain out of scope.
 
 ---
 
@@ -283,12 +283,14 @@ The project is split into multiple crates rather than one monolithic crate.
 
 The responsibilities are different enough to justify separation:
 
-* core data model and capture logic,
-* Tokio runtime integration,
-* Axum integration,
-* controller/reporting behavior,
-* CLI analysis,
-* top-level facade.
+* `tailtriage-core`: data model, direct capture lifecycle, run building, sinks, retention summaries, and shared lifecycle semantics,
+* `tailtriage-tokio`: optional Tokio runtime sampling and Tokio primitive helper instrumentation,
+* `tailtriage-axum`: Axum middleware/extractor ergonomics over the same request-context model,
+* `tailtriage-controller`: repeated bounded capture windows for long-lived services,
+* `tailtriage-analyzer`: the diagnosis engine, report model, strict artifact validation APIs, and text/JSON report rendering,
+* `tailtriage-cli`: command-line artifact loading, tracing JSONL import, and analyzer/report execution,
+* `tailtriage-tracing`: optional `tracing` intake that converts `tt.*` spans into standard `Run` artifacts,
+* `tailtriage`: top-level onboarding facade with feature-gated integrations.
 
 This separation keeps optional integrations from forcing unnecessary dependencies on users who only need the core model.
 
@@ -386,23 +388,27 @@ Warnings are part of the trust model. A report that explains its limitations is 
 
 ---
 
-## 14. Why bounded collectors and truncation summaries?
+## 14. Why bounded retained evidence and truncation summaries?
 
 ### Decision
 
-Collectors should use bounded retention and expose truncation/drop summaries.
+Retained event vectors and runtime snapshots should use capture limits and expose truncation/drop summaries.
 
 ### Rationale
 
-An investigation tool should not create unbounded memory risk in the service being investigated. Bounded collection reduces operational risk.
+An investigation tool should not create unbounded artifact growth from retained request, queue, stage, in-flight, or runtime evidence. Bounded retained evidence reduces operational risk and keeps artifacts reviewable.
+
+### Current limitation
+
+Not all live bookkeeping is bounded by capture limits today. In particular, pending/unfinished request state can grow with admitted requests until those requests complete or the run shuts down. Documentation and operations guidance should therefore avoid claiming that all live state is capture-limited.
 
 ### Tradeoff
 
-Bounded collection can drop data under heavy load, which weakens diagnosis.
+Bounded retained evidence can drop data under heavy load, which weakens diagnosis. Pending-state tracking preserves lifecycle warnings but still needs operational care during long or high-cardinality capture windows.
 
 ### Why this is acceptable
 
-Dropped data is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate.
+Dropped retained evidence is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate. Pending-state limits remain a known design risk rather than a solved invariant.
 
 ---
 
@@ -575,7 +581,7 @@ The following decisions should not be treated as permanent:
 
 5. **Tracing integration**
 
-   * Revisit if a reliable mapping from tracing spans to semantic tailtriage signals emerges.
+   * Keep the current `tt.*` tracing bridge narrow. Revisit only if real usage shows that additional tracing mappings can preserve semantic signal quality without becoming generic log ingestion.
 
 6. **Runtime sampler defaults**
 
@@ -640,6 +646,48 @@ Mitigation:
 * label synthetic results as synthetic,
 * add real-world case studies later,
 * avoid universal production claims.
+
+
+### Risk: Overlapping work can blur attribution
+
+Concurrent requests, retries, fanout, and early/late temporal windows can overlap. Timestamp-filtered runtime and in-flight signals are global rather than truly request-local, and duplicate or reused request identifiers can make queue/stage attribution ambiguous.
+
+Mitigation:
+
+* require per-run unique completed request IDs for strict validation,
+* warn in permissive analysis when IDs are duplicated or attribution is ambiguous,
+* frame route and temporal segments as supporting hints rather than proof.
+
+### Risk: Cancellation and early drop may hide partial work
+
+The current queue and stage helper guards record completed intervals. If a helper is cancelled or dropped before recording a complete interval, no partial queue/stage event is emitted. Dropped request completions remain unfinished instead of being auto-completed.
+
+Mitigation:
+
+* document explicit completion as the current lifecycle contract,
+* surface unfinished requests in run metadata and warnings,
+* use strict lifecycle mode when unfinished requests should fail a capture.
+
+### Risk: Validation artifacts mix execution levels
+
+The validation corpus currently includes artifacts that are executed through the analyzer path and report-only fixtures that validate report contract behavior. Treating all fixtures as equivalent analyzer executions would overstate coverage.
+
+Mitigation:
+
+* label validation paths by execution level,
+* keep scorecards clear about analyzer-executed versus report-only coverage,
+* avoid calling report-only validation root-cause or analyzer accuracy evidence.
+
+### Risk: Duplicated policy can drift
+
+Lifecycle, validation, analyzer, CLI, import, docs-contract, and CI policy is intentionally explicit, but similar rules appear in multiple crates, scripts, and documents. That creates drift risk.
+
+Mitigation:
+
+* keep `SPEC.md` focused on externally meaningful contracts,
+* keep these design notes focused on ownership and invariants,
+* keep `AGENTS.md`, CI, and `scripts/validate_all.py` aligned on local validation commands,
+* update docs-contract tests when public documentation contracts intentionally change.
 
 ---
 

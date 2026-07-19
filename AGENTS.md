@@ -308,8 +308,8 @@ Do not implement those features unless maintainers explicitly approve them.
 Before considering a task done, run:
 
 - `cargo fmt --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+- `cargo test --workspace --all-targets --all-features --locked`
 - `python3 scripts/validate_docs_contracts.py`
 
 If a task touches benchmarks or performance-sensitive code, also include:
