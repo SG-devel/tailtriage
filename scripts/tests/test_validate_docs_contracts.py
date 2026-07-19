@@ -17,6 +17,76 @@ import validate_docs_contracts  # noqa: E402
 
 
 class ValidateDocsContractsTests(unittest.TestCase):
+
+    def test_governance_strictness_contract_accepts_distinct_policies(self) -> None:
+        spec_text = """# Spec
+
+Schema contract:
+
+- default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
+- strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
+- tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
+- tracing completed-span JSONL import supports the stable wrapper format and the explicitly selected compatibility parser for supported pre-stable/internal record shapes
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_path = Path(tmp_dir) / "SPEC.md"
+            spec_path.write_text(spec_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "SPEC_PATH", spec_path):
+                validate_docs_contracts.validate_governance_strictness_contract()
+
+    def test_governance_strictness_contract_rejects_cli_import_conflation(self) -> None:
+        spec_text = """# Spec
+
+- default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
+- strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
+- tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
+- tracing completed-span JSONL import supports the stable wrapper format and the explicitly selected compatibility parser for supported pre-stable/internal record shapes
+- strict artifact validation is currently opt-in through strict analyzer validation APIs or CLI/import strict flags
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_path = Path(tmp_dir) / "SPEC.md"
+            spec_path.write_text(spec_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "SPEC_PATH", spec_path):
+                with self.assertRaisesRegex(ValueError, r"conflates strict Run artifact validation"):
+                    validate_docs_contracts.validate_governance_strictness_contract()
+
+    def test_governance_pending_state_contract_accepts_unsealed_shutdown_wording(self) -> None:
+        design_text = """# Notes
+
+Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
+
+`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity.
+
+Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound.
+
+Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
+            design_path.write_text(design_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
+                validate_docs_contracts.validate_governance_pending_state_contract()
+
+    def test_governance_pending_state_contract_rejects_shutdown_as_boundary(self) -> None:
+        design_text = """# Notes
+
+Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests until those requests complete or the run shuts down.
+Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
+`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity.
+Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound.
+Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
+            design_path.write_text(design_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
+                with self.assertRaisesRegex(ValueError, r"shutdown clears pending request state"):
+                    validate_docs_contracts.validate_governance_pending_state_contract()
+
     def test_run_end_policy_variants_include_expected_kinds(self) -> None:
         kinds = validate_docs_contracts.extract_run_end_policy_kinds_from_source()
         self.assertEqual(kinds, {"continue_after_limits_hit", "auto_seal_on_limits_hit"})

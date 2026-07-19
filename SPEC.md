@@ -73,7 +73,7 @@ Single-run shape:
 
 1. build
 2. capture request lifecycle data
-3. `shutdown()` to finalize artifact
+3. `shutdown()` to finalize a standard `Run` artifact
 
 ### 5.3 Request lifecycle contract
 
@@ -84,11 +84,12 @@ Single-run shape:
 
 Contract details:
 
-- completion must happen exactly once
-- drop does not auto-complete
-- `shutdown()` does not fabricate outcomes or timings
+- completion must happen exactly once through `RequestCompletion`
+- drop does not auto-complete; dropped request completions remain unfinished
+- `shutdown()` does not fabricate outcomes or timings for unfinished requests
 - unfinished requests are surfaced as warnings/metadata
 - `strict_lifecycle(true)` makes `shutdown()` fail if unfinished requests remain
+- cancellation or early drop of queue/stage timing helpers currently records no partial queue or stage event
 
 ### 5.4 Controller surface (`tailtriage-controller`)
 
@@ -136,7 +137,7 @@ Semantics:
 
 ### 5.8 In-process analyzer (`tailtriage-analyzer`)
 
-`tailtriage-analyzer` owns typed report generation from completed runs:
+`tailtriage-analyzer` is the diagnosis engine and owns typed report generation from completed runs:
 
 - `analyze_run(&Run, AnalyzeOptions) -> Report`
 - `render_text(&Report)` for human-readable output
@@ -170,6 +171,7 @@ Users can depend on `tailtriage-tracing` directly for the narrow crate boundary,
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:
   `tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run.json>`
+- native direct capture and tracing intake both produce standard `Run` artifacts
 - tracing intake converts request/stage/queue evidence into the same standard `Run` schema; analyzer semantics remain unchanged
 - request `tt.outcome` is optional; missing defaults to `ok` with a warning, recommended common labels are `ok`/`error`/`timeout`/`cancelled`/`rejected`, and custom non-empty string labels are preserved exactly
 - `tracing_subscriber::fmt().json()` arbitrary log scraping is intentionally unsupported
@@ -211,6 +213,10 @@ Schema contract:
 
 - artifacts require top-level `schema_version`
 - current supported schema version is `1`
+- default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
+- strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
+- tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
+- tracing completed-span JSONL import supports the stable wrapper format and the explicitly selected compatibility parser for supported pre-stable/internal record shapes
 
 Artifact/report contract split:
 
@@ -247,7 +253,7 @@ The validation surface includes:
 
 ### 8.1 Deterministic diagnostic corpus
 
-The deterministic corpus validates analyzer/report behavior against labeled fixtures.
+The deterministic corpus validates analyzer/report behavior against labeled fixtures. The current corpus mixes analyzer-executed artifacts (`run_artifact` and `tracing_span_jsonl`, which flow through Run JSON analysis) with report-only fixtures that validate report contract handling without re-running the analyzer.
 
 It may check:
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0] - Unreleased
+
+### Changed
+
+- Aligned documented local validation commands with CI baseline flags in `AGENTS.md` and `scripts/validate_all.py`.
+- Updated `SPEC.md` and `DESIGN_NOTES.md` to describe current pre-0.4.0 governance, intake, analyzer, lifecycle, validation, and design-risk baselines without claiming future behavior.
+
 ## [0.3.0] - 2026-06-18
 
 ### Added

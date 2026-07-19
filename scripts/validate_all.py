@@ -100,12 +100,12 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
             CommandSpec("collector-limits full", "collector_limits", _py(args, "scripts/run_operational_validation.py", "--domain", "collector-limits", "--runs", str(args.runs), "--artifact-root", str(operational_artifact_root), "--out", str(out / "operational/collector-limits.jsonl"), "--summary", str(out / "operational/collector-limits-summary.json"), "--scorecard", str(out / "operational/collector-limits-scorecard.md"), *mode, *nfts)),
         ]
 
-    include_cargo = (args.profile in {"full", "publish"} and not args.skip_cargo) or args.include_cargo
-    if include_cargo and not args.skip_cargo:
+    include_cargo = not args.skip_cargo
+    if include_cargo:
         cmds += [
             CommandSpec("cargo fmt", "cargo", ["cargo", "fmt", "--check"]),
-            CommandSpec("cargo clippy", "cargo", ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]),
-            CommandSpec("cargo test", "cargo", ["cargo", "test", "--workspace"]),
+            CommandSpec("cargo clippy", "cargo", ["cargo", "clippy", "--workspace", "--all-targets", "--all-features", "--locked", "--", "-D", "warnings"]),
+            CommandSpec("cargo test", "cargo", ["cargo", "test", "--workspace", "--all-targets", "--all-features", "--locked"]),
         ]
     return cmds
 
@@ -163,7 +163,7 @@ def main() -> int:
     p.add_argument("--runs", type=int)
     p.add_argument("--profile-mode", choices=["dev", "release"], default="dev")
     p.add_argument("--skip-cargo", action="store_true")
-    p.add_argument("--include-cargo", action="store_true")
+    p.add_argument("--include-cargo", action="store_true", help="Deprecated: cargo baseline checks run by default unless --skip-cargo is set.")
     p.add_argument("--no-fail-fast", action="store_true")
     p.add_argument("--no-fail-thresholds", action="store_true")
     p.add_argument("--dry-run", action="store_true")

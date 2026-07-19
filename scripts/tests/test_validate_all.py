@@ -98,8 +98,38 @@ class ValidateAllTests(unittest.TestCase):
         p = va.derive_publish_dir()
         self.assertIn("validation/artifacts", str(p))
 
-    def test_skip_and_include_cargo(self):
-        a = self.args("ci"); a.include_cargo = True
+    def test_cargo_baseline_matches_ci_flags(self):
+        a = self.args("smoke")
+        cargo = {c.name: c.argv for c in va.build_plan(a) if c.track == "cargo"}
+        self.assertEqual(cargo["cargo fmt"], ["cargo", "fmt", "--check"])
+        self.assertEqual(
+            cargo["cargo clippy"],
+            [
+                "cargo",
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--all-features",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )
+        self.assertEqual(
+            cargo["cargo test"],
+            [
+                "cargo",
+                "test",
+                "--workspace",
+                "--all-targets",
+                "--all-features",
+                "--locked",
+            ],
+        )
+
+    def test_skip_cargo(self):
+        a = self.args("ci")
         self.assertTrue(any(c.track == "cargo" for c in va.build_plan(a)))
         a.skip_cargo = True
         self.assertFalse(any(c.track == "cargo" for c in va.build_plan(a)))

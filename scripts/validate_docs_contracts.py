@@ -12,6 +12,8 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
+SPEC_PATH = REPO_ROOT / "SPEC.md"
+DESIGN_NOTES_PATH = REPO_ROOT / "DESIGN_NOTES.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
@@ -251,6 +253,56 @@ def assert_same_object_shape(*, name: str, actual: dict[str, Any], expected: dic
         if actual_kind != expected_kind:
             raise ValueError(f"{name}.{key} type drift: expected {expected_kind}, got {actual_kind}")
 
+
+
+def validate_governance_strictness_contract() -> None:
+    text = SPEC_PATH.read_text(encoding="utf-8")
+    lower_text = text.lower()
+
+    required_tokens = (
+        "default run artifact analysis",
+        "tailtriage analyze --strict-artifact",
+        "tracing import `--strict` separately controls",
+        "does not replace strict run artifact validation",
+        "stable wrapper format",
+        "explicitly selected compatibility parser",
+        "supported pre-stable/internal record shapes",
+    )
+    for token in required_tokens:
+        if token not in lower_text:
+            raise ValueError(f"SPEC.md strictness contract missing token: {token}")
+
+    conflations = (
+        r"strict artifact validation[^\n]*(?:cli/import strict flags|tracing import `--strict`)",
+        r"tracing import `--strict`[^\n]*(?:runs? validate_artifact_strict|(?<!not )replace(?:s)? strict run artifact validation)",
+    )
+    for pattern in conflations:
+        if re.search(pattern, lower_text):
+            raise ValueError("SPEC.md conflates strict Run artifact validation with tracing import --strict")
+
+
+def validate_governance_pending_state_contract() -> None:
+    text = DESIGN_NOTES_PATH.read_text(encoding="utf-8")
+    lower_text = text.lower()
+
+    required_tokens = (
+        "pending/unfinished request state can grow with admitted requests",
+        "completion token finishes or the collector is dropped",
+        "shutdown()` currently inspects pending requests",
+        "does not clear pending bookkeeping",
+        "seal the collector against later admissions",
+        "separate from the retained request, queue, stage, in-flight, and runtime vectors",
+        "known current limitations rather than desired permanent contracts",
+    )
+    for token in required_tokens:
+        if token not in lower_text:
+            raise ValueError(f"DESIGN_NOTES.md pending-state contract missing token: {token}")
+
+    if re.search(r"pending/unfinished request state[^\n]*until[^\n]*run shuts down", lower_text):
+        raise ValueError("DESIGN_NOTES.md must not claim shutdown clears pending request state")
+
+    if re.search(r"(?m)^\s*all live (?:bookkeeping|state) (?:is|are) (?:capture-limited|bounded by capture limits)", lower_text):
+        raise ValueError("DESIGN_NOTES.md must not claim all live bookkeeping is capture-limited")
 
 def validate_readme_analyzer_example() -> None:
     readme_text = README_PATH.read_text(encoding="utf-8")
@@ -1097,6 +1149,8 @@ def validate_sampler_integration_boundary() -> None:
 
 def main() -> int:
     _ = parse_args()
+    validate_governance_strictness_contract()
+    validate_governance_pending_state_contract()
     validate_readme_analyzer_example()
     validate_crate_rustdocs_include_readmes()
     validate_controller_readme_toml()
