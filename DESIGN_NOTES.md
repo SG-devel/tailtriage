@@ -189,6 +189,25 @@ A cautious report is more useful than a confident but wrong one. In production d
 
 ---
 
+## Analyzer configuration ownership
+
+### Decision
+
+Analyzer threshold and heuristic metadata has one internal declarative registry. The runtime `AnalyzeOptions` structs remain the semantic configuration truth used by the analyzer, while the registry owns configuration-surface metadata for supported path names, categories, value parsers, field accessors and setters, descriptor wording, and default formatting.
+
+### Rationale
+
+The analyzer exposes the same tunable options through Rust builders, TOML, CLI overrides, descriptors, and report metadata. Keeping path strings, parser choice, descriptor text, and summary behavior in separate tables makes it easy for one surface to drift from another. A single registry makes the CLI path set, descriptor list, CLI `group.field=value` application, TOML patch application, and non-default override summaries derive from the same source.
+
+### Invariants
+
+* TOML still parses through strict `serde` patch structs with `deny_unknown_fields`, so unknown analyzer groups and fields remain errors before any registry application.
+* Parsed TOML values are converted into registry path/value applications, so TOML and CLI use the same setter and final semantic validation path.
+* `AnalyzeOptions` remains the analyzer's runtime truth; the registry describes how external configuration surfaces reach those fields, not a second configuration model.
+* Integrity tests keep paths unique, preserve the current supported path set, verify descriptor applicability, compare TOML and CLI results for each path, and require non-default summaries for changed paths.
+
+---
+
 ## 7. Why require explicit instrumentation?
 
 ### Decision

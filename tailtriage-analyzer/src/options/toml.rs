@@ -1,7 +1,4 @@
-use super::{
-    AnalyzeConfigError, AnalyzeOptions, BlockingOptions, ConfidenceOptions, DownstreamOptions,
-    EvidenceOptions, ExecutorOptions, QueueingOptions, RouteOptions, TemporalOptions,
-};
+use super::{registry, AnalyzeConfigError, AnalyzeOptions};
 use serde::Deserialize;
 
 const SUPPORTED_SCHEMA_VERSION: u64 = 1;
@@ -121,134 +118,209 @@ impl AnalyzeOptions {
                 supported: SUPPORTED_SCHEMA_VERSION,
             });
         }
-        if let Some(p) = &config.queueing {
-            apply_queueing(&mut self.queueing, p);
+        let assignments = config.assignments();
+        let mut candidate = self.clone();
+        for (path, value) in assignments {
+            if let Some(spec) = registry::find_spec(path) {
+                spec.set_value(&mut candidate, value);
+            }
         }
-        if let Some(p) = &config.blocking {
-            apply_blocking(&mut self.blocking, p);
-        }
-        if let Some(p) = &config.executor {
-            apply_executor(&mut self.executor, p);
-        }
-        if let Some(p) = &config.downstream {
-            apply_downstream(&mut self.downstream, p);
-        }
-        if let Some(p) = &config.confidence {
-            apply_confidence(&mut self.confidence, p);
-        }
-        if let Some(p) = &config.evidence {
-            apply_evidence(&mut self.evidence, p);
-        }
-        if let Some(p) = &config.route {
-            apply_route(&mut self.route, p);
-        }
-        if let Some(p) = &config.temporal {
-            apply_temporal(&mut self.temporal, p);
-        }
-        self.validate()?;
+        candidate.validate()?;
+        self = candidate;
         Ok(self)
     }
 }
-fn apply_queueing(out: &mut QueueingOptions, p: &QueueingOptionsToml) {
-    if let Some(v) = p.trigger_permille {
-        out.trigger_permille = v;
+
+impl AnalyzerTomlConfig {
+    #[allow(clippy::too_many_lines)]
+    fn assignments(&self) -> Vec<(&'static str, registry::OptionValue)> {
+        let mut out = Vec::new();
+        if let Some(p) = &self.queueing {
+            push(
+                &mut out,
+                "queueing.trigger_permille",
+                p.trigger_permille.map(registry::OptionValue::U64),
+            );
+        }
+        if let Some(p) = &self.blocking {
+            push(
+                &mut out,
+                "blocking.min_nonzero_samples_for_signal",
+                p.min_nonzero_samples_for_signal
+                    .map(registry::OptionValue::Usize),
+            );
+            push(
+                &mut out,
+                "blocking.strong_p95_threshold",
+                p.strong_p95_threshold.map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "blocking.strong_peak_threshold",
+                p.strong_peak_threshold.map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "blocking.strong_nonzero_share_permille",
+                p.strong_nonzero_share_permille
+                    .map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "blocking.strong_min_samples",
+                p.strong_min_samples.map(registry::OptionValue::Usize),
+            );
+        }
+        if let Some(p) = &self.executor {
+            push(
+                &mut out,
+                "executor.min_global_queue_p95_for_signal",
+                p.min_global_queue_p95_for_signal
+                    .map(registry::OptionValue::U64),
+            );
+        }
+        if let Some(p) = &self.downstream {
+            push(
+                &mut out,
+                "downstream.min_stage_samples",
+                p.min_stage_samples.map(registry::OptionValue::Usize),
+            );
+            push(
+                &mut out,
+                "downstream.blocking_correlated_stage_patterns",
+                p.blocking_correlated_stage_patterns
+                    .clone()
+                    .map(registry::OptionValue::StringList),
+            );
+            push(
+                &mut out,
+                "downstream.blocking_correlation_score_margin",
+                p.blocking_correlation_score_margin
+                    .map(registry::OptionValue::U8),
+            );
+        }
+        if let Some(p) = &self.confidence {
+            push(
+                &mut out,
+                "confidence.medium_score_threshold",
+                p.medium_score_threshold.map(registry::OptionValue::U8),
+            );
+            push(
+                &mut out,
+                "confidence.high_score_threshold",
+                p.high_score_threshold.map(registry::OptionValue::U8),
+            );
+            push(
+                &mut out,
+                "confidence.ambiguity_min_score",
+                p.ambiguity_min_score.map(registry::OptionValue::U8),
+            );
+            push(
+                &mut out,
+                "confidence.ambiguity_score_gap",
+                p.ambiguity_score_gap.map(registry::OptionValue::U8),
+            );
+        }
+        if let Some(p) = &self.evidence {
+            push(
+                &mut out,
+                "evidence.low_completed_request_threshold",
+                p.low_completed_request_threshold
+                    .map(registry::OptionValue::Usize),
+            );
+        }
+        if let Some(p) = &self.route {
+            push(
+                &mut out,
+                "route.min_request_count",
+                p.min_request_count.map(registry::OptionValue::Usize),
+            );
+            push(
+                &mut out,
+                "route.breakdown_limit",
+                p.breakdown_limit.map(registry::OptionValue::Usize),
+            );
+            push(
+                &mut out,
+                "route.emit_on_divergent_suspects",
+                p.emit_on_divergent_suspects
+                    .map(registry::OptionValue::Bool),
+            );
+            push(
+                &mut out,
+                "route.slowest_to_fastest_p95_ratio_numerator",
+                p.slowest_to_fastest_p95_ratio_numerator
+                    .map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "route.slowest_to_fastest_p95_ratio_denominator",
+                p.slowest_to_fastest_p95_ratio_denominator
+                    .map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "route.slowest_to_global_p95_ratio_numerator",
+                p.slowest_to_global_p95_ratio_numerator
+                    .map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "route.slowest_to_global_p95_ratio_denominator",
+                p.slowest_to_global_p95_ratio_denominator
+                    .map(registry::OptionValue::U64),
+            );
+        }
+        if let Some(p) = &self.temporal {
+            push(
+                &mut out,
+                "temporal.min_request_count",
+                p.min_request_count.map(registry::OptionValue::Usize),
+            );
+            push(
+                &mut out,
+                "temporal.min_segment_request_count",
+                p.min_segment_request_count
+                    .map(registry::OptionValue::Usize),
+            );
+            push(
+                &mut out,
+                "temporal.share_shift_permille",
+                p.share_shift_permille.map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "temporal.p95_shift_ratio_numerator",
+                p.p95_shift_ratio_numerator.map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "temporal.p95_shift_ratio_denominator",
+                p.p95_shift_ratio_denominator
+                    .map(registry::OptionValue::U64),
+            );
+            push(
+                &mut out,
+                "temporal.emit_on_suspect_shift",
+                p.emit_on_suspect_shift.map(registry::OptionValue::Bool),
+            );
+            push(
+                &mut out,
+                "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+                p.suppress_runtime_sparse_suspect_shift_without_supporting_movement
+                    .map(registry::OptionValue::Bool),
+            );
+        }
+        out
     }
 }
-fn apply_blocking(out: &mut BlockingOptions, p: &BlockingOptionsToml) {
-    if let Some(v) = p.min_nonzero_samples_for_signal {
-        out.min_nonzero_samples_for_signal = v;
-    }
-    if let Some(v) = p.strong_p95_threshold {
-        out.strong_p95_threshold = v;
-    }
-    if let Some(v) = p.strong_peak_threshold {
-        out.strong_peak_threshold = v;
-    }
-    if let Some(v) = p.strong_nonzero_share_permille {
-        out.strong_nonzero_share_permille = v;
-    }
-    if let Some(v) = p.strong_min_samples {
-        out.strong_min_samples = v;
-    }
-}
-fn apply_executor(out: &mut ExecutorOptions, p: &ExecutorOptionsToml) {
-    if let Some(v) = p.min_global_queue_p95_for_signal {
-        out.min_global_queue_p95_for_signal = v;
-    }
-}
-fn apply_downstream(out: &mut DownstreamOptions, p: &DownstreamOptionsToml) {
-    if let Some(v) = p.min_stage_samples {
-        out.min_stage_samples = v;
-    }
-    if let Some(v) = &p.blocking_correlated_stage_patterns {
-        out.blocking_correlated_stage_patterns.clone_from(v);
-    }
-    if let Some(v) = p.blocking_correlation_score_margin {
-        out.blocking_correlation_score_margin = v;
-    }
-}
-fn apply_confidence(out: &mut ConfidenceOptions, p: &ConfidenceOptionsToml) {
-    if let Some(v) = p.medium_score_threshold {
-        out.medium_score_threshold = v;
-    }
-    if let Some(v) = p.high_score_threshold {
-        out.high_score_threshold = v;
-    }
-    if let Some(v) = p.ambiguity_min_score {
-        out.ambiguity_min_score = v;
-    }
-    if let Some(v) = p.ambiguity_score_gap {
-        out.ambiguity_score_gap = v;
-    }
-}
-fn apply_evidence(out: &mut EvidenceOptions, p: &EvidenceOptionsToml) {
-    if let Some(v) = p.low_completed_request_threshold {
-        out.low_completed_request_threshold = v;
-    }
-}
-fn apply_route(out: &mut RouteOptions, p: &RouteOptionsToml) {
-    if let Some(v) = p.min_request_count {
-        out.min_request_count = v;
-    }
-    if let Some(v) = p.breakdown_limit {
-        out.breakdown_limit = v;
-    }
-    if let Some(v) = p.emit_on_divergent_suspects {
-        out.emit_on_divergent_suspects = v;
-    }
-    if let Some(v) = p.slowest_to_fastest_p95_ratio_numerator {
-        out.slowest_to_fastest_p95_ratio_numerator = v;
-    }
-    if let Some(v) = p.slowest_to_fastest_p95_ratio_denominator {
-        out.slowest_to_fastest_p95_ratio_denominator = v;
-    }
-    if let Some(v) = p.slowest_to_global_p95_ratio_numerator {
-        out.slowest_to_global_p95_ratio_numerator = v;
-    }
-    if let Some(v) = p.slowest_to_global_p95_ratio_denominator {
-        out.slowest_to_global_p95_ratio_denominator = v;
-    }
-}
-fn apply_temporal(out: &mut TemporalOptions, p: &TemporalOptionsToml) {
-    if let Some(v) = p.min_request_count {
-        out.min_request_count = v;
-    }
-    if let Some(v) = p.min_segment_request_count {
-        out.min_segment_request_count = v;
-    }
-    if let Some(v) = p.share_shift_permille {
-        out.share_shift_permille = v;
-    }
-    if let Some(v) = p.p95_shift_ratio_numerator {
-        out.p95_shift_ratio_numerator = v;
-    }
-    if let Some(v) = p.p95_shift_ratio_denominator {
-        out.p95_shift_ratio_denominator = v;
-    }
-    if let Some(v) = p.emit_on_suspect_shift {
-        out.emit_on_suspect_shift = v;
-    }
-    if let Some(v) = p.suppress_runtime_sparse_suspect_shift_without_supporting_movement {
-        out.suppress_runtime_sparse_suspect_shift_without_supporting_movement = v;
+
+fn push(
+    out: &mut Vec<(&'static str, registry::OptionValue)>,
+    path: &'static str,
+    value: Option<registry::OptionValue>,
+) {
+    if let Some(value) = value {
+        out.push((path, value));
     }
 }

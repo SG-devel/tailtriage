@@ -1,39 +1,19 @@
+use std::sync::OnceLock;
+
+use super::registry::OPTION_SPECS;
 use super::AnalyzeOptionDescriptor;
 
 /// Returns semantic analyzer option descriptors for every supported v1 path.
 #[must_use]
 pub fn analyze_option_descriptors() -> &'static [AnalyzeOptionDescriptor] {
-    &DESCRIPTORS
+    static DESCRIPTORS: OnceLock<Box<[AnalyzeOptionDescriptor]>> = OnceLock::new();
+    DESCRIPTORS
+        .get_or_init(|| {
+            OPTION_SPECS
+                .iter()
+                .map(super::registry::OptionSpec::descriptor)
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        })
+        .as_ref()
 }
-
-const DESCRIPTORS: [AnalyzeOptionDescriptor; 29] = [
-    AnalyzeOptionDescriptor::new("queueing.trigger_permille", "300", "u64", "queue suspect trigger", "Minimum p95 queue share (permille) required before queue saturation becomes a ranked suspect.", Some("makes queue-saturation suspects harder to trigger"), Some("makes queue-saturation suspects easier to trigger")),
-    AnalyzeOptionDescriptor::new("blocking.min_nonzero_samples_for_signal", "2", "usize", "blocking signal eligibility", "Minimum non-zero blocking queue samples required before considering blocking pressure evidence.", Some("requires more samples before blocking signal can appear"), Some("requires fewer samples before blocking signal can appear")),
-    AnalyzeOptionDescriptor::new("blocking.strong_p95_threshold", "12", "u64", "blocking suspect strength", "Blocking queue-depth p95 threshold used for strong blocking-pressure evidence.", Some("requires stronger p95 pressure"), Some("accepts weaker p95 pressure")),
-    AnalyzeOptionDescriptor::new("blocking.strong_peak_threshold", "20", "u64", "blocking suspect strength", "Blocking queue-depth peak threshold used for strong blocking-pressure evidence.", Some("requires stronger peak pressure"), Some("accepts weaker peak pressure")),
-    AnalyzeOptionDescriptor::new("blocking.strong_nonzero_share_permille", "700", "u64", "blocking suspect strength", "Minimum share of non-zero blocking samples (permille) for strong blocking-pressure evidence.", Some("requires a higher non-zero share"), Some("accepts a lower non-zero share")),
-    AnalyzeOptionDescriptor::new("blocking.strong_min_samples", "30", "usize", "blocking suspect strength", "Minimum blocking sample count needed before applying strong blocking-pressure thresholds.", Some("requires more samples for strong classification"), Some("requires fewer samples for strong classification")),
-    AnalyzeOptionDescriptor::new("executor.min_global_queue_p95_for_signal", "1", "u64", "executor signal eligibility", "Minimum runtime global-queue p95 required before executor-pressure evidence is considered.", Some("requires higher runtime queue pressure"), Some("allows lower runtime queue pressure")),
-    AnalyzeOptionDescriptor::new("downstream.min_stage_samples", "3", "usize", "downstream stage eligibility", "Minimum captured samples per stage before downstream dominance is considered.", Some("requires more stage samples"), Some("requires fewer stage samples")),
-    AnalyzeOptionDescriptor::new("downstream.blocking_correlated_stage_patterns", "[\"spawn_blocking\", \"blocking_path\", \"blocking\"]", "Vec<String>", "downstream vs blocking interpretation", "Stage-name patterns used to spot downstream stages that likely correlate with blocking work.", None, None),
-    AnalyzeOptionDescriptor::new("downstream.blocking_correlation_score_margin", "2", "u8", "downstream vs blocking interpretation", "Minimum score gap used when distinguishing downstream-stage and blocking-correlated evidence.", Some("requires a wider score gap"), Some("allows a narrower score gap")),
-    AnalyzeOptionDescriptor::new("confidence.medium_score_threshold", "65", "u8", "confidence bucket thresholds", "Minimum suspect score treated as medium confidence.", Some("raises medium-confidence bar"), Some("lowers medium-confidence bar")),
-    AnalyzeOptionDescriptor::new("confidence.high_score_threshold", "85", "u8", "confidence bucket thresholds", "Minimum suspect score treated as high confidence.", Some("raises high-confidence bar"), Some("lowers high-confidence bar")),
-    AnalyzeOptionDescriptor::new("confidence.ambiguity_min_score", "60", "u8", "ambiguity warning", "Minimum score for top suspects before ambiguity checks can trigger.", Some("requires stronger top scores before ambiguity warning"), Some("allows ambiguity warning with lower scores")),
-    AnalyzeOptionDescriptor::new("confidence.ambiguity_score_gap", "4", "u8", "ambiguity warning", "Maximum score gap between top suspects to emit ambiguity warning.", Some("allows wider near-tie gaps"), Some("requires tighter near-tie gaps")),
-    AnalyzeOptionDescriptor::new("evidence.low_completed_request_threshold", "20", "usize", "evidence quality warnings", "Completed-request threshold below which low-sample warnings and conservative confidence limits apply.", Some("requires more completed requests to avoid low-sample warnings"), Some("requires fewer completed requests to avoid low-sample warnings")),
-    AnalyzeOptionDescriptor::new("route.min_request_count", "3", "usize", "route breakdown eligibility", "Minimum per-route completed request count required for route breakdown inclusion.", Some("filters out more low-volume routes"), Some("includes more low-volume routes")),
-    AnalyzeOptionDescriptor::new("route.breakdown_limit", "10", "usize", "route breakdown output size", "Maximum number of route breakdown entries emitted in one report.", Some("allows more route entries"), Some("allows fewer route entries")),
-    AnalyzeOptionDescriptor::new("route.emit_on_divergent_suspects", "true", "bool", "route divergence warning", "Whether to emit a global warning when route-level primary suspects diverge.", None, None),
-    AnalyzeOptionDescriptor::new("route.slowest_to_fastest_p95_ratio_numerator", "3", "u64", "route divergence detection", "Numerator for the slowest-to-fastest route p95 ratio threshold.", Some("requires larger slowest/fastest disparity"), Some("requires smaller slowest/fastest disparity")),
-    AnalyzeOptionDescriptor::new("route.slowest_to_fastest_p95_ratio_denominator", "2", "u64", "route divergence detection", "Denominator for the slowest-to-fastest route p95 ratio threshold.", Some("requires smaller slowest/fastest disparity"), Some("requires larger slowest/fastest disparity")),
-    AnalyzeOptionDescriptor::new("route.slowest_to_global_p95_ratio_numerator", "5", "u64", "route divergence detection", "Numerator for the slowest-route to global p95 ratio threshold.", Some("requires larger slowest/global disparity"), Some("requires smaller slowest/global disparity")),
-    AnalyzeOptionDescriptor::new("route.slowest_to_global_p95_ratio_denominator", "4", "u64", "route divergence detection", "Denominator for the slowest-route to global p95 ratio threshold.", Some("requires smaller slowest/global disparity"), Some("requires larger slowest/global disparity")),
-    AnalyzeOptionDescriptor::new("temporal.min_request_count", "20", "usize", "temporal segmentation eligibility", "Minimum completed requests required before temporal early/late segmentation is considered.", Some("requires more requests before temporal analysis"), Some("requires fewer requests before temporal analysis")),
-    AnalyzeOptionDescriptor::new("temporal.min_segment_request_count", "8", "usize", "temporal segmentation eligibility", "Minimum requests required in each temporal segment.", Some("requires larger per-segment sample size"), Some("allows smaller per-segment sample size")),
-    AnalyzeOptionDescriptor::new("temporal.share_shift_permille", "200", "u64", "temporal shift detection", "Minimum queue/service share shift (permille) to flag temporal movement.", Some("requires larger share movement"), Some("allows smaller share movement")),
-    AnalyzeOptionDescriptor::new("temporal.p95_shift_ratio_numerator", "3", "u64", "temporal shift detection", "Numerator for temporal p95 ratio shift threshold.", Some("requires larger p95 movement"), Some("requires smaller p95 movement")),
-    AnalyzeOptionDescriptor::new("temporal.p95_shift_ratio_denominator", "2", "u64", "temporal shift detection", "Denominator for temporal p95 ratio shift threshold.", Some("requires smaller p95 movement"), Some("requires larger p95 movement")),
-    AnalyzeOptionDescriptor::new("temporal.emit_on_suspect_shift", "true", "bool", "temporal suspect-shift warning", "Whether temporal suspect-shift warnings are emitted when shifts are detected.", None, None),
-    AnalyzeOptionDescriptor::new("temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement", "true", "bool", "temporal warning suppression", "Whether to suppress runtime-sparse temporal suspect-shift warnings when supporting movement is absent.", None, None),
-];
