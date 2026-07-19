@@ -441,6 +441,182 @@ mod tests {
     }
 
     #[test]
+    fn missing_equals_is_invalid_override_syntax() {
+        let err = AnalyzeOptions::default()
+            .apply_override("queueing.trigger_permille")
+            .expect_err("missing equals must fail");
+        assert_eq!(
+            err,
+            AnalyzeConfigError::InvalidOverrideSyntax {
+                raw: "queueing.trigger_permille".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn multiple_equals_is_invalid_override_syntax() {
+        let err = AnalyzeOptions::default()
+            .apply_override("queueing.trigger_permille=1=2")
+            .expect_err("multiple equals must fail");
+        assert_eq!(
+            err,
+            AnalyzeConfigError::InvalidOverrideSyntax {
+                raw: "queueing.trigger_permille=1=2".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_path_returns_unknown_override_path() {
+        let err = AnalyzeOptions::default()
+            .apply_override("queueing.nope=1")
+            .expect_err("unknown path must fail");
+        assert_eq!(
+            err,
+            AnalyzeConfigError::UnknownOverridePath {
+                path: "queueing.nope".to_string(),
+                suggestion: None,
+            }
+        );
+    }
+
+    #[test]
+    fn negative_unsigned_override_is_invalid_override_value() {
+        let err = AnalyzeOptions::default()
+            .apply_override("queueing.trigger_permille=-1")
+            .expect_err("negative unsigned value must fail");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::InvalidOverrideValue {
+                path: "queueing.trigger_permille",
+                value,
+                expected: "base-10 unsigned integer (u64)",
+            } if value == "-1"
+        ));
+    }
+
+    #[test]
+    fn u8_overflow_is_invalid_override_value() {
+        let err = AnalyzeOptions::default()
+            .apply_override("confidence.high_score_threshold=256")
+            .expect_err("u8 overflow must fail");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::InvalidOverrideValue {
+                path: "confidence.high_score_threshold",
+                value,
+                expected: "base-10 unsigned integer in range 0..=255 (u8)",
+            } if value == "256"
+        ));
+    }
+
+    #[test]
+    fn invalid_bool_text_is_invalid_override_value() {
+        let err = AnalyzeOptions::default()
+            .apply_override("route.emit_on_divergent_suspects=yes")
+            .expect_err("invalid bool must fail");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::InvalidOverrideValue {
+                path: "route.emit_on_divergent_suspects",
+                value,
+                expected: "'true' or 'false'",
+            } if value == "yes"
+        ));
+    }
+
+    #[test]
+    fn comma_separated_cli_lists_trim_entries() {
+        let mut options = AnalyzeOptions::default();
+        options
+            .apply_override("downstream.blocking_correlated_stage_patterns=db, cache ,worker")
+            .expect("valid list");
+        assert_eq!(
+            options.downstream.blocking_correlated_stage_patterns,
+            vec!["db", "cache", "worker"]
+        );
+    }
+
+    #[test]
+    fn empty_cli_list_entries_are_rejected() {
+        let err = AnalyzeOptions::default()
+            .apply_override("downstream.blocking_correlated_stage_patterns=db,,cache")
+            .expect_err("empty list entry must fail");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::InvalidOverrideValue {
+                path: "downstream.blocking_correlated_stage_patterns",
+                value,
+                expected: "comma-separated non-empty entries (Vec<String>)",
+            } if value == "db,,cache"
+        ));
+    }
+
+    #[test]
+    fn repeated_valid_overrides_use_last_value() {
+        let mut options = AnalyzeOptions::default();
+        options
+            .apply_overrides([
+                "queueing.trigger_permille=250",
+                "queueing.trigger_permille=450",
+            ])
+            .expect("valid repeated overrides");
+        assert_eq!(options.queueing.trigger_permille, 450);
+    }
+
+    #[test]
+    fn semantically_invalid_single_override_leaves_original_options_unchanged() {
+        let mut options = AnalyzeOptions::default();
+        let before = options.clone();
+        let err = options
+            .apply_override("queueing.trigger_permille=1001")
+            .expect_err("semantic validation must fail");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::InvalidConfigValue {
+                path: "queueing.trigger_permille",
+                ..
+            }
+        ));
+        assert_eq!(options, before);
+    }
+
+    #[test]
+    fn invalid_path_leaves_original_options_unchanged() {
+        let mut options = AnalyzeOptions::default();
+        let before = options.clone();
+        let err = options
+            .apply_override("bad.path=1")
+            .expect_err("invalid path must fail");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::UnknownOverridePath { .. }
+        ));
+        assert_eq!(options, before);
+    }
+
+    #[test]
+    fn batch_processing_stops_without_applying_later_entries() {
+        let mut options = AnalyzeOptions::default();
+        let before = options.clone();
+        let err = options
+            .apply_overrides([
+                "queueing.trigger_permille=450",
+                "queueing.trigger_permille=1001",
+                "confidence.high_score_threshold=90",
+            ])
+            .expect_err("later invalid item must fail the batch");
+        assert!(matches!(
+            err,
+            AnalyzeConfigError::InvalidConfigValue {
+                path: "queueing.trigger_permille",
+                ..
+            }
+        ));
+        assert_eq!(options, before);
+    }
+
+    #[test]
     fn apply_overrides_is_transactional_when_later_override_fails() {
         let mut opts = AnalyzeOptions::default();
         let before = opts.clone();
