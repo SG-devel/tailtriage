@@ -1,44 +1,15 @@
-#[cfg(test)]
-use super::analyze_option_descriptors;
+use super::registry::{find_entry, suggest_path, OPTION_ENTRIES};
 use super::{AnalyzeConfigError, AnalyzeOptions};
+use std::sync::LazyLock;
 
-const VALID_OVERRIDE_PATHS: [&str; 29] = [
-    "queueing.trigger_permille",
-    "blocking.min_nonzero_samples_for_signal",
-    "blocking.strong_p95_threshold",
-    "blocking.strong_peak_threshold",
-    "blocking.strong_nonzero_share_permille",
-    "blocking.strong_min_samples",
-    "executor.min_global_queue_p95_for_signal",
-    "downstream.min_stage_samples",
-    "downstream.blocking_correlated_stage_patterns",
-    "downstream.blocking_correlation_score_margin",
-    "confidence.medium_score_threshold",
-    "confidence.high_score_threshold",
-    "confidence.ambiguity_min_score",
-    "confidence.ambiguity_score_gap",
-    "evidence.low_completed_request_threshold",
-    "route.min_request_count",
-    "route.breakdown_limit",
-    "route.emit_on_divergent_suspects",
-    "route.slowest_to_fastest_p95_ratio_numerator",
-    "route.slowest_to_fastest_p95_ratio_denominator",
-    "route.slowest_to_global_p95_ratio_numerator",
-    "route.slowest_to_global_p95_ratio_denominator",
-    "temporal.min_request_count",
-    "temporal.min_segment_request_count",
-    "temporal.share_shift_permille",
-    "temporal.p95_shift_ratio_numerator",
-    "temporal.p95_shift_ratio_denominator",
-    "temporal.emit_on_suspect_shift",
-    "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
-];
+static VALID_OVERRIDE_PATHS: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| OPTION_ENTRIES.iter().map(|entry| entry.path).collect());
 
 impl AnalyzeOptions {
     /// Returns every supported v1 CLI override path (`group.field`).
     #[must_use]
     pub fn valid_override_paths() -> &'static [&'static str] {
-        &VALID_OVERRIDE_PATHS
+        VALID_OVERRIDE_PATHS.as_slice()
     }
 
     /// Applies CLI overrides in order as one transactional batch.
@@ -73,278 +44,331 @@ impl AnalyzeOptions {
                 raw: raw.to_string(),
             });
         };
+        let Some(entry) = find_entry(path) else {
+            return Err(AnalyzeConfigError::UnknownOverridePath {
+                path: path.to_string(),
+                suggestion: suggest_path(path),
+            });
+        };
+        let parsed = entry.parse_cli(value)?;
         let mut candidate = self.clone();
-        apply_override_path(&mut candidate, path, value)?;
+        entry.apply(&mut candidate, parsed);
         candidate.validate()?;
         *self = candidate;
         Ok(())
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn apply_override_path(
-    options: &mut AnalyzeOptions,
-    path: &str,
-    value: &str,
-) -> Result<(), AnalyzeConfigError> {
-    match path {
-        "queueing.trigger_permille" => options.queueing.trigger_permille = parse_u64(path, value)?,
-        "blocking.min_nonzero_samples_for_signal" => {
-            options.blocking.min_nonzero_samples_for_signal = parse_usize(path, value)?;
-        }
-        "blocking.strong_p95_threshold" => {
-            options.blocking.strong_p95_threshold = parse_u64(path, value)?;
-        }
-        "blocking.strong_peak_threshold" => {
-            options.blocking.strong_peak_threshold = parse_u64(path, value)?;
-        }
-        "blocking.strong_nonzero_share_permille" => {
-            options.blocking.strong_nonzero_share_permille = parse_u64(path, value)?;
-        }
-        "blocking.strong_min_samples" => {
-            options.blocking.strong_min_samples = parse_usize(path, value)?;
-        }
-        "executor.min_global_queue_p95_for_signal" => {
-            options.executor.min_global_queue_p95_for_signal = parse_u64(path, value)?;
-        }
-        "downstream.min_stage_samples" => {
-            options.downstream.min_stage_samples = parse_usize(path, value)?;
-        }
-        "downstream.blocking_correlated_stage_patterns" => {
-            options.downstream.blocking_correlated_stage_patterns = parse_string_list(path, value)?;
-        }
-        "downstream.blocking_correlation_score_margin" => {
-            options.downstream.blocking_correlation_score_margin = parse_u8(path, value)?;
-        }
-        "confidence.medium_score_threshold" => {
-            options.confidence.medium_score_threshold = parse_u8(path, value)?;
-        }
-        "confidence.high_score_threshold" => {
-            options.confidence.high_score_threshold = parse_u8(path, value)?;
-        }
-        "confidence.ambiguity_min_score" => {
-            options.confidence.ambiguity_min_score = parse_u8(path, value)?;
-        }
-        "confidence.ambiguity_score_gap" => {
-            options.confidence.ambiguity_score_gap = parse_u8(path, value)?;
-        }
-        "evidence.low_completed_request_threshold" => {
-            options.evidence.low_completed_request_threshold = parse_usize(path, value)?;
-        }
-        "route.min_request_count" => options.route.min_request_count = parse_usize(path, value)?,
-        "route.breakdown_limit" => options.route.breakdown_limit = parse_usize(path, value)?,
-        "route.emit_on_divergent_suspects" => {
-            options.route.emit_on_divergent_suspects = parse_bool(path, value)?;
-        }
-        "route.slowest_to_fastest_p95_ratio_numerator" => {
-            options.route.slowest_to_fastest_p95_ratio_numerator = parse_u64(path, value)?;
-        }
-        "route.slowest_to_fastest_p95_ratio_denominator" => {
-            options.route.slowest_to_fastest_p95_ratio_denominator = parse_u64(path, value)?;
-        }
-        "route.slowest_to_global_p95_ratio_numerator" => {
-            options.route.slowest_to_global_p95_ratio_numerator = parse_u64(path, value)?;
-        }
-        "route.slowest_to_global_p95_ratio_denominator" => {
-            options.route.slowest_to_global_p95_ratio_denominator = parse_u64(path, value)?;
-        }
-        "temporal.min_request_count" => {
-            options.temporal.min_request_count = parse_usize(path, value)?;
-        }
-        "temporal.min_segment_request_count" => {
-            options.temporal.min_segment_request_count = parse_usize(path, value)?;
-        }
-        "temporal.share_shift_permille" => {
-            options.temporal.share_shift_permille = parse_u64(path, value)?;
-        }
-        "temporal.p95_shift_ratio_numerator" => {
-            options.temporal.p95_shift_ratio_numerator = parse_u64(path, value)?;
-        }
-        "temporal.p95_shift_ratio_denominator" => {
-            options.temporal.p95_shift_ratio_denominator = parse_u64(path, value)?;
-        }
-        "temporal.emit_on_suspect_shift" => {
-            options.temporal.emit_on_suspect_shift = parse_bool(path, value)?;
-        }
-        "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement" => {
-            options
-                .temporal
-                .suppress_runtime_sparse_suspect_shift_without_supporting_movement =
-                parse_bool(path, value)?;
-        }
-        _ => {
-            return Err(AnalyzeConfigError::UnknownOverridePath {
-                path: path.to_string(),
-                suggestion: suggest_path(path),
-            })
-        }
-    }
-    Ok(())
-}
-fn parse_u64(path: &str, value: &str) -> Result<u64, AnalyzeConfigError> {
-    parse_num(path, value, "base-10 unsigned integer (u64)")
-}
-fn parse_usize(path: &str, value: &str) -> Result<usize, AnalyzeConfigError> {
-    parse_num(path, value, "base-10 unsigned integer (usize)")
-}
-fn parse_u8(path: &str, value: &str) -> Result<u8, AnalyzeConfigError> {
-    parse_num(
-        path,
-        value,
-        "base-10 unsigned integer in range 0..=255 (u8)",
-    )
-}
-fn parse_num<T: std::str::FromStr>(
-    path: &str,
-    value: &str,
-    expected: &'static str,
-) -> Result<T, AnalyzeConfigError> {
-    value
-        .parse()
-        .map_err(|_| AnalyzeConfigError::InvalidOverrideValue {
-            path: path_to_static(path),
-            value: value.to_string(),
-            expected,
-        })
-}
-fn parse_bool(path: &str, value: &str) -> Result<bool, AnalyzeConfigError> {
-    match value {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        _ => Err(AnalyzeConfigError::InvalidOverrideValue {
-            path: path_to_static(path),
-            value: value.to_string(),
-            expected: "'true' or 'false'",
-        }),
-    }
-}
-fn parse_string_list(path: &str, value: &str) -> Result<Vec<String>, AnalyzeConfigError> {
-    let mut out = Vec::new();
-    for entry in value.split(',') {
-        let trimmed = entry.trim();
-        if trimmed.is_empty() {
-            return Err(AnalyzeConfigError::InvalidOverrideValue {
-                path: path_to_static(path),
-                value: value.to_string(),
-                expected: "comma-separated non-empty entries (Vec<String>)",
-            });
-        }
-        out.push(trimmed.to_string());
-    }
-    Ok(out)
-}
-fn suggest_path(path: &str) -> Option<&'static str> {
-    VALID_OVERRIDE_PATHS
-        .iter()
-        .map(|candidate| (*candidate, edit_distance(path, candidate)))
-        .min_by_key(|(_, d)| *d)
-        .and_then(|(c, d)| (d <= 3).then_some(c))
-}
-fn edit_distance(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut curr = vec![0; b.len() + 1];
-    for (i, ca) in a.iter().enumerate() {
-        curr[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let cost = usize::from(ca != cb);
-            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
-        }
-        prev.clone_from(&curr);
-    }
-    prev[b.len()]
-}
-fn path_to_static(path: &str) -> &'static str {
-    VALID_OVERRIDE_PATHS
-        .iter()
-        .copied()
-        .find(|candidate| *candidate == path)
-        .unwrap_or("<unknown-path>")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analyze_option_descriptors;
     use std::collections::HashSet;
-    #[test]
-    fn valid_paths_descriptors_and_duplicates() {
-        let descriptor_paths: HashSet<&'static str> = analyze_option_descriptors()
-            .iter()
-            .map(|d| d.path)
-            .collect();
-        let override_paths = AnalyzeOptions::valid_override_paths();
-        let unique: HashSet<&'static str> = override_paths.iter().copied().collect();
-        assert_eq!(override_paths.len(), unique.len());
-        for path in override_paths {
-            assert!(descriptor_paths.contains(path));
-        }
-        for path in descriptor_paths {
-            assert!(unique.contains(path));
-        }
+
+    const EXPECTED_PATHS: &[&str] = &[
+        "queueing.trigger_permille",
+        "blocking.min_nonzero_samples_for_signal",
+        "blocking.strong_p95_threshold",
+        "blocking.strong_peak_threshold",
+        "blocking.strong_nonzero_share_permille",
+        "blocking.strong_min_samples",
+        "executor.min_global_queue_p95_for_signal",
+        "downstream.min_stage_samples",
+        "downstream.blocking_correlated_stage_patterns",
+        "downstream.blocking_correlation_score_margin",
+        "confidence.medium_score_threshold",
+        "confidence.high_score_threshold",
+        "confidence.ambiguity_min_score",
+        "confidence.ambiguity_score_gap",
+        "evidence.low_completed_request_threshold",
+        "route.min_request_count",
+        "route.breakdown_limit",
+        "route.emit_on_divergent_suspects",
+        "route.slowest_to_fastest_p95_ratio_numerator",
+        "route.slowest_to_fastest_p95_ratio_denominator",
+        "route.slowest_to_global_p95_ratio_numerator",
+        "route.slowest_to_global_p95_ratio_denominator",
+        "temporal.min_request_count",
+        "temporal.min_segment_request_count",
+        "temporal.share_shift_permille",
+        "temporal.p95_shift_ratio_numerator",
+        "temporal.p95_shift_ratio_denominator",
+        "temporal.emit_on_suspect_shift",
+        "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+    ];
+
+    #[derive(Clone, Copy)]
+    struct Case {
+        path: &'static str,
+        cli: &'static str,
+        toml: &'static str,
+        summary: &'static str,
     }
-    #[test]
-    fn every_valid_path_can_be_applied() {
-        let mut opts = AnalyzeOptions::default();
-        for (path, value) in [
-            ("queueing.trigger_permille", "250"),
-            ("blocking.min_nonzero_samples_for_signal", "3"),
-            ("blocking.strong_p95_threshold", "15"),
-            ("blocking.strong_peak_threshold", "25"),
-            ("blocking.strong_nonzero_share_permille", "750"),
-            ("blocking.strong_min_samples", "40"),
-            ("executor.min_global_queue_p95_for_signal", "2"),
-            ("downstream.min_stage_samples", "5"),
-            ("downstream.blocking_correlated_stage_patterns", "db, cache"),
-            ("downstream.blocking_correlation_score_margin", "3"),
-            ("confidence.medium_score_threshold", "70"),
-            ("confidence.high_score_threshold", "90"),
-            ("confidence.ambiguity_min_score", "65"),
-            ("confidence.ambiguity_score_gap", "5"),
-            ("evidence.low_completed_request_threshold", "30"),
-            ("route.min_request_count", "4"),
-            ("route.breakdown_limit", "12"),
-            ("route.emit_on_divergent_suspects", "false"),
-            ("route.slowest_to_fastest_p95_ratio_numerator", "4"),
-            ("route.slowest_to_fastest_p95_ratio_denominator", "2"),
-            ("route.slowest_to_global_p95_ratio_numerator", "6"),
-            ("route.slowest_to_global_p95_ratio_denominator", "4"),
-            ("temporal.min_request_count", "24"),
-            ("temporal.min_segment_request_count", "10"),
-            ("temporal.share_shift_permille", "250"),
-            ("temporal.p95_shift_ratio_numerator", "4"),
-            ("temporal.p95_shift_ratio_denominator", "2"),
-            ("temporal.emit_on_suspect_shift", "false"),
-            (
-                "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
-                "false",
-            ),
-        ] {
-            opts.apply_override(&format!("{path}={value}")).expect(path);
-        }
-    }
-    #[test]
-    fn missing_equals_fails() {
-        assert!(matches!(
-            AnalyzeOptions::default().apply_override("queueing.trigger_permille"),
-            Err(AnalyzeConfigError::InvalidOverrideSyntax { .. })
-        ));
+
+    const CASES: &[Case] = &[
+        Case {
+            path: "queueing.trigger_permille",
+            cli: "250",
+            toml: "250",
+            summary: "250",
+        },
+        Case {
+            path: "blocking.min_nonzero_samples_for_signal",
+            cli: "3",
+            toml: "3",
+            summary: "3",
+        },
+        Case {
+            path: "blocking.strong_p95_threshold",
+            cli: "15",
+            toml: "15",
+            summary: "15",
+        },
+        Case {
+            path: "blocking.strong_peak_threshold",
+            cli: "25",
+            toml: "25",
+            summary: "25",
+        },
+        Case {
+            path: "blocking.strong_nonzero_share_permille",
+            cli: "750",
+            toml: "750",
+            summary: "750",
+        },
+        Case {
+            path: "blocking.strong_min_samples",
+            cli: "40",
+            toml: "40",
+            summary: "40",
+        },
+        Case {
+            path: "executor.min_global_queue_p95_for_signal",
+            cli: "2",
+            toml: "2",
+            summary: "2",
+        },
+        Case {
+            path: "downstream.min_stage_samples",
+            cli: "5",
+            toml: "5",
+            summary: "5",
+        },
+        Case {
+            path: "downstream.blocking_correlated_stage_patterns",
+            cli: "db, cache",
+            toml: "[\"db\", \"cache\"]",
+            summary: "db,cache",
+        },
+        Case {
+            path: "downstream.blocking_correlation_score_margin",
+            cli: "3",
+            toml: "3",
+            summary: "3",
+        },
+        Case {
+            path: "confidence.medium_score_threshold",
+            cli: "70",
+            toml: "70",
+            summary: "70",
+        },
+        Case {
+            path: "confidence.high_score_threshold",
+            cli: "90",
+            toml: "90",
+            summary: "90",
+        },
+        Case {
+            path: "confidence.ambiguity_min_score",
+            cli: "65",
+            toml: "65",
+            summary: "65",
+        },
+        Case {
+            path: "confidence.ambiguity_score_gap",
+            cli: "5",
+            toml: "5",
+            summary: "5",
+        },
+        Case {
+            path: "evidence.low_completed_request_threshold",
+            cli: "30",
+            toml: "30",
+            summary: "30",
+        },
+        Case {
+            path: "route.min_request_count",
+            cli: "4",
+            toml: "4",
+            summary: "4",
+        },
+        Case {
+            path: "route.breakdown_limit",
+            cli: "12",
+            toml: "12",
+            summary: "12",
+        },
+        Case {
+            path: "route.emit_on_divergent_suspects",
+            cli: "false",
+            toml: "false",
+            summary: "false",
+        },
+        Case {
+            path: "route.slowest_to_fastest_p95_ratio_numerator",
+            cli: "4",
+            toml: "4",
+            summary: "4",
+        },
+        Case {
+            path: "route.slowest_to_fastest_p95_ratio_denominator",
+            cli: "3",
+            toml: "3",
+            summary: "3",
+        },
+        Case {
+            path: "route.slowest_to_global_p95_ratio_numerator",
+            cli: "6",
+            toml: "6",
+            summary: "6",
+        },
+        Case {
+            path: "route.slowest_to_global_p95_ratio_denominator",
+            cli: "5",
+            toml: "5",
+            summary: "5",
+        },
+        Case {
+            path: "temporal.min_request_count",
+            cli: "24",
+            toml: "24",
+            summary: "24",
+        },
+        Case {
+            path: "temporal.min_segment_request_count",
+            cli: "9",
+            toml: "9",
+            summary: "9",
+        },
+        Case {
+            path: "temporal.share_shift_permille",
+            cli: "250",
+            toml: "250",
+            summary: "250",
+        },
+        Case {
+            path: "temporal.p95_shift_ratio_numerator",
+            cli: "4",
+            toml: "4",
+            summary: "4",
+        },
+        Case {
+            path: "temporal.p95_shift_ratio_denominator",
+            cli: "3",
+            toml: "3",
+            summary: "3",
+        },
+        Case {
+            path: "temporal.emit_on_suspect_shift",
+            cli: "false",
+            toml: "false",
+            summary: "false",
+        },
+        Case {
+            path: "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+            cli: "false",
+            toml: "false",
+            summary: "false",
+        },
+    ];
+
+    fn toml_for(path: &str, value: &str) -> String {
+        let (group, field) = path.split_once('.').expect("path has group");
+        format!("[analyzer]\nschema_version = 1\n[analyzer.{group}]\n{field} = {value}\n")
     }
 
     #[test]
-    fn extra_equals_fails() {
-        assert!(matches!(
-            AnalyzeOptions::default().apply_override("queueing.trigger_permille=1=2"),
-            Err(AnalyzeConfigError::InvalidOverrideSyntax { .. })
-        ));
+    fn registry_paths_are_unique_and_exact() {
+        let paths = AnalyzeOptions::valid_override_paths();
+        let unique: HashSet<_> = paths.iter().copied().collect();
+        assert_eq!(paths.len(), 29);
+        assert_eq!(paths.len(), unique.len());
+        assert_eq!(paths, EXPECTED_PATHS);
     }
+
     #[test]
-    fn unknown_path_fails() {
-        assert!(matches!(
-            AnalyzeOptions::default().apply_override("nope.field=1"),
-            Err(AnalyzeConfigError::UnknownOverridePath { .. })
-        ));
+    fn descriptor_paths_and_valid_override_paths_are_identical() {
+        let descriptor_paths: Vec<_> = analyze_option_descriptors()
+            .iter()
+            .map(|descriptor| descriptor.path)
+            .collect();
+        assert_eq!(descriptor_paths, AnalyzeOptions::valid_override_paths());
     }
+
+    #[test]
+    fn every_registered_path_accepts_equivalent_cli_and_toml_value() {
+        assert_eq!(CASES.len(), 29);
+        for case in CASES {
+            let mut cli = AnalyzeOptions::default();
+            cli.apply_override(&format!("{}={}", case.path, case.cli))
+                .expect(case.path);
+            let toml =
+                AnalyzeOptions::from_toml_str(&toml_for(case.path, case.toml)).expect(case.path);
+            assert_eq!(cli, toml, "{}", case.path);
+        }
+    }
+
+    #[test]
+    fn every_registered_path_produces_one_expected_summary_entry() {
+        for case in CASES {
+            let mut options = AnalyzeOptions::default();
+            options
+                .apply_override(&format!("{}={}", case.path, case.cli))
+                .expect(case.path);
+            let summaries = options.non_default_overrides();
+            assert_eq!(summaries.len(), 1, "{}", case.path);
+            assert_eq!(summaries[0].path, case.path);
+            assert_eq!(summaries[0].value, case.summary);
+        }
+    }
+
+    #[test]
+    fn multiple_non_default_summaries_are_deterministically_sorted() {
+        let mut options = AnalyzeOptions::default();
+        options
+            .apply_overrides([
+                "temporal.share_shift_permille=250",
+                "queueing.trigger_permille=250",
+                "blocking.strong_p95_threshold=15",
+            ])
+            .expect("valid overrides");
+        let paths: Vec<_> = options
+            .non_default_overrides()
+            .into_iter()
+            .map(|summary| summary.path)
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                "blocking.strong_p95_threshold",
+                "queueing.trigger_permille",
+                "temporal.share_shift_permille",
+            ]
+        );
+    }
+
+    #[test]
+    fn toml_unknown_groups_and_fields_remain_errors() {
+        assert!(AnalyzeOptions::from_toml_str(
+            "[analyzer]\nschema_version=1\n[analyzer.nope]\nfield=1\n"
+        )
+        .is_err());
+        assert!(AnalyzeOptions::from_toml_str(
+            "[analyzer]\nschema_version=1\n[analyzer.queueing]\nunknown=1\n"
+        )
+        .is_err());
+    }
+
     #[test]
     fn misspelled_path_has_suggestion() {
         match AnalyzeOptions::default().apply_override("queuing.trigger_permille=1") {
@@ -354,100 +378,66 @@ mod tests {
             other => panic!("unexpected: {other:?}"),
         }
     }
-    #[test]
-    fn invalid_unsigned_integer_fails() {
-        assert!(matches!(
-            AnalyzeOptions::default().apply_override("queueing.trigger_permille=-1"),
-            Err(AnalyzeConfigError::InvalidOverrideValue { .. })
-        ));
-    }
-    #[test]
-    fn invalid_u8_overflow_fails() {
-        assert!(matches!(
-            AnalyzeOptions::default().apply_override("confidence.high_score_threshold=999"),
-            Err(AnalyzeConfigError::InvalidOverrideValue { .. })
-        ));
-    }
-    #[test]
-    fn invalid_bool_fails() {
-        assert!(matches!(
-            AnalyzeOptions::default().apply_override("route.emit_on_divergent_suspects=yes"),
-            Err(AnalyzeConfigError::InvalidOverrideValue { .. })
-        ));
-    }
 
     #[test]
-    fn valid_bool_override_works() {
-        let mut opts = AnalyzeOptions::default();
-        opts.apply_override("route.emit_on_divergent_suspects=false")
-            .expect("valid bool");
-        assert!(!opts.route.emit_on_divergent_suspects);
-    }
-    #[test]
-    fn list_parsing_trims_entries() {
-        let mut opts = AnalyzeOptions::default();
-        opts.apply_override("downstream.blocking_correlated_stage_patterns=alpha,beta")
-            .expect("valid list");
+    fn toml_string_list_preserves_commas_inside_items() {
+        let options = AnalyzeOptions::from_toml_str(
+            "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns = ['db,primary', 'cache']\n",
+        )
+        .expect("valid typed TOML list");
         assert_eq!(
-            opts.downstream.blocking_correlated_stage_patterns,
-            vec!["alpha", "beta"]
+            options.downstream.blocking_correlated_stage_patterns,
+            vec!["db,primary", "cache"]
         );
     }
-    #[test]
-    fn list_parsing_rejects_empty_entries() {
-        assert!(matches!(
-            AnalyzeOptions::default()
-                .apply_override("downstream.blocking_correlated_stage_patterns=db,,cache"),
-            Err(AnalyzeConfigError::InvalidOverrideValue { .. })
-        ));
-    }
-    #[test]
-    fn repeated_override_last_wins() {
-        let mut opts = AnalyzeOptions::default();
-        opts.apply_override("queueing.trigger_permille=350")
-            .expect("first");
-        opts.apply_override("queueing.trigger_permille=450")
-            .expect("second");
-        assert_eq!(opts.queueing.trigger_permille, 450);
-    }
-    #[test]
-    fn override_invalid_config_fails_validation() {
-        assert!(matches!(
-            AnalyzeOptions::default().apply_override("route.breakdown_limit=0"),
-            Err(AnalyzeConfigError::InvalidConfigValue {
-                path: "route.breakdown_limit",
-                ..
-            })
-        ));
-    }
 
     #[test]
-    fn apply_override_invalid_semantic_value_is_transactional() {
-        let mut opts = AnalyzeOptions::default();
-        let before = opts.route.breakdown_limit;
-        let err = opts
-            .apply_override("route.breakdown_limit=0")
-            .expect_err("must fail");
-        assert!(matches!(
-            err,
-            AnalyzeConfigError::InvalidConfigValue {
-                path: "route.breakdown_limit",
-                ..
-            }
-        ));
-        assert_eq!(opts.route.breakdown_limit, before);
-    }
-
-    #[test]
-    fn apply_override_invalid_path_is_transactional() {
-        let mut opts = AnalyzeOptions::default();
-        let before = opts.clone();
-        let err = opts.apply_override("bad.path=1").expect_err("must fail");
-        assert!(matches!(
-            err,
-            AnalyzeConfigError::UnknownOverridePath { .. }
-        ));
-        assert_eq!(opts, before);
+    fn descriptor_defaults_and_value_types_remain_public_contract() {
+        let actual: Vec<_> = analyze_option_descriptors()
+            .iter()
+            .map(|d| (d.path, d.default_value, d.value_type))
+            .collect();
+        let expected: Vec<_> = [
+            ("queueing.trigger_permille", "300", "u64"),
+            ("blocking.min_nonzero_samples_for_signal", "2", "usize"),
+            ("blocking.strong_p95_threshold", "12", "u64"),
+            ("blocking.strong_peak_threshold", "20", "u64"),
+            ("blocking.strong_nonzero_share_permille", "700", "u64"),
+            ("blocking.strong_min_samples", "30", "usize"),
+            ("executor.min_global_queue_p95_for_signal", "1", "u64"),
+            ("downstream.min_stage_samples", "3", "usize"),
+            (
+                "downstream.blocking_correlated_stage_patterns",
+                "[\"spawn_blocking\", \"blocking_path\", \"blocking\"]",
+                "Vec<String>",
+            ),
+            ("downstream.blocking_correlation_score_margin", "2", "u8"),
+            ("confidence.medium_score_threshold", "65", "u8"),
+            ("confidence.high_score_threshold", "85", "u8"),
+            ("confidence.ambiguity_min_score", "60", "u8"),
+            ("confidence.ambiguity_score_gap", "4", "u8"),
+            ("evidence.low_completed_request_threshold", "20", "usize"),
+            ("route.min_request_count", "3", "usize"),
+            ("route.breakdown_limit", "10", "usize"),
+            ("route.emit_on_divergent_suspects", "true", "bool"),
+            ("route.slowest_to_fastest_p95_ratio_numerator", "3", "u64"),
+            ("route.slowest_to_fastest_p95_ratio_denominator", "2", "u64"),
+            ("route.slowest_to_global_p95_ratio_numerator", "5", "u64"),
+            ("route.slowest_to_global_p95_ratio_denominator", "4", "u64"),
+            ("temporal.min_request_count", "20", "usize"),
+            ("temporal.min_segment_request_count", "8", "usize"),
+            ("temporal.share_shift_permille", "200", "u64"),
+            ("temporal.p95_shift_ratio_numerator", "3", "u64"),
+            ("temporal.p95_shift_ratio_denominator", "2", "u64"),
+            ("temporal.emit_on_suspect_shift", "true", "bool"),
+            (
+                "temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement",
+                "true",
+                "bool",
+            ),
+        ]
+        .to_vec();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -462,34 +452,5 @@ mod tests {
             AnalyzeConfigError::UnknownOverridePath { .. }
         ));
         assert_eq!(opts, before);
-    }
-
-    #[test]
-    fn apply_overrides_repeated_valid_override_last_wins() {
-        let mut opts = AnalyzeOptions::default();
-        opts.apply_overrides([
-            "queueing.trigger_permille=350",
-            "queueing.trigger_permille=450",
-        ])
-        .expect("valid overrides");
-        assert_eq!(opts.queueing.trigger_permille, 450);
-    }
-
-    #[test]
-    fn apply_overrides_stops_on_first_error() {
-        let mut opts = AnalyzeOptions::default();
-        let err = opts
-            .apply_overrides([
-                "queueing.trigger_permille=450",
-                "bad.path=1",
-                "confidence.high_score_threshold=90",
-            ])
-            .expect_err("must fail");
-        assert!(matches!(
-            err,
-            AnalyzeConfigError::UnknownOverridePath { .. }
-        ));
-        assert_eq!(opts.queueing.trigger_permille, 300);
-        assert_eq!(opts.confidence.high_score_threshold, 85);
     }
 }

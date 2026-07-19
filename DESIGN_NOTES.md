@@ -717,3 +717,21 @@ The intended standard is that `tailtriage` should be understandable, reviewable,
 
 ---
 
+
+
+## 7a. Why one analyzer configuration registry?
+
+### Decision
+
+`AnalyzeOptions` remains the runtime and public analyzer configuration model, while a single private analyzer option registry owns supported path metadata and typed field application.
+
+### Rationale
+
+The analyzer exposes the same option paths through descriptors, CLI overrides, TOML merge, unknown-path suggestions, and non-default report summaries. Keeping those surfaces in separate handwritten lists risks path drift and inconsistent assignment behavior. The private registry defines each supported `group.field` path once, including its descriptor metadata, value kind, typed reader, and typed setter.
+
+CLI overrides parse text according to the registry entry and TOML patch values remain typed before they are applied through the same setter. This preserves the existing public configuration surface while making path availability and field assignment easier to audit.
+
+### Tradeoff
+
+The registry adds a small internal indirection layer. The benefit is that supported paths, descriptors, override validation, typed assignment, and non-default summaries are generated from one source of truth instead of several parallel implementations.
+
