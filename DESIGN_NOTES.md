@@ -334,7 +334,25 @@ The CLI is central to the capture → analyze → next-check workflow. It also m
 
 ---
 
-## 12. Why include confidence levels?
+## 12. Why one analyzer configuration registry?
+
+### Decision
+
+`AnalyzeOptions` remains the runtime and public analyzer configuration model, while a single private analyzer option registry owns supported path metadata and typed field application.
+
+### Rationale
+
+The analyzer exposes the same option paths through descriptors, CLI overrides, TOML merge, unknown-path suggestions, and non-default report summaries. Keeping those surfaces in separate handwritten lists risks path drift and inconsistent assignment behavior. The private registry defines each supported `group.field` path once, including its descriptor metadata, value kind, typed reader, and typed setter.
+
+CLI overrides parse text according to the registry entry and TOML patch values remain typed before they are applied through the same setter. This preserves the existing public configuration surface while making path availability and field assignment easier to audit.
+
+### Tradeoff
+
+The registry adds a small internal indirection layer. The benefit is that supported paths, descriptors, override validation, typed assignment, and non-default summaries are generated from one source of truth instead of several parallel implementations.
+
+---
+
+## 13. Why include confidence levels?
 
 ### Decision
 
@@ -368,7 +386,7 @@ High confidence should be rare and should require strong, non-conflicting eviden
 
 ---
 
-## 13. Why surface warnings prominently?
+## 14. Why surface warnings prominently?
 
 ### Decision
 
@@ -388,7 +406,7 @@ Warnings are part of the trust model. A report that explains its limitations is 
 
 ---
 
-## 14. Why bounded retained evidence and truncation summaries?
+## 15. Why bounded retained evidence and truncation summaries?
 
 ### Decision
 
@@ -414,7 +432,7 @@ Dropped retained evidence is acceptable only if it is visible. Truncation must a
 
 ---
 
-## 15. Why not optimize for zero overhead first?
+## 16. Why not optimize for zero overhead first?
 
 ### Decision
 
@@ -436,7 +454,7 @@ Measurable, documented overhead is more credible than an unsupported low-overhea
 
 ---
 
-## 16. Why machine-scoped overhead claims?
+## 17. Why machine-scoped overhead claims?
 
 ### Decision
 
@@ -458,7 +476,7 @@ The project values credible claims over broad claims.
 
 ---
 
-## 17. Why demos before real production validation?
+## 18. Why demos before real production validation?
 
 ### Decision
 
@@ -480,7 +498,7 @@ Synthetic validation and real-world validation answer different questions. The p
 
 ---
 
-## 18. Why include next checks?
+## 19. Why include next checks?
 
 ### Decision
 
@@ -507,7 +525,7 @@ They are recommendations, not prescriptions. They should be reviewed and improve
 
 ---
 
-## 19. Why not claim compatibility with every async framework?
+## 20. Why not claim compatibility with every async framework?
 
 ### Decision
 
@@ -531,7 +549,7 @@ Additional adapters can be added if they preserve the same semantic signal quali
 
 ---
 
-## 20. Why validate abstention behavior?
+## 21. Why validate abstention behavior?
 
 ### Decision
 
@@ -561,7 +579,7 @@ Honest uncertainty is a feature in diagnostic systems.
 
 ---
 
-## 21. Decisions that should remain revisitable
+## 22. Decisions that should remain revisitable
 
 The following decisions should not be treated as permanent:
 
@@ -595,7 +613,7 @@ The following decisions should not be treated as permanent:
 
 ---
 
-## 22. Known design risks
+## 23. Known design risks
 
 ### Risk: The tool may look over-structured for its adoption level
 
@@ -693,7 +711,7 @@ Mitigation:
 
 ---
 
-## 23. How AI assistance fits into the design process
+## 24. How AI assistance fits into the design process
 
 AI assistance was used during implementation, but not as a substitute for design ownership.
 
@@ -716,4 +734,3 @@ The key process claim is:
 The intended standard is that `tailtriage` should be understandable, reviewable, tested, and maintainable regardless of which tools were used during implementation.
 
 ---
-
