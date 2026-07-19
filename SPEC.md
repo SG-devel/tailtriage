@@ -213,9 +213,10 @@ Schema contract:
 
 - artifacts require top-level `schema_version`
 - current supported schema version is `1`
-- default artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
-- strict artifact validation is currently opt-in through strict analyzer validation APIs or CLI/import strict flags
-- tracing completed-span JSONL import supports compatibility parsing for the stable wrapper format and compatible legacy/variant records where current parsing APIs accept them
+- default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
+- strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
+- tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
+- tracing completed-span JSONL import supports the stable wrapper format and the explicitly selected compatibility parser for supported pre-stable/internal record shapes
 
 Artifact/report contract split:
 

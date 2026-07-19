@@ -400,15 +400,17 @@ An investigation tool should not create unbounded artifact growth from retained 
 
 ### Current limitation
 
-Not all live bookkeeping is bounded by capture limits today. In particular, pending/unfinished request state can grow with admitted requests until those requests complete or the run shuts down. Documentation and operations guidance should therefore avoid claiming that all live state is capture-limited.
+Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
+
+`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity. Documentation and operations guidance must therefore avoid claiming that all live state is capture-limited or that shutdown currently establishes a final lifecycle boundary.
 
 ### Tradeoff
 
-Bounded retained evidence can drop data under heavy load, which weakens diagnosis. Pending-state tracking preserves lifecycle warnings but still needs operational care during long or high-cardinality capture windows.
+Bounded retained evidence can drop data under heavy load, which weakens diagnosis. Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound. Operators should still use bounded capture windows and care during long or high-cardinality captures.
 
 ### Why this is acceptable
 
-Dropped retained evidence is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate. Pending-state limits remain a known design risk rather than a solved invariant.
+Dropped retained evidence is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate. Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
 
 ---
 
