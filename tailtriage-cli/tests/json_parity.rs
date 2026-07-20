@@ -1,6 +1,9 @@
-use std::process::Command;
-
 use std::collections::BTreeSet;
+use std::future::ready;
+use std::future::Future;
+use std::pin::pin;
+use std::process::Command;
+use std::task::{Context, Poll, Waker};
 
 use tailtriage_core::{normalize_run_permissive, RequestOptions, Run, Tailtriage};
 
@@ -208,12 +211,31 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
         let run: Run = serde_json::from_str(case.artifact).expect(case.name);
         let reference = SemanticProjection::from_normalized(&normalize_run_permissive(&run));
         let strict = tailtriage_core::validate_run_strict(&run);
+        let strict_error_codes = strict_error_codes(&strict);
         assert_eq!(
             strict.is_ok(),
             case.strict_ok,
             "{} strict reference",
             case.name
         );
+        assert_eq!(
+            strict_error_codes, reference.strict_error_codes,
+            "{} direct strict core error codes",
+            case.name
+        );
+        if case.strict_ok {
+            assert!(
+                strict_error_codes.is_empty(),
+                "{} strict success should not expose error codes",
+                case.name
+            );
+        } else {
+            assert!(
+                !strict_error_codes.is_empty(),
+                "{} strict failure should expose deterministic error codes",
+                case.name
+            );
+        }
 
         let analyzer =
             tailtriage_analyzer::analyze_run(&run, tailtriage_analyzer::AnalyzeOptions::default());
@@ -267,7 +289,7 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
                         .map(str::to_owned)
                         .collect::<BTreeSet<_>>(),
                 };
-                for code in &reference.strict_error_codes {
+                for code in &strict_error_codes {
                     assert!(
                         represented_codes.contains(code),
                         "{} analyzer strict missing {code}: {represented_codes:?}",
@@ -280,6 +302,8 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let artifact_path = tempdir.path().join(format!("{}.json", case.name));
         std::fs::write(&artifact_path, case.artifact).expect("write artifact");
+        let artifact_bytes_before =
+            std::fs::read(&artifact_path).expect("read artifact before analysis");
         let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
             .arg("analyze")
             .arg(&artifact_path)
@@ -353,7 +377,7 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
                 case.name
             );
             let stderr = String::from_utf8_lossy(&strict_output.stderr);
-            for code in &reference.strict_error_codes {
+            for code in &strict_error_codes {
                 assert!(
                     stderr.contains(code),
                     "{} strict stderr missing {code}: {stderr}",
@@ -366,6 +390,13 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
                 case.name
             );
         }
+        let artifact_bytes_after =
+            std::fs::read(&artifact_path).expect("read artifact after analysis");
+        assert_eq!(
+            artifact_bytes_after, artifact_bytes_before,
+            "{} CLI analysis should not mutate artifact bytes",
+            case.name
+        );
     }
 }
 
@@ -402,6 +433,11 @@ fn canonical_tracing_conversion_matches_core_for_supported_cases() {
             "{} tracing queues",
             case.name
         );
+        assert_eq!(
+            tracing_projection.truncation, reference.truncation,
+            "{} tracing truncation accounting",
+            case.name
+        );
         for code in &reference.issue_codes {
             assert!(
                 tracing_projection.issue_codes.contains(code),
@@ -412,6 +448,7 @@ fn canonical_tracing_conversion_matches_core_for_supported_cases() {
         }
 
         let strict = tailtriage_core::validate_run_strict(&run);
+        let strict_error_codes = strict_error_codes(&strict);
         let strict_import = tailtriage_tracing::run_from_span_records(
             case.strict_spans,
             tailtriage_tracing::ImportOptions::new("svc")
@@ -426,7 +463,7 @@ fn canonical_tracing_conversion_matches_core_for_supported_cases() {
         );
         if let Err(err) = strict_import {
             let msg = err.to_string();
-            for code in &reference.strict_error_codes {
+            for code in &strict_error_codes {
                 assert!(
                     msg.contains(code),
                     "{} strict tracing missing {code}: {msg}",
@@ -434,6 +471,204 @@ fn canonical_tracing_conversion_matches_core_for_supported_cases() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn native_run_is_strict_valid_and_normalization_idempotent() {
+    let tailtriage = Tailtriage::builder("native-svc")
+        .build()
+        .expect("tailtriage should build");
+    let started = tailtriage.begin_request_with(
+        "/native",
+        RequestOptions::new().request_id("native-req").kind("http"),
+    );
+    block_on_ready(started.handle.queue("pool").await_on(ready(())));
+    block_on_ready(started.handle.stage("db").await_value(ready(())));
+    started.completion.finish_ok();
+
+    let native_run = tailtriage.snapshot();
+    assert_eq!(native_run.requests.len(), 1, "native request event");
+    assert_eq!(native_run.stages.len(), 1, "native stage event");
+    assert_eq!(native_run.queues.len(), 1, "native queue event");
+    tailtriage_core::validate_run_strict(&native_run).expect("native run should be strict-valid");
+
+    let native_projection = SemanticProjection::from_run_and_warnings(&native_run, &[]);
+    let normalized = normalize_run_permissive(&native_run);
+    let normalized_projection = SemanticProjection::from_normalized(&normalized);
+    assert_eq!(
+        normalized_projection.requests, native_projection.requests,
+        "native request projection should survive normalization"
+    );
+    assert_eq!(
+        normalized_projection.stages, native_projection.stages,
+        "native stage projection should survive normalization"
+    );
+    assert_eq!(
+        normalized_projection.queues, native_projection.queues,
+        "native queue projection should survive normalization"
+    );
+
+    let renormalized_projection =
+        SemanticProjection::from_normalized(&normalize_run_permissive(&normalized.run));
+    assert_eq!(
+        renormalized_projection, normalized_projection,
+        "normalization should be idempotent for valid native runs"
+    );
+    assert!(
+        normalized_projection.strict_error_codes.is_empty(),
+        "valid native normalization should not expose generic error codes"
+    );
+
+    let analyzer = tailtriage_analyzer::analyze_run(
+        &native_run,
+        tailtriage_analyzer::AnalyzeOptions::default(),
+    );
+    assert_eq!(analyzer.request_count, normalized_projection.requests.len());
+}
+
+#[test]
+fn native_derived_missing_precision_keeps_duration_evidence_without_lifecycle_mutation() {
+    let tailtriage = Tailtriage::builder("native-svc")
+        .build()
+        .expect("tailtriage should build");
+    let started = tailtriage.begin_request_with(
+        "/native",
+        RequestOptions::new().request_id("native-req").kind("http"),
+    );
+    block_on_ready(started.handle.queue("pool").await_on(ready(())));
+    block_on_ready(started.handle.stage("db").await_value(ready(())));
+    started.completion.finish_ok();
+
+    let mut native_run = tailtriage.snapshot();
+    let durations_before = SemanticProjection::from_run_and_warnings(&native_run, &[]);
+    native_run.requests[0].started_at_run_us = None;
+    native_run.requests[0].finished_at_run_us = None;
+    native_run.stages[0].started_at_run_us = None;
+    native_run.stages[0].finished_at_run_us = None;
+    native_run.queues[0].waited_from_run_us = None;
+    native_run.queues[0].waited_until_run_us = None;
+    let lifecycle_before = native_run.metadata.lifecycle_warnings.clone();
+
+    tailtriage_core::validate_run_strict(&native_run)
+        .expect("native-derived missing precision should remain strict-valid");
+    let normalized = normalize_run_permissive(&native_run);
+    let projection = SemanticProjection::from_normalized(&normalized);
+    assert_eq!(projection.requests.len(), 1);
+    assert_eq!(projection.stages.len(), 1);
+    assert_eq!(projection.queues.len(), 1);
+    assert_eq!(projection.requests[0].2, durations_before.requests[0].2);
+    assert_eq!(projection.stages[0].2, durations_before.stages[0].2);
+    assert_eq!(projection.queues[0].2, durations_before.queues[0].2);
+    assert!(projection
+        .issue_codes
+        .contains(&"precise_interval_validation_unavailable".to_string()));
+
+    let _ = tailtriage_analyzer::analyze_run(
+        &native_run,
+        tailtriage_analyzer::AnalyzeOptions::default(),
+    );
+    assert_eq!(
+        native_run.metadata.lifecycle_warnings, lifecycle_before,
+        "read-only analysis should not append lifecycle warnings"
+    );
+}
+
+#[test]
+fn cli_missing_precision_warnings_and_artifact_are_deduplicated() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let artifact_path = tempdir.path().join("missing-precision.json");
+    std::fs::write(&artifact_path, missing_precision()).expect("write artifact");
+    let before = std::fs::read(&artifact_path).expect("read artifact before analysis");
+
+    let first = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("first cli should run");
+    let second = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("second cli should run");
+    assert!(first.status.success(), "first cli failed: {first:?}");
+    assert!(second.status.success(), "second cli failed: {second:?}");
+    assert_eq!(
+        first.stdout, second.stdout,
+        "stdout should be deterministic"
+    );
+    assert_eq!(
+        first.stderr, second.stderr,
+        "stderr should be deterministic"
+    );
+
+    let stderr = String::from_utf8(first.stderr).expect("stderr utf8");
+    assert_eq!(stderr.matches("existing lifecycle warning").count(), 1);
+    let after = std::fs::read(&artifact_path).expect("read artifact after analysis");
+    assert_eq!(after, before, "CLI analysis should not mutate artifact");
+
+    let artifact: serde_json::Value = serde_json::from_slice(&after).expect("artifact json");
+    let lifecycle = artifact["metadata"]["lifecycle_warnings"]
+        .as_array()
+        .expect("lifecycle warnings array");
+    assert_eq!(
+        lifecycle
+            .iter()
+            .filter(|warning| warning.as_str() == Some("existing lifecycle warning"))
+            .count(),
+        1
+    );
+    assert!(lifecycle.iter().all(|warning| !warning
+        .as_str()
+        .expect("warning string")
+        .contains("precise_interval_validation_unavailable")));
+
+    let report: serde_json::Value = serde_json::from_slice(&first.stdout).expect("report json");
+    let warnings = report["warnings"].as_array().expect("warnings array");
+    let precision_warnings = warnings
+        .iter()
+        .filter_map(|warning| warning.as_str())
+        .filter(|warning| warning.contains("precise_interval_validation_unavailable"))
+        .collect::<Vec<_>>();
+    let unique_precision_warnings = precision_warnings.iter().collect::<BTreeSet<_>>();
+    assert_eq!(
+        precision_warnings.len(),
+        unique_precision_warnings.len(),
+        "precision warnings should be grouped once per relevant summary"
+    );
+    assert_eq!(
+        precision_warnings.len(),
+        3,
+        "missing-precision fixture should group request, stage, and queue precision summaries"
+    );
+}
+
+fn strict_error_codes(strict: &Result<(), tailtriage_core::RunValidationError>) -> Vec<String> {
+    match strict {
+        Ok(()) => Vec::new(),
+        Err(err) => err
+            .report()
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == tailtriage_core::RunValidationSeverity::Error)
+            .map(|issue| issue.code.as_str().to_owned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn block_on_ready<F: Future>(future: F) -> F::Output {
+    let waker = Waker::noop();
+    let mut context = Context::from_waker(waker);
+    let mut future = pin!(future);
+    match future.as_mut().poll(&mut context) {
+        Poll::Ready(output) => output,
+        Poll::Pending => panic!("test future should complete without an executor"),
     }
 }
 
