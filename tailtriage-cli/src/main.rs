@@ -2,12 +2,13 @@ use std::io::BufRead;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use tailtriage_analyzer::{
-    render_json_pretty, render_text, try_analyze_run, validate_artifact_strict,
-};
-use tailtriage_cli::artifact::load_run_artifact;
+use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
+use tailtriage_cli::artifact::{decode_run_artifact, ArtifactLoadError};
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
-use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
+use tailtriage_core::{
+    validate_run_strict, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink,
+    RunValidationSeverity,
+};
 use tailtriage_tracing::{
     ensure_persistable_run_has_requests, import_jsonl_path_with_mode, ImportError, ImportOptions,
     JsonlParseMode,
@@ -170,9 +171,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     "missing required RUN_JSON argument (or use --help-analyzer-options)",
                 )
             })?;
-            let loaded = load_run_artifact(&run_json)?;
+            let loaded = decode_run_artifact(&run_json)?;
             if strict_artifact {
-                validate_artifact_strict(&loaded.run)?;
+                validate_cli_strict_artifact(&loaded.original_run)?;
+            }
+            if loaded.run.requests.is_empty() {
+                return Err(ArtifactLoadError::Validation {
+                    path: run_json.clone(),
+                    message: "requests section is empty. Capture at least one request event before running triage.".to_string(),
+                }
+                .into());
             }
             for warning in &loaded.warnings {
                 eprintln!("warning: {warning}");
@@ -192,6 +200,49 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn validate_cli_strict_artifact(run: &tailtriage_core::Run) -> Result<(), std::io::Error> {
+    validate_run_strict(run).map_err(|err| {
+        let mut codes = err
+            .report()
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == RunValidationSeverity::Error)
+            .map(|issue| issue.code.as_str())
+            .collect::<Vec<_>>();
+        codes.sort_unstable();
+        codes.dedup();
+
+        let mut details = err
+            .report()
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == RunValidationSeverity::Error)
+            .take(8)
+            .map(|issue| {
+                let location = if let Some(index) = issue.location.index {
+                    format!("{}[{index}]", issue.location.section.as_str())
+                } else if let Some(field) = issue.location.field {
+                    format!("{}.{}", issue.location.section.as_str(), field)
+                } else {
+                    issue.location.section.as_str().to_string()
+                };
+                format!("{} at {location}: {}", issue.code.as_str(), issue.message)
+            })
+            .collect::<Vec<_>>();
+        if details.is_empty() {
+            details.push(err.to_string());
+        }
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "strict artifact validation failed; core issue code(s): {}; {}",
+                codes.join(", "),
+                details.join("; ")
+            ),
+        )
+    })
 }
 
 fn create_output_parent_dir(path: &std::path::Path) -> Result<(), std::io::Error> {

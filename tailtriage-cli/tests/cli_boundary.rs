@@ -166,12 +166,13 @@ fn analyze_strict_artifact_rejects_duplicate_completed_request_ids() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("strict artifact validation failed"));
-    assert!(stderr.contains("duplicate completed request_id"));
-    assert!(stderr.contains("req1"));
+    assert!(stderr.contains("duplicate_completed_request_id"));
+    assert!(stderr.contains("request[0]"));
+    assert!(stderr.contains("request[1]"));
 }
 
 #[test]
-fn analyze_permissive_artifact_warns_on_duplicate_completed_request_ids() {
+fn analyze_permissive_artifact_reports_empty_after_duplicate_exclusion_as_command_policy() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("duplicate-ids.json");
     let artifact = valid_cli_artifact_with_requests().replace(
@@ -188,15 +189,12 @@ fn analyze_permissive_artifact_warns_on_duplicate_completed_request_ids() {
         .output()
         .expect("cli should run");
 
-    assert!(output.status.success(), "cli failed: {output:?}");
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
-    let report: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be json");
-    let warnings = report["warnings"]
-        .as_array()
-        .expect("warnings should be array");
-    assert!(warnings.iter().any(|warning| warning
-        .as_str()
-        .is_some_and(|text| text.contains("duplicate_completed_request_id"))));
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("requests section is empty"));
+    assert!(!stderr.contains("failed to parse"));
+    assert!(!stderr.contains("strict run validation"));
 }
 
 #[test]
@@ -218,8 +216,8 @@ fn analyze_strict_artifact_rejects_orphan_stage_request_ids() {
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("orphan stage request_id"));
-    assert!(stderr.contains("missing"));
+    assert!(stderr.contains("orphan_request_scoped_event"));
+    assert!(stderr.contains("stage[0]"));
 }
 
 #[test]
