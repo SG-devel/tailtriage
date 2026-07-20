@@ -1465,6 +1465,9 @@ fn run_builder_applies_stage_limit_and_updates_truncation() {
         crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
             .expect("ok");
     builder
+        .push_request(test_request_event("req-1"))
+        .expect("ok");
+    builder
         .push_stage(test_stage_event("req-1", "stage-1"))
         .expect("ok");
     builder
@@ -1494,6 +1497,9 @@ fn run_builder_applies_queue_limit_and_updates_truncation() {
     let mut builder =
         crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").capture_limits(limits))
             .expect("ok");
+    builder
+        .push_request(test_request_event("req-1"))
+        .expect("ok");
     builder
         .push_queue(test_queue_event("req-1", "queue-1"))
         .expect("ok");
@@ -1881,6 +1887,9 @@ fn run_builder_accepts_authoritative_request_latency_when_timestamps_disagree() 
 fn run_builder_accepts_authoritative_stage_latency_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
+    builder
+        .push_request(test_request_event("req"))
+        .expect("push should succeed");
     let mut stage = test_stage_event("req", "stage");
     stage.started_at_unix_ms = 20;
     stage.finished_at_unix_ms = 21;
@@ -1896,6 +1905,9 @@ fn run_builder_accepts_authoritative_stage_latency_when_timestamps_disagree() {
 fn run_builder_accepts_authoritative_queue_wait_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
 
+    builder
+        .push_request(test_request_event("req"))
+        .expect("push should succeed");
     let mut queue = test_queue_event("req", "queue");
     queue.waited_from_unix_ms = 30;
     queue.waited_until_unix_ms = 31;
@@ -1968,6 +1980,32 @@ mod run_validation_contract {
             finished_at_run_us: end,
             latency_us,
             outcome: "ok".into(),
+        }
+    }
+
+    fn stage(id: &str) -> StageEvent {
+        StageEvent {
+            request_id: id.into(),
+            stage: "db".into(),
+            started_at_unix_ms: 1_000,
+            started_at_run_us: Some(10),
+            finished_at_unix_ms: 1_001,
+            finished_at_run_us: Some(20),
+            latency_us: 10,
+            success: true,
+        }
+    }
+
+    fn queue(id: &str) -> QueueEvent {
+        QueueEvent {
+            request_id: id.into(),
+            queue: "worker".into(),
+            waited_from_unix_ms: 1_000,
+            waited_from_run_us: Some(10),
+            waited_until_unix_ms: 1_001,
+            waited_until_run_us: Some(20),
+            wait_us: 10,
+            depth_at_start: Some(1),
         }
     }
 
@@ -2070,6 +2108,82 @@ mod run_validation_contract {
             .issues
             .iter()
             .any(|i| i.code == RunValidationIssueCode::AmbiguousParentRequestId));
+    }
+
+    #[test]
+    fn parent_states_classify_unique_ambiguous_excluded_only_and_absent_children() {
+        let mut run = base_run();
+        let mut invalid_parent = req("excluded", Some(0), Some(100), 100);
+        invalid_parent.route = " ".into();
+        run.requests.push(invalid_parent);
+        run.requests
+            .push(req("valid-after-invalid", Some(0), Some(100), 100));
+        run.requests.push(req("ambiguous", Some(0), Some(100), 100));
+        run.requests.push(req("ambiguous", Some(0), Some(100), 100));
+        run.stages.push(stage("valid-after-invalid"));
+        run.stages.push(stage("ambiguous"));
+        run.stages.push(stage("excluded"));
+        run.stages.push(stage("absent"));
+
+        let normalized = normalize_run_permissive(&run);
+
+        assert_eq!(normalized.run.requests.len(), 1);
+        assert_eq!(normalized.run.requests[0].request_id, "valid-after-invalid");
+        assert_eq!(normalized.run.stages.len(), 1);
+        assert_eq!(normalized.run.stages[0].request_id, "valid-after-invalid");
+        for code in [
+            RunValidationIssueCode::AmbiguousParentRequestId,
+            RunValidationIssueCode::ParentRequestExcluded,
+            RunValidationIssueCode::OrphanRequestScopedEvent,
+        ] {
+            assert!(normalized.report.issues.iter().any(|i| i.code == code));
+        }
+    }
+
+    #[test]
+    fn run_builder_excludes_child_only_stage_and_queue_with_durable_orphan_summary() {
+        let mut builder = RunBuilder::new(RunBuilderOptions::new("svc")).expect("builder");
+        builder
+            .push_stage(stage("missing-stage-parent"))
+            .expect("stage");
+        builder
+            .push_queue(queue("missing-queue-parent"))
+            .expect("queue");
+
+        let run = builder.finish();
+
+        assert!(run.stages.is_empty());
+        assert!(run.queues.is_empty());
+        assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
+            warning.contains("orphan_request_scoped_event") && warning.contains("stage")
+        }));
+        assert!(run.metadata.lifecycle_warnings.iter().any(|warning| {
+            warning.contains("orphan_request_scoped_event") && warning.contains("queue")
+        }));
+    }
+
+    #[test]
+    fn validation_summaries_use_stable_labels_and_lifecycle_filtering() {
+        let mut run = base_run();
+        run.requests.push(req("legacy", None, None, 100));
+        run.stages.push(stage("missing"));
+
+        let normalized = normalize_run_permissive(&run);
+        let public = summarize_run_validation(&normalized.report);
+        let lifecycle = summarize_run_validation_lifecycle(&normalized.report);
+
+        assert!(public
+            .iter()
+            .all(|summary| !summary.contains("Requests") && !summary.contains("Stages")));
+        assert!(public
+            .iter()
+            .any(|summary| summary.contains("precise_interval_validation_unavailable")));
+        assert!(!lifecycle
+            .iter()
+            .any(|summary| summary.contains("precise_interval_validation_unavailable")));
+        assert!(lifecycle
+            .iter()
+            .any(|summary| summary.contains("orphan_request_scoped_event")));
     }
 
     #[test]

@@ -211,8 +211,25 @@ pub fn normalize_run_permissive(run: &Run) -> NormalizedRun {
 /// Returns bounded deterministic user-facing validation warning summaries.
 #[must_use]
 pub fn summarize_run_validation(report: &RunValidationReport) -> Vec<String> {
+    summarize_run_validation_filtered(report, |_| true)
+}
+
+/// Returns bounded deterministic validation summaries for durable lifecycle
+/// warnings: only issues that changed canonical output or cleared invalid
+/// optional precision are included.
+#[must_use]
+pub fn summarize_run_validation_lifecycle(report: &RunValidationReport) -> Vec<String> {
+    summarize_run_validation_filtered(report, |issue| {
+        issue.code != RunValidationIssueCode::PreciseIntervalValidationUnavailable
+    })
+}
+
+fn summarize_run_validation_filtered(
+    report: &RunValidationReport,
+    keep: impl Fn(&RunValidationIssue) -> bool,
+) -> Vec<String> {
     let mut groups = BTreeMap::<(RunValidationIssueCode, RunSection), (usize, Vec<String>)>::new();
-    for issue in &report.issues {
+    for issue in report.issues.iter().filter(|issue| keep(issue)) {
         let entry = groups
             .entry((issue.code, issue.location.section))
             .or_default();
@@ -228,7 +245,7 @@ pub fn summarize_run_validation(report: &RunValidationReport) -> Vec<String> {
     groups
         .into_iter()
         .map(|((code, section), (count, samples))| {
-            let section_label = format!("{} ({section:?})", section.as_str());
+            let section_label = section.as_str();
             let sample = if samples.is_empty() {
                 String::new()
             } else {
@@ -413,8 +430,6 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
             );
         }
     }
-    let mut parent_index = BTreeMap::<&str, usize>::new();
-    let mut retained_requests = Vec::new();
     let normalized_requests_by_input = run
         .requests
         .iter()
@@ -427,25 +442,21 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
             }
         })
         .collect::<Vec<_>>();
-    for (i, r) in normalized_requests_by_input.iter().enumerate() {
-        if let Some(r) = r {
-            parent_index.insert(r.request_id.as_str(), i);
-            retained_requests.push(r.clone());
-        }
+    let mut parent_states =
+        build_parent_states(run, &request_invalid, &normalized_requests_by_input);
+    for id in &dup_ids {
+        parent_states.insert(*id, ParentState::AmbiguousRetained);
     }
+    let retained_requests = normalized_requests_by_input
+        .iter()
+        .filter_map(Clone::clone)
+        .collect::<Vec<_>>();
     let mut normalized = run.clone();
     if produce_run {
         normalized.requests = retained_requests;
     }
     let mut dispositions = Vec::new();
     add_disps(&mut dispositions, RunSection::Requests, &request_invalid);
-    let mut parent_excluded = BTreeSet::new();
-    for (i, r) in run.requests.iter().enumerate() {
-        if !request_invalid[i].is_empty() {
-            parent_excluded.insert(r.request_id.as_str());
-        }
-    }
-
     let mut stage_invalid = vec![BTreeSet::new(); run.stages.len()];
     let mut stage_precision_clear = vec![BTreeSet::new(); run.stages.len()];
     let mut stages = Vec::new();
@@ -463,15 +474,8 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
             RunSection::Stages,
             i,
             s.request_id.as_str(),
-            interval_req(
-                &normalized_requests_by_input,
-                &parent_index,
-                s.request_id.as_str(),
-            ),
+            &parent_states,
             interval_stage(&clear_bad_stage(s, &stage_precision_clear[i])),
-            &dup_ids,
-            &parent_index,
-            &parent_excluded,
         );
         if stage_invalid[i].is_empty() {
             stages.push(clear_bad_stage(s, &stage_precision_clear[i]));
@@ -498,15 +502,8 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
             RunSection::Queues,
             i,
             q.request_id.as_str(),
-            interval_req(
-                &normalized_requests_by_input,
-                &parent_index,
-                q.request_id.as_str(),
-            ),
+            &parent_states,
             interval_queue(&clear_bad_queue(q, &queue_precision_clear[i])),
-            &dup_ids,
-            &parent_index,
-            &parent_excluded,
         );
         if queue_invalid[i].is_empty() {
             queues.push(clear_bad_queue(q, &queue_precision_clear[i]));
@@ -555,15 +552,49 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
     }
 }
 
-fn interval_req(
-    requests: &[Option<RequestEvent>],
-    map: &BTreeMap<&str, usize>,
-    id: &str,
-) -> Option<(u64, u64)> {
-    let input_index = *map.get(id)?;
-    let r = requests.get(input_index)?.as_ref()?;
-    interval(r.started_at_run_us, r.finished_at_run_us)
+#[derive(Clone)]
+enum ParentState {
+    UniqueRetained {
+        precise_interval: Option<(u64, u64)>,
+    },
+    AmbiguousRetained,
+    ExcludedOnly,
 }
+
+fn build_parent_states<'a>(
+    run: &'a Run,
+    request_invalid: &[BTreeSet<RunValidationIssueCode>],
+    normalized_requests_by_input: &[Option<RequestEvent>],
+) -> BTreeMap<&'a str, ParentState> {
+    let mut retained_by_id = BTreeMap::<&str, Vec<(usize, RequestEvent)>>::new();
+    let mut excluded_ids = BTreeSet::<&str>::new();
+    for (i, r) in run.requests.iter().enumerate() {
+        if let Some(normalized) = &normalized_requests_by_input[i] {
+            retained_by_id
+                .entry(r.request_id.as_str())
+                .or_default()
+                .push((i, normalized.clone()));
+        } else if !request_invalid[i].is_empty() {
+            excluded_ids.insert(r.request_id.as_str());
+        }
+    }
+
+    let mut states = BTreeMap::new();
+    for (id, retained) in retained_by_id {
+        if retained.len() > 1 {
+            states.insert(id, ParentState::AmbiguousRetained);
+        } else {
+            let (_, request) = retained.into_iter().next().expect("one retained request");
+            let precise_interval = interval(request.started_at_run_us, request.finished_at_run_us);
+            states.insert(id, ParentState::UniqueRetained { precise_interval });
+        }
+    }
+    for id in excluded_ids {
+        states.entry(id).or_insert(ParentState::ExcludedOnly);
+    }
+    states
+}
+
 fn interval(start: Option<u64>, end: Option<u64>) -> Option<(u64, u64)> {
     Some((start?, end?))
 }
@@ -579,37 +610,10 @@ fn child_policy(
     section: RunSection,
     i: usize,
     id: &str,
-    parent: Option<(u64, u64)>,
+    parents: &BTreeMap<&str, ParentState>,
     child: Option<(u64, u64)>,
-    dups: &BTreeSet<&str>,
-    parents: &BTreeMap<&str, usize>,
-    excluded: &BTreeSet<&str>,
 ) {
-    if dups.contains(id) {
-        invalid.insert(RunValidationIssueCode::AmbiguousParentRequestId);
-        ctx.issue(
-            section,
-            Some(i),
-            Some("request_id"),
-            RunValidationIssueCode::AmbiguousParentRequestId,
-            RunValidationSeverity::Error,
-            "parent `request_id` is duplicated",
-        );
-        return;
-    }
-    if excluded.contains(id) {
-        invalid.insert(RunValidationIssueCode::ParentRequestExcluded);
-        ctx.issue(
-            section,
-            Some(i),
-            Some("request_id"),
-            RunValidationIssueCode::ParentRequestExcluded,
-            RunValidationSeverity::Error,
-            "parent request was excluded",
-        );
-        return;
-    }
-    if !parents.contains_key(id) {
+    let Some(parent_state) = parents.get(id) else {
         invalid.insert(RunValidationIssueCode::OrphanRequestScopedEvent);
         ctx.issue(
             section,
@@ -620,18 +624,44 @@ fn child_policy(
             "no retained parent request matches request_id",
         );
         return;
-    }
-    if let (Some((ps, pe)), Some((cs, ce))) = (parent, child) {
-        if cs < ps || ce > pe {
-            invalid.insert(RunValidationIssueCode::ChildIntervalOutsideRequest);
+    };
+    match parent_state {
+        ParentState::AmbiguousRetained => {
+            invalid.insert(RunValidationIssueCode::AmbiguousParentRequestId);
             ctx.issue(
                 section,
                 Some(i),
-                None,
-                RunValidationIssueCode::ChildIntervalOutsideRequest,
+                Some("request_id"),
+                RunValidationIssueCode::AmbiguousParentRequestId,
                 RunValidationSeverity::Error,
-                "child interval lies outside parent request interval",
+                "parent `request_id` is duplicated",
             );
+        }
+        ParentState::ExcludedOnly => {
+            invalid.insert(RunValidationIssueCode::ParentRequestExcluded);
+            ctx.issue(
+                section,
+                Some(i),
+                Some("request_id"),
+                RunValidationIssueCode::ParentRequestExcluded,
+                RunValidationSeverity::Error,
+                "parent request was excluded",
+            );
+        }
+        ParentState::UniqueRetained { precise_interval } => {
+            if let (Some((ps, pe)), Some((cs, ce))) = (precise_interval, child) {
+                if cs < *ps || ce > *pe {
+                    invalid.insert(RunValidationIssueCode::ChildIntervalOutsideRequest);
+                    ctx.issue(
+                        section,
+                        Some(i),
+                        None,
+                        RunValidationIssueCode::ChildIntervalOutsideRequest,
+                        RunValidationSeverity::Error,
+                        "child interval lies outside parent request interval",
+                    );
+                }
+            }
         }
     }
 }

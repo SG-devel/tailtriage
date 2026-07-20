@@ -219,10 +219,10 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
 
     assert_eq!(report.request_count, 3);
     assert!(report.warnings.iter().any(|warning| {
-        warning.contains("orphan_request_scoped_event") && warning.contains("Stages")
+        warning.contains("orphan_request_scoped_event") && warning.contains("stage")
     }));
     assert!(report.warnings.iter().any(|warning| {
-        warning.contains("orphan_request_scoped_event") && warning.contains("Queues")
+        warning.contains("orphan_request_scoped_event") && warning.contains("queue")
     }));
 }
 
@@ -1898,10 +1898,10 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
         request.finished_at_unix_ms = 1;
         if idx < 10 {
             request.started_at_run_us = Some(1_000 + idx * 100);
-            request.finished_at_run_us = Some(1_050 + idx * 100);
+            request.finished_at_run_us = Some(1_100 + idx * 100);
         } else {
             request.started_at_run_us = Some(10_000 + idx * 100);
-            request.finished_at_run_us = Some(10_050 + idx * 100);
+            request.finished_at_run_us = Some(16_000 + idx * 100);
             request.latency_us = 6_000;
         }
     }
@@ -1974,9 +1974,10 @@ fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
     for (idx, request) in run.requests.iter_mut().enumerate() {
         let idx = u64::try_from(idx + 1).expect("test index should fit in u64");
         request.started_at_run_us = Some(idx * 10_000);
-        request.finished_at_run_us = Some(idx * 10_000 + 5_000);
+        request.finished_at_run_us = Some(idx * 10_000 + 1_000);
         if idx > 10 {
             request.latency_us = 6_000;
+            request.finished_at_run_us = Some(idx * 10_000 + 6_000);
         }
     }
 
@@ -2115,9 +2116,10 @@ fn temporal_segments_with_complete_run_relative_fields_do_not_warn_about_fallbac
     for (idx, request) in run.requests.iter_mut().enumerate() {
         let idx = u64::try_from(idx).expect("test index should fit in u64");
         request.started_at_run_us = Some(idx * 1_000);
-        request.finished_at_run_us = Some(idx * 1_000 + 100);
+        request.finished_at_run_us = Some(idx * 1_000 + 1_000);
         if idx >= 10 {
             request.latency_us = 6_000;
+            request.finished_at_run_us = Some(idx * 1_000 + 6_000);
         }
     }
 
@@ -2141,7 +2143,7 @@ fn temporal_segments_sort_complete_run_relative_starts_by_run_time() {
             started_at_unix_ms: 1,
             started_at_run_us: Some((19 - idx) * 1_000),
             finished_at_unix_ms: 1,
-            finished_at_run_us: Some((19 - idx) * 1_000 + 100),
+            finished_at_run_us: Some((19 - idx) * 1_000 + if idx >= 10 { 1_000 } else { 6_000 }),
             latency_us: if idx >= 10 { 1_000 } else { 6_000 },
             outcome: "ok".into(),
         })
@@ -2309,7 +2311,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
             let id = i + 1;
             let start_run_us = id * 10_000;
             request.started_at_run_us = Some(start_run_us);
-            request.finished_at_run_us = Some(start_run_us + 5_000);
+            request.finished_at_run_us = Some(start_run_us + 1_000);
             request
         })
         .collect();
@@ -2532,6 +2534,7 @@ fn overlapping_temporal_windows_warn_runtime_inflight_attribution_is_approximate
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     run.requests[9].finished_at_unix_ms = 1_000;
     run.requests[10].started_at_unix_ms = 100;
+    run.requests[10].finished_at_unix_ms = 101;
     for i in 10usize..20 {
         if let Some(req) = run.requests.get_mut(i) {
             req.latency_us = 5_000;
@@ -2554,6 +2557,7 @@ fn non_overlapping_temporal_windows_do_not_add_overlap_warning() {
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     run.requests[9].finished_at_unix_ms = 10;
     run.requests[10].started_at_unix_ms = 20;
+    run.requests[10].finished_at_unix_ms = 21;
     for i in 10usize..20 {
         if let Some(req) = run.requests.get_mut(i) {
             req.latency_us = 5_000;
@@ -2576,6 +2580,7 @@ fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     run.requests[9].finished_at_unix_ms = 1_000;
     run.requests[10].started_at_unix_ms = 100;
+    run.requests[10].finished_at_unix_ms = 101;
     for i in 10usize..20 {
         if let Some(req) = run.requests.get_mut(i) {
             req.latency_us = 5_000;

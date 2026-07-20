@@ -348,7 +348,7 @@ impl RunBuilder {
     pub fn finish(self) -> Run {
         let normalized = crate::normalize_run_permissive(&self.run);
         let mut run = normalized.run;
-        for warning in crate::summarize_run_validation(&normalized.report) {
+        for warning in crate::summarize_run_validation_lifecycle(&normalized.report) {
             if !run.metadata.lifecycle_warnings.contains(&warning) {
                 run.metadata.lifecycle_warnings.push(warning);
             }
