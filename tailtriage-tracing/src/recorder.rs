@@ -2212,7 +2212,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_completed_candidate_cap_evicts_retained_duplicate_for_later_unique_request() {
+    fn raw_completed_candidate_cap_drops_incoming_request_when_full_of_requests() {
         let recorder = TracingRecorder::builder("svc")
             .max_completed_candidate_spans(3)
             .capture_limits(CaptureLimits {
@@ -2270,7 +2270,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_completed_candidate_cap_evicts_retained_duplicate_before_useful_child_evidence() {
+    fn request_arriving_at_full_child_containing_cap_evicts_child_regardless_of_identity() {
         let recorder = TracingRecorder::builder("svc")
             .max_completed_candidate_spans(3)
             .capture_limits(CaptureLimits {
@@ -2326,7 +2326,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_errors_when_raw_cap_evicts_retained_duplicate_request() {
+    fn strict_mode_errors_when_raw_cap_evicts_child_before_core_excludes_ambiguous_requests() {
         let recorder = TracingRecorder::builder("svc")
             .strict(true)
             .max_completed_candidate_spans(3)
@@ -2377,7 +2377,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_completed_candidate_cap_drops_duplicate_request_before_later_unique_request() {
+    fn full_request_only_raw_cap_drops_incoming_request_regardless_of_identity() {
         let recorder = TracingRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .capture_limits(CaptureLimits {
@@ -2425,8 +2425,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_completed_candidate_cap_drops_unique_request_when_semantic_request_retention_is_exhausted(
-    ) {
+    fn semantic_request_limit_applies_after_raw_recorder_retention() {
         let recorder = TracingRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .capture_limits(CaptureLimits {
@@ -2811,7 +2810,7 @@ mod tests {
     }
 
     #[test]
-    fn orphan_stage_does_not_consume_stage_retention_in_non_strict_mode() {
+    fn source_valid_orphan_stage_consumes_semantic_stage_retention_before_core_exclusion() {
         let recorder = TracingRecorder::builder("svc")
             .capture_limits(CaptureLimits {
                 max_requests: 1,
@@ -2848,7 +2847,7 @@ mod tests {
     }
 
     #[test]
-    fn orphan_queue_does_not_consume_queue_retention_in_non_strict_mode() {
+    fn source_valid_orphan_queue_consumes_semantic_queue_retention_before_core_exclusion() {
         let recorder = TracingRecorder::builder("svc")
             .capture_limits(CaptureLimits {
                 max_requests: 1,
@@ -4067,7 +4066,7 @@ mod tests {
         assert_eq!(imported.run().queues.len(), 0);
     }
 
-    fn run_with_replay_safe_and_contradictory_durations() -> tailtriage_core::Run {
+    fn run_with_coherent_replay_timing() -> tailtriage_core::Run {
         let mut run = empty_run();
         run.requests.push(tailtriage_core::RequestEvent {
             request_id: "r1".into(),
@@ -4105,7 +4104,7 @@ mod tests {
 
     #[test]
     fn retained_request_stage_queue_emit_only_replay_safe_durations_and_run_offsets() {
-        let run = run_with_replay_safe_and_contradictory_durations();
+        let run = run_with_coherent_replay_timing();
         let spans = retained_span_records_from_run(&run);
         assert_eq!(spans.len(), 3);
 
@@ -4208,7 +4207,7 @@ mod tests {
     fn completed_span_jsonl_preserves_run_relative_safe_durations_for_strict_replay() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
-        let run = run_with_replay_safe_and_contradictory_durations();
+        let run = run_with_coherent_replay_timing();
         write_completed_span_jsonl_from_run(&run, &spans_path).unwrap();
 
         let raw = std::fs::read_to_string(&spans_path).unwrap();

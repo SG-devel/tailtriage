@@ -1547,6 +1547,12 @@ mod tests {
             .lifecycle_warnings
             .iter()
             .any(|w| w.contains("duplicate_completed_request_id")));
+        assert!(imported
+            .run()
+            .metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|w| w.contains("ambiguous_parent_request_id")));
     }
 
     #[test]
@@ -2535,7 +2541,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_duplicate_request_id_overflow_only_children_fail_outside_interval() {
+    fn strict_mode_duplicate_request_id_overflow_only_children_retains_coarse_timing() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
                 .field(TT_KIND, "request")
@@ -2571,7 +2577,7 @@ mod tests {
     }
 
     #[test]
-    fn non_strict_duplicate_request_id_overflow_only_children_warn_outside_interval() {
+    fn non_strict_duplicate_request_id_overflow_only_children_retains_coarse_timing() {
         let spans = vec![
             SpanRecord::new("req-1", 100, 200)
                 .field(TT_KIND, "request")
