@@ -165,7 +165,9 @@ fn jsonl_fixture_imports_completed_span_shape() {
     assert_eq!(run.queues[0].depth_at_start, Some(7));
     assert_eq!(run.stages[0].stage, "db.query");
     assert!(run.stages[0].success);
-    assert!(imported.warnings().is_empty());
+    assert!(imported.warnings().iter().any(|warning| warning
+        .message()
+        .contains("precise_interval_validation_unavailable")));
 }
 
 #[test]
@@ -214,7 +216,7 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
 
 #[test]
 fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
-    let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1700000000000,"finished_at_unix_ms":1700000000001,"duration_us":50000,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}"#;
+    let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1700000000000,"started_at_run_us":0,"finished_at_unix_ms":1700000000001,"finished_at_run_us":1000,"duration_us":50000,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}"#;
 
     let imported = import_jsonl_reader_with_mode(
         Cursor::new(input),
@@ -225,9 +227,10 @@ fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
 
     assert_eq!(imported.run().requests.len(), 1);
     assert_eq!(imported.run().requests[0].latency_us, 50_000);
-    assert!(imported.warnings().iter().any(|warning| warning
-        .message()
-        .contains("duration_us differs from timestamp-derived duration")));
+    assert!(imported
+        .warnings()
+        .iter()
+        .any(|warning| warning.message().contains("duration_mismatch")));
 
     let err = import_jsonl_reader_with_mode(
         Cursor::new(input),
@@ -235,9 +238,7 @@ fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
         JsonlParseMode::TailtriageWrapperOnly,
     )
     .expect_err("strict import should reject mismatched duration");
-    assert!(err
-        .to_string()
-        .contains("duration_us differs from timestamp-derived duration"));
+    assert!(err.to_string().contains("duration_mismatch"));
 }
 
 #[test]

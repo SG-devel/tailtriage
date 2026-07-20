@@ -539,9 +539,9 @@ fn required_string(
     }
 }
 
-pub(crate) const TRACE_TIME_TOLERANCE_US: u64 = 2_000;
+#[cfg(feature = "live")]
 pub(crate) fn duration_within_derived_tolerance(duration_us: u64, derived_us: u64) -> bool {
-    duration_us.abs_diff(derived_us) <= TRACE_TIME_TOLERANCE_US
+    duration_us.abs_diff(derived_us) <= tailtriage_core::RUN_RELATIVE_DURATION_TOLERANCE_US
 }
 
 #[cfg(feature = "live")]
@@ -1655,7 +1655,7 @@ mod tests {
         assert!(!imported
             .warnings()
             .iter()
-            .any(|w| w.message().contains("duplicate tt.request_id")));
+            .any(|w| w.message().contains("duplicate_completed_request_id")));
     }
 
     #[test]
