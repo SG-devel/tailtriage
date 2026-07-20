@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use tailtriage_core::{Run, SCHEMA_VERSION};
+use tailtriage_core::{normalize_run_permissive, Run, SCHEMA_VERSION};
 
 const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
 
@@ -10,6 +10,8 @@ const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
 pub struct LoadedArtifact {
     /// Parsed run artifact data used by analyzer and renderer flows.
     pub run: Run,
+    /// Original decoded run before permissive normalization.
+    pub original_run: Run,
     /// Non-fatal loader findings that did not block loading.
     pub warnings: Vec<String>,
 }
@@ -106,11 +108,11 @@ impl std::error::Error for ArtifactLoadError {
     }
 }
 
-/// Loads and validates a tailtriage run artifact from disk.
+/// Loads and decodes a tailtriage run artifact from disk, then applies
+/// permissive core normalization for analyzer use.
 ///
-/// Validation is strict:
-/// - top-level `schema_version` must exist and match this binary exactly
-/// - the decoded artifact must include at least one request event
+/// The CLI owns file/JSON/schema-envelope decoding and the analyze command
+/// requirement that at least one request remains after core normalization.
 ///
 /// Loader warnings are non-fatal findings and are returned in
 /// [`LoadedArtifact::warnings`].
@@ -119,6 +121,18 @@ impl std::error::Error for ArtifactLoadError {
 /// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,
 /// the schema is unsupported, or required sections are missing.
 pub fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
+    let loaded = decode_run_artifact(path)?;
+    validate_required_sections(&loaded.run, path)?;
+    Ok(loaded)
+}
+
+/// Decodes a run artifact and applies permissive core normalization without
+/// enforcing command-specific minimum-request policy.
+///
+/// # Errors
+/// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,
+/// the schema envelope is unsupported, or the decoded shape is incompatible.
+pub fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
     let input = std::fs::read_to_string(path).map_err(|source| ArtifactLoadError::Read {
         path: path.to_path_buf(),
         source,
@@ -131,24 +145,29 @@ pub fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadErro
 
     validate_schema_version(&raw, path)?;
 
-    let run: Run = serde_json::from_value(raw).map_err(|err| ArtifactLoadError::Parse {
+    let original_run: Run = serde_json::from_value(raw).map_err(|err| ArtifactLoadError::Parse {
         path: path.to_path_buf(),
         message: format!(
             "JSON shape does not match the tailtriage run schema ({err}). Check for missing required fields such as metadata.run_id and requests[]."
         ),
     })?;
 
-    validate_required_sections(&run, path)?;
+    let normalized = normalize_run_permissive(&original_run);
+    let run = normalized.run;
 
-    let mut warnings = run.metadata.lifecycle_warnings.clone();
-    if run.metadata.unfinished_requests.count > 0 {
+    let mut warnings = original_run.metadata.lifecycle_warnings.clone();
+    if original_run.metadata.unfinished_requests.count > 0 {
         warnings.push(format!(
             "artifact recorded {} unfinished request(s) at shutdown",
-            run.metadata.unfinished_requests.count
+            original_run.metadata.unfinished_requests.count
         ));
     }
 
-    Ok(LoadedArtifact { run, warnings })
+    Ok(LoadedArtifact {
+        run,
+        original_run,
+        warnings,
+    })
 }
 
 fn validate_schema_version(raw: &Value, path: &Path) -> Result<(), ArtifactLoadError> {
