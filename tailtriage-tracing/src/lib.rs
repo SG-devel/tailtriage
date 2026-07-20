@@ -44,7 +44,8 @@ mod types;
 use tailtriage_core::{
     normalize_run_permissive, summarize_run_validation, summarize_run_validation_lifecycle,
     validate_run_strict, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata,
-    RunValidationSeverity, StageEvent, TruncationSummary, UnfinishedRequests,
+    RunValidationIssueCode, RunValidationSeverity, StageEvent, TruncationSummary,
+    UnfinishedRequests,
 };
 
 pub use convention::{
@@ -324,6 +325,7 @@ where
             let now = tailtriage_core::unix_time_ms();
             (now, now)
         });
+    let explicit_run_id = options.run_id_ref().is_some();
     let run_id = options.run_id_ref().map_or_else(
         || format!("tracing-import-{started_at_unix_ms}-{finished_at_unix_ms}"),
         ToOwned::to_owned,
@@ -367,7 +369,11 @@ where
     let core_warnings = summarize_run_validation(&normalized);
     let lifecycle_warnings = summarize_run_validation_lifecycle(&normalized);
     let mut run = normalized.run;
+    refresh_normalized_metadata_bounds(&mut run, explicit_run_id);
     for warning in core_warnings {
+        if warning.contains(RunValidationIssueCode::PreciseIntervalValidationUnavailable.as_str()) {
+            continue;
+        }
         if !warnings
             .iter()
             .any(|existing| existing.message() == warning)
@@ -394,15 +400,37 @@ fn apply_retention_limit<T>(items: &mut Vec<T>, max: usize, set_dropped: impl Fn
 }
 
 fn strict_core_error(err: &tailtriage_core::RunValidationError) -> ImportError {
-    let label = err
+    let mut codes = err
         .report()
         .issues
         .iter()
-        .find(|issue| issue.severity == RunValidationSeverity::Error)
-        .map_or("run_validation_failed", |issue| issue.code.as_str());
+        .filter(|issue| issue.severity == RunValidationSeverity::Error)
+        .map(|issue| issue.code)
+        .collect::<Vec<_>>();
+    codes.sort_unstable();
+    codes.dedup();
+    let labels = codes
+        .iter()
+        .map(|code| code.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     ImportError::StrictViolation(format!(
-        "core run validation failed with issue code '{label}': {err}"
+        "core run validation failed with issue codes [{labels}]: {err}"
     ))
+}
+
+fn refresh_normalized_metadata_bounds(run: &mut Run, explicit_run_id: bool) {
+    if let Some((started_at_unix_ms, finished_at_unix_ms)) =
+        retained_event_time_bounds(&run.requests, &run.stages, &run.queues)
+    {
+        run.metadata.started_at_unix_ms = started_at_unix_ms;
+        run.metadata.finished_at_unix_ms = finished_at_unix_ms;
+        run.metadata.finalized_at_unix_ms = Some(finished_at_unix_ms);
+        if !explicit_run_id {
+            run.metadata.run_id =
+                format!("tracing-import-{started_at_unix_ms}-{finished_at_unix_ms}");
+        }
+    }
 }
 
 struct ParsedStageEvent {
@@ -544,7 +572,9 @@ fn run_relative_derived_duration_us(
     started_at_run_us: Option<u64>,
     finished_at_run_us: Option<u64>,
 ) -> Option<u64> {
-    Some(finished_at_run_us?.saturating_sub(started_at_run_us?))
+    let started_at_run_us = started_at_run_us?;
+    let finished_at_run_us = finished_at_run_us?;
+    finished_at_run_us.checked_sub(started_at_run_us)
 }
 
 fn elapsed_duration_us(
