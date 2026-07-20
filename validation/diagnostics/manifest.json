@@ -1156,7 +1156,8 @@
       "must_include_evidence": [],
       "must_include_next_checks": [],
       "expected_warnings": [
-        "Low completed-request count"
+        "Low completed-request count",
+        "precise_interval_validation_unavailable: 3 request event(s) lack run-relative timing; duration evidence was retained"
       ],
       "allowed_warnings": [
         "No queue events captured",

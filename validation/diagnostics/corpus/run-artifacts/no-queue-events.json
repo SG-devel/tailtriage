@@ -11,17 +11,101 @@
     "pid": 7
   },
   "requests": [
-    {"request_id":"r1","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":300,"outcome":"ok"},
-    {"request_id":"r2","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":320,"outcome":"ok"},
-    {"request_id":"r3","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":310,"outcome":"ok"}
+    {
+      "request_id": "r1",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 300,
+      "outcome": "ok",
+      "started_at_run_us": 0,
+      "finished_at_run_us": 300
+    },
+    {
+      "request_id": "r2",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 320,
+      "outcome": "ok",
+      "started_at_run_us": 1000000,
+      "finished_at_run_us": 1000320
+    },
+    {
+      "request_id": "r3",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 310,
+      "outcome": "ok",
+      "started_at_run_us": 2000000,
+      "finished_at_run_us": 2000310
+    }
   ],
   "stages": [
-    {"request_id":"r1","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":180,"success":true},
-    {"request_id":"r2","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":200,"success":true},
-    {"request_id":"r3","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":190,"success":true},
-    {"request_id":"r1","stage":"cache","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":20,"success":true},
-    {"request_id":"r2","stage":"cache","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":30,"success":true},
-    {"request_id":"r3","stage":"cache","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":25,"success":true}
+    {
+      "request_id": "r1",
+      "stage": "db",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 180,
+      "success": true,
+      "started_at_run_us": 0,
+      "finished_at_run_us": 180
+    },
+    {
+      "request_id": "r2",
+      "stage": "db",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 200,
+      "success": true,
+      "started_at_run_us": 1000000,
+      "finished_at_run_us": 1000200
+    },
+    {
+      "request_id": "r3",
+      "stage": "db",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 190,
+      "success": true,
+      "started_at_run_us": 2000000,
+      "finished_at_run_us": 2000190
+    },
+    {
+      "request_id": "r1",
+      "stage": "cache",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 20,
+      "success": true,
+      "started_at_run_us": 0,
+      "finished_at_run_us": 20
+    },
+    {
+      "request_id": "r2",
+      "stage": "cache",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 30,
+      "success": true,
+      "started_at_run_us": 1000000,
+      "finished_at_run_us": 1000030
+    },
+    {
+      "request_id": "r3",
+      "stage": "cache",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 25,
+      "success": true,
+      "started_at_run_us": 2000000,
+      "finished_at_run_us": 2000025
+    }
   ],
   "queues": [],
   "inflight": [],
