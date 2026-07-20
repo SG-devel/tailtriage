@@ -208,6 +208,75 @@ pub fn normalize_run_permissive(run: &Run) -> NormalizedRun {
     normalize_inner(run, true)
 }
 
+/// Returns bounded deterministic user-facing validation warning summaries.
+#[must_use]
+pub fn summarize_run_validation(report: &RunValidationReport) -> Vec<String> {
+    let mut groups = BTreeMap::<(RunValidationIssueCode, RunSection), (usize, Vec<String>)>::new();
+    for issue in &report.issues {
+        let entry = groups
+            .entry((issue.code, issue.location.section))
+            .or_default();
+        entry.0 += 1;
+        if entry.1.len() < 5 {
+            if let Some(index) = issue.location.index {
+                entry.1.push(format!("index {index}"));
+            } else if let Some(field) = issue.location.field {
+                entry.1.push(field.to_string());
+            }
+        }
+    }
+    groups
+        .into_iter()
+        .map(|((code, section), (count, samples))| {
+            let section_label = format!("{} ({section:?})", section.as_str());
+            let sample = if samples.is_empty() {
+                String::new()
+            } else {
+                format!(" sample: {}.", samples.join(", "))
+            };
+            format!(
+                "Run validation {}: {} {} event(s) {}{}",
+                code.as_str(),
+                count,
+                section_label,
+                validation_action(code, section),
+                sample
+            )
+        })
+        .collect()
+}
+
+impl RunSection {
+    /// Stable lowercase label for this section.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Metadata => "metadata",
+            Self::Requests => "request",
+            Self::Stages => "stage",
+            Self::Queues => "queue",
+            Self::Inflight => "in-flight",
+            Self::RuntimeSnapshots => "runtime snapshot",
+        }
+    }
+}
+
+const fn validation_action(code: RunValidationIssueCode, _section: RunSection) -> &'static str {
+    match code {
+        RunValidationIssueCode::PreciseIntervalValidationUnavailable => "lack run-relative timing; duration evidence was retained and precise containment was unavailable.",
+        RunValidationIssueCode::PartialRunRelativeInterval
+        | RunValidationIssueCode::DurationMismatch => "had invalid optional run-relative timing cleared while duration evidence was retained.",
+        RunValidationIssueCode::InvertedInterval => "had an inverted interval; wall-clock inversions were excluded and run-relative inversions were cleared when duration evidence was otherwise retainable.",
+        RunValidationIssueCode::DuplicateCompletedRequestId => "were excluded from analysis because their request ID was ambiguous.",
+        RunValidationIssueCode::AmbiguousParentRequestId => "were excluded from analysis because the parent request ID was ambiguous.",
+        RunValidationIssueCode::OrphanRequestScopedEvent => "were excluded from analysis because no retained parent request matched.",
+        RunValidationIssueCode::ParentRequestExcluded => "were excluded from analysis because the only parent candidates were excluded.",
+        RunValidationIssueCode::ChildIntervalOutsideRequest => "were excluded from analysis because normalized precise timing placed them outside the parent request.",
+        RunValidationIssueCode::EmptyRequiredField => "were excluded from analysis because required fields were blank.",
+        RunValidationIssueCode::UnsupportedSchemaVersion => "failed validation because the schema version is unsupported.",
+    }
+}
+
 #[derive(Default)]
 struct Ctx {
     issues: Vec<RunValidationIssue>,
@@ -310,8 +379,15 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
     }
 
     let mut request_invalid = vec![BTreeSet::new(); run.requests.len()];
+    let mut request_precision_clear = vec![BTreeSet::new(); run.requests.len()];
     for (i, r) in run.requests.iter().enumerate() {
-        inspect_request(&mut ctx, &mut request_invalid[i], i, r);
+        inspect_request(
+            &mut ctx,
+            &mut request_invalid[i],
+            &mut request_precision_clear[i],
+            i,
+            r,
+        );
     }
     let mut counts = BTreeMap::<&str, usize>::new();
     for (i, r) in run.requests.iter().enumerate() {
@@ -339,10 +415,22 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
     }
     let mut parent_index = BTreeMap::<&str, usize>::new();
     let mut retained_requests = Vec::new();
-    for (i, r) in run.requests.iter().enumerate() {
-        if request_invalid[i].is_empty() {
+    let normalized_requests_by_input = run
+        .requests
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            if request_invalid[i].is_empty() {
+                Some(clear_bad_request(r, &request_precision_clear[i]))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    for (i, r) in normalized_requests_by_input.iter().enumerate() {
+        if let Some(r) = r {
             parent_index.insert(r.request_id.as_str(), i);
-            retained_requests.push(clear_bad_request(r, &BTreeSet::new()));
+            retained_requests.push(r.clone());
         }
     }
     let mut normalized = run.clone();
@@ -359,23 +447,34 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
     }
 
     let mut stage_invalid = vec![BTreeSet::new(); run.stages.len()];
+    let mut stage_precision_clear = vec![BTreeSet::new(); run.stages.len()];
     let mut stages = Vec::new();
     for (i, s) in run.stages.iter().enumerate() {
-        inspect_stage(&mut ctx, &mut stage_invalid[i], i, s);
+        inspect_stage(
+            &mut ctx,
+            &mut stage_invalid[i],
+            &mut stage_precision_clear[i],
+            i,
+            s,
+        );
         child_policy(
             &mut ctx,
             &mut stage_invalid[i],
             RunSection::Stages,
             i,
             s.request_id.as_str(),
-            interval_req(run, &parent_index, s.request_id.as_str()),
-            interval_stage(s),
+            interval_req(
+                &normalized_requests_by_input,
+                &parent_index,
+                s.request_id.as_str(),
+            ),
+            interval_stage(&clear_bad_stage(s, &stage_precision_clear[i])),
             &dup_ids,
             &parent_index,
             &parent_excluded,
         );
         if stage_invalid[i].is_empty() {
-            stages.push(clear_bad_stage(s, &BTreeSet::new()));
+            stages.push(clear_bad_stage(s, &stage_precision_clear[i]));
         }
     }
     if produce_run {
@@ -383,23 +482,34 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
     }
     add_disps(&mut dispositions, RunSection::Stages, &stage_invalid);
     let mut queue_invalid = vec![BTreeSet::new(); run.queues.len()];
+    let mut queue_precision_clear = vec![BTreeSet::new(); run.queues.len()];
     let mut queues = Vec::new();
     for (i, q) in run.queues.iter().enumerate() {
-        inspect_queue(&mut ctx, &mut queue_invalid[i], i, q);
+        inspect_queue(
+            &mut ctx,
+            &mut queue_invalid[i],
+            &mut queue_precision_clear[i],
+            i,
+            q,
+        );
         child_policy(
             &mut ctx,
             &mut queue_invalid[i],
             RunSection::Queues,
             i,
             q.request_id.as_str(),
-            interval_req(run, &parent_index, q.request_id.as_str()),
-            interval_queue(q),
+            interval_req(
+                &normalized_requests_by_input,
+                &parent_index,
+                q.request_id.as_str(),
+            ),
+            interval_queue(&clear_bad_queue(q, &queue_precision_clear[i])),
             &dup_ids,
             &parent_index,
             &parent_excluded,
         );
         if queue_invalid[i].is_empty() {
-            queues.push(clear_bad_queue(q, &BTreeSet::new()));
+            queues.push(clear_bad_queue(q, &queue_precision_clear[i]));
         }
     }
     if produce_run {
@@ -445,13 +555,13 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
     }
 }
 
-fn interval_req(run: &Run, map: &BTreeMap<&str, usize>, id: &str) -> Option<(u64, u64)> {
-    let out = *map.get(id)?;
-    let r = run
-        .requests
-        .iter()
-        .filter(|r| r.request_id == id)
-        .nth(out)?;
+fn interval_req(
+    requests: &[Option<RequestEvent>],
+    map: &BTreeMap<&str, usize>,
+    id: &str,
+) -> Option<(u64, u64)> {
+    let input_index = *map.get(id)?;
+    let r = requests.get(input_index)?.as_ref()?;
     interval(r.started_at_run_us, r.finished_at_run_us)
 }
 fn interval(start: Option<u64>, end: Option<u64>) -> Option<(u64, u64)> {
@@ -572,6 +682,7 @@ fn inspect_required(
 fn inspect_time(
     ctx: &mut Ctx,
     invalid: &mut BTreeSet<RunValidationIssueCode>,
+    precision_clear: &mut BTreeSet<RunValidationIssueCode>,
     section: RunSection,
     i: usize,
     coarse_start: u64,
@@ -602,6 +713,7 @@ fn inspect_time(
             "run-relative interval is unavailable",
         ),
         (Some(_), None) | (None, Some(_)) => {
+            precision_clear.insert(RunValidationIssueCode::PartialRunRelativeInterval);
             ctx.issue(
                 section,
                 Some(i),
@@ -613,7 +725,7 @@ fn inspect_time(
         }
         (Some(s), Some(e)) => {
             if e < s {
-                invalid.insert(RunValidationIssueCode::InvertedInterval);
+                precision_clear.insert(RunValidationIssueCode::InvertedInterval);
                 ctx.issue(
                     section,
                     Some(i),
@@ -623,6 +735,7 @@ fn inspect_time(
                     "run-relative end is before start",
                 );
             } else if duration.abs_diff(e - s) > RUN_RELATIVE_DURATION_TOLERANCE_US {
+                precision_clear.insert(RunValidationIssueCode::DurationMismatch);
                 ctx.issue(
                     section,
                     Some(i),
@@ -638,6 +751,7 @@ fn inspect_time(
 fn inspect_request(
     ctx: &mut Ctx,
     invalid: &mut BTreeSet<RunValidationIssueCode>,
+    precision_clear: &mut BTreeSet<RunValidationIssueCode>,
     i: usize,
     r: &RequestEvent,
 ) {
@@ -654,6 +768,7 @@ fn inspect_request(
     inspect_time(
         ctx,
         invalid,
+        precision_clear,
         RunSection::Requests,
         i,
         r.started_at_unix_ms,
@@ -667,6 +782,7 @@ fn inspect_request(
 fn inspect_stage(
     ctx: &mut Ctx,
     invalid: &mut BTreeSet<RunValidationIssueCode>,
+    precision_clear: &mut BTreeSet<RunValidationIssueCode>,
     i: usize,
     s: &StageEvent,
 ) {
@@ -682,6 +798,7 @@ fn inspect_stage(
     inspect_time(
         ctx,
         invalid,
+        precision_clear,
         RunSection::Stages,
         i,
         s.started_at_unix_ms,
@@ -695,6 +812,7 @@ fn inspect_stage(
 fn inspect_queue(
     ctx: &mut Ctx,
     invalid: &mut BTreeSet<RunValidationIssueCode>,
+    precision_clear: &mut BTreeSet<RunValidationIssueCode>,
     i: usize,
     q: &QueueEvent,
 ) {
@@ -710,6 +828,7 @@ fn inspect_queue(
     inspect_time(
         ctx,
         invalid,
+        precision_clear,
         RunSection::Queues,
         i,
         q.waited_from_unix_ms,
@@ -720,43 +839,34 @@ fn inspect_queue(
         q.wait_us,
     );
 }
-fn clear_bad_request(r: &RequestEvent, _: &BTreeSet<RunValidationIssueCode>) -> RequestEvent {
+fn clear_bad_request(
+    r: &RequestEvent,
+    precision_clear: &BTreeSet<RunValidationIssueCode>,
+) -> RequestEvent {
     let mut r = r.clone();
-    if r.started_at_run_us.is_none() != r.finished_at_run_us.is_none()
-        || r.started_at_run_us
-            .zip(r.finished_at_run_us)
-            .is_some_and(|(s, e)| {
-                e < s || r.latency_us.abs_diff(e - s) > RUN_RELATIVE_DURATION_TOLERANCE_US
-            })
-    {
+    if !precision_clear.is_empty() {
         r.started_at_run_us = None;
         r.finished_at_run_us = None;
     }
     r
 }
-fn clear_bad_stage(s: &StageEvent, _: &BTreeSet<RunValidationIssueCode>) -> StageEvent {
+fn clear_bad_stage(
+    s: &StageEvent,
+    precision_clear: &BTreeSet<RunValidationIssueCode>,
+) -> StageEvent {
     let mut s = s.clone();
-    if s.started_at_run_us.is_none() != s.finished_at_run_us.is_none()
-        || s.started_at_run_us
-            .zip(s.finished_at_run_us)
-            .is_some_and(|(a, b)| {
-                b < a || s.latency_us.abs_diff(b - a) > RUN_RELATIVE_DURATION_TOLERANCE_US
-            })
-    {
+    if !precision_clear.is_empty() {
         s.started_at_run_us = None;
         s.finished_at_run_us = None;
     }
     s
 }
-fn clear_bad_queue(q: &QueueEvent, _: &BTreeSet<RunValidationIssueCode>) -> QueueEvent {
+fn clear_bad_queue(
+    q: &QueueEvent,
+    precision_clear: &BTreeSet<RunValidationIssueCode>,
+) -> QueueEvent {
     let mut q = q.clone();
-    if q.waited_from_run_us.is_none() != q.waited_until_run_us.is_none()
-        || q.waited_from_run_us
-            .zip(q.waited_until_run_us)
-            .is_some_and(|(a, b)| {
-                b < a || q.wait_us.abs_diff(b - a) > RUN_RELATIVE_DURATION_TOLERANCE_US
-            })
-    {
+    if !precision_clear.is_empty() {
         q.waited_from_run_us = None;
         q.waited_until_run_us = None;
     }

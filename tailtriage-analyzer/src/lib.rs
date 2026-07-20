@@ -19,8 +19,8 @@ pub use options::{
     QueueingOptions, RouteOptions, TemporalOptions,
 };
 use tailtriage_core::{
-    normalize_run_permissive, validate_run_strict, InFlightSnapshot, Run, RunValidationIssueCode,
-    RuntimeSnapshot,
+    normalize_run_permissive, summarize_run_validation, validate_run_strict, InFlightSnapshot, Run,
+    RunValidationIssueCode, RuntimeSnapshot,
 };
 
 const ROUTE_DIVERGENCE_WARNING: &str =
@@ -604,21 +604,14 @@ impl Analyzer {
 
 fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     let normalized = normalize_run_permissive(run);
-    let use_normalized = normalized.report.issues.iter().any(|issue| {
-        matches!(
-            issue.code,
-            RunValidationIssueCode::DuplicateCompletedRequestId
-                | RunValidationIssueCode::AmbiguousParentRequestId
-                | RunValidationIssueCode::OrphanRequestScopedEvent
-                | RunValidationIssueCode::ParentRequestExcluded
-                | RunValidationIssueCode::ChildIntervalOutsideRequest
-        )
-    });
-    let analysis_run = if use_normalized { &normalized.run } else { run };
+    let analysis_run = &normalized.run;
     let mut report = analyze_run_internal(analysis_run, options);
-    report.warnings.splice(
-        0..0,
-        normalized.report.issues.iter().map(core_issue_warning),
+    let validation_warnings = summarize_run_validation(&normalized.report);
+    report.warnings.splice(0..0, validation_warnings.clone());
+    report.evidence_quality.limitations.extend(
+        validation_warnings
+            .into_iter()
+            .map(|warning| format!("Validation limitation: {warning}")),
     );
     let route_context = route::route_breakdowns(analysis_run, &report, options);
     if route_context.warn_on_divergence {
@@ -805,17 +798,6 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) 
         warnings.push(w);
     }
     warnings
-}
-
-fn core_issue_warning(issue: &tailtriage_core::RunValidationIssue) -> String {
-    format!(
-        "Run validation {} at {:?}[{:?}] {:?}: {}",
-        issue.code.as_str(),
-        issue.location.section,
-        issue.location.index,
-        issue.location.field,
-        issue.message
-    )
 }
 
 fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {

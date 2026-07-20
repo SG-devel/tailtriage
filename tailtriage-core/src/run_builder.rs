@@ -346,11 +346,14 @@ impl RunBuilder {
     /// completions.
     #[must_use]
     pub fn finish(self) -> Run {
-        if self.run.requests.is_empty() {
-            self.run
-        } else {
-            crate::normalize_run_permissive(&self.run).run
+        let normalized = crate::normalize_run_permissive(&self.run);
+        let mut run = normalized.run;
+        for warning in crate::summarize_run_validation(&normalized.report) {
+            if !run.metadata.lifecycle_warnings.contains(&warning) {
+                run.metadata.lifecycle_warnings.push(warning);
+            }
         }
+        run
     }
 }
 
