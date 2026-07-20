@@ -2339,6 +2339,389 @@ mod run_validation_contract {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
+    fn mixed_candidate_has_exact_issue_and_disposition_contract() {
+        let mut run = base_run();
+        run.requests.push(req("ok", Some(0), Some(100), 100));
+        let mut bad_request = req("bad", Some(0), Some(100), 100);
+        bad_request.route = " ".into();
+        run.requests.push(bad_request);
+        run.requests.push(req("clear", Some(10), None, 50));
+        run.stages.push(StageEvent {
+            request_id: "ok".into(),
+            stage: "retained-stage".into(),
+            started_at_unix_ms: 1_000,
+            started_at_run_us: Some(10),
+            finished_at_unix_ms: 1_001,
+            finished_at_run_us: Some(20),
+            latency_us: 10,
+            success: true,
+        });
+        run.stages.push(StageEvent {
+            request_id: "missing".into(),
+            stage: "orphan-stage".into(),
+            started_at_unix_ms: 1_000,
+            started_at_run_us: Some(10),
+            finished_at_unix_ms: 1_001,
+            finished_at_run_us: Some(20),
+            latency_us: 10,
+            success: true,
+        });
+        run.queues.push(QueueEvent {
+            request_id: "ok".into(),
+            queue: "retained-queue".into(),
+            waited_from_unix_ms: 1_000,
+            waited_from_run_us: Some(30),
+            waited_until_unix_ms: 1_001,
+            waited_until_run_us: Some(40),
+            wait_us: 10,
+            depth_at_start: Some(1),
+        });
+        run.queues.push(QueueEvent {
+            request_id: "ok".into(),
+            queue: " ".into(),
+            waited_from_unix_ms: 1_000,
+            waited_from_run_us: Some(30),
+            waited_until_unix_ms: 1_001,
+            waited_until_run_us: Some(40),
+            wait_us: 10,
+            depth_at_start: Some(1),
+        });
+        run.inflight.push(InFlightSnapshot {
+            gauge: " ".into(),
+            at_unix_ms: 1_000,
+            at_run_us: Some(1),
+            count: 1,
+        });
+        run.runtime_snapshots.push(RuntimeSnapshot {
+            at_unix_ms: 1_000,
+            at_run_us: Some(1),
+            alive_tasks: Some(1),
+            global_queue_depth: Some(2),
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        });
+
+        let normalized = normalize_run_permissive(&run);
+
+        let issue_projection = normalized
+            .report
+            .issues
+            .iter()
+            .map(|issue| {
+                (
+                    issue.severity,
+                    issue.code,
+                    issue.location.section,
+                    issue.location.index,
+                    issue.location.field,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            issue_projection,
+            vec![
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::EmptyRequiredField,
+                    RunSection::Requests,
+                    Some(1),
+                    Some("route"),
+                ),
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::PartialRunRelativeInterval,
+                    RunSection::Requests,
+                    Some(2),
+                    None,
+                ),
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::OrphanRequestScopedEvent,
+                    RunSection::Stages,
+                    Some(1),
+                    Some("request_id"),
+                ),
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::EmptyRequiredField,
+                    RunSection::Queues,
+                    Some(1),
+                    Some("queue"),
+                ),
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::EmptyRequiredField,
+                    RunSection::Inflight,
+                    Some(0),
+                    Some("gauge"),
+                ),
+            ]
+        );
+
+        assert_eq!(
+            normalized
+                .run
+                .requests
+                .iter()
+                .map(|r| r.request_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ok", "clear"]
+        );
+        assert_eq!(normalized.run.requests[1].latency_us, 50);
+        assert_eq!(normalized.run.requests[1].started_at_run_us, None);
+        assert_eq!(normalized.run.requests[1].finished_at_run_us, None);
+        assert_eq!(
+            normalized
+                .run
+                .stages
+                .iter()
+                .map(|s| s.stage.as_str())
+                .collect::<Vec<_>>(),
+            vec!["retained-stage"]
+        );
+        assert_eq!(
+            normalized
+                .run
+                .queues
+                .iter()
+                .map(|q| q.queue.as_str())
+                .collect::<Vec<_>>(),
+            vec!["retained-queue"]
+        );
+        assert!(normalized.run.inflight.is_empty());
+        assert_eq!(normalized.run.runtime_snapshots.len(), 1);
+
+        let disposition_projection = normalized
+            .dispositions
+            .iter()
+            .map(|disposition| {
+                let kind = match &disposition.disposition {
+                    RunEventDispositionKind::Retained { output_index } => {
+                        ("retained", Some(*output_index), Vec::new())
+                    }
+                    RunEventDispositionKind::Excluded { issue_codes } => {
+                        ("excluded", None, issue_codes.clone())
+                    }
+                };
+                (disposition.section, disposition.input_index, kind)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            disposition_projection,
+            vec![
+                (RunSection::Requests, 0, ("retained", Some(0), vec![])),
+                (
+                    RunSection::Requests,
+                    1,
+                    (
+                        "excluded",
+                        None,
+                        vec![RunValidationIssueCode::EmptyRequiredField]
+                    )
+                ),
+                (RunSection::Requests, 2, ("retained", Some(1), vec![])),
+                (RunSection::Stages, 0, ("retained", Some(0), vec![])),
+                (
+                    RunSection::Stages,
+                    1,
+                    (
+                        "excluded",
+                        None,
+                        vec![RunValidationIssueCode::OrphanRequestScopedEvent]
+                    )
+                ),
+                (RunSection::Queues, 0, ("retained", Some(0), vec![])),
+                (
+                    RunSection::Queues,
+                    1,
+                    (
+                        "excluded",
+                        None,
+                        vec![RunValidationIssueCode::EmptyRequiredField]
+                    )
+                ),
+                (
+                    RunSection::Inflight,
+                    0,
+                    (
+                        "excluded",
+                        None,
+                        vec![RunValidationIssueCode::EmptyRequiredField]
+                    )
+                ),
+                (
+                    RunSection::RuntimeSnapshots,
+                    0,
+                    ("retained", Some(0), vec![])
+                ),
+            ]
+        );
+
+        assert_contiguous_retained_indices(&normalized, RunSection::Requests, 2);
+        assert_contiguous_retained_indices(&normalized, RunSection::Stages, 1);
+        assert_contiguous_retained_indices(&normalized, RunSection::Queues, 1);
+        assert_contiguous_retained_indices(&normalized, RunSection::Inflight, 0);
+        assert_contiguous_retained_indices(&normalized, RunSection::RuntimeSnapshots, 1);
+        assert_eq!(normalize_run_permissive(&run), normalized);
+        let renormalized = normalize_run_permissive(&normalized.run);
+        assert_eq!(renormalized.run, normalized.run);
+        assert!(!renormalized
+            .report
+            .issues
+            .iter()
+            .any(|issue| issue.severity == RunValidationSeverity::Error));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn zero_request_runs_are_generically_valid_but_other_sections_are_inspected() {
+        let valid_empty = base_run();
+        validate_run_strict(&valid_empty).expect("zero-request run is generically valid");
+        let normalized_empty = normalize_run_permissive(&valid_empty);
+        assert!(normalized_empty.run.requests.is_empty());
+        assert!(normalized_empty.report.issues.is_empty());
+
+        let mut run = base_run();
+        run.stages.push(stage("missing"));
+        run.queues.push(queue("missing"));
+        run.inflight.push(InFlightSnapshot {
+            gauge: " ".into(),
+            at_unix_ms: 1_000,
+            at_run_us: Some(1),
+            count: 1,
+        });
+        run.runtime_snapshots.push(RuntimeSnapshot {
+            at_unix_ms: 1_000,
+            at_run_us: Some(1),
+            alive_tasks: Some(1),
+            global_queue_depth: Some(2),
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        });
+
+        let normalized = normalize_run_permissive(&run);
+        assert!(normalized.run.requests.is_empty());
+        assert!(normalized.run.stages.is_empty());
+        assert!(normalized.run.queues.is_empty());
+        assert!(normalized.run.inflight.is_empty());
+        assert_eq!(normalized.run.runtime_snapshots.len(), 1);
+
+        let issue_projection = normalized
+            .report
+            .issues
+            .iter()
+            .map(|issue| {
+                (
+                    issue.severity,
+                    issue.code,
+                    issue.location.section,
+                    issue.location.index,
+                    issue.location.field,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            issue_projection,
+            vec![
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::OrphanRequestScopedEvent,
+                    RunSection::Stages,
+                    Some(0),
+                    Some("request_id")
+                ),
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::OrphanRequestScopedEvent,
+                    RunSection::Queues,
+                    Some(0),
+                    Some("request_id")
+                ),
+                (
+                    RunValidationSeverity::Error,
+                    RunValidationIssueCode::EmptyRequiredField,
+                    RunSection::Inflight,
+                    Some(0),
+                    Some("gauge")
+                ),
+            ]
+        );
+        assert_eq!(
+            normalized
+                .dispositions
+                .iter()
+                .map(|d| (&d.section, d.input_index))
+                .collect::<Vec<_>>(),
+            vec![
+                (&RunSection::Stages, 0),
+                (&RunSection::Queues, 0),
+                (&RunSection::Inflight, 0),
+                (&RunSection::RuntimeSnapshots, 0),
+            ]
+        );
+        assert_eq!(
+            normalized
+                .dispositions
+                .iter()
+                .map(|d| &d.disposition)
+                .collect::<Vec<_>>(),
+            vec![
+                &RunEventDispositionKind::Excluded {
+                    issue_codes: vec![RunValidationIssueCode::OrphanRequestScopedEvent]
+                },
+                &RunEventDispositionKind::Excluded {
+                    issue_codes: vec![RunValidationIssueCode::OrphanRequestScopedEvent]
+                },
+                &RunEventDispositionKind::Excluded {
+                    issue_codes: vec![RunValidationIssueCode::EmptyRequiredField]
+                },
+                &RunEventDispositionKind::Retained { output_index: 0 },
+            ]
+        );
+        let strict =
+            validate_run_strict(&run).expect_err("actual section findings fail strict validation");
+        assert!(strict.report().issues.iter().all(|issue| {
+            matches!(
+                issue.location.section,
+                RunSection::Stages | RunSection::Queues | RunSection::Inflight
+            )
+        }));
+        assert!(strict
+            .report()
+            .issues
+            .iter()
+            .all(|issue| issue.location.section != RunSection::Requests));
+    }
+
+    fn assert_contiguous_retained_indices(
+        normalized: &NormalizedRun,
+        section: RunSection,
+        retained_count: usize,
+    ) {
+        let indices = normalized
+            .dispositions
+            .iter()
+            .filter_map(|disposition| {
+                if disposition.section == section {
+                    if let RunEventDispositionKind::Retained { output_index } =
+                        disposition.disposition
+                    {
+                        Some(output_index)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(indices, (0..retained_count).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn orphan_outside_and_legacy_duration_only_child_policy_is_deterministic() {
         let mut run = base_run();
         run.requests.push(req("ok", Some(10), Some(100), 90));

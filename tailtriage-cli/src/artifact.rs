@@ -5,12 +5,22 @@ use tailtriage_core::{normalize_run_permissive, Run, SCHEMA_VERSION};
 
 const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
 
-/// A validated run artifact plus non-fatal loader warnings.
+/// A decoded run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
 pub struct LoadedArtifact {
-    /// Parsed run artifact data used by analyzer and renderer flows.
+    /// Permissively normalized [`Run`].
+    ///
+    /// This is suitable for command-level policy checks, such as whether any
+    /// request remains after normalization, and for callers that deliberately
+    /// want normalized evidence without the original validation findings. It is
+    /// not the preferred analyzer input when canonical findings from the
+    /// original candidate must remain visible.
     pub run: Run,
-    /// Original decoded run before permissive normalization.
+    /// Original decoded [`Run`] before permissive normalization.
+    ///
+    /// This is the required input for strict validation and the preferred
+    /// analyzer input when canonical findings from the original candidate must
+    /// remain visible.
     pub original_run: Run,
     /// Non-fatal loader findings that did not block loading.
     pub warnings: Vec<String>,
@@ -109,7 +119,7 @@ impl std::error::Error for ArtifactLoadError {
 }
 
 /// Loads and decodes a tailtriage run artifact from disk, then applies
-/// permissive core normalization for analyzer use.
+/// permissive core normalization for command-level checks.
 ///
 /// The CLI owns file/JSON/schema-envelope decoding and the analyze command
 /// requirement that at least one request remains after core normalization.
@@ -126,8 +136,9 @@ pub fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadErro
     Ok(loaded)
 }
 
-/// Decodes a run artifact and applies permissive core normalization without
-/// enforcing command-specific minimum-request policy.
+/// Decodes a run artifact and returns both the original candidate and its
+/// permissively normalized form without enforcing command-specific
+/// minimum-request policy.
 ///
 /// # Errors
 /// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,

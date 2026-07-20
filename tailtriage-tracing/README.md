@@ -18,7 +18,7 @@ Use this path when your service already uses Rust `tracing` and already has stab
 
 This crate converts tracing-shaped request, stage, and queue evidence into standard `tailtriage_core::Run` artifacts for the normal `tailtriage analyze` workflow. It is not a tracing backend.
 
-For one completed logical request/work item, every request, stage, and queue span must carry the same `tt.request_id`. That `tt.request_id` is the unique tailtriage request ID for the completed request within one Run, not necessarily a raw distributed trace ID. Child stage/queue evidence is correlated to retained request evidence by `tt.request_id`; missing, inconsistent, or duplicate IDs cause child evidence to be skipped, weakened, or reported as ambiguous.
+For one completed logical request/work item, every request, stage, and queue span must carry the same `tt.request_id`. That `tt.request_id` is the unique tailtriage request ID for the completed request within one Run, not necessarily a raw distributed trace ID. Child stage/queue evidence is correlated to request evidence by `tt.request_id` during core normalization; missing, excluded, or ambiguous parent requests produce canonical core findings and may exclude the child from normalized analysis.
 
 External trace/correlation IDs may repeat across retries, fanout branches, batch items, or attempts. When they can repeat, derive a unique tailtriage `tt.request_id` first, for example by adding attempt, span, branch, or item information. Users remain responsible for meaningful instrumentation and request-boundary semantics.
 
@@ -99,9 +99,11 @@ If your service already builds a subscriber in startup code, compose `session.la
 - Imported or live tracing evidence is converted to normal tailtriage Run timing fields.
 - Live tracing samples finish wall time when the span closes.
 - Newer live tracing output includes run-relative monotonic offsets for request, stage, and queue spans when those offsets are available; these offsets improve temporal grouping inside a captured run.
-- Imported JSONL may omit run-relative offsets. When they are absent, the analyzer falls back to Unix-ms wall-clock timestamps for temporal grouping.
+- Imported JSONL may omit run-relative offsets. Missing offsets remain supported: core emits the warning-only `precise_interval_validation_unavailable` finding, retains the duration evidence unchanged, and does not check the authoritative duration against coarse Unix-ms bounds as a generic validation fallback.
 - `duration_us` remains the authoritative elapsed-time evidence when supplied or recorded by live tracing.
-- Completed-span JSONL export preserves `duration_us` when it is replay-safe under import precedence: complete run-relative monotonic offsets are used when present; otherwise exported Unix-ms bounds are used. When the selected timing source does not match the retained duration, export omits `duration_us`; replay then derives elapsed time from the best available timing evidence.
+- Complete run-relative offsets provide optional precision for temporal grouping and precise parent/child containment. Partial offsets, inverted run-relative offsets, and duration-versus-offset mismatches beyond the shared core `2_000` microsecond tolerance are error-level core findings.
+- In permissive normalization, core retains the event and authoritative duration for those invalid optional-precision findings while clearing both optional offsets. In strict validation, core rejects those error-level findings.
+- Precise child containment is evaluated by core only when both the retained parent request and child stage/queue have complete valid normalized run-relative intervals. No Unix-ms wall-clock containment fallback is used.
 - Unix-ms timestamps are wall-clock anchors and may be coarser than durations.
 - Ordinary tracing log timestamps are not enough for completed-span import; completed spans need explicit start/end timing and semantic tt.* fields.
 
@@ -197,9 +199,11 @@ span.record("tt.outcome", "timeout");
 
 - Strict mode: malformed/incomplete `tt.*` span records fail import/session conversion.
 - Non-strict mode: malformed/incomplete records are warned and skipped where implemented.
-- Duration consistency rule: complete run-relative offsets are preferred when present; Unix-ms bounds are the fallback when complete run-relative offsets are absent. `duration_us` remains authoritative elapsed-time evidence when supplied and consistent with the selected timing source. If complete run-relative monotonic offsets are present, strict conversion requires `duration_us` to match `finished_at_run_us - started_at_run_us` within `2_000` microseconds. If complete run-relative offsets are absent, strict conversion checks `duration_us` against `(finished_at_unix_ms - started_at_unix_ms) * 1000`. Non-strict conversion warns on mismatches but keeps the supplied `duration_us`. When `duration_us` is absent, conversion derives elapsed time from complete run-relative offsets first, then falls back to Unix-ms wall-clock bounds.
-- Child stage/queue containment uses a fixed `2` ms tolerance when checking whether child intervals fall inside retained request intervals.
-- That `2` ms containment tolerance is not configurable in this release (no CLI/API knob).
+- Tracing owns source parsing, source warnings, raw recorder retention, semantic capture limits, and JSONL line/context reporting.
+- Core owns generic completed-Run timing, duplicate request, parent-state, orphan, and containment policy after tracing has built source-valid candidate events.
+- Strict tracing import preserves tracing source-format errors first, then delegates generic Run validation to core. Error-level core findings such as partial run-relative intervals, inverted run-relative intervals, duration mismatches, duplicate request IDs, orphan children, excluded parents, ambiguous parents, and precise containment failures reject strict import.
+- Missing optional run-relative offsets are warning-only core findings and do not make strict import fail.
+- Permissive tracing import delegates to core normalization. Core may exclude invalid generic evidence or clear invalid optional offsets while retaining authoritative durations; tracing does not apply a separate permissive mismatch or containment policy.
 
 ## Retention and drop behavior
 
@@ -211,7 +215,9 @@ span.record("tt.outcome", "timeout");
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
 - `completed_span_jsonl_path(...)` writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
 - Completed-span JSONL is retained-evidence replay/debug export for the same request/stage/queue evidence path through `tailtriage import`; it is not a production trace archive.
-- It does not preserve lifecycle warnings, truncation counters, original span IDs, parent IDs, original span names, or non-`tt.*` fields.
+- The current shutdown exporter reconstructs stable span-shaped records from normalized retained Run evidence. It may omit `duration_us` when including it would not replay consistently with the reconstructed timing fields.
+- It does not preserve lifecycle warnings, truncation counters, original span names, original span IDs, parent IDs, or non-`tt.*` source fields.
+- Direct source-span archival and provenance-preserving completed-span export are deferred to Prompt 04; the current export is retained-evidence replay/debug output.
 - For production workflows that need the complete persisted triage artifact including warnings/truncation metadata, prefer `run_json_path(...)`.
 - Callers using JSONL-only export should inspect `session.shutdown()?.warnings()` in the same process.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
