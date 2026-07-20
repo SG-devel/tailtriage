@@ -635,10 +635,15 @@ mod tests {
 
         assert_eq!(imported.run().requests[0].latency_us, 50_000);
         assert_eq!(imported.run().requests[0].started_at_run_us, None);
+        assert_eq!(imported.run().requests[0].finished_at_run_us, None);
         assert!(imported
             .warnings()
             .iter()
-            .any(|warning| warning.message().contains("duration_us was retained")));
+            .any(|warning| warning.message().contains("duration_mismatch")));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|warning| warning.message().contains("duration evidence was retained")));
     }
 
     #[test]
@@ -769,7 +774,9 @@ mod tests {
 {"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db","tt.success":true}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().stages.len(), 1);
-        assert!(imported.warnings().is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("precise_interval_validation_unavailable")));
     }
 
     #[test]
@@ -809,9 +816,16 @@ mod tests {
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.warnings().len(), 1);
-        let warning_message = imported.warnings()[0].message();
-        assert!(warning_message.contains("line 3"));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("line 3")));
+        let warning_message = imported
+            .warnings()
+            .iter()
+            .find(|w| w.message().contains("line 3"))
+            .unwrap()
+            .message();
         assert!(imported
             .run()
             .metadata
@@ -828,9 +842,16 @@ mod tests {
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.warnings().len(), 1);
-        let conversion_warning = imported.warnings()[0].message();
-        assert!(conversion_warning.contains("tt.route"));
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("tt.route")));
+        let conversion_warning = imported
+            .warnings()
+            .iter()
+            .find(|w| w.message().contains("tt.route"))
+            .unwrap()
+            .message();
         assert!(imported
             .run()
             .metadata
@@ -847,9 +868,11 @@ mod tests {
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.warnings().len(), 1);
         let warning_message = "unknown tt.kind 'mystery' in span 'unknown'";
-        assert_eq!(imported.warnings()[0].message(), warning_message);
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message() == warning_message));
         let matches = imported
             .run()
             .metadata
@@ -952,7 +975,9 @@ mod tests {
 "#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported.warnings().is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("precise_interval_validation_unavailable")));
         assert!(imported.run().metadata.lifecycle_warnings.is_empty());
     }
 
@@ -997,7 +1022,7 @@ mod tests {
         assert!(imported
             .warnings()
             .iter()
-            .any(|w| w.message().contains("duration_us was retained")));
+            .any(|w| w.message().contains("duration evidence was retained")));
     }
 
     #[test]
@@ -1174,7 +1199,9 @@ mod tests {
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].route, "/message");
-        assert!(imported.warnings().is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("precise_interval_validation_unavailable")));
     }
 
     #[test]
@@ -1183,7 +1210,9 @@ mod tests {
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].route, "/fmt");
-        assert!(imported.warnings().is_empty());
+        assert!(imported.warnings().iter().any(|w| w
+            .message()
+            .contains("precise_interval_validation_unavailable")));
     }
 
     #[test]

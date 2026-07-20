@@ -319,12 +319,13 @@ fn import_tracing_spans_jsonl_creates_missing_output_parent_directories() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
     assert!(run_path.exists(), "run artifact should be written");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -377,12 +378,13 @@ fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     let report = analyze_run(&loaded.run, AnalyzeOptions::default());
     assert_eq!(report.request_count, 1);
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -519,13 +521,14 @@ fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported request-only run should load in cli loader");
     assert!(!loaded.run.requests.is_empty());
     assert!(loaded.run.stages.is_empty());
     assert!(loaded.run.queues.is_empty());
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -605,7 +608,7 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixtu
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
@@ -843,16 +846,14 @@ fn import_tracing_spans_jsonl_compatible_accepts_fmt_metadata_with_completed_spa
         .output()
         .expect("cli should run");
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stderr).trim().is_empty(),
-        "stderr should be empty: {output:?}"
-    );
+    assert_precise_interval_warning_only_in_stderr(&output);
     assert!(run_path.exists(), "run json should be written");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
     assert_eq!(loaded.run.requests[0].route, "/checkout");
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -923,8 +924,7 @@ fn import_tracing_spans_jsonl_strict_fails_on_incomplete_tailtriage_span() {
 }
 
 #[test]
-fn import_tracing_spans_jsonl_strict_with_max_requests_keeps_retained_request_and_skips_overflow_children(
-) {
+fn import_tracing_spans_jsonl_strict_with_max_requests_rejects_retained_orphan_children() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -957,9 +957,53 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_keeps_retained_request_an
         .output()
         .expect("cli should run");
 
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("orphan_request_scoped_event"));
+    assert!(!stderr.contains("valid but not retained due to max_requests"));
+    assert!(!stderr.contains("no retained request event was imported"));
+    assert!(
+        !run_path.exists(),
+        "run output should not exist on strict failure"
+    );
+}
+
+#[test]
+fn import_tracing_spans_jsonl_permissive_with_max_requests_excludes_retained_orphan_children() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        [
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-1","started_at_unix_ms":100,"finished_at_unix_ms":200,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"st-1","started_at_unix_ms":120,"finished_at_unix_ms":150,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"q-1","started_at_unix_ms":121,"finished_at_unix_ms":130,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-2","started_at_unix_ms":300,"finished_at_unix_ms":400,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"st-2","started_at_unix_ms":320,"finished_at_unix_ms":350,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"db"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"q-2","started_at_unix_ms":321,"finished_at_unix_ms":330,"fields":{"tt.kind":"queue","tt.request_id":"r2","tt.queue":"permits"}}}"#,
+        ]
+        .join("\n"),
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-spans-jsonl")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-requests")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+
     assert!(output.status.success(), "cli failed: {output:?}");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(!stderr.contains("no retained request event was imported"));
+    assert!(stderr.contains("orphan_request_scoped_event"));
+    assert!(!stderr.contains("valid but not retained due to max_requests"));
     assert!(run_path.exists(), "run output should exist");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
@@ -971,9 +1015,14 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_keeps_retained_request_an
     assert_eq!(loaded.run.queues.len(), 1);
     assert_eq!(loaded.run.queues[0].request_id, "r1");
     assert_eq!(loaded.run.truncation.dropped_requests, 1);
-    assert_eq!(loaded.run.truncation.dropped_stages, 1);
-    assert_eq!(loaded.run.truncation.dropped_queues, 1);
-    assert!(loaded.run.truncation.limits_hit);
+    assert_eq!(loaded.run.truncation.dropped_stages, 0);
+    assert_eq!(loaded.run.truncation.dropped_queues, 0);
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("orphan_request_scoped_event")));
 }
 
 #[test]
@@ -1008,7 +1057,7 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_fails_on_invalid_overflow
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("falls outside request interval"));
+    assert!(stderr.contains("orphan_request_scoped_event"));
     assert!(!stderr.contains("valid but not retained due to max_requests"));
     assert!(
         !run_path.exists(),
@@ -1077,13 +1126,14 @@ fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.metadata.service_name, "checkout");
     assert_eq!(loaded.run.metadata.service_version.as_deref(), Some("v1"));
     assert_eq!(loaded.run.metadata.run_id, "run-42");
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -1438,6 +1488,25 @@ fn parse_report_json(output: std::process::Output) -> serde_json::Value {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     serde_json::from_str(&stdout).expect("stdout should be valid json")
+}
+
+fn assert_precise_interval_warning_only_in_stderr(output: &std::process::Output) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("precise_interval_validation_unavailable"),
+        "stderr should contain precise interval warning: {output:?}"
+    );
+}
+
+fn assert_no_precise_interval_lifecycle_warning(run: &tailtriage_core::Run) {
+    assert!(
+        !run.metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|warning| warning.contains("precise_interval_validation_unavailable")),
+        "missing precision warning should not be durable lifecycle noise: {:?}",
+        run.metadata.lifecycle_warnings
+    );
 }
 
 fn valid_cli_artifact_with_empty_requests() -> &'static str {

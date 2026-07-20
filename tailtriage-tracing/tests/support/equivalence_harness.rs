@@ -190,8 +190,11 @@ fn deterministic_tracing_run() -> (Run, Vec<String>) {
     let mut spans = Vec::new();
     for (id, offset_ms, request_us, queue_us, db_us, cache_us) in scenario {
         let req_start = start_ms + offset_ms;
+        let req_run_start_us = offset_ms * 1000;
         spans.push(
             SpanRecord::new("request", req_start, req_start + (request_us / 1000))
+                .started_at_run_us(req_run_start_us)
+                .finished_at_run_us(req_run_start_us + request_us)
                 .duration_us(request_us)
                 .field(TT_KIND, "request")
                 .field(TT_REQUEST_ID, id)
@@ -200,6 +203,8 @@ fn deterministic_tracing_run() -> (Run, Vec<String>) {
         );
         spans.push(
             SpanRecord::new("queue", req_start + 1, req_start + 1 + (queue_us / 1000))
+                .started_at_run_us(req_run_start_us + 1_000)
+                .finished_at_run_us(req_run_start_us + 1_000 + queue_us)
                 .duration_us(queue_us)
                 .field(TT_KIND, "queue")
                 .field(TT_REQUEST_ID, id)
@@ -208,6 +213,8 @@ fn deterministic_tracing_run() -> (Run, Vec<String>) {
         );
         spans.push(
             SpanRecord::new("stage", req_start + 85, req_start + 85 + (db_us / 1000))
+                .started_at_run_us(req_run_start_us + 85_000)
+                .finished_at_run_us(req_run_start_us + 85_000 + db_us)
                 .duration_us(db_us)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, id)
@@ -216,6 +223,8 @@ fn deterministic_tracing_run() -> (Run, Vec<String>) {
         );
         spans.push(
             SpanRecord::new("stage", req_start + 93, req_start + 93 + (cache_us / 1000))
+                .started_at_run_us(req_run_start_us + 93_000)
+                .finished_at_run_us(req_run_start_us + 93_000 + cache_us)
                 .duration_us(cache_us)
                 .field(TT_KIND, "stage")
                 .field(TT_REQUEST_ID, id)
