@@ -117,9 +117,9 @@ Import behavior checklist:
 - Fails when zero request events would be written, such as unrelated-only input or all-skipped malformed `tt.*` input, because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
 - Applies the same non-empty-request rule before persisting completed-span JSONL artifacts in tracing intake sessions.
 
-`tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`. Add `--strict-artifact` when you want analysis to fail on duplicate completed request IDs or orphan stage/queue request IDs instead of using the default permissive warning behavior.
+`tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`. Run JSON decoding and schema-envelope errors are CLI-owned; generic completed-Run integrity is delegated to `tailtriage-core`. Default analysis uses permissively normalized evidence and canonical core issue-code warnings. Add `--strict-artifact` when you want strict validation of the original unnormalized artifact before analysis; warning-only missing run-relative precision remains accepted.
 
-The CLI artifact loader requires at least one request event in `requests`. This is a CLI artifact-loading rule, not an in-process `tailtriage-analyzer` requirement for already-constructed `Run` values.
+After core normalization, the CLI artifact loader requires at least one retained request event in `requests`. This is a command-level artifact-loading rule, not an in-process `tailtriage-analyzer` or generic core-integrity requirement.
 CLI input is Run artifact JSON from disk. CLI does not consume Report JSON as input.
 
 ## Analyzer tuning flags
