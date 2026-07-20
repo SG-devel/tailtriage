@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Core Run validation is now centralized in `tailtriage-core`, with strict validation and deterministic permissive normalization APIs for duplicate request IDs, request-scoped child integrity, required fields, schema version checks, and run-relative timing issues.
 - Aligned documented local validation commands with CI baseline flags in `AGENTS.md` and `scripts/validate_all.py`.
 - Updated `SPEC.md` and `DESIGN_NOTES.md` to describe current pre-0.4.0 governance, intake, analyzer, lifecycle, validation, and design-risk baselines without claiming future behavior.
 

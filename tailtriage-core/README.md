@@ -216,3 +216,7 @@ This crate does not provide:
 - analysis/report generation
 
 Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-tokio`, `tailtriage-axum`, `tailtriage-analyzer`, and `tailtriage-cli`.
+
+## Run validation
+
+`tailtriage-core` exposes `inspect_run`, `validate_run_strict`, and `normalize_run_permissive` as the canonical generic completed-`Run` integrity APIs. Strict validation checks the original unnormalized candidate and rejects error-level integrity issues; warning-only missing run-relative precision remains accepted. Permissive normalization retains duration-authoritative evidence where possible, clears invalid optional run-relative offsets without rewriting durations, excludes ambiguous duplicated requests and invalid request-scoped child evidence deterministically, and provides stable issue-code summaries for analyzer, CLI, tracing, and native lifecycle surfaces.

@@ -11,20 +11,89 @@
     "pid": 7
   },
   "requests": [
-    {"request_id":"r1","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":100,"outcome":"ok"},
-    {"request_id":"r2","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":120,"outcome":"ok"},
-    {"request_id":"r3","route":"/a","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":150,"outcome":"ok"}
+    {
+      "request_id": "r1",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 100,
+      "outcome": "ok",
+      "started_at_run_us": 0,
+      "finished_at_run_us": 100
+    },
+    {
+      "request_id": "r2",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 120,
+      "outcome": "ok",
+      "started_at_run_us": 1000000,
+      "finished_at_run_us": 1000120
+    },
+    {
+      "request_id": "r3",
+      "route": "/a",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 150,
+      "outcome": "ok",
+      "started_at_run_us": 2000000,
+      "finished_at_run_us": 2000150
+    }
   ],
   "stages": [],
   "queues": [
-    {"request_id":"r1","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":50,"depth_at_start":4},
-    {"request_id":"r2","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":75,"depth_at_start":5},
-    {"request_id":"r3","queue":"worker","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":100,"depth_at_start":6}
+    {
+      "request_id": "r1",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 50,
+      "depth_at_start": 4,
+      "waited_from_run_us": 0,
+      "waited_until_run_us": 50
+    },
+    {
+      "request_id": "r2",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 75,
+      "depth_at_start": 5,
+      "waited_from_run_us": 1000000,
+      "waited_until_run_us": 1000075
+    },
+    {
+      "request_id": "r3",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 100,
+      "depth_at_start": 6,
+      "waited_from_run_us": 2000000,
+      "waited_until_run_us": 2000100
+    }
   ],
   "inflight": [
-    {"gauge":"worker_inflight","at_unix_ms":1,"count":1},
-    {"gauge":"worker_inflight","at_unix_ms":2,"count":3},
-    {"gauge":"worker_inflight","at_unix_ms":3,"count":6}
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 1,
+      "count": 1
+    },
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 2,
+      "count": 3
+    },
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 3,
+      "count": 6
+    }
   ],
   "runtime_snapshots": []
 }

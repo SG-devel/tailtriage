@@ -73,7 +73,7 @@ Add `tailtriage-analyzer` when you want to analyze a completed Run inside Rust c
 
 If your service already emits `tracing` spans, use `tailtriage --features tracing-live` when you want the default crate façade (`tailtriage::tracing`) for live tracing intake, or use `tailtriage-tracing` directly when you want the narrow crate boundary. Native capture remains the default path for new integrations.
 
-Offline import expects completed tailtriage `tt.*` tracing span JSONL (not arbitrary tracing log JSON), requires explicit Unix-ms start/end timestamps, and uses complete run-relative monotonic offsets when present for duration derivation/validation.
+Offline import expects completed tailtriage `tt.*` tracing span JSONL (not arbitrary tracing log JSON), requires explicit Unix-ms start/end timestamps, and passes source-valid candidate evidence to core for generic Run integrity normalization. Complete run-relative monotonic offsets improve precision when present; missing offsets remain supported as duration-only legacy evidence.
 
 - Offline JSONL import:
   ```bash

@@ -166,12 +166,13 @@ fn analyze_strict_artifact_rejects_duplicate_completed_request_ids() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("strict artifact validation failed"));
-    assert!(stderr.contains("duplicate completed request_id"));
-    assert!(stderr.contains("req1"));
+    assert!(stderr.contains("duplicate_completed_request_id"));
+    assert!(stderr.contains("request[0]"));
+    assert!(stderr.contains("request[1]"));
 }
 
 #[test]
-fn analyze_permissive_artifact_warns_on_duplicate_completed_request_ids() {
+fn analyze_permissive_artifact_reports_empty_after_duplicate_exclusion_as_command_policy() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("duplicate-ids.json");
     let artifact = valid_cli_artifact_with_requests().replace(
@@ -188,17 +189,12 @@ fn analyze_permissive_artifact_warns_on_duplicate_completed_request_ids() {
         .output()
         .expect("cli should run");
 
-    assert!(output.status.success(), "cli failed: {output:?}");
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
-    let report: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be json");
-    let warnings = report["warnings"]
-        .as_array()
-        .expect("warnings should be array");
-    assert!(warnings
-        .iter()
-        .any(|warning| warning.as_str().is_some_and(|text| text
-            .contains("Duplicate completed request_id values detected")
-            && text.contains("req1"))));
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("requests section is empty"));
+    assert!(!stderr.contains("failed to parse"));
+    assert!(!stderr.contains("strict run validation"));
 }
 
 #[test]
@@ -220,8 +216,216 @@ fn analyze_strict_artifact_rejects_orphan_stage_request_ids() {
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("orphan stage request_id"));
-    assert!(stderr.contains("missing"));
+    assert!(stderr.contains("orphan_request_scoped_event"));
+    assert!(stderr.contains("stage[0]"));
+}
+
+#[test]
+fn analyze_strict_artifact_allows_missing_optional_precision_only() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = write_valid_artifact(&dir);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+
+    assert!(output.status.success(), "cli failed: {output:?}");
+}
+
+#[test]
+fn analyze_strict_artifact_required_field_location_includes_index_and_field() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("missing-route.json");
+    let artifact = valid_cli_artifact_with_requests().replace(r#""route":"/""#, r#""route":" ""#);
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("empty_required_field"));
+    assert!(stderr.contains("request[0].route"));
+}
+
+#[test]
+fn analyze_strict_artifact_duplicate_plus_orphan_displays_unique_error_codes_only() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("duplicate-plus-orphan.json");
+    let artifact = valid_cli_artifact_with_requests()
+        .replace(
+            r#""requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}]"#,
+            r#""requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"},{"request_id":"req1","route":"/retry","kind":null,"started_at_unix_ms":3,"finished_at_unix_ms":4,"latency_us":20,"outcome":"ok"}]"#,
+        )
+        .replace(
+            r#""stages":[]"#,
+            r#""stages":[{"request_id":"missing","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"success":true}]"#,
+        );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("duplicate_completed_request_id"));
+    assert!(stderr.contains("orphan_request_scoped_event"));
+    assert!(!stderr.contains("precise_interval_validation_unavailable"));
+}
+
+#[test]
+fn analyze_malformed_json_fails_before_core_validation() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("malformed.json");
+    std::fs::write(&artifact_path, "{\"schema_version\":1,").expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("failed to parse run artifact"));
+    assert!(!stderr.contains("strict artifact validation failed"));
+}
+
+#[test]
+fn analyze_strict_artifact_discloses_truncated_error_details() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("many-errors.json");
+    let requests = (0..10)
+        .map(|idx| {
+            format!(
+                r#"{{"request_id":"req{idx}","route":" ","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}]"#,
+        &format!(r#""requests":[{requests}]"#),
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--strict-artifact")
+        .output()
+        .expect("cli should run");
+
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("empty_required_field"));
+    assert!(stderr.contains("2 additional error finding(s) omitted"));
+}
+
+#[test]
+fn analyze_permissive_artifact_preserves_orphan_stage_core_warning_without_lifecycle_mutation() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("orphan-stage.json");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""stages":[]"#,
+        r#""stages":[{"request_id":"missing","stage":"db","started_at_unix_ms":1,"started_at_run_us":1,"finished_at_unix_ms":2,"finished_at_run_us":2,"latency_us":1,"success":true}]"#,
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+
+    let report = parse_report_json(output);
+    assert_eq!(report["request_count"].as_u64(), Some(1));
+    assert!(warnings(&report)
+        .iter()
+        .any(|warning| warning.contains("orphan_request_scoped_event")));
+
+    let original: Run =
+        serde_json::from_str(&std::fs::read_to_string(&artifact_path).unwrap()).unwrap();
+    assert!(original.metadata.lifecycle_warnings.is_empty());
+}
+
+#[test]
+fn analyze_permissive_artifact_preserves_invalid_optional_precision_warning_and_duration() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("partial-precision.json");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok""#,
+        r#""request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"started_at_run_us":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok""#,
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+
+    let report = parse_report_json(output);
+    assert_eq!(report["request_count"].as_u64(), Some(1));
+    assert!(warnings(&report)
+        .iter()
+        .any(|warning| warning.contains("partial_run_relative_interval")));
+    assert!(evidence_quality_limitations(&report)
+        .iter()
+        .any(|limitation| limitation.contains("duration evidence was retained")));
+}
+
+#[test]
+fn analyze_permissive_artifact_excludes_precise_child_outside_parent_but_retains_request() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("outside-child.json");
+    let artifact = valid_cli_artifact_with_requests()
+        .replace(
+            r#""request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok""#,
+            r#""request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"started_at_run_us":10,"finished_at_unix_ms":2,"finished_at_run_us":20,"latency_us":10,"outcome":"ok""#,
+        )
+        .replace(
+            r#""stages":[]"#,
+            r#""stages":[{"request_id":"req1","stage":"db","started_at_unix_ms":1,"started_at_run_us":0,"finished_at_unix_ms":2,"finished_at_run_us":5,"latency_us":5,"success":true}]"#,
+        );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+
+    let report = parse_report_json(output);
+    assert_eq!(report["request_count"].as_u64(), Some(1));
+    assert!(warnings(&report)
+        .iter()
+        .any(|warning| warning.contains("child_interval_outside_request")));
+    assert!(!report.to_string().contains(r#""db""#));
 }
 
 #[test]
@@ -321,12 +525,13 @@ fn import_tracing_spans_jsonl_creates_missing_output_parent_directories() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
     assert!(run_path.exists(), "run artifact should be written");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -379,12 +584,13 @@ fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     let report = analyze_run(&loaded.run, AnalyzeOptions::default());
     assert_eq!(report.request_count, 1);
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -521,13 +727,14 @@ fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported request-only run should load in cli loader");
     assert!(!loaded.run.requests.is_empty());
     assert!(loaded.run.stages.is_empty());
     assert!(loaded.run.queues.is_empty());
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -607,7 +814,7 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixtu
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
@@ -845,16 +1052,14 @@ fn import_tracing_spans_jsonl_compatible_accepts_fmt_metadata_with_completed_spa
         .output()
         .expect("cli should run");
     assert!(output.status.success(), "cli failed: {output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stderr).trim().is_empty(),
-        "stderr should be empty: {output:?}"
-    );
+    assert_precise_interval_warning_only_in_stderr(&output);
     assert!(run_path.exists(), "run json should be written");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
     assert_eq!(loaded.run.requests[0].route, "/checkout");
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -925,8 +1130,7 @@ fn import_tracing_spans_jsonl_strict_fails_on_incomplete_tailtriage_span() {
 }
 
 #[test]
-fn import_tracing_spans_jsonl_strict_with_max_requests_keeps_retained_request_and_skips_overflow_children(
-) {
+fn import_tracing_spans_jsonl_strict_with_max_requests_rejects_retained_orphan_children() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -959,9 +1163,53 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_keeps_retained_request_an
         .output()
         .expect("cli should run");
 
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("orphan_request_scoped_event"));
+    assert!(!stderr.contains("valid but not retained due to max_requests"));
+    assert!(!stderr.contains("no retained request event was imported"));
+    assert!(
+        !run_path.exists(),
+        "run output should not exist on strict failure"
+    );
+}
+
+#[test]
+fn import_tracing_spans_jsonl_permissive_with_max_requests_excludes_retained_orphan_children() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let spans_path = dir.path().join("spans.jsonl");
+    let run_path = dir.path().join("run.json");
+    std::fs::write(
+        &spans_path,
+        [
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-1","started_at_unix_ms":100,"finished_at_unix_ms":200,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"st-1","started_at_unix_ms":120,"finished_at_unix_ms":150,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"q-1","started_at_unix_ms":121,"finished_at_unix_ms":130,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-2","started_at_unix_ms":300,"finished_at_unix_ms":400,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/checkout"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"st-2","started_at_unix_ms":320,"finished_at_unix_ms":350,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"db"}}}"#,
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"q-2","started_at_unix_ms":321,"finished_at_unix_ms":330,"fields":{"tt.kind":"queue","tt.request_id":"r2","tt.queue":"permits"}}}"#,
+        ]
+        .join("\n"),
+    )
+    .expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("import")
+        .arg("tracing-spans-jsonl")
+        .arg(&spans_path)
+        .arg("--service")
+        .arg("checkout")
+        .arg("--output")
+        .arg(&run_path)
+        .arg("--max-requests")
+        .arg("1")
+        .output()
+        .expect("cli should run");
+
     assert!(output.status.success(), "cli failed: {output:?}");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(!stderr.contains("no retained request event was imported"));
+    assert!(stderr.contains("orphan_request_scoped_event"));
+    assert!(!stderr.contains("valid but not retained due to max_requests"));
     assert!(run_path.exists(), "run output should exist");
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
@@ -973,9 +1221,14 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_keeps_retained_request_an
     assert_eq!(loaded.run.queues.len(), 1);
     assert_eq!(loaded.run.queues[0].request_id, "r1");
     assert_eq!(loaded.run.truncation.dropped_requests, 1);
-    assert_eq!(loaded.run.truncation.dropped_stages, 1);
-    assert_eq!(loaded.run.truncation.dropped_queues, 1);
-    assert!(loaded.run.truncation.limits_hit);
+    assert_eq!(loaded.run.truncation.dropped_stages, 0);
+    assert_eq!(loaded.run.truncation.dropped_queues, 0);
+    assert!(loaded
+        .run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("orphan_request_scoped_event")));
 }
 
 #[test]
@@ -1010,7 +1263,7 @@ fn import_tracing_spans_jsonl_strict_with_max_requests_fails_on_invalid_overflow
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("falls outside request interval"));
+    assert!(stderr.contains("orphan_request_scoped_event"));
     assert!(!stderr.contains("valid but not retained due to max_requests"));
     assert!(
         !run_path.exists(),
@@ -1079,13 +1332,14 @@ fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
 
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    assert_precise_interval_warning_only_in_stderr(&output);
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
     assert_eq!(loaded.run.metadata.service_name, "checkout");
     assert_eq!(loaded.run.metadata.service_version.as_deref(), Some("v1"));
     assert_eq!(loaded.run.metadata.run_id, "run-42");
+    assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
 
 #[test]
@@ -1440,6 +1694,43 @@ fn parse_report_json(output: std::process::Output) -> serde_json::Value {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     serde_json::from_str(&stdout).expect("stdout should be valid json")
+}
+
+fn warnings(report: &serde_json::Value) -> Vec<&str> {
+    report["warnings"]
+        .as_array()
+        .expect("warnings should be array")
+        .iter()
+        .map(|value| value.as_str().expect("warning should be string"))
+        .collect()
+}
+
+fn evidence_quality_limitations(report: &serde_json::Value) -> Vec<&str> {
+    report["evidence_quality"]["limitations"]
+        .as_array()
+        .expect("limitations should be array")
+        .iter()
+        .map(|value| value.as_str().expect("limitation should be string"))
+        .collect()
+}
+
+fn assert_precise_interval_warning_only_in_stderr(output: &std::process::Output) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("precise_interval_validation_unavailable"),
+        "stderr should contain precise interval warning: {output:?}"
+    );
+}
+
+fn assert_no_precise_interval_lifecycle_warning(run: &tailtriage_core::Run) {
+    assert!(
+        !run.metadata
+            .lifecycle_warnings
+            .iter()
+            .any(|warning| warning.contains("precise_interval_validation_unavailable")),
+        "missing precision warning should not be durable lifecycle noise: {:?}",
+        run.metadata.lifecycle_warnings
+    );
 }
 
 fn valid_cli_artifact_with_empty_requests() -> &'static str {

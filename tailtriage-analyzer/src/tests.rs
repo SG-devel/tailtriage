@@ -113,21 +113,12 @@ fn duplicate_completed_request_ids_emit_warning_without_panic() {
 
     let report = analyze_run(&run, AnalyzeOptions::default());
 
-    assert_eq!(report.request_count, 3);
-    assert!(report.warnings.iter().any(|warning| warning
-        .contains("Duplicate completed request_id values detected")
-        && warning.contains("req-1")
-        && warning.contains("request-scoped queue attribution")));
+    assert_eq!(report.request_count, 1);
     assert!(report
-        .evidence_quality
-        .limitations
+        .warnings
         .iter()
-        .any(|limitation| limitation
-            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
-    assert_eq!(
-        report.primary_suspect.kind,
-        DiagnosisKind::ApplicationQueueSaturation
-    );
+        .any(|warning| warning.contains("duplicate_completed_request_id")
+            && warning.contains("request_id")));
 }
 
 #[test]
@@ -137,13 +128,7 @@ fn unique_completed_request_ids_do_not_emit_duplicate_warning() {
     assert!(!report
         .warnings
         .iter()
-        .any(|warning| warning.contains("Duplicate completed request_id values detected")));
-    assert!(!report
-        .evidence_quality
-        .limitations
-        .iter()
-        .any(|limitation| limitation
-            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
+        .any(|warning| warning.contains("duplicate_completed_request_id")));
 }
 
 #[test]
@@ -207,6 +192,90 @@ fn strict_artifact_validation_fails_orphan_stage_and_queue_request_ids() {
 }
 
 #[test]
+fn strict_artifact_validation_simultaneous_stage_and_queue_orphans_return_core_with_source() {
+    let mut run = test_run();
+    run.stages = vec![StageEvent {
+        request_id: "missing-stage-request".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 100,
+        success: true,
+    }];
+    run.queues = vec![QueueEvent {
+        request_id: "missing-queue-request".to_owned(),
+        queue: "worker".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 100,
+        depth_at_start: Some(1),
+    }];
+
+    let err = validate_artifact_strict(&run)
+        .expect_err("multi-section orphan failures should preserve core report");
+
+    assert!(matches!(err, ArtifactValidationError::Core(_)));
+    assert!(std::error::Error::source(&err).is_some());
+}
+
+#[test]
+fn strict_artifact_validation_duplicate_plus_metadata_returns_core_with_source() {
+    let mut run = test_run();
+    run.metadata.service_name = " ".to_owned();
+    run.requests[2].request_id = "req-1".to_owned();
+
+    let err = validate_artifact_strict(&run).expect_err("mixed failures should use core");
+
+    assert!(matches!(err, ArtifactValidationError::Core(_)));
+    assert!(std::error::Error::source(&err).is_some());
+}
+
+#[test]
+fn strict_artifact_validation_orphan_plus_timing_returns_core() {
+    let mut run = test_run();
+    run.stages = vec![StageEvent {
+        request_id: "missing-stage-request".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 2,
+        started_at_run_us: None,
+        finished_at_unix_ms: 1,
+        finished_at_run_us: None,
+        latency_us: 100,
+        success: true,
+    }];
+
+    let err = validate_artifact_strict(&run).expect_err("mixed failures should use core");
+
+    assert!(matches!(err, ArtifactValidationError::Core(_)));
+}
+
+#[test]
+fn strict_artifact_validation_compatibility_variants_have_no_source() {
+    let mut run = test_run();
+    run.requests[2].request_id = "req-1".to_owned();
+    let err = validate_artifact_strict(&run).expect_err("duplicate ids should fail");
+    assert!(std::error::Error::source(&err).is_none());
+
+    let mut orphan_run = test_run();
+    orphan_run.stages = vec![StageEvent {
+        request_id: "missing-stage-request".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 100,
+        success: true,
+    }];
+    let err = validate_artifact_strict(&orphan_run).expect_err("orphan should fail");
+    assert!(std::error::Error::source(&err).is_none());
+}
+
+#[test]
 fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
     let mut run = test_run();
     run.stages = vec![StageEvent {
@@ -234,21 +303,11 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
 
     assert_eq!(report.request_count, 3);
     assert!(report.warnings.iter().any(|warning| {
-        warning.contains("Orphan stage request_id")
-            && warning.contains("missing-stage-request")
-            && warning.contains("strict artifact validation")
+        warning.contains("orphan_request_scoped_event") && warning.contains("stage")
     }));
     assert!(report.warnings.iter().any(|warning| {
-        warning.contains("Orphan queue request_id")
-            && warning.contains("missing-queue-request")
-            && warning.contains("strict artifact validation")
+        warning.contains("orphan_request_scoped_event") && warning.contains("queue")
     }));
-    assert!(report
-        .evidence_quality
-        .limitations
-        .iter()
-        .any(|limitation| limitation
-            == "Stage or queue evidence with no matching completed request_id cannot be reliably attributed."));
 }
 
 #[test]
@@ -277,12 +336,6 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
 
     let report = analyze_run(&run, AnalyzeOptions::default());
 
-    assert!(!report
-        .evidence_quality
-        .limitations
-        .iter()
-        .any(|limitation| limitation
-            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
     assert!(!report
         .evidence_quality
         .limitations
@@ -1929,10 +1982,10 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
         request.finished_at_unix_ms = 1;
         if idx < 10 {
             request.started_at_run_us = Some(1_000 + idx * 100);
-            request.finished_at_run_us = Some(1_050 + idx * 100);
+            request.finished_at_run_us = Some(1_100 + idx * 100);
         } else {
             request.started_at_run_us = Some(10_000 + idx * 100);
-            request.finished_at_run_us = Some(10_050 + idx * 100);
+            request.finished_at_run_us = Some(16_000 + idx * 100);
             request.latency_us = 6_000;
         }
     }
@@ -2005,9 +2058,10 @@ fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
     for (idx, request) in run.requests.iter_mut().enumerate() {
         let idx = u64::try_from(idx + 1).expect("test index should fit in u64");
         request.started_at_run_us = Some(idx * 10_000);
-        request.finished_at_run_us = Some(idx * 10_000 + 5_000);
+        request.finished_at_run_us = Some(idx * 10_000 + 1_000);
         if idx > 10 {
             request.latency_us = 6_000;
+            request.finished_at_run_us = Some(idx * 10_000 + 6_000);
         }
     }
 
@@ -2146,9 +2200,10 @@ fn temporal_segments_with_complete_run_relative_fields_do_not_warn_about_fallbac
     for (idx, request) in run.requests.iter_mut().enumerate() {
         let idx = u64::try_from(idx).expect("test index should fit in u64");
         request.started_at_run_us = Some(idx * 1_000);
-        request.finished_at_run_us = Some(idx * 1_000 + 100);
+        request.finished_at_run_us = Some(idx * 1_000 + 1_000);
         if idx >= 10 {
             request.latency_us = 6_000;
+            request.finished_at_run_us = Some(idx * 1_000 + 6_000);
         }
     }
 
@@ -2172,7 +2227,7 @@ fn temporal_segments_sort_complete_run_relative_starts_by_run_time() {
             started_at_unix_ms: 1,
             started_at_run_us: Some((19 - idx) * 1_000),
             finished_at_unix_ms: 1,
-            finished_at_run_us: Some((19 - idx) * 1_000 + 100),
+            finished_at_run_us: Some((19 - idx) * 1_000 + if idx >= 10 { 1_000 } else { 6_000 }),
             latency_us: if idx >= 10 { 1_000 } else { 6_000 },
             outcome: "ok".into(),
         })
@@ -2340,7 +2395,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
             let id = i + 1;
             let start_run_us = id * 10_000;
             request.started_at_run_us = Some(start_run_us);
-            request.finished_at_run_us = Some(start_run_us + 5_000);
+            request.finished_at_run_us = Some(start_run_us + 1_000);
             request
         })
         .collect();
@@ -2563,6 +2618,7 @@ fn overlapping_temporal_windows_warn_runtime_inflight_attribution_is_approximate
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     run.requests[9].finished_at_unix_ms = 1_000;
     run.requests[10].started_at_unix_ms = 100;
+    run.requests[10].finished_at_unix_ms = 101;
     for i in 10usize..20 {
         if let Some(req) = run.requests.get_mut(i) {
             req.latency_us = 5_000;
@@ -2585,6 +2641,7 @@ fn non_overlapping_temporal_windows_do_not_add_overlap_warning() {
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     run.requests[9].finished_at_unix_ms = 10;
     run.requests[10].started_at_unix_ms = 20;
+    run.requests[10].finished_at_unix_ms = 21;
     for i in 10usize..20 {
         if let Some(req) = run.requests.get_mut(i) {
             req.latency_us = 5_000;
@@ -2607,6 +2664,7 @@ fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
     run.requests[9].finished_at_unix_ms = 1_000;
     run.requests[10].started_at_unix_ms = 100;
+    run.requests[10].finished_at_unix_ms = 101;
     for i in 10usize..20 {
         if let Some(req) = run.requests.get_mut(i) {
             req.latency_us = 5_000;

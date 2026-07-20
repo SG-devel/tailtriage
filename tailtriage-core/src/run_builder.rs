@@ -1,4 +1,3 @@
-use crate::request_ids::add_duplicate_completed_request_id_warning;
 use crate::{
     collector::generate_run_id, unix_time_ms, BuildError, CaptureLimits, CaptureMode,
     EffectiveCoreConfig, EffectiveTokioSamplerConfig, InFlightSnapshot, QueueEvent, RequestEvent,
@@ -346,9 +345,16 @@ impl RunBuilder {
     /// This does not perform lifecycle validation or synthesize missing
     /// completions.
     #[must_use]
-    pub fn finish(mut self) -> Run {
-        add_duplicate_completed_request_id_warning(&mut self.run);
-        self.run
+    pub fn finish(self) -> Run {
+        let normalized = crate::normalize_run_permissive(&self.run);
+        let warnings = crate::summarize_run_validation_lifecycle(&normalized);
+        let mut run = normalized.run;
+        for warning in warnings {
+            if !run.metadata.lifecycle_warnings.contains(&warning) {
+                run.metadata.lifecycle_warnings.push(warning);
+            }
+        }
+        run
     }
 }
 
@@ -365,112 +371,18 @@ fn invalid_event(
 }
 
 fn validate_request_event(event: &RequestEvent) -> Result<(), RunBuilderEventError> {
-    if event.request_id.trim().is_empty() {
-        return Err(invalid_event(
-            "RequestEvent",
-            "request_id",
-            "must not be empty",
-        ));
-    }
-    if event.route.trim().is_empty() {
-        return Err(invalid_event("RequestEvent", "route", "must not be empty"));
-    }
-    if event.finished_at_unix_ms < event.started_at_unix_ms {
-        return Err(invalid_event(
-            "RequestEvent",
-            "finished_at_unix_ms",
-            "must be >= started_at_unix_ms",
-        ));
-    }
-    if let (Some(started_at_run_us), Some(finished_at_run_us)) =
-        (event.started_at_run_us, event.finished_at_run_us)
-    {
-        if finished_at_run_us < started_at_run_us {
-            return Err(invalid_event(
-                "RequestEvent",
-                "finished_at_run_us",
-                "must be >= started_at_run_us",
-            ));
-        }
-    }
-    if event.outcome.trim().is_empty() {
-        return Err(invalid_event(
-            "RequestEvent",
-            "outcome",
-            "must not be empty",
-        ));
-    }
-    Ok(())
+    crate::validation::validate_request_shape(event)
+        .map_err(|(field, reason)| invalid_event("RequestEvent", field, reason))
 }
 fn validate_stage_event(event: &StageEvent) -> Result<(), RunBuilderEventError> {
-    if event.request_id.trim().is_empty() {
-        return Err(invalid_event(
-            "StageEvent",
-            "request_id",
-            "must not be empty",
-        ));
-    }
-    if event.stage.trim().is_empty() {
-        return Err(invalid_event("StageEvent", "stage", "must not be empty"));
-    }
-    if event.finished_at_unix_ms < event.started_at_unix_ms {
-        return Err(invalid_event(
-            "StageEvent",
-            "finished_at_unix_ms",
-            "must be >= started_at_unix_ms",
-        ));
-    }
-    if let (Some(started_at_run_us), Some(finished_at_run_us)) =
-        (event.started_at_run_us, event.finished_at_run_us)
-    {
-        if finished_at_run_us < started_at_run_us {
-            return Err(invalid_event(
-                "StageEvent",
-                "finished_at_run_us",
-                "must be >= started_at_run_us",
-            ));
-        }
-    }
-    Ok(())
+    crate::validation::validate_stage_shape(event)
+        .map_err(|(field, reason)| invalid_event("StageEvent", field, reason))
 }
 fn validate_queue_event(event: &QueueEvent) -> Result<(), RunBuilderEventError> {
-    if event.request_id.trim().is_empty() {
-        return Err(invalid_event(
-            "QueueEvent",
-            "request_id",
-            "must not be empty",
-        ));
-    }
-    if event.queue.trim().is_empty() {
-        return Err(invalid_event("QueueEvent", "queue", "must not be empty"));
-    }
-    if event.waited_until_unix_ms < event.waited_from_unix_ms {
-        return Err(invalid_event(
-            "QueueEvent",
-            "waited_until_unix_ms",
-            "must be >= waited_from_unix_ms",
-        ));
-    }
-    if let (Some(waited_from_run_us), Some(waited_until_run_us)) =
-        (event.waited_from_run_us, event.waited_until_run_us)
-    {
-        if waited_until_run_us < waited_from_run_us {
-            return Err(invalid_event(
-                "QueueEvent",
-                "waited_until_run_us",
-                "must be >= waited_from_run_us",
-            ));
-        }
-    }
-    Ok(())
+    crate::validation::validate_queue_shape(event)
+        .map_err(|(field, reason)| invalid_event("QueueEvent", field, reason))
 }
 fn validate_inflight_snapshot(snapshot: &InFlightSnapshot) -> Result<(), RunBuilderEventError> {
-    if snapshot.gauge.trim().is_empty() {
-        return Err(invalid_event(
-            "InFlightSnapshot",
-            "gauge",
-            "must not be empty",
-        ));
-    }
-    Ok(())
+    crate::validation::validate_inflight_shape(snapshot)
+        .map_err(|(field, reason)| invalid_event("InFlightSnapshot", field, reason))
 }
