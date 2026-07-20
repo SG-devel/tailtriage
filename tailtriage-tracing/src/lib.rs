@@ -41,9 +41,10 @@ mod recorder;
 pub mod tokio;
 mod types;
 
-use std::collections::{BTreeMap, BTreeSet};
 use tailtriage_core::{
-    BuildError, QueueEvent, RequestEvent, RunBuilder, RunBuilderOptions, StageEvent,
+    normalize_run_permissive, summarize_run_validation, summarize_run_validation_lifecycle,
+    validate_run_strict, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata,
+    RunValidationSeverity, StageEvent, TruncationSummary, UnfinishedRequests,
 };
 
 pub use convention::{
@@ -189,11 +190,8 @@ where
                     else {
                         continue;
                     };
-                    let (started_at_run_us, finished_at_run_us) = sanitized_run_relative_offsets(
-                        &span,
-                        options.strict_mode(),
-                        &mut warnings,
-                    )?;
+                    let (started_at_run_us, finished_at_run_us) =
+                        sanitized_run_relative_offsets(&span);
                     parsed_requests.push(ParsedRequestEvent {
                         event: RequestEvent {
                             request_id,
@@ -207,9 +205,7 @@ where
                                 &span,
                                 started_at_run_us,
                                 finished_at_run_us,
-                                options.strict_mode(),
-                                &mut warnings,
-                            )?,
+                            ),
                             outcome,
                         },
                         outcome_defaulted,
@@ -227,11 +223,8 @@ where
                         OptionalField::Value(success) => success,
                         OptionalField::Invalid => continue,
                     };
-                    let (started_at_run_us, finished_at_run_us) = sanitized_run_relative_offsets(
-                        &span,
-                        options.strict_mode(),
-                        &mut warnings,
-                    )?;
+                    let (started_at_run_us, finished_at_run_us) =
+                        sanitized_run_relative_offsets(&span);
                     parsed_stages.push(ParsedStageEvent {
                         event: StageEvent {
                             request_id,
@@ -244,9 +237,7 @@ where
                                 &span,
                                 started_at_run_us,
                                 finished_at_run_us,
-                                options.strict_mode(),
-                                &mut warnings,
-                            )?,
+                            ),
                             success,
                         },
                         success_defaulted: matches!(success_field, OptionalField::Missing),
@@ -264,11 +255,8 @@ where
                             OptionalField::Value(depth) => Some(depth),
                             OptionalField::Invalid => continue,
                         };
-                    let (waited_from_run_us, waited_until_run_us) = sanitized_run_relative_offsets(
-                        &span,
-                        options.strict_mode(),
-                        &mut warnings,
-                    )?;
+                    let (waited_from_run_us, waited_until_run_us) =
+                        sanitized_run_relative_offsets(&span);
                     queues.push(QueueEvent {
                         request_id,
                         queue,
@@ -280,9 +268,7 @@ where
                             &span,
                             waited_from_run_us,
                             waited_until_run_us,
-                            options.strict_mode(),
-                            &mut warnings,
-                        )?,
+                        ),
                         depth_at_start,
                     });
                 }
@@ -291,12 +277,7 @@ where
     }
     let mode = options.mode_value();
     let capture_limits = options.resolved_capture_limits();
-    dedupe_retained_requests(
-        &mut parsed_requests,
-        capture_limits.max_requests,
-        options.strict_mode(),
-        &mut warnings,
-    )?;
+
     let request_outcome_default_count = parsed_requests
         .iter()
         .take(capture_limits.max_requests)
@@ -307,31 +288,6 @@ where
             "{request_outcome_default_count} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'"
         )));
     }
-    let requests: Vec<RequestEvent> = parsed_requests
-        .into_iter()
-        .map(|request| request.event)
-        .collect();
-    let all_valid_request_intervals = all_valid_request_intervals(&requests);
-    let retained_request_intervals =
-        retained_request_intervals(&requests, capture_limits.max_requests);
-    let mut dropped_children_due_to_request_retention =
-        DroppedChildrenDueToRequestRetention::default();
-    filter_correlated_parsed_stages(
-        &mut parsed_stages,
-        &all_valid_request_intervals,
-        &retained_request_intervals,
-        options.strict_mode(),
-        &mut warnings,
-        &mut dropped_children_due_to_request_retention,
-    )?;
-    filter_correlated_queues(
-        &mut queues,
-        &all_valid_request_intervals,
-        &retained_request_intervals,
-        options.strict_mode(),
-        &mut warnings,
-        &mut dropped_children_due_to_request_retention,
-    )?;
     let stage_success_default_count = parsed_stages
         .iter()
         .take(capture_limits.max_stages)
@@ -342,155 +298,111 @@ where
             "{stage_success_default_count} stage span(s) missing optional '{TT_SUCCESS}'; assumed true"
         )));
     }
-    let stages: Vec<StageEvent> = parsed_stages.into_iter().map(|stage| stage.event).collect();
-    let retained_requests = &requests[..requests.len().min(capture_limits.max_requests)];
-    let retained_stages = &stages[..stages.len().min(capture_limits.max_stages)];
-    let retained_queues = &queues[..queues.len().min(capture_limits.max_queues)];
+
+    let mut requests: Vec<RequestEvent> = parsed_requests
+        .into_iter()
+        .map(|request| request.event)
+        .collect();
+    let mut stages: Vec<StageEvent> = parsed_stages.into_iter().map(|stage| stage.event).collect();
+
+    let mut truncation = TruncationSummary::default();
+    apply_retention_limit(&mut requests, capture_limits.max_requests, |dropped| {
+        truncation.dropped_requests = dropped;
+    });
+    apply_retention_limit(&mut stages, capture_limits.max_stages, |dropped| {
+        truncation.dropped_stages = dropped;
+    });
+    apply_retention_limit(&mut queues, capture_limits.max_queues, |dropped| {
+        truncation.dropped_queues = dropped;
+    });
+    truncation.limits_hit = truncation.dropped_requests > 0
+        || truncation.dropped_stages > 0
+        || truncation.dropped_queues > 0;
 
     let (started_at_unix_ms, finished_at_unix_ms) =
-        retained_event_time_bounds(retained_requests, retained_stages, retained_queues)
-            .unwrap_or_else(|| {
-                let now = tailtriage_core::unix_time_ms();
-                (now, now)
-            });
+        retained_event_time_bounds(&requests, &stages, &queues).unwrap_or_else(|| {
+            let now = tailtriage_core::unix_time_ms();
+            (now, now)
+        });
     let run_id = options.run_id_ref().map_or_else(
         || format!("tracing-import-{started_at_unix_ms}-{finished_at_unix_ms}"),
         ToOwned::to_owned,
     );
 
-    let mut builder_options = RunBuilderOptions::new(options.service_name())
-        .run_id(run_id)
-        .mode(mode)
-        .capture_limits(capture_limits)
-        .strict_lifecycle(false)
-        .started_at_unix_ms(started_at_unix_ms)
-        .finished_at_unix_ms(finished_at_unix_ms)
-        .finalized_at_unix_ms(finished_at_unix_ms);
-
-    if let Some(service_version) = options.service_version_ref() {
-        builder_options = builder_options.service_version(service_version);
-    }
-
-    let mut run_builder = RunBuilder::new(builder_options).map_err(|err| match err {
-        BuildError::EmptyServiceName => ImportError::EmptyServiceName,
-        BuildError::InvalidRunTimeBounds {
+    let candidate = Run {
+        schema_version: tailtriage_core::SCHEMA_VERSION,
+        metadata: RunMetadata {
+            run_id,
+            service_name: options.service_name().to_owned(),
+            service_version: options.service_version_ref().map(ToOwned::to_owned),
             started_at_unix_ms,
-                    finished_at_unix_ms,
-        } => ImportError::InvalidField {
-            field: "tt.finished_at_unix_ms",
-            reason: format!(
-                "finished_at_unix_ms ({finished_at_unix_ms}) must be >= started_at_unix_ms ({started_at_unix_ms})"
-            ),
-        },
-        BuildError::InvalidFinalizationTime {
             finished_at_unix_ms,
-            finalized_at_unix_ms,
-        } => ImportError::InvalidField {
-            field: "tt.finalized_at_unix_ms",
-            reason: format!(
-                "finalized_at_unix_ms ({finalized_at_unix_ms}) must be >= finished_at_unix_ms ({finished_at_unix_ms})"
-            ),
+            finalized_at_unix_ms: Some(finished_at_unix_ms),
+            mode,
+            effective_core_config: Some(EffectiveCoreConfig {
+                mode,
+                capture_limits,
+                strict_lifecycle: false,
+            }),
+            effective_tokio_sampler_config: None,
+            host: None,
+            pid: None,
+            lifecycle_warnings: Vec::new(),
+            unfinished_requests: UnfinishedRequests::default(),
+            run_end_reason: None,
         },
-    })?;
+        requests,
+        stages,
+        queues,
+        inflight: Vec::new(),
+        runtime_snapshots: Vec::new(),
+        truncation,
+    };
 
-    for request in requests {
-        run_builder
-            .push_request(request)
-            .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
+    if options.strict_mode() {
+        validate_run_strict(&candidate).map_err(|err| strict_core_error(&err))?;
     }
-    for stage in stages {
-        run_builder
-            .push_stage(stage)
-            .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
-    }
-    for queue in queues {
-        run_builder
-            .push_queue(queue)
-            .map_err(|err| ImportError::InvalidRunEvent(err.to_string()))?;
-    }
-    let mut run = run_builder.finish();
-    run.truncation.dropped_stages = run
-        .truncation
-        .dropped_stages
-        .saturating_add(dropped_children_due_to_request_retention.stages);
-    run.truncation.dropped_queues = run
-        .truncation
-        .dropped_queues
-        .saturating_add(dropped_children_due_to_request_retention.queues);
-    if dropped_children_due_to_request_retention.stages > 0
-        || dropped_children_due_to_request_retention.queues > 0
-    {
-        run.truncation.limits_hit = true;
+
+    let normalized = normalize_run_permissive(&candidate);
+    let core_warnings = summarize_run_validation(&normalized);
+    let lifecycle_warnings = summarize_run_validation_lifecycle(&normalized);
+    let mut run = normalized.run;
+    for warning in core_warnings {
+        if !warnings
+            .iter()
+            .any(|existing| existing.message() == warning)
+        {
+            warnings.push(ImportWarning::new(warning));
+        }
     }
     attach_durable_conversion_warnings(&mut run, &warnings);
+    for warning in lifecycle_warnings {
+        if !run.metadata.lifecycle_warnings.contains(&warning) {
+            run.metadata.lifecycle_warnings.push(warning);
+        }
+    }
 
     Ok(ImportedRun::new(run, warnings))
 }
 
-#[derive(Clone, Copy)]
-struct RequestInterval {
-    started_at_unix_ms: u64,
-    finished_at_unix_ms: u64,
+fn apply_retention_limit<T>(items: &mut Vec<T>, max: usize, set_dropped: impl FnOnce(u64)) {
+    let dropped = items.len().saturating_sub(max) as u64;
+    if items.len() > max {
+        items.truncate(max);
+    }
+    set_dropped(dropped);
 }
 
-fn dedupe_retained_requests(
-    requests: &mut Vec<ParsedRequestEvent>,
-    max_requests: usize,
-    strict: bool,
-    warnings: &mut Vec<ImportWarning>,
-) -> Result<(), ImportError> {
-    let mut seen = BTreeSet::new();
-    let mut retained = Vec::with_capacity(requests.len());
-    for request in requests.drain(..) {
-        if retained.len() >= max_requests {
-            retained.push(request);
-            continue;
-        }
-        if !seen.insert(request.event.request_id.clone()) {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "duplicate tt.request_id '{}' is an input-quality problem; skipped later duplicate request event; child stage/queue evidence outside the retained first request interval may also be skipped",
-                    request.event.request_id
-                ),
-            )?;
-            continue;
-        }
-        retained.push(request);
-    }
-    *requests = retained;
-    Ok(())
-}
-
-fn all_valid_request_intervals(requests: &[RequestEvent]) -> BTreeMap<String, RequestInterval> {
-    let mut intervals = BTreeMap::new();
-    for request in requests {
-        intervals
-            .entry(request.request_id.clone())
-            .or_insert(RequestInterval {
-                started_at_unix_ms: request.started_at_unix_ms,
-                finished_at_unix_ms: request.finished_at_unix_ms,
-            });
-    }
-    intervals
-}
-
-fn retained_request_intervals(
-    requests: &[RequestEvent],
-    max_requests: usize,
-) -> BTreeMap<String, RequestInterval> {
-    let mut intervals = BTreeMap::new();
-    for request in requests.iter().take(max_requests) {
-        intervals.insert(
-            request.request_id.clone(),
-            RequestInterval {
-                started_at_unix_ms: request.started_at_unix_ms,
-                finished_at_unix_ms: request.finished_at_unix_ms,
-            },
-        );
-    }
-    intervals
+fn strict_core_error(err: &tailtriage_core::RunValidationError) -> ImportError {
+    let label = err
+        .report()
+        .issues
+        .iter()
+        .find(|issue| issue.severity == RunValidationSeverity::Error)
+        .map_or("run_validation_failed", |issue| issue.code.as_str());
+    ImportError::StrictViolation(format!(
+        "core run validation failed with issue code '{label}': {err}"
+    ))
 }
 
 struct ParsedStageEvent {
@@ -501,138 +413,6 @@ struct ParsedStageEvent {
 struct ParsedRequestEvent {
     event: RequestEvent,
     outcome_defaulted: bool,
-}
-
-#[derive(Default)]
-struct DroppedChildrenDueToRequestRetention {
-    stages: u64,
-    queues: u64,
-}
-
-fn interval_within_request_with_tolerance(
-    child_start_ms: u64,
-    child_finish_ms: u64,
-    request_start_ms: u64,
-    request_finish_ms: u64,
-) -> bool {
-    child_start_ms.saturating_add(TRACE_TIME_TOLERANCE_MS) >= request_start_ms
-        && child_finish_ms <= request_finish_ms.saturating_add(TRACE_TIME_TOLERANCE_MS)
-}
-
-fn filter_correlated_parsed_stages(
-    stages: &mut Vec<ParsedStageEvent>,
-    all_valid_request_intervals: &BTreeMap<String, RequestInterval>,
-    retained_request_intervals: &BTreeMap<String, RequestInterval>,
-    strict: bool,
-    warnings: &mut Vec<ImportWarning>,
-    dropped_due_to_request_retention: &mut DroppedChildrenDueToRequestRetention,
-) -> Result<(), ImportError> {
-    let mut filtered = Vec::with_capacity(stages.len());
-    for stage in stages.drain(..) {
-        let request_id = stage.event.request_id.as_str();
-        let Some(valid_interval) = all_valid_request_intervals.get(request_id) else {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "skipped stage span for request_id '{}' because no valid matching request event was imported",
-                    stage.event.request_id
-                ),
-            )?;
-            continue;
-        };
-        if !interval_within_request_with_tolerance(
-            stage.event.started_at_unix_ms,
-            stage.event.finished_at_unix_ms,
-            valid_interval.started_at_unix_ms,
-            valid_interval.finished_at_unix_ms,
-        ) {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "skipped stage span '{}' for request_id '{}' because interval [{}, {}] falls outside request interval [{}, {}] beyond tolerance_ms={TRACE_TIME_TOLERANCE_MS}",
-                    stage.event.stage,
-                    stage.event.request_id,
-                    stage.event.started_at_unix_ms,
-                    stage.event.finished_at_unix_ms,
-                    valid_interval.started_at_unix_ms,
-                    valid_interval.finished_at_unix_ms
-                ),
-            )?;
-            continue;
-        }
-        if !retained_request_intervals.contains_key(request_id) {
-            dropped_due_to_request_retention.stages =
-                dropped_due_to_request_retention.stages.saturating_add(1);
-            warnings.push(ImportWarning::new(format!(
-                "skipped stage span for request_id '{}' because the matching request was valid but not retained due to max_requests",
-                stage.event.request_id
-            )));
-            continue;
-        }
-        filtered.push(stage);
-    }
-    *stages = filtered;
-    Ok(())
-}
-
-fn filter_correlated_queues(
-    queues: &mut Vec<QueueEvent>,
-    all_valid_request_intervals: &BTreeMap<String, RequestInterval>,
-    retained_request_intervals: &BTreeMap<String, RequestInterval>,
-    strict: bool,
-    warnings: &mut Vec<ImportWarning>,
-    dropped_due_to_request_retention: &mut DroppedChildrenDueToRequestRetention,
-) -> Result<(), ImportError> {
-    let mut filtered = Vec::with_capacity(queues.len());
-    for queue in queues.drain(..) {
-        let request_id = queue.request_id.as_str();
-        let Some(valid_interval) = all_valid_request_intervals.get(request_id) else {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "skipped queue span for request_id '{}' because no valid matching request event was imported",
-                    queue.request_id
-                ),
-            )?;
-            continue;
-        };
-        if !interval_within_request_with_tolerance(
-            queue.waited_from_unix_ms,
-            queue.waited_until_unix_ms,
-            valid_interval.started_at_unix_ms,
-            valid_interval.finished_at_unix_ms,
-        ) {
-            strict_or_warn(
-                strict,
-                warnings,
-                format!(
-                    "skipped queue span '{}' for request_id '{}' because interval [{}, {}] falls outside request interval [{}, {}] beyond tolerance_ms={TRACE_TIME_TOLERANCE_MS}",
-                    queue.queue,
-                    queue.request_id,
-                    queue.waited_from_unix_ms,
-                    queue.waited_until_unix_ms,
-                    valid_interval.started_at_unix_ms,
-                    valid_interval.finished_at_unix_ms
-                ),
-            )?;
-            continue;
-        }
-        if !retained_request_intervals.contains_key(request_id) {
-            dropped_due_to_request_retention.queues =
-                dropped_due_to_request_retention.queues.saturating_add(1);
-            warnings.push(ImportWarning::new(format!(
-                "skipped queue span for request_id '{}' because the matching request was valid but not retained due to max_requests",
-                queue.request_id
-            )));
-            continue;
-        }
-        filtered.push(queue);
-    }
-    *queues = filtered;
-    Ok(())
 }
 
 fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
@@ -736,8 +516,6 @@ fn required_string(
 }
 
 pub(crate) const TRACE_TIME_TOLERANCE_US: u64 = 2_000;
-pub(crate) const TRACE_TIME_TOLERANCE_MS: u64 = TRACE_TIME_TOLERANCE_US / 1_000;
-
 pub(crate) fn duration_within_derived_tolerance(duration_us: u64, derived_us: u64) -> bool {
     duration_us.abs_diff(derived_us) <= TRACE_TIME_TOLERANCE_US
 }
@@ -758,56 +536,8 @@ fn timestamp_derived_duration_us(started_at_unix_ms: u64, finished_at_unix_ms: u
         .saturating_mul(1000)
 }
 
-fn sanitized_run_relative_offsets(
-    span: &SpanRecord,
-    strict: bool,
-    warnings: &mut Vec<ImportWarning>,
-) -> Result<(Option<u64>, Option<u64>), ImportError> {
-    match (span.started_at_run_us_ref(), span.finished_at_run_us_ref()) {
-        (Some(started_at_run_us), Some(finished_at_run_us))
-            if finished_at_run_us >= started_at_run_us =>
-        {
-            Ok((Some(started_at_run_us), Some(finished_at_run_us)))
-        }
-        (Some(started_at_run_us), Some(finished_at_run_us)) => {
-            let message = format!(
-                "span '{}' run-relative timing is inverted: start={} finish={}; dropped run-relative offsets",
-                span.name(),
-                started_at_run_us,
-                finished_at_run_us
-            );
-            if strict {
-                return Err(ImportError::StrictViolation(message));
-            }
-            warnings.push(ImportWarning::new(message));
-            Ok((None, None))
-        }
-        (Some(offset), None) => {
-            let message = format!(
-                "span '{}' incomplete run-relative timing: started_at_run_us={} finished_at_run_us missing; dropped run-relative offsets",
-                span.name(),
-                offset
-            );
-            if strict {
-                return Err(ImportError::StrictViolation(message));
-            }
-            warnings.push(ImportWarning::new(message));
-            Ok((None, None))
-        }
-        (None, Some(offset)) => {
-            let message = format!(
-                "span '{}' incomplete run-relative timing: started_at_run_us missing finished_at_run_us={}; dropped run-relative offsets",
-                span.name(),
-                offset
-            );
-            if strict {
-                return Err(ImportError::StrictViolation(message));
-            }
-            warnings.push(ImportWarning::new(message));
-            Ok((None, None))
-        }
-        (None, None) => Ok((None, None)),
-    }
+fn sanitized_run_relative_offsets(span: &SpanRecord) -> (Option<u64>, Option<u64>) {
+    (span.started_at_run_us_ref(), span.finished_at_run_us_ref())
 }
 
 fn run_relative_derived_duration_us(
@@ -821,73 +551,21 @@ fn elapsed_duration_us(
     span: &SpanRecord,
     started_at_run_us: Option<u64>,
     finished_at_run_us: Option<u64>,
-    strict: bool,
-    warnings: &mut Vec<ImportWarning>,
-) -> Result<u64, ImportError> {
-    let unix_derived_us =
-        timestamp_derived_duration_us(span.started_at_unix_ms(), span.finished_at_unix_ms());
-    let run_relative_derived_us =
-        run_relative_derived_duration_us(started_at_run_us, finished_at_run_us);
-
-    let Some(duration_us) = span.duration_us_ref() else {
-        return Ok(run_relative_derived_us.unwrap_or(unix_derived_us));
-    };
-
-    if let Some(run_relative_derived_us) = run_relative_derived_us {
-        if duration_within_derived_tolerance(duration_us, run_relative_derived_us) {
-            return Ok(duration_us);
-        }
-
-        if strict {
-            return Err(ImportError::StrictViolation(format!(
-                "span '{}' duration_us differs from run-relative duration beyond tolerance: duration_us={} run_relative_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; strict import rejected the mismatch; Unix timestamps remain wall-clock anchors",
-                span.name(),
-                duration_us,
-                run_relative_derived_us,
-            )));
-        }
-
-        warnings.push(ImportWarning::new(format!(
-            "span '{}' duration_us differs from run-relative duration beyond tolerance: duration_us={} run_relative_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; duration_us was retained as authoritative elapsed-time evidence; Unix timestamps remain wall-clock anchors",
-            span.name(),
-            duration_us,
-            run_relative_derived_us,
-        )));
-        return Ok(duration_us);
+) -> u64 {
+    if let Some(duration_us) = span.duration_us_ref() {
+        return duration_us;
     }
 
-    if duration_within_derived_tolerance(duration_us, unix_derived_us) {
-        return Ok(duration_us);
-    }
-
-    if strict {
-        return Err(ImportError::StrictViolation(format!(
-            "span '{}' duration_us differs from timestamp-derived duration beyond tolerance: duration_us={} timestamp_derived_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; strict import rejected the mismatch; Unix timestamps remain wall-clock anchors",
-            span.name(),
-            duration_us,
-            unix_derived_us
-        )));
-    }
-
-    warnings.push(ImportWarning::new(format!(
-        "span '{}' duration_us differs from timestamp-derived duration beyond tolerance: duration_us={} timestamp_derived_duration_us={} tolerance_us={TRACE_TIME_TOLERANCE_US}; duration_us was retained as authoritative elapsed-time evidence; Unix timestamps remain wall-clock anchors",
-        span.name(),
-        duration_us,
-        unix_derived_us
-    )));
-    Ok(duration_us)
+    run_relative_derived_duration_us(started_at_run_us, finished_at_run_us).unwrap_or_else(|| {
+        timestamp_derived_duration_us(span.started_at_unix_ms(), span.finished_at_unix_ms())
+    })
 }
 
 fn is_durable_conversion_warning(message: &str) -> bool {
     message.starts_with("skipped ")
-        || message.starts_with("duplicate tt.request_id")
         || message.starts_with("missing required field")
         || message.starts_with("invalid field")
         || message.starts_with("unknown tt.kind")
-        || message.contains("duration_us differs from timestamp-derived duration")
-        || message.contains("duration_us differs from run-relative duration")
-        || message.contains("run-relative timing is inverted")
-        || message.contains("incomplete run-relative timing")
         || message.contains("missing optional 'tt.outcome'; assumed 'ok'")
         || message.contains("missing optional 'tt.success'; assumed true")
 }
