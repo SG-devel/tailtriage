@@ -50,8 +50,8 @@ pub enum ArtifactValidationError {
 impl std::fmt::Display for ArtifactValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DuplicateCompletedRequestId { request_ids } => write!(f, "strict artifact validation failed: duplicate completed request_id value(s): {}", request_ids.join(", ")),
-            Self::OrphanRequestScopedEvent { section, request_ids } => write!(f, "strict artifact validation failed: orphan {section} request_id value(s) with no matching completed request: {}", request_ids.join(", ")),
+            Self::DuplicateCompletedRequestId { request_ids } => write!(f, "strict artifact validation failed: duplicate_completed_request_id duplicate completed request_id value(s): {}", request_ids.join(", ")),
+            Self::OrphanRequestScopedEvent { section, request_ids } => write!(f, "strict artifact validation failed: orphan_request_scoped_event orphan {section} request_id value(s) with no matching completed request: {}", request_ids.join(", ")),
             Self::Core(err) => err.fmt(f),
         }
     }

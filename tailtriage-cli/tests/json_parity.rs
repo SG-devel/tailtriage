@@ -1,6 +1,9 @@
-use std::process::Command;
-
 use std::collections::BTreeSet;
+use std::future::ready;
+use std::future::Future;
+use std::pin::pin;
+use std::process::Command;
+use std::task::{Context, Poll, Waker};
 
 use tailtriage_core::{normalize_run_permissive, RequestOptions, Run, Tailtriage};
 
@@ -199,4 +202,728 @@ fn request_with_partial_optional_precision() -> &'static str {
 
 fn precise_child_outside_parent() -> &'static str {
     r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"started_at_run_us":10,"finished_at_unix_ms":2,"finished_at_run_us":20,"latency_us":10,"outcome":"ok"}],"stages":[{"request_id":"req1","stage":"db","started_at_unix_ms":1,"started_at_run_us":0,"finished_at_unix_ms":2,"finished_at_run_us":5,"latency_us":5,"success":true}],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn canonical_run_integrity_equivalence_matrix_across_entries() {
+    for case in canonical_candidates() {
+        let run: Run = serde_json::from_str(case.artifact).expect(case.name);
+        let reference = SemanticProjection::from_normalized(&normalize_run_permissive(&run));
+        let strict = tailtriage_core::validate_run_strict(&run);
+        let strict_error_codes = strict_error_codes(&strict);
+        assert_eq!(
+            strict.is_ok(),
+            case.strict_ok,
+            "{} strict reference",
+            case.name
+        );
+        assert_eq!(
+            strict_error_codes, reference.strict_error_codes,
+            "{} direct strict core error codes",
+            case.name
+        );
+        if case.strict_ok {
+            assert!(
+                strict_error_codes.is_empty(),
+                "{} strict success should not expose error codes",
+                case.name
+            );
+        } else {
+            assert!(
+                !strict_error_codes.is_empty(),
+                "{} strict failure should expose deterministic error codes",
+                case.name
+            );
+        }
+
+        let analyzer =
+            tailtriage_analyzer::analyze_run(&run, tailtriage_analyzer::AnalyzeOptions::default());
+        assert_eq!(
+            analyzer.request_count,
+            reference.requests.len(),
+            "{} analyzer requests",
+            case.name
+        );
+        for code in &reference.issue_codes {
+            assert!(
+                analyzer.warnings.iter().any(|w| w.contains(code)),
+                "{} analyzer missing {code}: {:?}",
+                case.name,
+                analyzer.warnings
+            );
+        }
+        let analyzer2 =
+            tailtriage_analyzer::analyze_run(&run, tailtriage_analyzer::AnalyzeOptions::default());
+        assert_eq!(
+            analyzer.warnings, analyzer2.warnings,
+            "{} analyzer warning order",
+            case.name
+        );
+
+        match tailtriage_analyzer::validate_artifact_strict(&run) {
+            Ok(()) => assert!(
+                strict.is_ok(),
+                "{} analyzer strict should match core",
+                case.name
+            ),
+            Err(err) => {
+                assert!(
+                    strict.is_err(),
+                    "{} analyzer strict rejected when core accepted: {err}",
+                    case.name
+                );
+                let represented_codes = match &err {
+                    tailtriage_analyzer::ArtifactValidationError::Core(core) => core
+                        .report()
+                        .issues
+                        .iter()
+                        .filter(|issue| {
+                            issue.severity == tailtriage_core::RunValidationSeverity::Error
+                        })
+                        .map(|issue| issue.code.as_str().to_owned())
+                        .collect::<BTreeSet<_>>(),
+                    _ => stable_issue_codes()
+                        .into_iter()
+                        .filter(|code| err.to_string().contains(code))
+                        .map(str::to_owned)
+                        .collect::<BTreeSet<_>>(),
+                };
+                for code in &strict_error_codes {
+                    assert!(
+                        represented_codes.contains(code),
+                        "{} analyzer strict missing {code}: {represented_codes:?}",
+                        case.name
+                    );
+                }
+            }
+        }
+
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let artifact_path = tempdir.path().join(format!("{}.json", case.name));
+        std::fs::write(&artifact_path, case.artifact).expect("write artifact");
+        let artifact_bytes_before =
+            std::fs::read(&artifact_path).expect("read artifact before analysis");
+        let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+            .arg("analyze")
+            .arg(&artifact_path)
+            .arg("--format")
+            .arg("json")
+            .output()
+            .expect("cli should run");
+        if reference.requests.is_empty() {
+            assert!(
+                !output.status.success(),
+                "{} zero-request CLI analyze should fail",
+                case.name
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("requests section is empty"),
+                "{} command-level failure: {stderr}",
+                case.name
+            );
+            assert!(
+                !stderr.contains("JSON"),
+                "{} should not be JSON decoding failure",
+                case.name
+            );
+            assert!(
+                !stderr.contains("strict artifact validation failed"),
+                "{} should not be strict failure",
+                case.name
+            );
+        } else {
+            assert!(
+                output.status.success(),
+                "{} cli failed: {:?}",
+                case.name,
+                output
+            );
+            let cli_report: serde_json::Value =
+                serde_json::from_slice(&output.stdout).expect("json report");
+            assert_eq!(
+                cli_report["request_count"].as_u64(),
+                Some(reference.requests.len() as u64),
+                "{} cli request count",
+                case.name
+            );
+            let cli_codes = warning_codes_from_json(&cli_report);
+            for code in &reference.issue_codes {
+                assert!(
+                    cli_codes.contains(code.as_str()),
+                    "{} cli missing {code}: {cli_codes:?}",
+                    case.name
+                );
+            }
+        }
+
+        let strict_output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+            .arg("analyze")
+            .arg(&artifact_path)
+            .arg("--strict-artifact")
+            .output()
+            .expect("strict cli should run");
+        assert_eq!(
+            strict_output.status.success(),
+            strict.is_ok(),
+            "{} cli strict status",
+            case.name
+        );
+        if strict.is_err() {
+            assert!(
+                strict_output.stdout.is_empty(),
+                "{} strict failure should not write report",
+                case.name
+            );
+            let stderr = String::from_utf8_lossy(&strict_output.stderr);
+            for code in &strict_error_codes {
+                assert!(
+                    stderr.contains(code),
+                    "{} strict stderr missing {code}: {stderr}",
+                    case.name
+                );
+            }
+            assert!(
+                !stderr.contains("precise_interval_validation_unavailable"),
+                "{} warning-only code not in strict failure heading",
+                case.name
+            );
+        }
+        let artifact_bytes_after =
+            std::fs::read(&artifact_path).expect("read artifact after analysis");
+        assert_eq!(
+            artifact_bytes_after, artifact_bytes_before,
+            "{} CLI analysis should not mutate artifact bytes",
+            case.name
+        );
+    }
+}
+
+#[test]
+fn canonical_tracing_conversion_matches_core_for_supported_cases() {
+    for case in tracing_candidates() {
+        let run: Run = serde_json::from_str(case.artifact).expect(case.name);
+        let reference = SemanticProjection::from_normalized(&normalize_run_permissive(&run));
+        let imported = tailtriage_tracing::run_from_span_records(
+            case.spans,
+            tailtriage_tracing::ImportOptions::new("svc").run_id("r1"),
+        )
+        .expect(case.name);
+        let tracing_projection = SemanticProjection::from_run_and_warnings(
+            imported.run(),
+            &imported
+                .warnings()
+                .iter()
+                .map(|w| w.message().to_owned())
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            tracing_projection.requests, reference.requests,
+            "{} tracing requests",
+            case.name
+        );
+        assert_eq!(
+            tracing_projection.stages, reference.stages,
+            "{} tracing stages",
+            case.name
+        );
+        assert_eq!(
+            tracing_projection.queues, reference.queues,
+            "{} tracing queues",
+            case.name
+        );
+        assert_eq!(
+            tracing_projection.truncation, reference.truncation,
+            "{} tracing truncation accounting",
+            case.name
+        );
+        for code in &reference.issue_codes {
+            assert!(
+                tracing_projection.issue_codes.contains(code),
+                "{} tracing missing {code}: {:?}",
+                case.name,
+                imported.warnings()
+            );
+        }
+
+        let strict = tailtriage_core::validate_run_strict(&run);
+        let strict_error_codes = strict_error_codes(&strict);
+        let strict_import = tailtriage_tracing::run_from_span_records(
+            case.strict_spans,
+            tailtriage_tracing::ImportOptions::new("svc")
+                .run_id("r1")
+                .strict(true),
+        );
+        assert_eq!(
+            strict_import.is_ok(),
+            strict.is_ok(),
+            "{} tracing strict status",
+            case.name
+        );
+        if let Err(err) = strict_import {
+            let msg = err.to_string();
+            for code in &strict_error_codes {
+                assert!(
+                    msg.contains(code),
+                    "{} strict tracing missing {code}: {msg}",
+                    case.name
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn native_run_is_strict_valid_and_normalization_idempotent() {
+    let tailtriage = Tailtriage::builder("native-svc")
+        .build()
+        .expect("tailtriage should build");
+    let started = tailtriage.begin_request_with(
+        "/native",
+        RequestOptions::new().request_id("native-req").kind("http"),
+    );
+    block_on_ready(started.handle.queue("pool").await_on(ready(())));
+    block_on_ready(started.handle.stage("db").await_value(ready(())));
+    started.completion.finish_ok();
+
+    let native_run = tailtriage.snapshot();
+    assert_eq!(native_run.requests.len(), 1, "native request event");
+    assert_eq!(native_run.stages.len(), 1, "native stage event");
+    assert_eq!(native_run.queues.len(), 1, "native queue event");
+    tailtriage_core::validate_run_strict(&native_run).expect("native run should be strict-valid");
+
+    let native_projection = SemanticProjection::from_run_and_warnings(&native_run, &[]);
+    let normalized = normalize_run_permissive(&native_run);
+    let normalized_projection = SemanticProjection::from_normalized(&normalized);
+    assert_eq!(
+        normalized_projection.requests, native_projection.requests,
+        "native request projection should survive normalization"
+    );
+    assert_eq!(
+        normalized_projection.stages, native_projection.stages,
+        "native stage projection should survive normalization"
+    );
+    assert_eq!(
+        normalized_projection.queues, native_projection.queues,
+        "native queue projection should survive normalization"
+    );
+
+    let renormalized_projection =
+        SemanticProjection::from_normalized(&normalize_run_permissive(&normalized.run));
+    assert_eq!(
+        renormalized_projection, normalized_projection,
+        "normalization should be idempotent for valid native runs"
+    );
+    assert!(
+        normalized_projection.strict_error_codes.is_empty(),
+        "valid native normalization should not expose generic error codes"
+    );
+
+    let analyzer = tailtriage_analyzer::analyze_run(
+        &native_run,
+        tailtriage_analyzer::AnalyzeOptions::default(),
+    );
+    assert_eq!(analyzer.request_count, normalized_projection.requests.len());
+}
+
+#[test]
+fn native_derived_missing_precision_keeps_duration_evidence_without_lifecycle_mutation() {
+    let tailtriage = Tailtriage::builder("native-svc")
+        .build()
+        .expect("tailtriage should build");
+    let started = tailtriage.begin_request_with(
+        "/native",
+        RequestOptions::new().request_id("native-req").kind("http"),
+    );
+    block_on_ready(started.handle.queue("pool").await_on(ready(())));
+    block_on_ready(started.handle.stage("db").await_value(ready(())));
+    started.completion.finish_ok();
+
+    let mut native_run = tailtriage.snapshot();
+    let durations_before = SemanticProjection::from_run_and_warnings(&native_run, &[]);
+    native_run.requests[0].started_at_run_us = None;
+    native_run.requests[0].finished_at_run_us = None;
+    native_run.stages[0].started_at_run_us = None;
+    native_run.stages[0].finished_at_run_us = None;
+    native_run.queues[0].waited_from_run_us = None;
+    native_run.queues[0].waited_until_run_us = None;
+    let lifecycle_before = native_run.metadata.lifecycle_warnings.clone();
+
+    tailtriage_core::validate_run_strict(&native_run)
+        .expect("native-derived missing precision should remain strict-valid");
+    let normalized = normalize_run_permissive(&native_run);
+    let projection = SemanticProjection::from_normalized(&normalized);
+    assert_eq!(projection.requests.len(), 1);
+    assert_eq!(projection.stages.len(), 1);
+    assert_eq!(projection.queues.len(), 1);
+    assert_eq!(projection.requests[0].2, durations_before.requests[0].2);
+    assert_eq!(projection.stages[0].2, durations_before.stages[0].2);
+    assert_eq!(projection.queues[0].2, durations_before.queues[0].2);
+    assert!(projection
+        .issue_codes
+        .contains(&"precise_interval_validation_unavailable".to_string()));
+
+    let _ = tailtriage_analyzer::analyze_run(
+        &native_run,
+        tailtriage_analyzer::AnalyzeOptions::default(),
+    );
+    assert_eq!(
+        native_run.metadata.lifecycle_warnings, lifecycle_before,
+        "read-only analysis should not append lifecycle warnings"
+    );
+}
+
+#[test]
+fn cli_missing_precision_warnings_and_artifact_are_deduplicated() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let artifact_path = tempdir.path().join("missing-precision.json");
+    std::fs::write(&artifact_path, missing_precision()).expect("write artifact");
+    let before = std::fs::read(&artifact_path).expect("read artifact before analysis");
+
+    let first = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("first cli should run");
+    let second = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("second cli should run");
+    assert!(first.status.success(), "first cli failed: {first:?}");
+    assert!(second.status.success(), "second cli failed: {second:?}");
+    assert_eq!(
+        first.stdout, second.stdout,
+        "stdout should be deterministic"
+    );
+    assert_eq!(
+        first.stderr, second.stderr,
+        "stderr should be deterministic"
+    );
+
+    let stderr = String::from_utf8(first.stderr).expect("stderr utf8");
+    assert_eq!(stderr.matches("existing lifecycle warning").count(), 1);
+    let after = std::fs::read(&artifact_path).expect("read artifact after analysis");
+    assert_eq!(after, before, "CLI analysis should not mutate artifact");
+
+    let artifact: serde_json::Value = serde_json::from_slice(&after).expect("artifact json");
+    let lifecycle = artifact["metadata"]["lifecycle_warnings"]
+        .as_array()
+        .expect("lifecycle warnings array");
+    assert_eq!(
+        lifecycle
+            .iter()
+            .filter(|warning| warning.as_str() == Some("existing lifecycle warning"))
+            .count(),
+        1
+    );
+    assert!(lifecycle.iter().all(|warning| !warning
+        .as_str()
+        .expect("warning string")
+        .contains("precise_interval_validation_unavailable")));
+
+    let report: serde_json::Value = serde_json::from_slice(&first.stdout).expect("report json");
+    let warnings = report["warnings"].as_array().expect("warnings array");
+    let precision_warnings = warnings
+        .iter()
+        .filter_map(|warning| warning.as_str())
+        .filter(|warning| warning.contains("precise_interval_validation_unavailable"))
+        .collect::<Vec<_>>();
+    let unique_precision_warnings = precision_warnings.iter().collect::<BTreeSet<_>>();
+    assert_eq!(
+        precision_warnings.len(),
+        unique_precision_warnings.len(),
+        "precision warnings should be grouped once per relevant summary"
+    );
+    assert_eq!(
+        precision_warnings.len(),
+        3,
+        "missing-precision fixture should group request, stage, and queue precision summaries"
+    );
+}
+
+fn strict_error_codes(strict: &Result<(), tailtriage_core::RunValidationError>) -> Vec<String> {
+    match strict {
+        Ok(()) => Vec::new(),
+        Err(err) => err
+            .report()
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == tailtriage_core::RunValidationSeverity::Error)
+            .map(|issue| issue.code.as_str().to_owned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn block_on_ready<F: Future>(future: F) -> F::Output {
+    let waker = Waker::noop();
+    let mut context = Context::from_waker(waker);
+    let mut future = pin!(future);
+    match future.as_mut().poll(&mut context) {
+        Poll::Ready(output) => output,
+        Poll::Pending => panic!("test future should complete without an executor"),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SemanticProjection {
+    requests: Vec<EventProjection>,
+    stages: Vec<EventProjection>,
+    queues: Vec<EventProjection>,
+    truncation: (u64, u64, u64),
+    issue_codes: Vec<String>,
+    strict_error_codes: Vec<String>,
+}
+
+type EventProjection = (String, String, u64, Option<u64>, Option<u64>);
+
+impl SemanticProjection {
+    fn from_normalized(normalized: &tailtriage_core::NormalizedRun) -> Self {
+        let strict_error_codes = normalized
+            .report
+            .issues
+            .iter()
+            .filter(|i| i.severity == tailtriage_core::RunValidationSeverity::Error)
+            .map(|i| i.code.as_str().to_owned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut out = Self::from_run_and_warnings(
+            &normalized.run,
+            &tailtriage_core::summarize_run_validation(normalized),
+        );
+        out.issue_codes = normalized
+            .report
+            .issues
+            .iter()
+            .map(|i| i.code.as_str().to_owned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        out.strict_error_codes = strict_error_codes;
+        out
+    }
+    fn from_run_and_warnings(run: &Run, warnings: &[String]) -> Self {
+        let mut requests = run
+            .requests
+            .iter()
+            .map(|r| {
+                (
+                    r.request_id.clone(),
+                    r.route.clone(),
+                    r.latency_us,
+                    r.started_at_run_us,
+                    r.finished_at_run_us,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut stages = run
+            .stages
+            .iter()
+            .map(|s| {
+                (
+                    s.request_id.clone(),
+                    s.stage.clone(),
+                    s.latency_us,
+                    s.started_at_run_us,
+                    s.finished_at_run_us,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut queues = run
+            .queues
+            .iter()
+            .map(|q| {
+                (
+                    q.request_id.clone(),
+                    q.queue.clone(),
+                    q.wait_us,
+                    q.waited_from_run_us,
+                    q.waited_until_run_us,
+                )
+            })
+            .collect::<Vec<_>>();
+        requests.sort();
+        stages.sort();
+        queues.sort();
+        Self {
+            requests,
+            stages,
+            queues,
+            truncation: (
+                run.truncation.dropped_requests,
+                run.truncation.dropped_stages,
+                run.truncation.dropped_queues,
+            ),
+            issue_codes: stable_issue_codes()
+                .into_iter()
+                .filter(|c| warnings.iter().any(|w| w.contains(c)))
+                .map(str::to_owned)
+                .collect(),
+            strict_error_codes: Vec::new(),
+        }
+    }
+}
+
+struct CanonicalCase {
+    name: &'static str,
+    artifact: &'static str,
+    strict_ok: bool,
+}
+fn canonical_candidates() -> [CanonicalCase; 7] {
+    [
+        CanonicalCase {
+            name: "valid-precise",
+            artifact: valid_precise(),
+            strict_ok: true,
+        },
+        CanonicalCase {
+            name: "missing-precision",
+            artifact: missing_precision(),
+            strict_ok: true,
+        },
+        CanonicalCase {
+            name: "duplicate-ambiguous-child",
+            artifact: duplicate_ambiguous_child(),
+            strict_ok: false,
+        },
+        CanonicalCase {
+            name: "orphan-child",
+            artifact: valid_request_plus_orphan_stage(),
+            strict_ok: false,
+        },
+        CanonicalCase {
+            name: "excluded-parent-child",
+            artifact: excluded_parent_child(),
+            strict_ok: false,
+        },
+        CanonicalCase {
+            name: "invalid-optional-precision",
+            artifact: request_with_partial_optional_precision(),
+            strict_ok: false,
+        },
+        CanonicalCase {
+            name: "outside-child",
+            artifact: precise_child_outside_parent(),
+            strict_ok: false,
+        },
+    ]
+}
+
+struct TracingCase {
+    name: &'static str,
+    artifact: &'static str,
+    spans: Vec<tailtriage_tracing::SpanRecord>,
+    strict_spans: Vec<tailtriage_tracing::SpanRecord>,
+}
+fn tracing_candidates() -> Vec<TracingCase> {
+    canonical_candidates()
+        .into_iter()
+        .filter(|c| c.name != "excluded-parent-child")
+        .map(|c| {
+            let spans = spans_for(c.name);
+            TracingCase {
+                name: c.name,
+                artifact: c.artifact,
+                strict_spans: spans.clone(),
+                spans,
+            }
+        })
+        .collect()
+}
+
+fn req(id: &str, start: u64, end: u64, dur: u64) -> tailtriage_tracing::SpanRecord {
+    tailtriage_tracing::SpanRecord::new("req", 1, 2)
+        .field(tailtriage_tracing::TT_KIND, "request")
+        .field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .field(tailtriage_tracing::TT_ROUTE, "/")
+        .field(tailtriage_tracing::TT_OUTCOME, "ok")
+        .started_at_run_us(start)
+        .finished_at_run_us(end)
+        .duration_us(dur)
+}
+fn req_no_precision(id: &str, dur: u64) -> tailtriage_tracing::SpanRecord {
+    tailtriage_tracing::SpanRecord::new("req", 1, 2)
+        .field(tailtriage_tracing::TT_KIND, "request")
+        .field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .field(tailtriage_tracing::TT_ROUTE, "/")
+        .field(tailtriage_tracing::TT_OUTCOME, "ok")
+        .duration_us(dur)
+}
+fn stage(id: &str, start: u64, end: u64, dur: u64) -> tailtriage_tracing::SpanRecord {
+    tailtriage_tracing::SpanRecord::new("stage", 1, 2)
+        .field(tailtriage_tracing::TT_KIND, "stage")
+        .field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .field(tailtriage_tracing::TT_STAGE, "db")
+        .field(tailtriage_tracing::TT_SUCCESS, true)
+        .started_at_run_us(start)
+        .finished_at_run_us(end)
+        .duration_us(dur)
+}
+fn queue(id: &str, start: u64, end: u64, dur: u64) -> tailtriage_tracing::SpanRecord {
+    tailtriage_tracing::SpanRecord::new("queue", 1, 2)
+        .field(tailtriage_tracing::TT_KIND, "queue")
+        .field(tailtriage_tracing::TT_REQUEST_ID, id)
+        .field(tailtriage_tracing::TT_QUEUE, "pool")
+        .started_at_run_us(start)
+        .finished_at_run_us(end)
+        .duration_us(dur)
+}
+fn spans_for(name: &str) -> Vec<tailtriage_tracing::SpanRecord> {
+    match name {
+        "valid-precise" => vec![
+            req("req1", 0, 10, 10),
+            stage("req1", 2, 5, 3),
+            queue("req1", 5, 7, 2),
+        ],
+        "missing-precision" => vec![
+            req_no_precision("req1", 10),
+            tailtriage_tracing::SpanRecord::new("stage", 1, 2)
+                .field(tailtriage_tracing::TT_KIND, "stage")
+                .field(tailtriage_tracing::TT_REQUEST_ID, "req1")
+                .field(tailtriage_tracing::TT_STAGE, "db")
+                .field(tailtriage_tracing::TT_SUCCESS, true)
+                .duration_us(3),
+            tailtriage_tracing::SpanRecord::new("queue", 1, 2)
+                .field(tailtriage_tracing::TT_KIND, "queue")
+                .field(tailtriage_tracing::TT_REQUEST_ID, "req1")
+                .field(tailtriage_tracing::TT_QUEUE, "pool")
+                .duration_us(2),
+        ],
+        "duplicate-ambiguous-child" => vec![
+            req("dup", 0, 10, 10),
+            req("dup", 20, 30, 10),
+            stage("dup", 2, 5, 3),
+        ],
+        "orphan-child" => vec![req("req1", 1, 11, 10), stage("missing", 1, 2, 1)],
+        "invalid-optional-precision" => vec![tailtriage_tracing::SpanRecord::new("req", 1, 2)
+            .field(tailtriage_tracing::TT_KIND, "request")
+            .field(tailtriage_tracing::TT_REQUEST_ID, "req1")
+            .field(tailtriage_tracing::TT_ROUTE, "/")
+            .field(tailtriage_tracing::TT_OUTCOME, "ok")
+            .started_at_run_us(1)
+            .duration_us(10)],
+        "outside-child" => vec![req("req1", 10, 20, 10), stage("req1", 0, 5, 5)],
+        _ => unreachable!(),
+    }
+}
+
+fn valid_precise() -> &'static str {
+    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"started_at_run_us":0,"finished_at_unix_ms":2,"finished_at_run_us":10,"latency_us":10,"outcome":"ok"}],"stages":[{"request_id":"req1","stage":"db","started_at_unix_ms":1,"started_at_run_us":2,"finished_at_unix_ms":2,"finished_at_run_us":5,"latency_us":3,"success":true}],"queues":[{"request_id":"req1","queue":"pool","waited_from_unix_ms":1,"waited_from_run_us":5,"waited_until_unix_ms":2,"waited_until_run_us":7,"wait_us":2}],"inflight":[],"runtime_snapshots":[]}"#
+}
+fn missing_precision() -> &'static str {
+    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":["existing lifecycle warning"],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[{"request_id":"req1","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}],"queues":[{"request_id":"req1","queue":"pool","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":2}],"inflight":[],"runtime_snapshots":[]}"#
+}
+fn duplicate_ambiguous_child() -> &'static str {
+    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"dup","route":"/","kind":null,"started_at_unix_ms":1,"started_at_run_us":0,"finished_at_unix_ms":2,"finished_at_run_us":10,"latency_us":10,"outcome":"ok"},{"request_id":"dup","route":"/","kind":null,"started_at_unix_ms":1,"started_at_run_us":20,"finished_at_unix_ms":2,"finished_at_run_us":30,"latency_us":10,"outcome":"ok"}],"stages":[{"request_id":"dup","stage":"db","started_at_unix_ms":1,"started_at_run_us":2,"finished_at_unix_ms":2,"finished_at_run_us":5,"latency_us":3,"success":true}],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
+}
+fn excluded_parent_child() -> &'static str {
+    r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"bad","route":"","kind":null,"started_at_unix_ms":1,"started_at_run_us":0,"finished_at_unix_ms":2,"finished_at_run_us":10,"latency_us":10,"outcome":"ok"}],"stages":[{"request_id":"bad","stage":"db","started_at_unix_ms":1,"started_at_run_us":2,"finished_at_unix_ms":2,"finished_at_run_us":5,"latency_us":3,"success":true}],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
