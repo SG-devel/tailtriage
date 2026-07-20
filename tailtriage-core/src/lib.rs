@@ -29,7 +29,6 @@
 mod collector;
 mod config;
 mod events;
-mod request_ids;
 mod retention;
 mod run_builder;
 mod sink;
@@ -55,11 +54,11 @@ pub use sink::{DiscardSink, LocalJsonSink, MemorySink, RunSink, SinkError};
 pub use time::{system_time_to_unix_ms, unix_time_ms};
 pub use timers::{InflightGuard, QueueTimer, StageTimer};
 pub use validation::{
-    inspect_run, normalize_run_permissive, summarize_run_validation,
+    inspect_run, normalize_run_permissive, summarize_normalized_run, summarize_run_validation,
     summarize_run_validation_lifecycle, validate_run_strict, NormalizedRun, RunEventDisposition,
     RunEventDispositionKind, RunSection, RunValidationError, RunValidationIssue,
     RunValidationIssueCode, RunValidationLocation, RunValidationReport, RunValidationSeverity,
-    RUN_RELATIVE_DURATION_TOLERANCE_US,
+    RunValidationSummaryAudience, RUN_RELATIVE_DURATION_TOLERANCE_US,
 };
 
 /// Internal integration hooks for sibling crates in this workspace.

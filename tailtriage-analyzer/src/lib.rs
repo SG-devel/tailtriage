@@ -56,74 +56,104 @@ impl std::fmt::Display for ArtifactValidationError {
         }
     }
 }
-impl std::error::Error for ArtifactValidationError {}
+impl std::error::Error for ArtifactValidationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Core(err) => Some(err),
+            Self::DuplicateCompletedRequestId { .. } | Self::OrphanRequestScopedEvent { .. } => {
+                None
+            }
+        }
+    }
+}
 
 /// Strictly validates request-scoped artifact invariants before analysis.
 ///
-/// This rejects duplicate completed request IDs and stage/queue events whose
-/// `request_id` has no matching completed request. Default analyzer entry
-/// points do not call this automatically; they keep backward-compatible
-/// permissive behavior and emit warnings instead of failing.
+/// This delegates to canonical core strict validation for all generic `Run`
+/// integrity failures, including metadata, required fields, timing, duplicate
+/// request IDs, orphan children, parent-state, and containment failures. Default
+/// analyzer entry points do not call this automatically; they keep
+/// backward-compatible permissive behavior and emit warnings instead of failing.
 ///
 /// # Errors
-/// Returns [`ArtifactValidationError`] for the first strict artifact invariant failure.
+/// Returns [`ArtifactValidationError`] when core strict validation rejects the artifact.
 pub fn validate_artifact_strict(run: &Run) -> Result<(), ArtifactValidationError> {
     match validate_run_strict(run) {
         Ok(()) => Ok(()),
         Err(err) => {
-            let mut duplicate_ids = run
-                .requests
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| {
-                    err.report().issues.iter().any(|issue| {
-                        issue.code == RunValidationIssueCode::DuplicateCompletedRequestId
-                            && issue.location.section == tailtriage_core::RunSection::Requests
-                            && issue.location.index == Some(*index)
-                    })
-                })
-                .map(|(_, request)| request.request_id.clone())
-                .collect::<Vec<_>>();
-            duplicate_ids.sort();
-            duplicate_ids.dedup();
-            if !duplicate_ids.is_empty() {
-                return Err(ArtifactValidationError::DuplicateCompletedRequestId {
-                    request_ids: duplicate_ids,
-                });
-            }
-            for (section, name) in [
-                (tailtriage_core::RunSection::Stages, "stage"),
-                (tailtriage_core::RunSection::Queues, "queue"),
-            ] {
-                let mut ids = err
-                    .report()
-                    .issues
+            if has_only_error_code(&err, RunValidationIssueCode::DuplicateCompletedRequestId) {
+                let mut duplicate_ids = run
+                    .requests
                     .iter()
-                    .filter(|issue| {
-                        issue.code == RunValidationIssueCode::OrphanRequestScopedEvent
-                            && issue.location.section == section
+                    .enumerate()
+                    .filter(|(index, _)| {
+                        err.report().issues.iter().any(|issue| {
+                            issue.code == RunValidationIssueCode::DuplicateCompletedRequestId
+                                && issue.location.section == tailtriage_core::RunSection::Requests
+                                && issue.location.index == Some(*index)
+                        })
                     })
-                    .filter_map(|issue| issue.location.index)
-                    .map(|index| {
-                        if section == tailtriage_core::RunSection::Stages {
-                            run.stages[index].request_id.clone()
-                        } else {
-                            run.queues[index].request_id.clone()
-                        }
-                    })
+                    .map(|(_, request)| request.request_id.clone())
                     .collect::<Vec<_>>();
-                ids.sort();
-                ids.dedup();
-                if !ids.is_empty() {
-                    return Err(ArtifactValidationError::OrphanRequestScopedEvent {
-                        section: name,
-                        request_ids: ids,
+                duplicate_ids.sort();
+                duplicate_ids.dedup();
+                if !duplicate_ids.is_empty() {
+                    return Err(ArtifactValidationError::DuplicateCompletedRequestId {
+                        request_ids: duplicate_ids,
                     });
+                }
+            }
+            if has_only_error_code(&err, RunValidationIssueCode::OrphanRequestScopedEvent) {
+                for (section, name) in [
+                    (tailtriage_core::RunSection::Stages, "stage"),
+                    (tailtriage_core::RunSection::Queues, "queue"),
+                ] {
+                    let mut ids = err
+                        .report()
+                        .issues
+                        .iter()
+                        .filter(|issue| {
+                            issue.code == RunValidationIssueCode::OrphanRequestScopedEvent
+                                && issue.location.section == section
+                        })
+                        .filter_map(|issue| issue.location.index)
+                        .map(|index| {
+                            if section == tailtriage_core::RunSection::Stages {
+                                run.stages[index].request_id.clone()
+                            } else {
+                                run.queues[index].request_id.clone()
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    ids.sort();
+                    ids.dedup();
+                    if !ids.is_empty() {
+                        return Err(ArtifactValidationError::OrphanRequestScopedEvent {
+                            section: name,
+                            request_ids: ids,
+                        });
+                    }
                 }
             }
             Err(ArtifactValidationError::Core(err))
         }
     }
+}
+
+fn has_only_error_code(
+    err: &tailtriage_core::RunValidationError,
+    code: RunValidationIssueCode,
+) -> bool {
+    let mut saw_error = false;
+    for issue in &err.report().issues {
+        if issue.severity == tailtriage_core::RunValidationSeverity::Error {
+            saw_error = true;
+            if issue.code != code {
+                return false;
+            }
+        }
+    }
+    saw_error
 }
 
 /// Validates options and strict artifact invariants, then analyzes one [`Run`].
@@ -606,7 +636,7 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     let normalized = normalize_run_permissive(run);
     let analysis_run = &normalized.run;
     let mut report = analyze_run_internal(analysis_run, options);
-    let validation_warnings = summarize_run_validation(&normalized.report);
+    let validation_warnings = summarize_run_validation(&normalized);
     report.warnings.splice(0..0, validation_warnings.clone());
     report.evidence_quality.limitations.extend(
         validation_warnings

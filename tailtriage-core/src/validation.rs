@@ -208,30 +208,51 @@ pub fn normalize_run_permissive(run: &Run) -> NormalizedRun {
     normalize_inner(run, true)
 }
 
-/// Returns bounded deterministic user-facing validation warning summaries.
+/// Audience for canonical run validation summaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunValidationSummaryAudience {
+    /// Analyzer-facing warnings include unchanged legacy precision limitations.
+    Analyzer,
+    /// Durable lifecycle warnings include only output-changing findings.
+    Lifecycle,
+}
+
+/// Returns bounded deterministic analyzer-facing validation warning summaries.
 #[must_use]
-pub fn summarize_run_validation(report: &RunValidationReport) -> Vec<String> {
-    summarize_run_validation_filtered(report, |_| true)
+pub fn summarize_run_validation(normalized: &NormalizedRun) -> Vec<String> {
+    summarize_normalized_run(normalized, RunValidationSummaryAudience::Analyzer)
 }
 
 /// Returns bounded deterministic validation summaries for durable lifecycle
 /// warnings: only issues that changed canonical output or cleared invalid
 /// optional precision are included.
 #[must_use]
-pub fn summarize_run_validation_lifecycle(report: &RunValidationReport) -> Vec<String> {
-    summarize_run_validation_filtered(report, |issue| {
-        issue.code != RunValidationIssueCode::PreciseIntervalValidationUnavailable
-    })
+pub fn summarize_run_validation_lifecycle(normalized: &NormalizedRun) -> Vec<String> {
+    summarize_normalized_run(normalized, RunValidationSummaryAudience::Lifecycle)
 }
 
-fn summarize_run_validation_filtered(
-    report: &RunValidationReport,
-    keep: impl Fn(&RunValidationIssue) -> bool,
+/// Returns bounded deterministic validation summaries for the selected audience.
+#[must_use]
+pub fn summarize_normalized_run(
+    normalized: &NormalizedRun,
+    audience: RunValidationSummaryAudience,
 ) -> Vec<String> {
-    let mut groups = BTreeMap::<(RunValidationIssueCode, RunSection), (usize, Vec<String>)>::new();
-    for issue in report.issues.iter().filter(|issue| keep(issue)) {
+    let mut groups =
+        BTreeMap::<(RunValidationIssueCode, RunSection, SummaryAction), (usize, Vec<String>)>::new(
+        );
+    for issue in &normalized.report.issues {
+        if audience == RunValidationSummaryAudience::Lifecycle
+            && issue.code == RunValidationIssueCode::PreciseIntervalValidationUnavailable
+        {
+            continue;
+        }
+        let action = summary_action(normalized, issue);
+        if audience == RunValidationSummaryAudience::Lifecycle && !action.changed_canonical_output()
+        {
+            continue;
+        }
         let entry = groups
-            .entry((issue.code, issue.location.section))
+            .entry((issue.code, issue.location.section, action))
             .or_default();
         entry.0 += 1;
         if entry.1.len() < 5 {
@@ -244,23 +265,89 @@ fn summarize_run_validation_filtered(
     }
     groups
         .into_iter()
-        .map(|((code, section), (count, samples))| {
-            let section_label = section.as_str();
+        .map(|((code, section, action), (count, samples))| {
+            let subject = if section == RunSection::Metadata {
+                "metadata finding(s)"
+            } else {
+                "event(s)"
+            };
             let sample = if samples.is_empty() {
                 String::new()
             } else {
                 format!(" sample: {}.", samples.join(", "))
             };
             format!(
-                "Run validation {}: {} {} event(s) {}{}",
+                "Run validation {}: {} {} {} {}{}",
                 code.as_str(),
                 count,
-                section_label,
-                validation_action(code, section),
+                section.as_str(),
+                subject,
+                action.as_str(),
                 sample
             )
         })
         .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum SummaryAction {
+    EvidenceExcluded,
+    OptionalOffsetsClearedDurationRetained,
+    OptionalPrecisionUnavailableEvidenceUnchanged,
+    MetadataFailedValidation,
+}
+
+impl SummaryAction {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::EvidenceExcluded => "were excluded from analysis.",
+            Self::OptionalOffsetsClearedDurationRetained => {
+                "had optional run-relative offsets cleared while authoritative duration evidence was retained."
+            }
+            Self::OptionalPrecisionUnavailableEvidenceUnchanged => {
+                "lack optional run-relative precision; legacy duration evidence was retained unchanged."
+            }
+            Self::MetadataFailedValidation => "failed validation without removing event evidence.",
+        }
+    }
+
+    const fn changed_canonical_output(self) -> bool {
+        matches!(
+            self,
+            Self::EvidenceExcluded | Self::OptionalOffsetsClearedDurationRetained
+        )
+    }
+}
+
+fn summary_action(normalized: &NormalizedRun, issue: &RunValidationIssue) -> SummaryAction {
+    if issue.location.section == RunSection::Metadata {
+        return SummaryAction::MetadataFailedValidation;
+    }
+    if let Some(index) = issue.location.index {
+        if normalized.dispositions.iter().any(|disposition| {
+            disposition.section == issue.location.section
+                && disposition.input_index == index
+                && matches!(
+                    disposition.disposition,
+                    RunEventDispositionKind::Excluded { .. }
+                )
+        }) {
+            return SummaryAction::EvidenceExcluded;
+        }
+    }
+    match issue.code {
+        RunValidationIssueCode::PartialRunRelativeInterval
+        | RunValidationIssueCode::DurationMismatch => {
+            SummaryAction::OptionalOffsetsClearedDurationRetained
+        }
+        RunValidationIssueCode::InvertedInterval if issue.location.field.is_none() => {
+            SummaryAction::OptionalOffsetsClearedDurationRetained
+        }
+        RunValidationIssueCode::PreciseIntervalValidationUnavailable => {
+            SummaryAction::OptionalPrecisionUnavailableEvidenceUnchanged
+        }
+        _ => SummaryAction::EvidenceExcluded,
+    }
 }
 
 impl RunSection {
@@ -275,22 +362,6 @@ impl RunSection {
             Self::Inflight => "in-flight",
             Self::RuntimeSnapshots => "runtime snapshot",
         }
-    }
-}
-
-const fn validation_action(code: RunValidationIssueCode, _section: RunSection) -> &'static str {
-    match code {
-        RunValidationIssueCode::PreciseIntervalValidationUnavailable => "lack run-relative timing; duration evidence was retained and precise containment was unavailable.",
-        RunValidationIssueCode::PartialRunRelativeInterval
-        | RunValidationIssueCode::DurationMismatch => "had invalid optional run-relative timing cleared while duration evidence was retained.",
-        RunValidationIssueCode::InvertedInterval => "had an inverted interval; wall-clock inversions were excluded and run-relative inversions were cleared when duration evidence was otherwise retainable.",
-        RunValidationIssueCode::DuplicateCompletedRequestId => "were excluded from analysis because their request ID was ambiguous.",
-        RunValidationIssueCode::AmbiguousParentRequestId => "were excluded from analysis because the parent request ID was ambiguous.",
-        RunValidationIssueCode::OrphanRequestScopedEvent => "were excluded from analysis because no retained parent request matched.",
-        RunValidationIssueCode::ParentRequestExcluded => "were excluded from analysis because the only parent candidates were excluded.",
-        RunValidationIssueCode::ChildIntervalOutsideRequest => "were excluded from analysis because normalized precise timing placed them outside the parent request.",
-        RunValidationIssueCode::EmptyRequiredField => "were excluded from analysis because required fields were blank.",
-        RunValidationIssueCode::UnsupportedSchemaVersion => "failed validation because the schema version is unsupported.",
     }
 }
 

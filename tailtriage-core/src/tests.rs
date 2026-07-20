@@ -119,13 +119,10 @@ fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
     second.completion.finish_ok();
 
     let snapshot = tailtriage.snapshot();
-    assert_eq!(snapshot.requests.len(), 2);
-    assert_eq!(snapshot.requests[0].request_id, "req-duplicate");
-    assert_eq!(snapshot.requests[1].request_id, "req-duplicate");
+    assert!(snapshot.requests.is_empty());
     assert!(snapshot.metadata.lifecycle_warnings.iter().any(|warning| {
-        warning.contains("duplicate completed request_id")
-            && warning.contains("req-duplicate")
-            && warning.contains("request-scoped attribution")
+        warning.contains("duplicate_completed_request_id")
+            && warning.contains("request event(s) were excluded")
     }));
 }
 
@@ -177,10 +174,15 @@ fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
         .expect("lock should succeed")
         .clone()
         .expect("sink should receive run");
-    assert_eq!(written.requests.len(), 2);
+    assert!(written.requests.is_empty());
     assert!(written.metadata.lifecycle_warnings.iter().any(|warning| {
-        warning.contains("duplicate completed request_id") && warning.contains("req-duplicate")
+        warning.contains("duplicate_completed_request_id")
+            && warning.contains("request event(s) were excluded")
     }));
+    assert_eq!(
+        written.metadata.finalized_at_unix_ms,
+        Some(written.metadata.finished_at_unix_ms)
+    );
 }
 
 #[test]
@@ -2111,6 +2113,35 @@ mod run_validation_contract {
     }
 
     #[test]
+    fn mixed_invalid_and_valid_same_id_retains_valid_parent_and_child() {
+        let mut run = base_run();
+        let mut invalid_parent = req("same", Some(0), Some(100), 100);
+        invalid_parent.route = " ".into();
+        run.requests.push(invalid_parent);
+        run.requests.push(req("same", Some(0), Some(100), 100));
+        run.stages.push(stage("same"));
+
+        let normalized = normalize_run_permissive(&run);
+
+        assert_eq!(normalized.run.requests.len(), 1);
+        assert_eq!(normalized.run.requests[0].request_id, "same");
+        assert_eq!(normalized.run.stages.len(), 1);
+        assert_eq!(normalized.run.stages[0].request_id, "same");
+        assert!(!normalized
+            .report
+            .issues
+            .iter()
+            .any(|issue| issue.code == RunValidationIssueCode::DuplicateCompletedRequestId));
+        assert!(!normalized.report.issues.iter().any(|issue| {
+            matches!(
+                issue.code,
+                RunValidationIssueCode::ParentRequestExcluded
+                    | RunValidationIssueCode::AmbiguousParentRequestId
+            )
+        }));
+    }
+
+    #[test]
     fn parent_states_classify_unique_ambiguous_excluded_only_and_absent_children() {
         let mut run = base_run();
         let mut invalid_parent = req("excluded", Some(0), Some(100), 100);
@@ -2163,14 +2194,50 @@ mod run_validation_contract {
     }
 
     #[test]
+    fn validation_summaries_describe_actual_effects_exactly() {
+        let mut run = base_run();
+        run.metadata.service_name = " ".into();
+        let mut wall_clock_bad = req("wall", Some(0), Some(100), 100);
+        wall_clock_bad.finished_at_unix_ms = wall_clock_bad.started_at_unix_ms - 1;
+        run.requests.push(wall_clock_bad);
+        run.requests.push(req("relative", Some(100), Some(0), 100));
+        run.requests.push(req("legacy", None, None, 100));
+        run.requests.push(req("dup", Some(0), Some(100), 100));
+        run.requests.push(req("dup", Some(0), Some(100), 100));
+        run.stages.push(stage("missing"));
+
+        let normalized = normalize_run_permissive(&run);
+        assert_eq!(
+            summarize_run_validation(&normalized),
+            vec![
+                "Run validation empty_required_field: 1 metadata metadata finding(s) failed validation without removing event evidence. sample: service_name.".to_string(),
+                "Run validation inverted_interval: 1 request event(s) were excluded from analysis. sample: index 0.".to_string(),
+                "Run validation inverted_interval: 1 request event(s) had optional run-relative offsets cleared while authoritative duration evidence was retained. sample: index 1.".to_string(),
+                "Run validation duplicate_completed_request_id: 2 request event(s) were excluded from analysis. sample: index 3, index 4.".to_string(),
+                "Run validation orphan_request_scoped_event: 1 stage event(s) were excluded from analysis. sample: index 0.".to_string(),
+                "Run validation precise_interval_validation_unavailable: 1 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 2.".to_string(),
+            ]
+        );
+        assert_eq!(
+            summarize_run_validation_lifecycle(&normalized),
+            vec![
+                "Run validation inverted_interval: 1 request event(s) were excluded from analysis. sample: index 0.".to_string(),
+                "Run validation inverted_interval: 1 request event(s) had optional run-relative offsets cleared while authoritative duration evidence was retained. sample: index 1.".to_string(),
+                "Run validation duplicate_completed_request_id: 2 request event(s) were excluded from analysis. sample: index 3, index 4.".to_string(),
+                "Run validation orphan_request_scoped_event: 1 stage event(s) were excluded from analysis. sample: index 0.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn validation_summaries_use_stable_labels_and_lifecycle_filtering() {
         let mut run = base_run();
         run.requests.push(req("legacy", None, None, 100));
         run.stages.push(stage("missing"));
 
         let normalized = normalize_run_permissive(&run);
-        let public = summarize_run_validation(&normalized.report);
-        let lifecycle = summarize_run_validation_lifecycle(&normalized.report);
+        let public = summarize_run_validation(&normalized);
+        let lifecycle = summarize_run_validation_lifecycle(&normalized);
 
         assert!(public
             .iter()

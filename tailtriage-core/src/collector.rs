@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::config::Config;
-use crate::request_ids::add_duplicate_completed_request_id_warning;
 use crate::time::{FinishedInterval, IntervalStart, RunClock};
 use crate::InflightGuard;
 use crate::RunSink;
@@ -363,8 +362,7 @@ impl Tailtriage {
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
         self.truncation_state.merge_into(&mut run.truncation);
-        add_duplicate_completed_request_id_warning(&mut run);
-        run
+        normalize_for_lifecycle(&run)
     }
 
     /// Writes the current run artifact and finishes the run lifecycle.
@@ -408,8 +406,9 @@ impl Tailtriage {
         }
 
         self.truncation_state.merge_into(&mut guard.truncation);
-        add_duplicate_completed_request_id_warning(&mut guard);
-        self.sink.write(&guard)
+        let candidate = guard.clone();
+        let normalized = normalize_for_lifecycle(&candidate);
+        self.sink.write(&normalized)
     }
 
     /// Sets the run-end reason if not already set.
@@ -893,6 +892,18 @@ impl Drop for OwnedRequestCompletion {
             "tailtriage request completion dropped without finish(...), finish_ok(), or finish_result(...)"
         );
     }
+}
+
+fn normalize_for_lifecycle(run: &Run) -> Run {
+    let normalized = crate::normalize_run_permissive(run);
+    let warnings = crate::summarize_run_validation_lifecycle(&normalized);
+    let mut run = normalized.run;
+    for warning in warnings {
+        if !run.metadata.lifecycle_warnings.contains(&warning) {
+            run.metadata.lifecycle_warnings.push(warning);
+        }
+    }
+    run
 }
 
 pub(crate) fn lock_run(run: &Mutex<Run>) -> std::sync::MutexGuard<'_, Run> {
