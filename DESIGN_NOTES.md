@@ -734,3 +734,12 @@ The key process claim is:
 The intended standard is that `tailtriage` should be understandable, reviewable, tested, and maintainable regardless of which tools were used during implementation.
 
 ---
+
+## Core Run integrity ownership
+
+Core Run integrity contract:
+
+- `tailtriage-core` owns generic Run inspection through `inspect_run`, strict rejection through `validate_run_strict`, and deterministic permissive normalization through `normalize_run_permissive`.
+- Strict validation rejects unsupported schema versions, blank required metadata/event strings, inverted wall-clock or run-relative intervals, partial run-relative intervals, duration mismatches beyond the shared 2,000 microsecond tolerance, duplicated completed request IDs, orphan or ambiguous request-scoped children, children of excluded parents, and precise child intervals outside precise parent request intervals.
+- Permissive normalization keeps duration fields authoritative, clears invalid optional run-relative offsets instead of repairing or clipping them, excludes every duplicated completed request rather than selecting first- or last-wins, excludes children of duplicated/excluded/missing parents, and retains duration-only legacy evidence with deterministic precision warnings.
+- Validation reports are not serialized into `Run` artifacts in this version.

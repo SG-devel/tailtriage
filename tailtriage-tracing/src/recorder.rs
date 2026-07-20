@@ -2392,9 +2392,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(request_ids, vec!["r1", "r2"]);
         assert_eq!(run.requests.len(), 2);
-        assert_eq!(run.stages.len(), 1);
-        assert_eq!(run.stages[0].request_id, "r1");
-        assert_eq!(run.stages[0].stage, "db");
+        assert!(run.stages.is_empty());
         assert!(imported.warnings().iter().any(|w| {
             w.message()
                 .contains("dropped 1 completed request candidate span(s)")
@@ -4313,12 +4311,8 @@ mod tests {
         assert_eq!(replay.run().requests[0].latency_us, 2_500);
         assert_eq!(replay.run().requests[0].started_at_run_us, Some(1_000));
         assert_eq!(replay.run().requests[0].finished_at_run_us, Some(3_500));
-        assert_eq!(replay.run().stages[0].latency_us, 70_000);
-        assert_eq!(replay.run().stages[0].started_at_run_us, Some(2_000));
-        assert_eq!(replay.run().stages[0].finished_at_run_us, Some(72_000));
-        assert_eq!(replay.run().queues[0].wait_us, 30_000);
-        assert_eq!(replay.run().queues[0].waited_from_run_us, Some(3_000));
-        assert_eq!(replay.run().queues[0].waited_until_run_us, Some(33_000));
+        assert!(replay.run().stages.is_empty());
+        assert!(replay.run().queues.is_empty());
     }
 
     #[test]

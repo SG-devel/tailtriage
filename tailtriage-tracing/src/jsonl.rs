@@ -634,7 +634,7 @@ mod tests {
             super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
 
         assert_eq!(imported.run().requests[0].latency_us, 50_000);
-        assert_eq!(imported.run().requests[0].started_at_run_us, Some(10));
+        assert_eq!(imported.run().requests[0].started_at_run_us, None);
         assert!(imported
             .warnings()
             .iter()

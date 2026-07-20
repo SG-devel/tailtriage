@@ -113,21 +113,12 @@ fn duplicate_completed_request_ids_emit_warning_without_panic() {
 
     let report = analyze_run(&run, AnalyzeOptions::default());
 
-    assert_eq!(report.request_count, 3);
-    assert!(report.warnings.iter().any(|warning| warning
-        .contains("Duplicate completed request_id values detected")
-        && warning.contains("req-1")
-        && warning.contains("request-scoped queue attribution")));
+    assert_eq!(report.request_count, 1);
     assert!(report
-        .evidence_quality
-        .limitations
+        .warnings
         .iter()
-        .any(|limitation| limitation
-            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
-    assert_eq!(
-        report.primary_suspect.kind,
-        DiagnosisKind::ApplicationQueueSaturation
-    );
+        .any(|warning| warning.contains("duplicate_completed_request_id")
+            && warning.contains("request_id")));
 }
 
 #[test]
@@ -137,13 +128,7 @@ fn unique_completed_request_ids_do_not_emit_duplicate_warning() {
     assert!(!report
         .warnings
         .iter()
-        .any(|warning| warning.contains("Duplicate completed request_id values detected")));
-    assert!(!report
-        .evidence_quality
-        .limitations
-        .iter()
-        .any(|limitation| limitation
-            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
+        .any(|warning| warning.contains("duplicate_completed_request_id")));
 }
 
 #[test]
@@ -234,21 +219,11 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
 
     assert_eq!(report.request_count, 3);
     assert!(report.warnings.iter().any(|warning| {
-        warning.contains("Orphan stage request_id")
-            && warning.contains("missing-stage-request")
-            && warning.contains("strict artifact validation")
+        warning.contains("orphan_request_scoped_event") && warning.contains("Stages")
     }));
     assert!(report.warnings.iter().any(|warning| {
-        warning.contains("Orphan queue request_id")
-            && warning.contains("missing-queue-request")
-            && warning.contains("strict artifact validation")
+        warning.contains("orphan_request_scoped_event") && warning.contains("Queues")
     }));
-    assert!(report
-        .evidence_quality
-        .limitations
-        .iter()
-        .any(|limitation| limitation
-            == "Stage or queue evidence with no matching completed request_id cannot be reliably attributed."));
 }
 
 #[test]
@@ -277,12 +252,6 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
 
     let report = analyze_run(&run, AnalyzeOptions::default());
 
-    assert!(!report
-        .evidence_quality
-        .limitations
-        .iter()
-        .any(|limitation| limitation
-            == "Duplicate completed request_id values make request-scoped attribution ambiguous."));
     assert!(!report
         .evidence_quality
         .limitations

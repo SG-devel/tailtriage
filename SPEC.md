@@ -211,6 +211,14 @@ Analyzer output includes:
 
 Schema contract:
 
+Core Run integrity contract:
+
+- `tailtriage-core` owns generic Run inspection through `inspect_run`, strict rejection through `validate_run_strict`, and deterministic permissive normalization through `normalize_run_permissive`.
+- Strict validation rejects unsupported schema versions, blank required metadata/event strings, inverted wall-clock or run-relative intervals, partial run-relative intervals, duration mismatches beyond the shared 2,000 microsecond tolerance, duplicated completed request IDs, orphan or ambiguous request-scoped children, children of excluded parents, and precise child intervals outside precise parent request intervals.
+- Permissive normalization keeps duration fields authoritative, clears invalid optional run-relative offsets instead of repairing or clipping them, excludes every duplicated completed request rather than selecting first- or last-wins, excludes children of duplicated/excluded/missing parents, and retains duration-only legacy evidence with deterministic precision warnings.
+- Validation reports are not serialized into `Run` artifacts in this version.
+
+
 - artifacts require top-level `schema_version`
 - current supported schema version is `1`
 - default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing

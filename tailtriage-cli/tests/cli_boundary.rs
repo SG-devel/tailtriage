@@ -194,11 +194,9 @@ fn analyze_permissive_artifact_warns_on_duplicate_completed_request_ids() {
     let warnings = report["warnings"]
         .as_array()
         .expect("warnings should be array");
-    assert!(warnings
-        .iter()
-        .any(|warning| warning.as_str().is_some_and(|text| text
-            .contains("Duplicate completed request_id values detected")
-            && text.contains("req1"))));
+    assert!(warnings.iter().any(|warning| warning
+        .as_str()
+        .is_some_and(|text| text.contains("duplicate_completed_request_id"))));
 }
 
 #[test]
