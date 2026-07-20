@@ -362,7 +362,7 @@ impl Tailtriage {
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
         self.truncation_state.merge_into(&mut run.truncation);
-        normalize_for_lifecycle(&run)
+        run
     }
 
     /// Writes the current run artifact and finishes the run lifecycle.

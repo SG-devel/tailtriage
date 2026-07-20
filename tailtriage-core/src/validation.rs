@@ -267,7 +267,7 @@ pub fn summarize_normalized_run(
         .into_iter()
         .map(|((code, section, action), (count, samples))| {
             let subject = if section == RunSection::Metadata {
-                "metadata finding(s)"
+                "finding(s)"
             } else {
                 "event(s)"
             };

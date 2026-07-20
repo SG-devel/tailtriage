@@ -192,6 +192,37 @@ fn strict_artifact_validation_fails_orphan_stage_and_queue_request_ids() {
 }
 
 #[test]
+fn strict_artifact_validation_simultaneous_stage_and_queue_orphans_return_core_with_source() {
+    let mut run = test_run();
+    run.stages = vec![StageEvent {
+        request_id: "missing-stage-request".to_owned(),
+        stage: "db".to_owned(),
+        started_at_unix_ms: 1,
+        started_at_run_us: None,
+        finished_at_unix_ms: 2,
+        finished_at_run_us: None,
+        latency_us: 100,
+        success: true,
+    }];
+    run.queues = vec![QueueEvent {
+        request_id: "missing-queue-request".to_owned(),
+        queue: "worker".to_owned(),
+        waited_from_unix_ms: 1,
+        waited_from_run_us: None,
+        waited_until_unix_ms: 2,
+        waited_until_run_us: None,
+        wait_us: 100,
+        depth_at_start: Some(1),
+    }];
+
+    let err = validate_artifact_strict(&run)
+        .expect_err("multi-section orphan failures should preserve core report");
+
+    assert!(matches!(err, ArtifactValidationError::Core(_)));
+    assert!(std::error::Error::source(&err).is_some());
+}
+
+#[test]
 fn strict_artifact_validation_duplicate_plus_metadata_returns_core_with_source() {
     let mut run = test_run();
     run.metadata.service_name = " ".to_owned();

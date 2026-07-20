@@ -119,11 +119,12 @@ fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
     second.completion.finish_ok();
 
     let snapshot = tailtriage.snapshot();
-    assert!(snapshot.requests.is_empty());
-    assert!(snapshot.metadata.lifecycle_warnings.iter().any(|warning| {
-        warning.contains("duplicate_completed_request_id")
-            && warning.contains("request event(s) were excluded")
-    }));
+    assert_eq!(snapshot.requests.len(), 2);
+    assert!(snapshot
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .all(|warning| !warning.contains("duplicate_completed_request_id")));
 }
 
 #[test]
@@ -183,6 +184,90 @@ fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
         written.metadata.finalized_at_unix_ms,
         Some(written.metadata.finished_at_unix_ms)
     );
+}
+
+#[test]
+fn active_snapshot_preserves_pending_request_child_evidence_without_lifecycle_normalization() {
+    let tailtriage = build_for_test(
+        "payments",
+        "tailtriage-core-active-snapshot-pending-children.json",
+    );
+    let started =
+        tailtriage.begin_request_with("/invoice", RequestOptions::new().request_id("req-active"));
+    let request = started.handle;
+
+    futures_executor::block_on(request.queue("permit").await_on(ready(())));
+    futures_executor::block_on(request.stage("db").await_value(ready(())));
+
+    let snapshot = tailtriage.snapshot();
+    assert!(snapshot.requests.is_empty());
+    assert_eq!(snapshot.stages.len(), 1);
+    assert_eq!(snapshot.stages[0].request_id, "req-active");
+    assert_eq!(snapshot.queues.len(), 1);
+    assert_eq!(snapshot.queues[0].request_id, "req-active");
+    assert!(snapshot
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .all(|warning| !warning.contains("orphan_request_scoped_event")));
+    assert!(snapshot.metadata.finalized_at_unix_ms.is_none());
+
+    started.completion.finish_ok();
+
+    let completed = tailtriage.snapshot();
+    assert_eq!(completed.requests.len(), 1);
+    assert_eq!(completed.requests[0].request_id, "req-active");
+    assert_eq!(completed.stages.len(), 1);
+    assert_eq!(completed.stages[0].request_id, "req-active");
+    assert_eq!(completed.queues.len(), 1);
+    assert_eq!(completed.queues[0].request_id, "req-active");
+}
+
+#[test]
+fn shutdown_normalizes_unfinished_request_children_without_fabricating_completion() {
+    let sink = Arc::new(RecordingSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(Arc::clone(&sink))
+        .build()
+        .expect("build should succeed");
+    let started = tailtriage.begin_request_with(
+        "/invoice",
+        RequestOptions::new().request_id("req-unfinished"),
+    );
+    let request = started.handle;
+
+    futures_executor::block_on(request.queue("permit").await_on(ready(())));
+    futures_executor::block_on(request.stage("db").await_value(ready(())));
+
+    tailtriage.shutdown().expect("shutdown should succeed");
+    std::mem::forget(started.completion);
+
+    let written = sink
+        .run
+        .lock()
+        .expect("lock should succeed")
+        .clone()
+        .expect("sink should receive run");
+    assert!(written.requests.is_empty());
+    assert!(written.stages.is_empty());
+    assert!(written.queues.is_empty());
+    assert_eq!(written.metadata.unfinished_requests.count, 1);
+    assert_eq!(
+        written.metadata.unfinished_requests.sample[0].request_id,
+        "req-unfinished"
+    );
+    assert!(written.metadata.lifecycle_warnings.iter().any(|warning| {
+        warning.contains("unfinished request(s) remained at shutdown")
+            && warning.contains("no fabricated completions")
+    }));
+    assert!(written.metadata.lifecycle_warnings.iter().any(|warning| {
+        warning.contains("orphan_request_scoped_event")
+            && warning.contains("stage event(s) were excluded")
+    }));
+    assert!(written.metadata.lifecycle_warnings.iter().any(|warning| {
+        warning.contains("orphan_request_scoped_event")
+            && warning.contains("queue event(s) were excluded")
+    }));
 }
 
 #[test]
@@ -2210,7 +2295,7 @@ mod run_validation_contract {
         assert_eq!(
             summarize_run_validation(&normalized),
             vec![
-                "Run validation empty_required_field: 1 metadata metadata finding(s) failed validation without removing event evidence. sample: service_name.".to_string(),
+                "Run validation empty_required_field: 1 metadata finding(s) failed validation without removing event evidence. sample: service_name.".to_string(),
                 "Run validation inverted_interval: 1 request event(s) were excluded from analysis. sample: index 0.".to_string(),
                 "Run validation inverted_interval: 1 request event(s) had optional run-relative offsets cleared while authoritative duration evidence was retained. sample: index 1.".to_string(),
                 "Run validation duplicate_completed_request_id: 2 request event(s) were excluded from analysis. sample: index 3, index 4.".to_string(),

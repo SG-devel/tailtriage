@@ -104,21 +104,38 @@ pub fn validate_artifact_strict(run: &Run) -> Result<(), ArtifactValidationError
                 }
             }
             if has_only_error_code(&err, RunValidationIssueCode::OrphanRequestScopedEvent) {
-                for (section, name) in [
-                    (tailtriage_core::RunSection::Stages, "stage"),
-                    (tailtriage_core::RunSection::Queues, "queue"),
-                ] {
+                let orphan_sections = err
+                    .report()
+                    .issues
+                    .iter()
+                    .filter(|issue| {
+                        issue.severity == tailtriage_core::RunValidationSeverity::Error
+                            && issue.code == RunValidationIssueCode::OrphanRequestScopedEvent
+                    })
+                    .map(|issue| issue.location.section)
+                    .collect::<std::collections::BTreeSet<_>>();
+                if let [section] = orphan_sections
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .as_slice()
+                {
+                    let name = match *section {
+                        tailtriage_core::RunSection::Stages => "stage",
+                        tailtriage_core::RunSection::Queues => "queue",
+                        _ => return Err(ArtifactValidationError::Core(err)),
+                    };
                     let mut ids = err
                         .report()
                         .issues
                         .iter()
                         .filter(|issue| {
                             issue.code == RunValidationIssueCode::OrphanRequestScopedEvent
-                                && issue.location.section == section
+                                && issue.location.section == *section
                         })
                         .filter_map(|issue| issue.location.index)
                         .map(|index| {
-                            if section == tailtriage_core::RunSection::Stages {
+                            if *section == tailtriage_core::RunSection::Stages {
                                 run.stages[index].request_id.clone()
                             } else {
                                 run.queues[index].request_id.clone()
