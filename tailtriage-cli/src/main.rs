@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::io::BufRead;
 use std::path::PathBuf;
 
@@ -186,7 +187,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("warning: {warning}");
             }
             let options = build_analyze_options(analyzer_config.as_deref(), &analyzer_set)?;
-            let report = try_analyze_run(&loaded.run, options)?;
+            let report = try_analyze_run(&loaded.original_run, options)?;
 
             match format {
                 OutputFormat::Text => {
@@ -214,23 +215,37 @@ fn validate_cli_strict_artifact(run: &tailtriage_core::Run) -> Result<(), std::i
         codes.sort_unstable();
         codes.dedup();
 
+        let error_count = err
+            .report()
+            .issues
+            .iter()
+            .filter(|issue| issue.severity == RunValidationSeverity::Error)
+            .count();
+        let detail_limit = 8;
         let mut details = err
             .report()
             .issues
             .iter()
             .filter(|issue| issue.severity == RunValidationSeverity::Error)
-            .take(8)
+            .take(detail_limit)
             .map(|issue| {
-                let location = if let Some(index) = issue.location.index {
-                    format!("{}[{index}]", issue.location.section.as_str())
-                } else if let Some(field) = issue.location.field {
-                    format!("{}.{}", issue.location.section.as_str(), field)
-                } else {
-                    issue.location.section.as_str().to_string()
-                };
+                let mut location = issue.location.section.as_str().to_string();
+                if let Some(index) = issue.location.index {
+                    write!(location, "[{index}]").expect("writing to String should not fail");
+                }
+                if let Some(field) = issue.location.field {
+                    location.push('.');
+                    location.push_str(field);
+                }
                 format!("{} at {location}: {}", issue.code.as_str(), issue.message)
             })
             .collect::<Vec<_>>();
+        if error_count > detail_limit {
+            details.push(format!(
+                "{} additional error finding(s) omitted",
+                error_count - detail_limit
+            ));
+        }
         if details.is_empty() {
             details.push(err.to_string());
         }
