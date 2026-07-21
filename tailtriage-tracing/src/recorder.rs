@@ -1426,18 +1426,16 @@ mod tests {
         severity: &'static str,
         code: &'static str,
         section: tailtriage_core::RunSection,
-        input_index: Option<usize>,
-        retained_source: Option<SourceIdentity>,
+        section_input_index: Option<usize>,
         field: Option<&'static str>,
     }
 
     fn relevant_issue_projection(
-        run: &tailtriage_core::Run,
-        retained_sources: &[SpanRecord],
+        report: &tailtriage_core::RunValidationReport,
     ) -> Vec<IssueProjection> {
-        tailtriage_core::inspect_run(run)
+        report
             .issues
-            .into_iter()
+            .iter()
             .filter(|issue| {
                 matches!(
                     issue.location.section,
@@ -1453,12 +1451,7 @@ mod tests {
                 },
                 code: issue.code.as_str(),
                 section: issue.location.section,
-                input_index: issue.location.index,
-                retained_source: issue
-                    .location
-                    .index
-                    .and_then(|index| retained_sources.get(index))
-                    .map(|span| source_identity(std::slice::from_ref(span)).remove(0)),
+                section_input_index: issue.location.index,
                 field: issue.location.field,
             })
             .collect()
@@ -4156,52 +4149,115 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn repaired_optional_precision_writer_emits_original_source_values() {
         let dir = tempfile::tempdir().unwrap();
-        let spans_path = dir.path().join("spans.jsonl");
-        let source = SpanRecord::new("repairable-request", 1_000, 1_020)
-            .id("repairable")
-            .started_at_run_us(50)
-            .finished_at_run_us(10)
-            .duration_us(20_000)
-            .field(TT_KIND, "request")
-            .field("tt.request_id", "repair")
-            .field("tt.route", "/repair");
-        let direct =
-            run_from_span_records(vec![source.clone()], ImportOptions::new("svc")).unwrap();
+        let first_path = dir.path().join("spans.jsonl");
+        let second_path = dir.path().join("reemitted.jsonl");
+        let sources = vec![
+            request("repairable-request", "repair", 1_000, 1_020)
+                .id("repairable-request")
+                .started_at_run_us(50)
+                .finished_at_run_us(10)
+                .duration_us(20_000),
+            stage("repairable-stage", "repair", 1_005, 1_015)
+                .id("repairable-stage")
+                .parent_id("repairable-request")
+                .started_at_run_us(40)
+                .finished_at_run_us(20)
+                .duration_us(10_000),
+            queue("repairable-queue", "repair", 1_006, 1_012)
+                .id("repairable-queue")
+                .parent_id("repairable-request")
+                .started_at_run_us(35)
+                .finished_at_run_us(25)
+                .duration_us(6_000),
+        ];
+
+        let direct_provenance =
+            crate::convert_span_records_with_provenance(sources.clone(), ImportOptions::new("svc"))
+                .unwrap();
+        let direct = &direct_provenance.imported;
         assert_eq!(direct.run().requests[0].started_at_run_us, None);
         assert_eq!(direct.run().requests[0].finished_at_run_us, None);
         assert_eq!(direct.run().requests[0].latency_us, 20_000);
-        assert_eq!(direct.retained_sources(), std::slice::from_ref(&source));
-        assert_eq!(source.started_at_run_us_ref(), Some(50));
-        assert_eq!(source.finished_at_run_us_ref(), Some(10));
-        let direct_issues = relevant_issue_projection(direct.run(), direct.retained_sources());
-        assert_eq!(direct_issues.len(), 1);
-        assert_eq!(direct_issues[0].severity, "warning");
+        assert_eq!(direct.run().stages[0].started_at_run_us, None);
+        assert_eq!(direct.run().stages[0].finished_at_run_us, None);
+        assert_eq!(direct.run().stages[0].latency_us, 10_000);
+        assert_eq!(direct.run().queues[0].waited_from_run_us, None);
+        assert_eq!(direct.run().queues[0].waited_until_run_us, None);
+        assert_eq!(direct.run().queues[0].wait_us, 6_000);
+        assert_eq!(direct.retained_sources(), sources.as_slice());
         assert_eq!(
-            direct_issues[0].code,
-            "precise_interval_validation_unavailable"
+            source_identity(direct.retained_sources()),
+            source_identity(&sources)
         );
-        assert_eq!(
-            direct_issues[0].section,
-            tailtriage_core::RunSection::Requests
-        );
-        assert_eq!(direct_issues[0].input_index, Some(0));
-        assert_eq!(direct_issues[0].field, None);
 
-        write_completed_span_jsonl_from_retained_sources(direct.retained_sources(), &spans_path)
+        let direct_issues = relevant_issue_projection(&direct_provenance.normalized.report);
+        assert!(!direct_issues.is_empty());
+        assert_eq!(
+            direct_issues,
+            vec![
+                IssueProjection {
+                    severity: "error",
+                    code: "inverted_interval",
+                    section: tailtriage_core::RunSection::Requests,
+                    section_input_index: Some(0),
+                    field: None,
+                },
+                IssueProjection {
+                    severity: "error",
+                    code: "inverted_interval",
+                    section: tailtriage_core::RunSection::Stages,
+                    section_input_index: Some(0),
+                    field: None,
+                },
+                IssueProjection {
+                    severity: "error",
+                    code: "inverted_interval",
+                    section: tailtriage_core::RunSection::Queues,
+                    section_input_index: Some(0),
+                    field: None,
+                },
+            ]
+        );
+
+        write_completed_span_jsonl_from_retained_sources(direct.retained_sources(), &first_path)
             .unwrap();
-        assert_eq!(decode_completed_span_jsonl(&spans_path), vec![source]);
+        let decoded = decode_completed_span_jsonl(&first_path);
+        assert_eq!(decoded, sources);
+        let replay_provenance =
+            crate::convert_span_records_with_provenance(decoded.clone(), ImportOptions::new("svc"))
+                .unwrap();
+        assert_eq!(
+            relevant_issue_projection(&replay_provenance.normalized.report),
+            direct_issues
+        );
+
         let replay = crate::jsonl::import_jsonl_path_with_mode(
-            &spans_path,
+            &first_path,
             ImportOptions::new("svc"),
             crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
         )
         .unwrap();
-        assert_eq!(replay.run().requests, direct.run().requests);
         assert_eq!(
-            relevant_issue_projection(replay.run(), replay.retained_sources()),
-            direct_issues
+            representable_evidence(replay.run()),
+            representable_evidence(direct.run())
+        );
+        assert_eq!(
+            source_identity(replay.retained_sources()),
+            source_identity(&sources)
+        );
+        assert_eq!(
+            source_identity(replay.retained_sources()),
+            source_identity(direct.retained_sources())
+        );
+
+        write_completed_span_jsonl_from_retained_sources(replay.retained_sources(), &second_path)
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&first_path).unwrap(),
+            std::fs::read(&second_path).unwrap()
         );
         assert_eq!(
             analyze_run(replay.run(), AnalyzeOptions::default()),
