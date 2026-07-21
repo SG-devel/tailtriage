@@ -38,7 +38,7 @@ mod jsonl;
 mod recorder;
 #[cfg(feature = "tokio")]
 /// Optional Tokio runtime sampler coupling for tracing sessions.
-pub mod tokio;
+mod tokio;
 mod types;
 
 use tailtriage_core::{
@@ -59,9 +59,8 @@ pub use jsonl::{
 };
 #[cfg(feature = "live")]
 pub use recorder::{
-    RecorderLimits, TailtriageLayer, TracingIntakeSession, TracingIntakeSessionBuilder,
-    TracingRecorder, TracingRecorderBuilder, DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS,
-    DEFAULT_MAX_OPEN_SPANS,
+    RecorderLimits, TailtriageLayer, TracingSession, TracingSessionBuilder,
+    DEFAULT_MAX_COMPLETED_CANDIDATE_SPANS, DEFAULT_MAX_OPEN_SPANS,
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 

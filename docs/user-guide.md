@@ -119,7 +119,7 @@ cargo add tokio --features macros,rt-multi-thread
 
 
 ```rust,no_run
-use tailtriage::tracing::TracingIntakeSession;
+use tailtriage::tracing::TracingSession;
 use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
@@ -129,7 +129,7 @@ async fn work() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let session = TracingIntakeSession::builder("checkout-service")
+    let session = TracingSession::builder("checkout-service")
         .run_json_path("target/tailtriage-examples/checkout.run.json")
         .build()?;
     tracing_subscriber::registry()
@@ -145,13 +145,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         work().instrument(span).await;
     } // the request span is closed before shutdown
-    let imported = session.shutdown()?;
+    let imported = session.shutdown().await?;
     let _ = imported;
     Ok(())
 }
 ```
 
-If using the focused crate directly, replace `tailtriage::tracing::TracingIntakeSession` with `tailtriage_tracing::TracingIntakeSession`.
+If using the focused crate directly, replace `tailtriage::tracing::TracingSession` with `tailtriage_tracing::TracingSession`.
 
 Stage and queue spans use their own `tt.stage` / `tt.queue` fields around the awaited work they measure. Every request, stage, and queue span for one completed logical request/work item must carry the same unique tailtriage `tt.request_id`; missing, inconsistent, or duplicated IDs cause child stage/queue evidence to be skipped, weakened, or reported as ambiguous.
 
@@ -169,7 +169,7 @@ tailtriage analyze target/tailtriage-examples/checkout.run.json
 
 Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
 
-Tokio runtime sampler coupling via `TracingTokioSession` requires `tracing-tokio` on the `tailtriage` façade or `tokio` on the focused `tailtriage-tracing` crate. By default it starts a background sampler; deterministic demos/validation can disable it with `disable_background_sampler()` and inject snapshots manually with `record_runtime_snapshot(...)`. Use `run_json_path(...)` to write Run JSON on shutdown, then analyze separately with `tailtriage analyze <run.json>`:
+Tokio runtime sampler coupling via `TracingSession` requires `tracing-tokio` on the `tailtriage` façade or `tokio` on the focused `tailtriage-tracing` crate. Background sampling is explicit: configure `sampler_interval(...)` to start it, or call `manual_runtime_snapshots()` for deterministic demos/validation and inject snapshots manually with `record_runtime_snapshot(...)`. Use `run_json_path(...)` to write Run JSON on shutdown, then analyze separately with `tailtriage analyze <run.json>`:
 
 ```bash
 cargo add tailtriage --features tracing-tokio
@@ -462,3 +462,20 @@ Semantics notes:
 - [Diagnostics guide](diagnostics.md)
 - [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)
+
+## Live tracing session migration
+
+Use `TracingSession` as the current live tracing entry point. Older names may appear in changelog history, but current setup should use the unified session builder.
+
+| Old usage | Final usage |
+| --- | --- |
+| `TracingRecorder::builder(...)` | `TracingSession::builder(...)` |
+| `TracingIntakeSession::builder(...)` | `TracingSession::builder(...)` |
+| `TracingTokioSession::builder(...).start()` | `TracingSession::builder(...).sampler_interval(...).build()` |
+| `recorder_limits(...)` | `limits(...)` |
+| synchronous `shutdown()?` | `shutdown().await?` |
+| deterministic manual mode | `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)?` |
+
+A plain live session still captures request, stage, and queue evidence. Background runtime sampling is opt-in through `sampler_interval(...)`; compiling Tokio support does not automatically start runtime sampling. Manual runtime collection is opt-in through `manual_runtime_snapshots()`, and manual recording without runtime collection returns a configuration error. Manual snapshots may coexist with background sampling.
+
+Run JSON is the complete persisted artifact. Completed-span JSONL output contains retained original tracing source records and preserves the retained original source identity for replayable tracing evidence, but it omits runtime snapshots and other Run-only state. Each output file is an independent transaction, so completed-span JSONL and Run JSON are written, flushed, and renamed separately.

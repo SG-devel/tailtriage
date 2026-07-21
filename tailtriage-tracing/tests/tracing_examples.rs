@@ -4,7 +4,7 @@ use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 #[cfg(feature = "live")]
 use tailtriage_core::{RequestOptions, Run, Tailtriage};
 #[cfg(feature = "live")]
-use tailtriage_tracing::TracingRecorder;
+use tailtriage_tracing::TracingSession;
 use tailtriage_tracing::{
     import_jsonl_path, import_jsonl_reader, import_jsonl_reader_with_mode, ImportOptions,
     JsonlParseMode,
@@ -16,7 +16,7 @@ use tracing_subscriber::prelude::*;
 fn native_single_request_run() -> Run {
     let tailtriage = Tailtriage::builder("svc")
         .build()
-        .expect("native recorder should build");
+        .expect("native session should build");
     let started = tailtriage.begin_request_with(
         "/checkout",
         RequestOptions::new().request_id("req-1").kind("http"),
@@ -37,10 +37,10 @@ fn native_single_request_run() -> Run {
 
 #[cfg(feature = "live")]
 fn live_tracing_single_request_run() -> Run {
-    let recorder = TracingRecorder::builder("svc")
+    let session = TracingSession::builder("svc")
         .build()
-        .expect("live recorder should build");
-    let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        .expect("live session should build");
+    let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
         let request = tracing::info_span!(
             "request",
@@ -82,9 +82,9 @@ fn live_tracing_single_request_run() -> Run {
         drop(request);
     });
 
-    recorder
+    session
         .snapshot_run()
-        .expect("live recorder snapshot should convert")
+        .expect("live session snapshot should convert")
         .run()
         .clone()
 }

@@ -14,7 +14,7 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 - This validates native-vs-tracing parity for request/stage evidence and queue evidence where applicable while still producing standard Run JSON for CLI analysis.
 - Tracing inflight parity is out of scope for this phase.
 - `blocking_service` and `executor_pressure_service` also support `--instrumentation native|tracing`.
-- Runtime-sensitive tracing parity uses `TracingTokioSession` plus deterministic runtime snapshots recorded during workload execution.
+- Runtime-sensitive tracing parity uses `TracingSession` plus deterministic runtime snapshots recorded during workload execution.
 - CI-facing tracing parity coverage gates once on Ubuntu extended release via `python3 scripts/demo_tool.py validate-tracing-parity all --profile release`.
 - Tracing spans alone do not infer runtime pressure; runtime-sensitive parity relies on those recorded snapshots.
 - Demo parity is semantic parity (request/stage/queue evidence shape and diagnosis direction), not exact latency or suspect-score equality.

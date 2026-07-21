@@ -84,7 +84,8 @@ async fn main() -> anyhow::Result<()> {
 
     Arc::into_inner(instrumentation)
         .expect("no outstanding instrumentation references")
-        .shutdown(&output_path)?;
+        .shutdown(&output_path)
+        .await?;
     println!("wrote {}", output_path.display());
 
     Ok(())

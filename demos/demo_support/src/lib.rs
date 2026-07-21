@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::Context;
 use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink, Tailtriage};
 use tailtriage_tracing::ensure_persistable_run_has_requests;
-use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
+use tailtriage_tracing::TracingSession;
 use tokio::sync::Barrier;
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
@@ -220,7 +220,7 @@ pub struct RuntimeDemoInstrumentation {
 
 enum RuntimeDemoBackend {
     Native(Arc<Tailtriage>),
-    Tracing(Box<TracingTokioSession>),
+    Tracing(Box<TracingSession>),
 }
 
 enum DemoInstrumentationBackend {
@@ -238,7 +238,7 @@ enum DemoRequestInner {
 }
 
 struct TracingState {
-    recorder: TracingRecorder,
+    recorder: TracingSession,
 }
 
 struct TracingRequest {
@@ -269,7 +269,7 @@ impl DemoInstrumentation {
                 )?),
             }),
             InstrumentationMode::Tracing => {
-                let mut builder = TracingRecorder::builder(service_name).strict(false);
+                let mut builder = TracingSession::builder(service_name).strict(false);
                 builder = builder.mode(capture.mode);
                 if capture.max_requests.is_some()
                     || capture.max_stages.is_some()
@@ -345,14 +345,14 @@ impl DemoInstrumentation {
     /// # Errors
     ///
     /// Returns an error when shutting down instrumentation or writing output fails.
-    pub fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
+    pub async fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
         match self.backend {
             DemoInstrumentationBackend::Native(tailtriage) => {
                 tailtriage.shutdown()?;
                 Ok(())
             }
             DemoInstrumentationBackend::Tracing(state) => {
-                let imported = state.recorder.shutdown()?;
+                let imported = state.recorder.shutdown().await?;
                 write_persistable_demo_run(&imported, output_path)
             }
         }
@@ -380,9 +380,9 @@ impl RuntimeDemoInstrumentation {
                 )?),
             }),
             InstrumentationMode::Tracing => {
-                let mut builder = TracingTokioSession::builder(service_name)
+                let mut builder = TracingSession::builder(service_name)
                     .strict(false)
-                    .disable_background_sampler();
+                    .manual_runtime_snapshots();
                 builder = builder.mode(capture.mode);
                 if capture.max_requests.is_some()
                     || capture.max_stages.is_some()
@@ -396,7 +396,7 @@ impl RuntimeDemoInstrumentation {
                         max_runtime_snapshots: None,
                     });
                 }
-                let session = builder.start()?;
+                let session = builder.build()?;
                 let subscriber = tracing_subscriber::registry().with(session.layer());
                 // Demo binaries run one instrumentation backend per process, so installing a
                 // global subscriber is acceptable here. Do not reuse this helper in libraries
@@ -454,11 +454,19 @@ impl RuntimeDemoInstrumentation {
     ///
     /// Runtime-sensitive tracing parity uses this to inject runtime-pressure evidence because
     /// tracing request/stage/queue spans alone do not infer runtime-pressure signals.
-    pub fn record_runtime_snapshot(&self, snapshot: tailtriage_core::RuntimeSnapshot) {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when tracing runtime collection was not enabled for the demo backend.
+    pub fn record_runtime_snapshot(
+        &self,
+        snapshot: tailtriage_core::RuntimeSnapshot,
+    ) -> anyhow::Result<()> {
         match &self.backend {
             RuntimeDemoBackend::Native(tailtriage) => tailtriage.record_runtime_snapshot(snapshot),
-            RuntimeDemoBackend::Tracing(session) => session.record_runtime_snapshot(snapshot),
+            RuntimeDemoBackend::Tracing(session) => session.record_runtime_snapshot(snapshot)?,
         }
+        Ok(())
     }
 
     /// Flush instrumentation and write the final run artifact.

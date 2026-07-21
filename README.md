@@ -80,7 +80,7 @@ Offline import expects completed tailtriage `tt.*` tracing span JSONL (not arbit
   tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout --output tailtriage-run.json
   tailtriage analyze tailtriage-run.json
   ```
-- Live session path: install either `tailtriage --features tracing-live` for `tailtriage::tracing::TracingIntakeSession` or `tailtriage-tracing --features live` for `tailtriage_tracing::TracingIntakeSession`, then add `session.layer()` beside your existing subscriber setup.
+- Live session path: install either `tailtriage --features tracing-live` for `tailtriage::tracing::TracingSession` or `tailtriage-tracing --features live` for `tailtriage_tracing::TracingSession`, then add `session.layer()` beside your existing subscriber setup.
 
 Both paths convert tracing-shaped evidence into standard `tailtriage_core::Run` data and feed the same analyzer/report workflow (evidence-ranked suspects and next checks). Runtime-pressure evidence still requires runtime snapshots (for example via the Tokio sampler).
 

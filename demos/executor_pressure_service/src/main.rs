@@ -167,8 +167,9 @@ async fn run_request_cohort(
                     local_queue_depth: Some(amplified_local_depth),
                     blocking_queue_depth: Some(0),
                     remote_schedule_count: Some(amplified_local_depth),
-                });
+                })?;
             }
+            Ok::<(), anyhow::Error>(())
         }))
     } else {
         None
@@ -212,16 +213,17 @@ async fn run_request_cohort(
                 )
                 .await;
             }
+            Ok::<(), anyhow::Error>(())
         }));
     }
 
     for request in requests {
-        request.await.context("request task panicked")?;
+        request.await.context("request task panicked")??;
     }
 
     capture_done.store(true, Ordering::SeqCst);
     if let Some(sampler) = sampler {
-        sampler.await.context("sampler task panicked")?;
+        sampler.await.context("sampler task panicked")??;
     }
     Ok(())
 }

@@ -39,7 +39,7 @@ Tracing-intake contract coverage is currently validated by unit/package tests an
 - stable wrapper fixture (`tailtriage.tracing-span.v1`)
 - wrapper-only import mode and compatible-mode behavior
 - CLI `--input-format` guardrails
-- `TracingIntakeSession` request/stage/queue capture and conversion
+- `TracingSession` request/stage/queue capture and conversion
 - example compile/run coverage under package example tests
 
 These checks validate conversion correctness and user-facing guardrails for triage intake. They do not validate production root-cause truth, do not claim import support for ordinary tracing log JSON (`fmt().json` style output), do not claim OTel/OTLP support, and do not claim runtime-pressure diagnosis from tracing-only intake without runtime snapshots/Tokio sampler coupling.
@@ -118,4 +118,4 @@ Optional manifest fields can validate expanded analyzer report surface on select
 CI gates native/tracing contract parity for demo scenarios via `scripts/demo_tool.py validate-tracing-parity all --profile release`. Checks include scenario coverage, expected evidence presence, route coverage, capture-mode behavior across `light` and `investigation`, retention semantics, and runtime/non-runtime boundaries. These checks do not require byte-for-byte artifact equality or exact suspect-ranking equality in every scenario. The queue tiny-limit retention parity gate runs in both `light` and `investigation` and checks retained counts, dropped counters, `truncation.limits_hit`, and `metadata.effective_core_config`. Runtime-sensitive tracing scenarios (Tokio session coupling) use deterministic/manual runtime snapshots and require all of: non-empty runtime snapshots, scenario-specific runtime field evidence, and an explicit disabled-background-sampler lifecycle warning. Runtime-sensitive tracing contract parity does not rely on ambient sampler metadata/noise. Tracing-only scenarios must not fabricate runtime snapshots. These checks support repeatable triage evidence and do not prove universal production performance or root-cause certainty.
 
 
-TracingTokioSession validation paths may run deterministic/manual runtime snapshot mode (`disable_background_sampler()` + `record_runtime_snapshot(...)`) to remove sampler cadence noise. This supports repeatable triage evidence and does not claim causal proof.
+TracingSession validation paths may run deterministic/manual runtime snapshot mode (`manual_runtime_snapshots()` + `record_runtime_snapshot(...)`) to remove sampler cadence noise. This supports repeatable triage evidence and does not claim causal proof.

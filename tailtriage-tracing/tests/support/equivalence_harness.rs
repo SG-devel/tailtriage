@@ -9,7 +9,7 @@ use tailtriage_core::{
     TruncationSummary, UnfinishedRequests, SCHEMA_VERSION,
 };
 use tailtriage_tracing::{
-    run_from_span_records, ImportOptions, SpanRecord, TracingRecorder, TT_DEPTH_AT_START, TT_KIND,
+    run_from_span_records, ImportOptions, SpanRecord, TracingSession, TT_DEPTH_AT_START, TT_KIND,
     TT_OUTCOME, TT_QUEUE, TT_REQUEST_ID, TT_ROUTE, TT_STAGE, TT_SUCCESS,
 };
 use tracing_subscriber::prelude::*;
@@ -308,16 +308,16 @@ primary suspect scores: native={:?} tracing={:?}",
 }
 
 fn live_tracing_run() -> (Run, Vec<String>) {
-    // Live recorder checks validate capture shape/analyzability only because scheduler timing is
+    // Live session checks validate capture shape/analyzability only because scheduler timing is
     // machine/workload scoped and not deterministic enough for strict analyzer parity gates.
     tracing_run_with_queue("permits")
 }
 
 fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
-    let recorder = TracingRecorder::builder("svc")
+    let session = TracingSession::builder("svc")
         .build()
-        .expect("build recorder");
-    let subscriber = tracing_subscriber::registry().with(recorder.layer());
+        .expect("build session");
+    let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
         block_on(async {
             for (id, slow) in [("r1", false), ("r2", true), ("r3", false)] {
@@ -373,7 +373,7 @@ fn tracing_run_with_queue(queue_name: &str) -> (Run, Vec<String>) {
             }
         });
     });
-    let imported = recorder.snapshot_run().unwrap();
+    let imported = session.snapshot_run().unwrap();
     let warnings = imported
         .warnings()
         .iter()
@@ -811,7 +811,7 @@ fn parity_report_detects_request_outcome_mismatch() {
 }
 
 #[test]
-fn live_recorder_preserves_event_shape_and_outputs_analyzable_run() {
+fn live_session_preserves_event_shape_and_outputs_analyzable_run() {
     let (run, warnings) = live_tracing_run();
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert_eq!(run.requests.len(), 3);

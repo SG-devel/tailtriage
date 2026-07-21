@@ -50,7 +50,7 @@ name = "completed_span_jsonl_export"
 required-features = ["live"]
 
 [[example]]
-name = "live_recorder"
+name = "live_session_snapshot"
 required-features = ["live"]
 
 [[example]]
