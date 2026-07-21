@@ -43,7 +43,8 @@ mod types;
 
 use tailtriage_core::{
     normalize_run_permissive, summarize_run_validation, summarize_run_validation_lifecycle,
-    validate_run_strict, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata,
+    validate_run_strict, EffectiveCoreConfig, NormalizedRun, QueueEvent, RequestEvent, Run,
+    RunEventDispositionKind, RunMetadata, RunSection, RunValidationIssueCode,
     RunValidationSeverity, StageEvent, TruncationSummary, UnfinishedRequests,
 };
 
@@ -123,16 +124,33 @@ pub fn run_from_span_records<I>(
 where
     I: IntoIterator<Item = SpanRecord>,
 {
+    Ok(convert_span_records_with_provenance(spans, options)?.into_imported())
+}
+
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+fn convert_span_records_with_provenance<I>(
+    spans: I,
+    options: ImportOptions,
+) -> Result<ProvenanceImportedRun, ImportError>
+where
+    I: IntoIterator<Item = SpanRecord>,
+{
     validate_service_name(options.service_name())?;
+    let source_spans = spans
+        .into_iter()
+        .enumerate()
+        .map(|(source_index, span)| SourceSpan { source_index, span })
+        .collect::<Vec<_>>();
     let mut warnings = Vec::new();
     let mut parsed_requests = Vec::new();
     let mut parsed_stages = Vec::new();
-    let mut queues = Vec::new();
+    let mut parsed_queues = Vec::new();
 
-    for span in spans {
-        let kind = match get_string_field_state(&span, TT_KIND) {
+    for source in &source_spans {
+        let span = &source.span;
+        let kind = match get_string_field_state(span, TT_KIND) {
             StringFieldState::Missing => {
-                if span_has_tailtriage_field(&span) {
+                if span_has_tailtriage_field(span) {
                     strict_or_warn(
                         options.strict_mode(),
                         &mut warnings,
@@ -169,30 +187,34 @@ where
         };
 
         if span.finished_at_unix_ms() < span.started_at_unix_ms() {
-            let message = format!(
-                "skipped span '{}' due to inverted timestamps: start={} finish={}",
-                span.name(),
-                span.started_at_unix_ms(),
-                span.finished_at_unix_ms()
-            );
-            strict_or_warn(options.strict_mode(), &mut warnings, message)?;
+            strict_or_warn(
+                options.strict_mode(),
+                &mut warnings,
+                format!(
+                    "skipped span '{}' due to inverted timestamps: start={} finish={}",
+                    span.name(),
+                    span.started_at_unix_ms(),
+                    span.finished_at_unix_ms()
+                ),
+            )?;
             continue;
         }
 
         match kind {
             SpanKind::Request => {
                 let request_id =
-                    required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
-                let route = required_string(&span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
+                    required_string(span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
+                let route = required_string(span, TT_ROUTE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(route)) = (request_id, route) {
                     let Some((outcome, outcome_defaulted)) =
-                        parse_outcome(&span, options.strict_mode(), &mut warnings)?
+                        parse_outcome(span, options.strict_mode(), &mut warnings)?
                     else {
                         continue;
                     };
                     let (started_at_run_us, finished_at_run_us) =
-                        sanitized_run_relative_offsets(&span);
+                        sanitized_run_relative_offsets(span);
                     parsed_requests.push(ParsedRequestEvent {
+                        source_index: source.source_index,
                         event: RequestEvent {
                             request_id,
                             route,
@@ -202,7 +224,7 @@ where
                             finished_at_unix_ms: span.finished_at_unix_ms(),
                             finished_at_run_us,
                             latency_us: elapsed_duration_us(
-                                &span,
+                                span,
                                 started_at_run_us,
                                 finished_at_run_us,
                             ),
@@ -214,18 +236,19 @@ where
             }
             SpanKind::Stage => {
                 let request_id =
-                    required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
-                let stage = required_string(&span, TT_STAGE, options.strict_mode(), &mut warnings)?;
+                    required_string(span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
+                let stage = required_string(span, TT_STAGE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(stage)) = (request_id, stage) {
-                    let success_field = parse_success(&span, options.strict_mode(), &mut warnings)?;
+                    let success_field = parse_success(span, options.strict_mode(), &mut warnings)?;
                     let success = match success_field {
                         OptionalField::Missing => true,
                         OptionalField::Value(success) => success,
                         OptionalField::Invalid => continue,
                     };
                     let (started_at_run_us, finished_at_run_us) =
-                        sanitized_run_relative_offsets(&span);
+                        sanitized_run_relative_offsets(span);
                     parsed_stages.push(ParsedStageEvent {
+                        source_index: source.source_index,
                         event: StageEvent {
                             request_id,
                             stage,
@@ -234,7 +257,7 @@ where
                             finished_at_unix_ms: span.finished_at_unix_ms(),
                             finished_at_run_us,
                             latency_us: elapsed_duration_us(
-                                &span,
+                                span,
                                 started_at_run_us,
                                 finished_at_run_us,
                             ),
@@ -246,30 +269,33 @@ where
             }
             SpanKind::Queue => {
                 let request_id =
-                    required_string(&span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
-                let queue = required_string(&span, TT_QUEUE, options.strict_mode(), &mut warnings)?;
+                    required_string(span, TT_REQUEST_ID, options.strict_mode(), &mut warnings)?;
+                let queue = required_string(span, TT_QUEUE, options.strict_mode(), &mut warnings)?;
                 if let (Some(request_id), Some(queue)) = (request_id, queue) {
                     let depth_at_start =
-                        match parse_depth_at_start(&span, options.strict_mode(), &mut warnings)? {
+                        match parse_depth_at_start(span, options.strict_mode(), &mut warnings)? {
                             OptionalField::Missing => None,
                             OptionalField::Value(depth) => Some(depth),
                             OptionalField::Invalid => continue,
                         };
                     let (waited_from_run_us, waited_until_run_us) =
-                        sanitized_run_relative_offsets(&span);
-                    queues.push(QueueEvent {
-                        request_id,
-                        queue,
-                        waited_from_unix_ms: span.started_at_unix_ms(),
-                        waited_from_run_us,
-                        waited_until_unix_ms: span.finished_at_unix_ms(),
-                        waited_until_run_us,
-                        wait_us: elapsed_duration_us(
-                            &span,
+                        sanitized_run_relative_offsets(span);
+                    parsed_queues.push(ParsedQueueEvent {
+                        source_index: source.source_index,
+                        event: QueueEvent {
+                            request_id,
+                            queue,
+                            waited_from_unix_ms: span.started_at_unix_ms(),
                             waited_from_run_us,
+                            waited_until_unix_ms: span.finished_at_unix_ms(),
                             waited_until_run_us,
-                        ),
-                        depth_at_start,
+                            wait_us: elapsed_duration_us(
+                                span,
+                                waited_from_run_us,
+                                waited_until_run_us,
+                            ),
+                            depth_at_start,
+                        },
                     });
                 }
             }
@@ -284,9 +310,7 @@ where
         .filter(|request| request.outcome_defaulted)
         .count();
     if request_outcome_default_count > 0 {
-        warnings.push(ImportWarning::new(format!(
-            "{request_outcome_default_count} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'"
-        )));
+        warnings.push(ImportWarning::new(format!("{request_outcome_default_count} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'")));
     }
     let stage_success_default_count = parsed_stages
         .iter()
@@ -294,30 +318,33 @@ where
         .filter(|stage| stage.success_defaulted)
         .count();
     if stage_success_default_count > 0 {
-        warnings.push(ImportWarning::new(format!(
-            "{stage_success_default_count} stage span(s) missing optional '{TT_SUCCESS}'; assumed true"
-        )));
+        warnings.push(ImportWarning::new(format!("{stage_success_default_count} stage span(s) missing optional '{TT_SUCCESS}'; assumed true")));
     }
 
-    let mut requests: Vec<RequestEvent> = parsed_requests
-        .into_iter()
-        .map(|request| request.event)
-        .collect();
-    let mut stages: Vec<StageEvent> = parsed_stages.into_iter().map(|stage| stage.event).collect();
-
     let mut truncation = TruncationSummary::default();
-    apply_retention_limit(&mut requests, capture_limits.max_requests, |dropped| {
-        truncation.dropped_requests = dropped;
-    });
-    apply_retention_limit(&mut stages, capture_limits.max_stages, |dropped| {
+    apply_retention_limit(
+        &mut parsed_requests,
+        capture_limits.max_requests,
+        |dropped| truncation.dropped_requests = dropped,
+    );
+    apply_retention_limit(&mut parsed_stages, capture_limits.max_stages, |dropped| {
         truncation.dropped_stages = dropped;
     });
-    apply_retention_limit(&mut queues, capture_limits.max_queues, |dropped| {
+    apply_retention_limit(&mut parsed_queues, capture_limits.max_queues, |dropped| {
         truncation.dropped_queues = dropped;
     });
     truncation.limits_hit = truncation.dropped_requests > 0
         || truncation.dropped_stages > 0
         || truncation.dropped_queues > 0;
+
+    let provenance =
+        CandidateProvenance::from_candidates(&parsed_requests, &parsed_stages, &parsed_queues);
+    let requests: Vec<RequestEvent> = parsed_requests
+        .into_iter()
+        .map(|request| request.event)
+        .collect();
+    let stages: Vec<StageEvent> = parsed_stages.into_iter().map(|stage| stage.event).collect();
+    let queues: Vec<QueueEvent> = parsed_queues.into_iter().map(|queue| queue.event).collect();
 
     let (started_at_unix_ms, finished_at_unix_ms) =
         retained_event_time_bounds(&requests, &stages, &queues).unwrap_or_else(|| {
@@ -365,9 +392,11 @@ where
     }
 
     let normalized = normalize_run_permissive(&candidate);
+    let source_outcomes = SourceOutcomes::from_normalized(&provenance, &normalized);
+    let retained_sources = source_outcomes.retained_sources(&source_spans);
     let core_warnings = summarize_run_validation(&normalized);
     let lifecycle_warnings = summarize_run_validation_lifecycle(&normalized);
-    let mut run = normalized.run;
+    let mut run = normalized.run.clone();
     refresh_normalized_metadata_bounds(&mut run, explicit_run_id);
     for warning in core_warnings {
         if !warnings
@@ -384,7 +413,187 @@ where
         }
     }
 
-    Ok(ImportedRun::new(run, warnings))
+    Ok(ProvenanceImportedRun {
+        imported: ImportedRun::new(run, warnings),
+        normalized,
+        candidate_provenance: provenance,
+        source_outcomes,
+        retained_sources,
+    })
+}
+
+#[derive(Debug, Clone)]
+struct SourceSpan {
+    source_index: usize,
+    span: SpanRecord,
+}
+
+#[derive(Debug)]
+struct ProvenanceImportedRun {
+    imported: ImportedRun,
+    normalized: NormalizedRun,
+    candidate_provenance: CandidateProvenance,
+    source_outcomes: SourceOutcomes,
+    retained_sources: Vec<SpanRecord>,
+}
+
+impl ProvenanceImportedRun {
+    fn into_imported(self) -> ImportedRun {
+        let _ = (
+            &self.normalized,
+            &self.candidate_provenance,
+            &self.source_outcomes,
+            &self.retained_sources,
+        );
+        self.imported
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CandidateSource {
+    section: RunSection,
+    input_index: usize,
+    source_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CandidateProvenance {
+    inputs: Vec<CandidateSource>,
+}
+
+impl CandidateProvenance {
+    fn from_candidates(
+        requests: &[ParsedRequestEvent],
+        stages: &[ParsedStageEvent],
+        queues: &[ParsedQueueEvent],
+    ) -> Self {
+        let request_inputs =
+            requests
+                .iter()
+                .enumerate()
+                .map(|(input_index, request)| CandidateSource {
+                    section: RunSection::Requests,
+                    input_index,
+                    source_index: request.source_index,
+                });
+        let stage_inputs = stages
+            .iter()
+            .enumerate()
+            .map(|(input_index, stage)| CandidateSource {
+                section: RunSection::Stages,
+                input_index,
+                source_index: stage.source_index,
+            });
+        let queue_inputs = queues
+            .iter()
+            .enumerate()
+            .map(|(input_index, queue)| CandidateSource {
+                section: RunSection::Queues,
+                input_index,
+                source_index: queue.source_index,
+            });
+        Self {
+            inputs: request_inputs
+                .chain(stage_inputs)
+                .chain(queue_inputs)
+                .collect(),
+        }
+    }
+
+    fn source_index(&self, section: RunSection, input_index: usize) -> Option<usize> {
+        self.inputs
+            .iter()
+            .find(|input| input.section == section && input.input_index == input_index)
+            .map(|input| input.source_index)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceOutcome {
+    source_index: usize,
+    section: RunSection,
+    input_index: usize,
+    outcome: SourceOutcomeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SourceOutcomeKind {
+    Retained {
+        output_index: usize,
+    },
+    Excluded {
+        issue_codes: Vec<RunValidationIssueCode>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceOutcomes {
+    outcomes: Vec<SourceOutcome>,
+}
+
+impl SourceOutcomes {
+    fn from_normalized(provenance: &CandidateProvenance, normalized: &NormalizedRun) -> Self {
+        let mut outcomes = normalized
+            .dispositions
+            .iter()
+            .filter(|disposition| {
+                matches!(
+                    disposition.section,
+                    RunSection::Requests | RunSection::Stages | RunSection::Queues
+                )
+            })
+            .map(|disposition| {
+                let source_index = provenance
+                    .source_index(disposition.section, disposition.input_index)
+                    .expect("core disposition must join to one tracing candidate source");
+                let outcome = match &disposition.disposition {
+                    RunEventDispositionKind::Retained { output_index } => {
+                        SourceOutcomeKind::Retained {
+                            output_index: *output_index,
+                        }
+                    }
+                    RunEventDispositionKind::Excluded { issue_codes } => {
+                        SourceOutcomeKind::Excluded {
+                            issue_codes: issue_codes.clone(),
+                        }
+                    }
+                };
+                SourceOutcome {
+                    source_index,
+                    section: disposition.section,
+                    input_index: disposition.input_index,
+                    outcome,
+                }
+            })
+            .collect::<Vec<_>>();
+        outcomes.sort_by_key(source_outcome_sort_key);
+        Self { outcomes }
+    }
+
+    fn retained_sources(&self, source_spans: &[SourceSpan]) -> Vec<SpanRecord> {
+        self.outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome.outcome, SourceOutcomeKind::Retained { .. }))
+            .map(|outcome| {
+                source_spans
+                    .iter()
+                    .find(|source| source.source_index == outcome.source_index)
+                    .expect("retained source index must select one original span")
+                    .span
+                    .clone()
+            })
+            .collect()
+    }
+}
+
+fn source_outcome_sort_key(outcome: &SourceOutcome) -> (usize, u8, usize) {
+    let section = match outcome.section {
+        RunSection::Requests => 0,
+        RunSection::Stages => 1,
+        RunSection::Queues => 2,
+        _ => 3,
+    };
+    (outcome.source_index, section, outcome.input_index)
 }
 
 fn apply_retention_limit<T>(items: &mut Vec<T>, max: usize, set_dropped: impl FnOnce(u64)) {
@@ -430,13 +639,20 @@ fn refresh_normalized_metadata_bounds(run: &mut Run, explicit_run_id: bool) {
 }
 
 struct ParsedStageEvent {
+    source_index: usize,
     event: StageEvent,
     success_defaulted: bool,
 }
 
 struct ParsedRequestEvent {
+    source_index: usize,
     event: RequestEvent,
     outcome_defaulted: bool,
+}
+
+struct ParsedQueueEvent {
+    source_index: usize,
+    event: QueueEvent,
 }
 
 fn validate_service_name(service_name: &str) -> Result<(), ImportError> {
@@ -766,6 +982,630 @@ mod tests {
         assert_eq!(SpanKind::parse("wat"), None);
     }
 
+    fn opts() -> ImportOptions {
+        ImportOptions::new("svc").strict(false).run_id("run")
+    }
+
+    fn req(id: &str, start: u64, finish: u64) -> SpanRecord {
+        SpanRecord::new(format!("req-{id}"), start, finish)
+            .field(TT_KIND, "request")
+            .field(TT_REQUEST_ID, id)
+            .field(TT_ROUTE, "/")
+    }
+
+    fn stage(id: &str, name: &str, start: u64, finish: u64) -> SpanRecord {
+        SpanRecord::new(format!("stage-{name}"), start, finish)
+            .field(TT_KIND, "stage")
+            .field(TT_REQUEST_ID, id)
+            .field(TT_STAGE, name)
+    }
+
+    fn queue(id: &str, name: &str, start: u64, finish: u64) -> SpanRecord {
+        SpanRecord::new(format!("queue-{name}"), start, finish)
+            .field(TT_KIND, "queue")
+            .field(TT_REQUEST_ID, id)
+            .field(TT_QUEUE, name)
+    }
+
+    fn empty_candidate_run() -> Run {
+        Run {
+            schema_version: tailtriage_core::SCHEMA_VERSION,
+            metadata: RunMetadata {
+                run_id: "run".to_owned(),
+                service_name: "svc".to_owned(),
+                service_version: None,
+                started_at_unix_ms: 100,
+                finished_at_unix_ms: 120,
+                finalized_at_unix_ms: Some(120),
+                mode: CaptureMode::Light,
+                effective_core_config: None,
+                effective_tokio_sampler_config: None,
+                host: None,
+                pid: None,
+                lifecycle_warnings: Vec::new(),
+                unfinished_requests: UnfinishedRequests::default(),
+                run_end_reason: None,
+            },
+            requests: Vec::new(),
+            stages: Vec::new(),
+            queues: Vec::new(),
+            inflight: Vec::new(),
+            runtime_snapshots: Vec::new(),
+            truncation: TruncationSummary::default(),
+        }
+    }
+
+    fn retained_indices(result: &ProvenanceImportedRun) -> Vec<usize> {
+        result
+            .source_outcomes
+            .outcomes
+            .iter()
+            .filter_map(|outcome| match outcome.outcome {
+                SourceOutcomeKind::Retained { .. } => Some(outcome.source_index),
+                SourceOutcomeKind::Excluded { .. } => None,
+            })
+            .collect()
+    }
+
+    fn excluded_codes(result: &ProvenanceImportedRun) -> Vec<(usize, Vec<RunValidationIssueCode>)> {
+        result
+            .source_outcomes
+            .outcomes
+            .iter()
+            .filter_map(|outcome| match &outcome.outcome {
+                SourceOutcomeKind::Excluded { issue_codes } => {
+                    Some((outcome.source_index, issue_codes.clone()))
+                }
+                SourceOutcomeKind::Retained { .. } => None,
+            })
+            .collect()
+    }
+
+    type SourceOutcomeProjection = (
+        usize,
+        RunSection,
+        usize,
+        Result<usize, Vec<RunValidationIssueCode>>,
+    );
+
+    fn outcome_projection(result: &ProvenanceImportedRun) -> Vec<SourceOutcomeProjection> {
+        result
+            .source_outcomes
+            .outcomes
+            .iter()
+            .map(|outcome| {
+                let projected = match &outcome.outcome {
+                    SourceOutcomeKind::Retained { output_index } => Ok(*output_index),
+                    SourceOutcomeKind::Excluded { issue_codes } => Err(issue_codes.clone()),
+                };
+                (
+                    outcome.source_index,
+                    outcome.section,
+                    outcome.input_index,
+                    projected,
+                )
+            })
+            .collect()
+    }
+
+    fn retained_source_projection(result: &ProvenanceImportedRun) -> Vec<(String, String, String)> {
+        result
+            .retained_sources
+            .iter()
+            .map(|span| {
+                (
+                    span.name().to_owned(),
+                    span.id_ref().unwrap_or_default().to_owned(),
+                    span.parent_id_ref().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn provenance_maps_valid_request_stage_queue_source_indices() {
+        let spans = vec![
+            req("r", 100, 120),
+            stage("r", "db", 105, 115),
+            queue("r", "work", 101, 104),
+        ];
+        let result = convert_span_records_with_provenance(spans.clone(), opts()).unwrap();
+        assert_eq!(
+            result
+                .candidate_provenance
+                .inputs
+                .iter()
+                .map(|i| (i.section, i.input_index, i.source_index))
+                .collect::<Vec<_>>(),
+            vec![
+                (RunSection::Requests, 0, 0),
+                (RunSection::Stages, 0, 1),
+                (RunSection::Queues, 0, 2)
+            ]
+        );
+        assert_eq!(retained_indices(&result), vec![0, 1, 2]);
+        assert_eq!(result.retained_sources, spans);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn provenance_excludes_children_of_core_excluded_parents_without_truncation() {
+        let source_spans = vec![
+            SourceSpan {
+                source_index: 0,
+                span: req("excluded", 100, 120),
+            },
+            SourceSpan {
+                source_index: 1,
+                span: stage("excluded", "child-stage", 105, 110),
+            },
+            SourceSpan {
+                source_index: 2,
+                span: queue("excluded", "child-queue", 111, 112),
+            },
+        ];
+        let mut candidate = empty_candidate_run();
+        candidate.requests.push(RequestEvent {
+            request_id: "excluded".to_owned(),
+            route: " ".to_owned(),
+            kind: None,
+            started_at_unix_ms: 100,
+            started_at_run_us: None,
+            finished_at_unix_ms: 120,
+            finished_at_run_us: None,
+            latency_us: 20_000,
+            outcome: "ok".to_owned(),
+        });
+        candidate.stages.push(StageEvent {
+            request_id: "excluded".to_owned(),
+            stage: "child-stage".to_owned(),
+            started_at_unix_ms: 105,
+            started_at_run_us: None,
+            finished_at_unix_ms: 110,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
+        candidate.queues.push(QueueEvent {
+            request_id: "excluded".to_owned(),
+            queue: "child-queue".to_owned(),
+            waited_from_unix_ms: 111,
+            waited_from_run_us: None,
+            waited_until_unix_ms: 112,
+            waited_until_run_us: None,
+            wait_us: 1_000,
+            depth_at_start: None,
+        });
+        let provenance = CandidateProvenance {
+            inputs: vec![
+                CandidateSource {
+                    section: RunSection::Requests,
+                    input_index: 0,
+                    source_index: 0,
+                },
+                CandidateSource {
+                    section: RunSection::Stages,
+                    input_index: 0,
+                    source_index: 1,
+                },
+                CandidateSource {
+                    section: RunSection::Queues,
+                    input_index: 0,
+                    source_index: 2,
+                },
+            ],
+        };
+
+        let normalized = normalize_run_permissive(&candidate);
+        let source_outcomes = SourceOutcomes::from_normalized(&provenance, &normalized);
+
+        assert_eq!(
+            source_outcomes
+                .outcomes
+                .iter()
+                .map(|outcome| {
+                    let projected = match &outcome.outcome {
+                        SourceOutcomeKind::Retained { output_index } => Ok(*output_index),
+                        SourceOutcomeKind::Excluded { issue_codes } => Err(issue_codes.clone()),
+                    };
+                    (
+                        outcome.source_index,
+                        outcome.section,
+                        outcome.input_index,
+                        projected,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    0,
+                    RunSection::Requests,
+                    0,
+                    Err(vec![RunValidationIssueCode::EmptyRequiredField])
+                ),
+                (
+                    1,
+                    RunSection::Stages,
+                    0,
+                    Err(vec![RunValidationIssueCode::ParentRequestExcluded])
+                ),
+                (
+                    2,
+                    RunSection::Queues,
+                    0,
+                    Err(vec![RunValidationIssueCode::ParentRequestExcluded])
+                ),
+            ]
+        );
+        assert!(source_outcomes.retained_sources(&source_spans).is_empty());
+        assert_eq!(candidate.truncation.dropped_requests, 0);
+        assert_eq!(candidate.truncation.dropped_stages, 0);
+        assert_eq!(candidate.truncation.dropped_queues, 0);
+        assert!(!candidate.truncation.limits_hit);
+    }
+
+    #[test]
+    fn provenance_retained_output_indices_are_exact_and_contiguous_per_section() {
+        let spans = vec![
+            req("r1", 100, 120),
+            req("dup", 100, 120),
+            req("dup", 130, 150),
+            req("r2", 200, 240),
+            stage("r1", "s1", 101, 102),
+            stage("missing", "orphan", 101, 102),
+            stage("r2", "s2", 210, 220),
+            queue("r1", "q1", 103, 104),
+            queue("dup", "ambiguous", 103, 104),
+            queue("r2", "q2", 221, 222),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert_eq!(
+            outcome_projection(&result),
+            vec![
+                (0, RunSection::Requests, 0, Ok(0)),
+                (
+                    1,
+                    RunSection::Requests,
+                    1,
+                    Err(vec![RunValidationIssueCode::DuplicateCompletedRequestId])
+                ),
+                (
+                    2,
+                    RunSection::Requests,
+                    2,
+                    Err(vec![RunValidationIssueCode::DuplicateCompletedRequestId])
+                ),
+                (3, RunSection::Requests, 3, Ok(1)),
+                (4, RunSection::Stages, 0, Ok(0)),
+                (
+                    5,
+                    RunSection::Stages,
+                    1,
+                    Err(vec![RunValidationIssueCode::OrphanRequestScopedEvent])
+                ),
+                (6, RunSection::Stages, 2, Ok(1)),
+                (7, RunSection::Queues, 0, Ok(0)),
+                (
+                    8,
+                    RunSection::Queues,
+                    1,
+                    Err(vec![RunValidationIssueCode::AmbiguousParentRequestId])
+                ),
+                (9, RunSection::Queues, 2, Ok(1)),
+            ]
+        );
+        assert_eq!(
+            result
+                .imported
+                .run()
+                .requests
+                .iter()
+                .map(|request| request.request_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["r1", "r2"]
+        );
+        assert_eq!(
+            result
+                .imported
+                .run()
+                .stages
+                .iter()
+                .map(|stage| stage.stage.as_str())
+                .collect::<Vec<_>>(),
+            vec!["s1", "s2"]
+        );
+        assert_eq!(
+            result
+                .imported
+                .run()
+                .queues
+                .iter()
+                .map(|queue| queue.queue.as_str())
+                .collect::<Vec<_>>(),
+            vec!["q1", "q2"]
+        );
+    }
+
+    #[test]
+    fn provenance_retained_sources_follow_original_source_order_not_canonical_sections() {
+        let spans = vec![
+            stage("r1", "s1", 101, 102).id("stage-1").parent_id("req-1"),
+            req("r1", 100, 120).id("req-1"),
+            queue("r1", "q1", 103, 104).id("queue-1").parent_id("req-1"),
+            stage("r1", "s2", 105, 106).id("stage-2").parent_id("req-1"),
+            req("r2", 200, 220).id("req-2"),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert_eq!(
+            outcome_projection(&result),
+            vec![
+                (0, RunSection::Stages, 0, Ok(0)),
+                (1, RunSection::Requests, 0, Ok(0)),
+                (2, RunSection::Queues, 0, Ok(0)),
+                (3, RunSection::Stages, 1, Ok(1)),
+                (4, RunSection::Requests, 1, Ok(1)),
+            ]
+        );
+        assert_eq!(
+            retained_source_projection(&result),
+            vec![
+                (
+                    "stage-s1".to_owned(),
+                    "stage-1".to_owned(),
+                    "req-1".to_owned()
+                ),
+                ("req-r1".to_owned(), "req-1".to_owned(), String::new()),
+                (
+                    "queue-q1".to_owned(),
+                    "queue-1".to_owned(),
+                    "req-1".to_owned()
+                ),
+                (
+                    "stage-s2".to_owned(),
+                    "stage-2".to_owned(),
+                    "req-1".to_owned()
+                ),
+                ("req-r2".to_owned(), "req-2".to_owned(), String::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn provenance_core_exclusions_do_not_increment_tracing_truncation_counters() {
+        let spans = vec![
+            req("dup", 100, 120),
+            req("dup", 130, 150),
+            stage("dup", "ambiguous", 135, 140),
+            stage("orphan", "orphan", 200, 210),
+            req("precise", 400, 420)
+                .started_at_run_us(0)
+                .finished_at_run_us(20_000),
+            stage("precise", "outside", 400, 430)
+                .started_at_run_us(0)
+                .finished_at_run_us(30_000),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert!(excluded_codes(&result).iter().any(|(_, codes)| {
+            codes.contains(&RunValidationIssueCode::DuplicateCompletedRequestId)
+        }));
+        assert!(excluded_codes(&result).iter().any(|(_, codes)| {
+            codes.contains(&RunValidationIssueCode::AmbiguousParentRequestId)
+        }));
+        assert!(excluded_codes(&result)
+            .iter()
+            .any(|(_, codes)| codes.contains(&RunValidationIssueCode::OrphanRequestScopedEvent)));
+        assert!(excluded_codes(&result).iter().any(|(_, codes)| {
+            codes.contains(&RunValidationIssueCode::ChildIntervalOutsideRequest)
+        }));
+        assert_eq!(result.imported.run().truncation.dropped_requests, 0);
+        assert_eq!(result.imported.run().truncation.dropped_stages, 0);
+        assert_eq!(result.imported.run().truncation.dropped_queues, 0);
+        assert!(!result.imported.run().truncation.limits_hit);
+    }
+
+    #[test]
+    fn provenance_never_revives_source_parsing_drops() {
+        let spans = vec![
+            SpanRecord::new("unsupported-kind", 90, 91).field(TT_KIND, "unsupported"),
+            req("r", 100, 120)
+                .started_at_run_us(0)
+                .finished_at_run_us(20_000)
+                .field(TT_OUTCOME, "ok"),
+            stage("r", "s", 101, 102)
+                .started_at_run_us(1_000)
+                .finished_at_run_us(2_000)
+                .field(TT_SUCCESS, true),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert!(!result
+            .candidate_provenance
+            .inputs
+            .iter()
+            .any(|input| input.source_index == 0));
+        assert!(!result
+            .source_outcomes
+            .outcomes
+            .iter()
+            .any(|outcome| outcome.source_index == 0));
+        assert!(!result
+            .retained_sources
+            .iter()
+            .any(|span| span.name() == "unsupported-kind"));
+        assert_eq!(
+            result
+                .imported
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>(),
+            vec!["unknown tt.kind 'unsupported' in span 'unsupported-kind'"]
+        );
+    }
+
+    #[test]
+    fn provenance_retains_original_source_when_optional_precision_is_missing_or_repaired() {
+        let missing = vec![
+            req("r", 100, 120),
+            stage("r", "db", 105, 115),
+            queue("r", "work", 101, 104),
+        ];
+        let missing_result = convert_span_records_with_provenance(missing.clone(), opts()).unwrap();
+        assert_eq!(retained_indices(&missing_result), vec![0, 1, 2]);
+        assert_eq!(missing_result.retained_sources, missing);
+
+        let repaired_req = req("r", 100, 120)
+            .started_at_run_us(0)
+            .finished_at_run_us(10)
+            .duration_us(20_000);
+        let repaired_stage = stage("r", "db", 105, 115)
+            .started_at_run_us(5_000)
+            .duration_us(10_000);
+        let repaired_queue = queue("r", "work", 106, 107)
+            .started_at_run_us(6_000)
+            .finished_at_run_us(6_500)
+            .duration_us(10_000);
+        let repaired = vec![repaired_req, repaired_stage, repaired_queue];
+        let repaired_result =
+            convert_span_records_with_provenance(repaired.clone(), opts()).unwrap();
+        assert_eq!(retained_indices(&repaired_result), vec![0, 1, 2]);
+        assert_eq!(repaired_result.retained_sources, repaired);
+        assert_eq!(
+            repaired_result.imported.run().requests[0].started_at_run_us,
+            None
+        );
+        assert_eq!(
+            repaired_result.imported.run().stages[0].started_at_run_us,
+            None
+        );
+        assert_eq!(
+            repaired_result.imported.run().queues[0].waited_from_run_us,
+            None
+        );
+    }
+
+    #[test]
+    fn provenance_excludes_core_duplicate_ambiguous_orphan_parent_and_containment_cases() {
+        let spans = vec![
+            req("dup", 100, 120),
+            req("dup", 130, 150),
+            stage("dup", "ambiguous", 135, 140),
+            stage("orphan", "orphan", 200, 210),
+            req("bad", 300, 320)
+                .started_at_run_us(0)
+                .finished_at_run_us(20_000),
+            stage("bad", "outside", 300, 330)
+                .started_at_run_us(0)
+                .finished_at_run_us(30_000),
+        ];
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+        assert_eq!(retained_indices(&result), vec![4]);
+        let excluded = excluded_codes(&result);
+        assert!(excluded.iter().any(|(idx, codes)| *idx == 0
+            && codes.contains(&RunValidationIssueCode::DuplicateCompletedRequestId)));
+        assert!(excluded.iter().any(|(idx, codes)| *idx == 1
+            && codes.contains(&RunValidationIssueCode::DuplicateCompletedRequestId)));
+        assert!(excluded.iter().any(|(idx, codes)| *idx == 2
+            && codes.contains(&RunValidationIssueCode::AmbiguousParentRequestId)));
+        assert!(excluded.iter().any(|(idx, codes)| *idx == 3
+            && codes.contains(&RunValidationIssueCode::OrphanRequestScopedEvent)));
+        assert!(excluded.iter().any(|(idx, codes)| *idx == 5
+            && codes.contains(&RunValidationIssueCode::ChildIntervalOutsideRequest)));
+    }
+
+    #[test]
+    fn provenance_semantic_limits_preserve_mappings_and_never_revive_dropped_sources() {
+        let spans = vec![
+            req("r1", 100, 120),
+            req("r2", 130, 150),
+            stage("r1", "s1", 101, 102),
+            stage("r1", "s2", 103, 104),
+            queue("r1", "q1", 105, 106),
+            queue("r1", "q2", 107, 108),
+        ];
+        let options = opts().capture_limits(tailtriage_core::CaptureLimits {
+            max_requests: 1,
+            max_stages: 1,
+            max_queues: 1,
+            ..tailtriage_core::CaptureLimits::default()
+        });
+        let result = convert_span_records_with_provenance(spans, options).unwrap();
+        assert_eq!(
+            result
+                .candidate_provenance
+                .inputs
+                .iter()
+                .map(|i| i.source_index)
+                .collect::<Vec<_>>(),
+            vec![0, 2, 4]
+        );
+        assert_eq!(retained_indices(&result), vec![0, 2, 4]);
+        assert_eq!(result.imported.run().truncation.dropped_requests, 1);
+        assert_eq!(result.imported.run().truncation.dropped_stages, 1);
+        assert_eq!(result.imported.run().truncation.dropped_queues, 1);
+    }
+
+    #[test]
+    fn provenance_ordering_issue_codes_repeatability_and_public_equivalence_are_deterministic() {
+        let spans = vec![
+            stage("orphan", "first", 10, 11),
+            req("r", 100, 120),
+            queue("r", "q", 101, 102),
+            stage("r", "s", 103, 104),
+        ];
+        let a = convert_span_records_with_provenance(spans.clone(), opts()).unwrap();
+        let b = convert_span_records_with_provenance(spans.clone(), opts()).unwrap();
+        assert_eq!(a.imported.run(), b.imported.run());
+        assert_eq!(
+            a.imported
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>(),
+            b.imported
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(a.normalized, b.normalized);
+        assert_eq!(a.candidate_provenance, b.candidate_provenance);
+        assert_eq!(a.source_outcomes, b.source_outcomes);
+        assert_eq!(a.retained_sources, b.retained_sources);
+        assert_eq!(
+            a.source_outcomes
+                .outcomes
+                .iter()
+                .map(|o| o.source_index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(
+            excluded_codes(&a),
+            vec![(0, vec![RunValidationIssueCode::OrphanRequestScopedEvent])]
+        );
+        let public = run_from_span_records(spans, opts()).unwrap();
+        assert_eq!(public.run(), a.imported.run());
+        assert_eq!(
+            public
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>(),
+            a.imported
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>()
+        );
+    }
     #[test]
     fn request_only_conversion_creates_one_request_event() {
         let spans = vec![SpanRecord::new("req", 100, 110)
