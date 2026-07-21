@@ -755,21 +755,6 @@ fn required_string(
     }
 }
 
-#[cfg(feature = "live")]
-pub(crate) fn duration_within_derived_tolerance(duration_us: u64, derived_us: u64) -> bool {
-    duration_us.abs_diff(derived_us) <= tailtriage_core::RUN_RELATIVE_DURATION_TOLERANCE_US
-}
-
-#[cfg(feature = "live")]
-pub(crate) fn duration_within_tolerance(
-    duration_us: u64,
-    started_at_unix_ms: u64,
-    finished_at_unix_ms: u64,
-) -> bool {
-    let derived_us = timestamp_derived_duration_us(started_at_unix_ms, finished_at_unix_ms);
-    duration_within_derived_tolerance(duration_us, derived_us)
-}
-
 fn timestamp_derived_duration_us(started_at_unix_ms: u64, finished_at_unix_ms: u64) -> u64 {
     finished_at_unix_ms
         .saturating_sub(started_at_unix_ms)

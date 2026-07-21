@@ -137,7 +137,9 @@ configured file is written independently through its own temp/rename path. The t
 outputs are not committed as one atomic transaction: if the second write fails, the
 first output may already exist as a finalized artifact. For production workflows that
 need one canonical shutdown artifact, prefer `run_json_path(...)`. Completed-span JSONL
-remains a replay/debug export, not trace archival.
+is written from retained original source spans. It preserves source span identity and
+fields represented by `SpanRecord`, but remains replay/debug evidence rather than a
+complete Run artifact or trace archive.
 
 ## Stable JSONL wrapper format
 
@@ -213,11 +215,11 @@ span.record("tt.outcome", "timeout");
 - Under raw-cap pressure, request roots are preserved preferentially when possible.
 - Child stage/queue evidence may be dropped or evicted under that pressure and is surfaced through warnings plus `truncation.limits_hit`.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
-- `completed_span_jsonl_path(...)` writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
-- Completed-span JSONL is retained-evidence replay/debug export for the same request/stage/queue evidence path through `tailtriage import`; it is not a production trace archive.
-- The current shutdown exporter reconstructs stable span-shaped records from normalized retained Run evidence. It may omit `duration_us` when including it would not replay consistently with the reconstructed timing fields.
-- It does not preserve lifecycle warnings, truncation counters, original span names, original span IDs, parent IDs, or non-`tt.*` source fields.
-- Direct source-span archival and provenance-preserving completed-span export are deferred to Prompt 04; the current export is retained-evidence replay/debug output.
+- `completed_span_jsonl_path(...)` writes retained original source spans as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
+- Completed-span JSONL contains only span-derived evidence retained after tracing limits and core normalization. Excluded or unavailable source records are absent.
+- The writer preserves source span identity and fields represented by `SpanRecord`: original span name, span ID, parent ID, non-`tt.*` fields, `tt.*` fields, Unix-ms bounds, optional run-relative offsets, and optional explicit duration.
+- Completed-span JSONL is retained-evidence replay/debug export for the same request/stage/queue evidence path through `tailtriage import`; it is not a complete Run artifact or production trace archive.
+- It does not encode Run-only metadata, runtime/in-flight snapshots, lifecycle warnings, truncation counters, or omitted-source diagnostics.
 - For production workflows that need the complete persisted triage artifact including warnings/truncation metadata, prefer `run_json_path(...)`.
 - Callers using JSONL-only export should inspect `session.shutdown()?.warnings()` in the same process.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
