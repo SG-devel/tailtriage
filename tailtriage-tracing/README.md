@@ -283,3 +283,20 @@ let final_run = session.shutdown().await?;
 ```
 
 For deterministic Tokio validation, call `manual_runtime_snapshots()` and record explicit snapshots with `record_runtime_snapshot(...)`; shutdown is still `shutdown().await`.
+
+## Live tracing session migration
+
+Use `TracingSession` as the sole current live entry point for capture-to-Run workflows.
+
+| Old usage | Final usage |
+| --- | --- |
+| `TracingRecorder::builder(...)` | `TracingSession::builder(...)` |
+| `TracingIntakeSession::builder(...)` | `TracingSession::builder(...)` |
+| `TracingTokioSession::builder(...).start()` | `TracingSession::builder(...).sampler_interval(...).build()` |
+| `recorder_limits(...)` | `limits(...)` |
+| synchronous `shutdown()?` | `shutdown().await?` |
+| deterministic manual mode | `manual_runtime_snapshots()` plus `record_runtime_snapshot(...)?` |
+
+Background runtime sampling is opt-in through `sampler_interval(...)`. Manual runtime collection is opt-in through `manual_runtime_snapshots()`. A plain live session still captures request, stage, and queue evidence without runtime collection, and `record_runtime_snapshot(...)?` returns a configuration error when runtime collection is not enabled. Manual snapshots may coexist with background sampling.
+
+Run JSON remains the complete persisted artifact. Completed-span JSONL preserves retained original tracing sources for completed spans, but omits runtime snapshots and other Run-only state. Each output file is an independent transaction.

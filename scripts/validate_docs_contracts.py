@@ -1190,6 +1190,65 @@ def validate_tracing_completed_jsonl_public_contract() -> None:
         ),
     )
 
+
+def strip_live_tracing_migration_sections(text: str) -> str:
+    pattern = re.compile(
+        r"^## Live tracing session migration\s*$.*?(?=^##\s+|\Z)",
+        flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
+    )
+    return pattern.sub("", text)
+
+
+def validate_live_tracing_session_public_contract() -> None:
+    required = (
+        USER_GUIDE_PATH,
+        REPO_ROOT / "tailtriage-tracing" / "README.md",
+    )
+    for path in required:
+        require_doc_concepts(
+            path,
+            (
+                ("sole current live entry point", ("tracingsession", "current live", "entry point")),
+                ("async shutdown", ("shutdown().await",)),
+                ("opt-in background sampling", ("background runtime sampling is opt-in", "sampler_interval",)),
+                ("opt-in manual runtime", ("manual runtime collection is opt-in", "manual_runtime_snapshots",)),
+                ("fallible manual recording", ("record_runtime_snapshot", "configuration error")),
+                ("retained original source jsonl", ("completed-span jsonl", "retained original tracing source")),
+                ("complete run artifact", ("run json", "complete persisted artifact")),
+                ("independent transactions", ("each output file is an independent transaction",)),
+            ),
+        )
+
+    obsolete = (
+        "TracingRecorder",
+        "TracingRecorderBuilder",
+        "TracingIntakeSession",
+        "TracingIntakeSessionBuilder",
+        "TracingTokioSession",
+        "TracingTokioSessionBuilder",
+        "TracingTokioSessionStartError",
+        "TracingTokioSessionShutdownError",
+        "disable_background_sampler",
+        "block_on_ready",
+    )
+    public_paths = (
+        README_PATH,
+        USER_GUIDE_PATH,
+        OPERATIONS_PATH,
+        ARCHITECTURE_PATH,
+        REPO_ROOT / "tailtriage" / "README.md",
+        REPO_ROOT / "tailtriage-tracing" / "README.md",
+        REPO_ROOT / "tailtriage" / "src" / "lib.rs",
+        REPO_ROOT / "tailtriage-tracing" / "src" / "lib.rs",
+    )
+    for path in public_paths:
+        current = strip_live_tracing_migration_sections(path.read_text(encoding="utf-8"))
+        found = [symbol for symbol in obsolete if symbol in current]
+        if found:
+            raise ValueError(
+                f"{path.relative_to(REPO_ROOT)} contains obsolete current live tracing guidance outside migration section: {found}"
+            )
+
 def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
@@ -1218,6 +1277,7 @@ def main() -> int:
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
     validate_tracing_completed_jsonl_public_contract()
+    validate_live_tracing_session_public_contract()
     print("docs contracts validated successfully")
     return 0
 

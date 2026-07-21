@@ -24,7 +24,7 @@ use crate::{
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
 #[derive(Debug, Clone)]
-pub(crate) struct TracingRecorder {
+pub(crate) struct LiveRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
     limits: RecorderLimits,
@@ -47,7 +47,7 @@ pub(crate) struct TracingRecorder {
 /// in resulting diagnosis reports remain triage leads rather than root-cause proof.
 #[derive(Debug)]
 pub struct TracingSession {
-    recorder: TracingRecorder,
+    recorder: LiveRecorder,
     completed_span_jsonl_path: Option<PathBuf>,
     run_json_path: Option<PathBuf>,
     #[cfg(feature = "tokio")]
@@ -58,7 +58,7 @@ pub struct TracingSession {
 /// Builder for [`TracingSession`].
 #[derive(Debug, Clone)]
 pub struct TracingSessionBuilder {
-    recorder_builder: TracingRecorderBuilder,
+    recorder_builder: LiveRecorderBuilder,
     completed_span_jsonl_path: Option<PathBuf>,
     run_json_path: Option<PathBuf>,
     #[cfg(feature = "tokio")]
@@ -69,7 +69,7 @@ pub struct TracingSessionBuilder {
 
 /// Internal builder for the live tracing recorder.
 #[derive(Debug, Clone)]
-pub(crate) struct TracingRecorderBuilder {
+pub(crate) struct LiveRecorderBuilder {
     options: ImportOptions,
     limits: RecorderLimits,
 }
@@ -197,10 +197,10 @@ fn lock_state(state: &Arc<Mutex<RecorderState>>) -> std::sync::MutexGuard<'_, Re
     }
 }
 
-impl TracingRecorder {
+impl LiveRecorder {
     /// Creates a builder with required service name metadata.
-    pub fn builder(service_name: impl Into<String>) -> TracingRecorderBuilder {
-        TracingRecorderBuilder {
+    pub fn builder(service_name: impl Into<String>) -> LiveRecorderBuilder {
+        LiveRecorderBuilder {
             options: ImportOptions::new(service_name),
             limits: RecorderLimits::default(),
         }
@@ -313,7 +313,7 @@ impl TracingSession {
     /// ```
     pub fn builder(service_name: impl Into<String>) -> TracingSessionBuilder {
         TracingSessionBuilder {
-            recorder_builder: TracingRecorder::builder(service_name),
+            recorder_builder: LiveRecorder::builder(service_name),
             completed_span_jsonl_path: None,
             run_json_path: None,
             #[cfg(feature = "tokio")]
@@ -717,7 +717,7 @@ impl TracingSessionBuilder {
     }
 }
 
-impl TracingRecorderBuilder {
+impl LiveRecorderBuilder {
     /// Returns selected capture mode for import conversion semantics.
     #[cfg(feature = "tokio")]
     #[must_use]
@@ -777,11 +777,11 @@ impl TracingRecorderBuilder {
     ///
     /// Returns [`ImportError::EmptyServiceName`] when the configured service name
     /// is blank or whitespace-only.
-    pub fn build(self) -> Result<TracingRecorder, ImportError> {
+    pub fn build(self) -> Result<LiveRecorder, ImportError> {
         if self.options.service_name().trim().is_empty() {
             return Err(ImportError::EmptyServiceName);
         }
-        Ok(TracingRecorder {
+        Ok(LiveRecorder {
             state: Arc::new(Mutex::new(RecorderState::default())),
             options: self.options,
             limits: self.limits,
@@ -1423,11 +1423,8 @@ mod tests {
     use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
     use tracing_subscriber::prelude::*;
 
-    fn with_recorder<T>(f: impl FnOnce(&TracingRecorder) -> T) -> T {
-        let recorder = TracingRecorder::builder("svc")
-            .run_id("rid")
-            .build()
-            .unwrap();
+    fn with_recorder<T>(f: impl FnOnce(&LiveRecorder) -> T) -> T {
+        let recorder = LiveRecorder::builder("svc").run_id("rid").build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || f(&recorder))
     }
@@ -1735,10 +1732,7 @@ mod tests {
 
     #[test]
     fn strict_snapshot_run_succeeds_for_completed_request_span() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let span = tracing::info_span!(
@@ -1758,10 +1752,7 @@ mod tests {
     async fn live_completed_request_records_close_wall_clock_and_monotonic_latency() {
         use tracing::Instrument as _;
 
-        let recorder = TracingRecorder::builder("svc")
-            .run_id("rid")
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").run_id("rid").build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         let _guard = tracing::subscriber::set_default(subscriber);
 
@@ -1796,10 +1787,7 @@ mod tests {
 
     #[test]
     fn live_finished_wall_clock_is_not_synthesized_from_duration() {
-        let recorder = TracingRecorder::builder("svc")
-            .run_id("rid")
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").run_id("rid").build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let span = tracing::info_span!(
@@ -1925,7 +1913,7 @@ mod tests {
             assert_eq!(snapshot.run().requests[0].route, "/checkout");
         });
 
-        let recorder = TracingRecorder::builder("svc").build().unwrap();
+        let recorder = LiveRecorder::builder("svc").build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let span = tracing::info_span!(
@@ -1943,7 +1931,7 @@ mod tests {
 
     #[test]
     fn builder_metadata_applies_to_imported_run() {
-        let recorder = TracingRecorder::builder("checkout-service")
+        let recorder = LiveRecorder::builder("checkout-service")
             .service_version("1.2.3")
             .run_id("run-42")
             .strict(false)
@@ -1968,10 +1956,7 @@ mod tests {
 
     #[test]
     fn strict_mode_errors_on_malformed_request() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let span = tracing::info_span!("request", tt.kind = "request", tt.request_id = "r1");
@@ -2141,7 +2126,7 @@ mod tests {
 
     #[test]
     fn completed_candidate_cap_emits_warning_and_sets_limits_hit_non_strict() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(1)
             .build()
             .unwrap();
@@ -2183,7 +2168,7 @@ mod tests {
 
     #[test]
     fn completed_candidate_cap_preserves_request_over_children_non_strict() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
             .unwrap();
@@ -2230,7 +2215,7 @@ mod tests {
 
     #[test]
     fn raw_cap_does_not_evict_retained_request_child_for_later_unretained_request() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .capture_limits_override(CaptureLimitsOverride {
                 max_requests: Some(1),
                 max_stages: Some(10),
@@ -2287,7 +2272,7 @@ mod tests {
 
     #[test]
     fn raw_cap_still_preserves_request_root_when_within_semantic_request_limit() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .capture_limits_override(CaptureLimitsOverride {
                 max_requests: Some(2),
                 max_stages: Some(10),
@@ -2344,7 +2329,7 @@ mod tests {
 
     #[test]
     fn strict_mode_errors_when_completed_candidate_cap_drops_spans() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_completed_candidate_spans(1)
             .build()
@@ -2377,7 +2362,7 @@ mod tests {
 
     #[test]
     fn strict_mode_errors_when_completed_candidate_cap_evicts_child_for_request() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_completed_candidate_spans(2)
             .build()
@@ -2431,7 +2416,7 @@ mod tests {
 
     #[test]
     fn raw_completed_candidate_cap_is_separate_from_semantic_capture_limits() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(10)
             .capture_limits(CaptureLimits {
                 max_requests: 1,
@@ -2465,7 +2450,7 @@ mod tests {
 
     #[test]
     fn raw_completed_candidate_cap_drops_incoming_request_when_full_of_requests() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(3)
             .capture_limits(CaptureLimits {
                 max_requests: 3,
@@ -2523,7 +2508,7 @@ mod tests {
 
     #[test]
     fn request_arriving_at_full_child_containing_cap_evicts_child_regardless_of_identity() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(3)
             .capture_limits(CaptureLimits {
                 max_requests: 3,
@@ -2579,7 +2564,7 @@ mod tests {
 
     #[test]
     fn strict_mode_errors_when_raw_cap_evicts_child_before_core_excludes_ambiguous_requests() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_completed_candidate_spans(3)
             .capture_limits(CaptureLimits {
@@ -2630,7 +2615,7 @@ mod tests {
 
     #[test]
     fn full_request_only_raw_cap_drops_incoming_request_regardless_of_identity() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .capture_limits(CaptureLimits {
                 max_requests: 2,
@@ -2680,7 +2665,7 @@ mod tests {
 
     #[test]
     fn retained_sources_follow_live_recorder_section_order_with_exact_identity() {
-        let recorder = TracingRecorder::builder("svc").build().unwrap();
+        let recorder = LiveRecorder::builder("svc").build().unwrap();
         {
             let mut state = recorder.state.lock().unwrap();
             state.completed_stages.push(
@@ -2753,10 +2738,7 @@ mod tests {
     #[test]
     fn snapshots_are_non_consuming_and_shutdown_retained_sources_are_deterministic() {
         let build = || {
-            let recorder = TracingRecorder::builder("svc")
-                .run_id("rid")
-                .build()
-                .unwrap();
+            let recorder = LiveRecorder::builder("svc").run_id("rid").build().unwrap();
             recorder.state.lock().unwrap().completed_requests.push(
                 SpanRecord::new("request", 100, 120)
                     .id("req-id")
@@ -2784,7 +2766,7 @@ mod tests {
 
     #[test]
     fn semantic_request_limit_applies_after_raw_recorder_retention() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .capture_limits(CaptureLimits {
                 max_requests: 1,
@@ -2830,7 +2812,7 @@ mod tests {
 
     #[test]
     fn strict_mode_errors_when_max_open_spans_drops_candidate_spans() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .max_open_spans(1)
             .build()
@@ -2867,7 +2849,7 @@ mod tests {
 
     #[test]
     fn strict_mode_combines_recorder_drop_and_conversion_strict_violations() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .strict(true)
             .capture_limits(tailtriage_core::CaptureLimits {
                 max_requests: 1,
@@ -2904,7 +2886,7 @@ mod tests {
 
     #[test]
     fn incomplete_request_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(1)
             .build()
             .unwrap();
@@ -2937,7 +2919,7 @@ mod tests {
 
     #[test]
     fn incomplete_stage_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
             .unwrap();
@@ -2982,7 +2964,7 @@ mod tests {
 
     #[test]
     fn incomplete_queue_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
             .unwrap();
@@ -3027,7 +3009,7 @@ mod tests {
 
     #[test]
     fn invalid_numeric_required_fields_do_not_consume_completed_candidate_cap() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(1)
             .build()
             .unwrap();
@@ -3061,7 +3043,7 @@ mod tests {
 
     #[test]
     fn whitespace_only_required_field_reports_incomplete_candidate_not_invalid_run_event() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
             .unwrap();
@@ -3095,7 +3077,7 @@ mod tests {
 
     #[test]
     fn invalid_numeric_stage_does_not_consume_completed_candidate_cap() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
             .unwrap();
@@ -3137,7 +3119,7 @@ mod tests {
 
     #[test]
     fn invalid_numeric_queue_does_not_consume_completed_candidate_cap() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_completed_candidate_spans(2)
             .build()
             .unwrap();
@@ -3179,7 +3161,7 @@ mod tests {
 
     #[test]
     fn source_valid_orphan_stage_consumes_semantic_stage_retention_before_core_exclusion() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .capture_limits(CaptureLimits {
                 max_requests: 1,
                 max_stages: 1,
@@ -3216,7 +3198,7 @@ mod tests {
 
     #[test]
     fn source_valid_orphan_queue_consumes_semantic_queue_retention_before_core_exclusion() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .capture_limits(CaptureLimits {
                 max_requests: 1,
                 max_queues: 1,
@@ -3253,10 +3235,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_malformed_request_span() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             drop(tracing::info_span!(
@@ -3271,10 +3250,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_invalid_numeric_request_route() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             drop(tracing::info_span!(
@@ -3295,10 +3271,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_malformed_stage_span() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let request = tracing::info_span!(
@@ -3320,10 +3293,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_invalid_numeric_stage_field() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let request = tracing::info_span!(
@@ -3351,10 +3321,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_malformed_queue_span() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let request = tracing::info_span!(
@@ -3376,10 +3343,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_invalid_numeric_queue_field() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let request = tracing::info_span!(
@@ -3407,10 +3371,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_orphan_stage_span() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             drop(tracing::info_span!(
@@ -3426,10 +3387,7 @@ mod tests {
 
     #[test]
     fn strict_mode_fails_for_orphan_queue_span() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             drop(tracing::info_span!(
@@ -3445,7 +3403,7 @@ mod tests {
 
     #[test]
     fn open_span_saturation_emits_warning_and_sets_limits_hit() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_open_spans(1)
             .build()
             .unwrap();
@@ -3483,7 +3441,7 @@ mod tests {
 
     #[test]
     fn non_strict_mode_reports_drop_warnings_and_truncation() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_open_spans(1)
             .capture_limits(tailtriage_core::CaptureLimits {
                 max_requests: 1,
@@ -3546,7 +3504,7 @@ mod tests {
 
     #[test]
     fn unrelated_spans_do_not_consume_open_limit() {
-        let recorder = TracingRecorder::builder("svc")
+        let recorder = LiveRecorder::builder("svc")
             .max_open_spans(1)
             .build()
             .unwrap();
@@ -3569,8 +3527,8 @@ mod tests {
     }
 
     #[test]
-    fn tracing_recorder_builder_rejects_blank_service_name() {
-        let err = TracingRecorder::builder("   ").build().unwrap_err();
+    fn live_recorder_builder_rejects_blank_service_name() {
+        let err = LiveRecorder::builder("   ").build().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
 
@@ -3697,10 +3655,7 @@ mod tests {
 
     #[test]
     fn closed_candidate_missing_tt_kind_errors_strict() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let span = tracing::info_span!(
@@ -3725,10 +3680,7 @@ mod tests {
 
     #[test]
     fn closed_candidate_missing_tt_kind_shutdown_errors_strict() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let span = tracing::info_span!(
@@ -3753,10 +3705,7 @@ mod tests {
 
     #[test]
     fn strict_mode_reports_open_and_closed_missing_kind_causes_together() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let _open = tracing::info_span!(
@@ -3800,10 +3749,7 @@ mod tests {
     }
     #[test]
     fn strict_mode_rejects_open_candidate_spans_without_fabricating_completions() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         let err = tracing::subscriber::with_default(subscriber, || {
             let _open_guard = tracing::info_span!(
@@ -3854,10 +3800,7 @@ mod tests {
 
     #[test]
     fn open_candidate_span_errors_in_strict_mode() {
-        let recorder = TracingRecorder::builder("svc")
-            .strict(true)
-            .build()
-            .unwrap();
+        let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
             let _open =

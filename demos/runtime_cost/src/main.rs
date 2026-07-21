@@ -332,8 +332,9 @@ async fn finalize_backend_and_write_artifact(
                 anyhow!("native runtime-cost run sink did not receive finalized run")
             })?)
         }
-        Backend::TracingSession { session } => Some(session.shutdown().await?.into_parts().0),
-        Backend::TracingTokio { session } => Some(session.shutdown().await?.into_parts().0),
+        Backend::TracingSession { session } | Backend::TracingTokio { session } => {
+            Some(session.shutdown().await?.into_parts().0)
+        }
     };
     let artifact_path = write_run_artifact(cli, run.as_ref())?;
     Ok((run, artifact_path))

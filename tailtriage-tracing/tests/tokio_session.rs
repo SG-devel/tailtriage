@@ -263,3 +263,80 @@ async fn a5_ordinary_live_session_captures_request_stage_queue_without_runtime_c
     assert!(imported.run().runtime_snapshots.is_empty());
     assert!(imported.run().metadata.lifecycle_warnings.is_empty());
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn active_sampler_shutdown_stops_before_outputs_and_keeps_runtime_run_only() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let run_path = dir.path().join("run.json");
+    let spans_path = dir.path().join("completed.jsonl");
+
+    let session = TracingSession::builder("svc")
+        .sampler_interval(Duration::from_millis(1))
+        .run_json_path(&run_path)
+        .completed_span_jsonl_path(&spans_path)
+        .build()
+        .expect("start session");
+
+    let subscriber = tracing_subscriber::registry().with(session.layer());
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info_span!(
+            "request-source",
+            tt.kind = "request",
+            tt.request_id = "sampler-order-r1",
+            tt.route = "/sampler-order",
+            custom_source = "retained"
+        )
+        .in_scope(|| {});
+    });
+
+    wait_for_runtime_snapshot(&session).await;
+    let before_shutdown = session.snapshot_run().expect("pre-shutdown snapshot");
+    assert_eq!(before_shutdown.run().requests.len(), 1);
+    assert!(!before_shutdown.run().runtime_snapshots.is_empty());
+    assert!(!run_path.exists());
+    assert!(!spans_path.exists());
+
+    let returned = session.shutdown().await.expect("shutdown");
+    let returned_run = returned.run();
+    let returned_runtime_count = returned_run.runtime_snapshots.len();
+    assert_eq!(returned_run.requests.len(), 1);
+    assert_eq!(returned_run.requests[0].request_id, "sampler-order-r1");
+    assert_eq!(returned_run.requests[0].route, "/sampler-order");
+    assert!(returned_runtime_count >= 1);
+    assert!(returned_run
+        .metadata
+        .effective_tokio_sampler_config
+        .is_some());
+
+    let written_run_text = std::fs::read_to_string(&run_path).expect("read run json");
+    let written_run: tailtriage_core::Run =
+        serde_json::from_str(&written_run_text).expect("decode run json");
+    assert_eq!(&written_run, returned_run);
+    assert_eq!(written_run.runtime_snapshots.len(), returned_runtime_count);
+    assert_eq!(written_run.requests.len(), 1);
+
+    let spans_text = std::fs::read_to_string(&spans_path).expect("read completed jsonl");
+    let lines: Vec<_> = spans_text.lines().collect();
+    assert_eq!(lines.len(), 1);
+    let value: serde_json::Value = serde_json::from_str(lines[0]).expect("decode span jsonl");
+    assert_eq!(value["format"], "tailtriage.tracing-span.v1");
+    assert_eq!(value["span"]["name"], "request-source");
+    assert_eq!(value["span"]["fields"]["tt.kind"], "request");
+    assert_eq!(value["span"]["fields"]["tt.request_id"], "sampler-order-r1");
+    assert_eq!(value["span"]["fields"]["custom_source"], "retained");
+    assert!(value.get("runtime_snapshots").is_none());
+    assert!(value["span"].get("runtime_snapshots").is_none());
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let run_after = std::fs::read_to_string(&run_path).expect("read run json after wait");
+    let spans_after = std::fs::read_to_string(&spans_path).expect("read spans after wait");
+    let decoded_after: tailtriage_core::Run =
+        serde_json::from_str(&run_after).expect("decode run json after wait");
+    assert_eq!(run_after, written_run_text);
+    assert_eq!(spans_after, spans_text);
+    assert_eq!(
+        decoded_after.runtime_snapshots.len(),
+        returned_runtime_count
+    );
+    assert_eq!(&decoded_after, returned_run);
+}
