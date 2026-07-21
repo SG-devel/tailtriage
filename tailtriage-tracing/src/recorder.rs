@@ -1421,6 +1421,49 @@ mod tests {
             .collect()
     }
 
+    #[derive(Debug, Clone, PartialEq)]
+    struct IssueProjection {
+        severity: &'static str,
+        code: &'static str,
+        section: tailtriage_core::RunSection,
+        input_index: Option<usize>,
+        retained_source: Option<SourceIdentity>,
+        field: Option<&'static str>,
+    }
+
+    fn relevant_issue_projection(
+        run: &tailtriage_core::Run,
+        retained_sources: &[SpanRecord],
+    ) -> Vec<IssueProjection> {
+        tailtriage_core::inspect_run(run)
+            .issues
+            .into_iter()
+            .filter(|issue| {
+                matches!(
+                    issue.location.section,
+                    tailtriage_core::RunSection::Requests
+                        | tailtriage_core::RunSection::Stages
+                        | tailtriage_core::RunSection::Queues
+                )
+            })
+            .map(|issue| IssueProjection {
+                severity: match issue.severity {
+                    tailtriage_core::RunValidationSeverity::Warning => "warning",
+                    tailtriage_core::RunValidationSeverity::Error => "error",
+                },
+                code: issue.code.as_str(),
+                section: issue.location.section,
+                input_index: issue.location.index,
+                retained_source: issue
+                    .location
+                    .index
+                    .and_then(|index| retained_sources.get(index))
+                    .map(|span| source_identity(std::slice::from_ref(span)).remove(0)),
+                field: issue.location.field,
+            })
+            .collect()
+    }
+
     #[test]
     fn open_span_from_start_sample_uses_supplied_start_times() {
         let started_at_unix_ms = 123_456_789;
@@ -3860,12 +3903,28 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn canonical_completed_span_jsonl_replay_matches_representable_evidence_projection() {
+        #[derive(Clone, Copy)]
+        struct ExpectedAccounting {
+            dropped_requests: u64,
+            dropped_stages: u64,
+            dropped_queues: u64,
+            limits_hit: bool,
+        }
+
         struct Case {
             name: &'static str,
             spans: Vec<SpanRecord>,
             options: ImportOptions,
             strict_replay: bool,
+            expected_accounting: ExpectedAccounting,
         }
+
+        let no_drops = ExpectedAccounting {
+            dropped_requests: 0,
+            dropped_stages: 0,
+            dropped_queues: 0,
+            limits_hit: false,
+        };
 
         let cases = vec![
             Case {
@@ -3897,6 +3956,7 @@ mod tests {
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: true,
+                expected_accounting: no_drops,
             },
             Case {
                 name: "duration only",
@@ -3907,6 +3967,7 @@ mod tests {
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: true,
+                expected_accounting: no_drops,
             },
             Case {
                 name: "repairable optional offsets",
@@ -3926,6 +3987,7 @@ mod tests {
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: false,
+                expected_accounting: no_drops,
             },
             Case {
                 name: "duplicates ambiguous children and valid survivor",
@@ -3938,6 +4000,7 @@ mod tests {
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: false,
+                expected_accounting: no_drops,
             },
             Case {
                 name: "orphan child with valid survivor",
@@ -3948,20 +4011,32 @@ mod tests {
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: false,
+                expected_accounting: no_drops,
             },
             Case {
-                name: "excluded invalid parent does not revive child",
+                name: "source parser inverted parent leaves child orphan",
                 spans: vec![
                     SpanRecord::new("invalid-parent", 6_050, 6_000)
                         .id("invalid-parent-span")
                         .field(TT_KIND, "request")
                         .field("tt.request_id", "bad-parent")
                         .field("tt.route", "/bad-parent"),
-                    stage("child-of-invalid-parent", "bad-parent", 6_010, 6_020),
-                    request("valid-with-excluded-peer", "valid-peer", 6_100, 6_150),
+                    stage(
+                        "child-of-parser-rejected-parent",
+                        "bad-parent",
+                        6_010,
+                        6_020,
+                    ),
+                    request(
+                        "valid-with-parser-rejected-peer",
+                        "valid-peer",
+                        6_100,
+                        6_150,
+                    ),
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: false,
+                expected_accounting: no_drops,
             },
             Case {
                 name: "contained parent with precise outside child",
@@ -3978,6 +4053,7 @@ mod tests {
                 ],
                 options: ImportOptions::new("svc"),
                 strict_replay: false,
+                expected_accounting: no_drops,
             },
             Case {
                 name: "semantic limits",
@@ -3998,6 +4074,12 @@ mod tests {
                     },
                 ),
                 strict_replay: false,
+                expected_accounting: ExpectedAccounting {
+                    dropped_requests: 1,
+                    dropped_stages: 1,
+                    dropped_queues: 1,
+                    limits_hit: true,
+                },
             },
         ];
 
@@ -4007,6 +4089,30 @@ mod tests {
             let direct = run_from_span_records(case.spans.clone(), case.options.clone())
                 .unwrap_or_else(|err| panic!("{} direct conversion failed: {err}", case.name));
             let direct_projection = representable_evidence(direct.run());
+            assert_eq!(
+                direct.run().truncation.dropped_requests,
+                case.expected_accounting.dropped_requests,
+                "{} dropped request accounting mismatch",
+                case.name
+            );
+            assert_eq!(
+                direct.run().truncation.dropped_stages,
+                case.expected_accounting.dropped_stages,
+                "{} dropped stage accounting mismatch",
+                case.name
+            );
+            assert_eq!(
+                direct.run().truncation.dropped_queues,
+                case.expected_accounting.dropped_queues,
+                "{} dropped queue accounting mismatch",
+                case.name
+            );
+            assert_eq!(
+                direct.run().truncation.limits_hit,
+                case.expected_accounting.limits_hit,
+                "{} limits_hit accounting mismatch",
+                case.name
+            );
             write_completed_span_jsonl_from_retained_sources(
                 direct.retained_sources(),
                 &spans_path,
@@ -4067,6 +4173,21 @@ mod tests {
         assert_eq!(direct.run().requests[0].finished_at_run_us, None);
         assert_eq!(direct.run().requests[0].latency_us, 20_000);
         assert_eq!(direct.retained_sources(), std::slice::from_ref(&source));
+        assert_eq!(source.started_at_run_us_ref(), Some(50));
+        assert_eq!(source.finished_at_run_us_ref(), Some(10));
+        let direct_issues = relevant_issue_projection(direct.run(), direct.retained_sources());
+        assert_eq!(direct_issues.len(), 1);
+        assert_eq!(direct_issues[0].severity, "warning");
+        assert_eq!(
+            direct_issues[0].code,
+            "precise_interval_validation_unavailable"
+        );
+        assert_eq!(
+            direct_issues[0].section,
+            tailtriage_core::RunSection::Requests
+        );
+        assert_eq!(direct_issues[0].input_index, Some(0));
+        assert_eq!(direct_issues[0].field, None);
 
         write_completed_span_jsonl_from_retained_sources(direct.retained_sources(), &spans_path)
             .unwrap();
@@ -4078,6 +4199,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(replay.run().requests, direct.run().requests);
+        assert_eq!(
+            relevant_issue_projection(replay.run(), replay.retained_sources()),
+            direct_issues
+        );
         assert_eq!(
             analyze_run(replay.run(), AnalyzeOptions::default()),
             analyze_run(direct.run(), AnalyzeOptions::default())
@@ -4187,12 +4312,39 @@ mod tests {
             .message()
             .contains("dropped 1 completed child candidate span(s)")
             && w.message().contains("max_completed_candidate_spans=1")));
-        raw_session.shutdown().unwrap();
-        let raw_names = decode_completed_span_jsonl(&raw_path)
+        assert_eq!(raw_snapshot.run().truncation.dropped_requests, 0);
+        assert_eq!(raw_snapshot.run().truncation.dropped_stages, 0);
+        assert_eq!(raw_snapshot.run().truncation.dropped_queues, 0);
+        let raw_shutdown = raw_session.shutdown().unwrap();
+        assert_eq!(
+            representable_evidence(raw_shutdown.run()),
+            representable_evidence(raw_snapshot.run())
+        );
+        let decoded = decode_completed_span_jsonl(&raw_path);
+        let raw_names = decoded
             .iter()
             .map(|span| span.name().to_owned())
             .collect::<Vec<_>>();
         assert_eq!(raw_names, vec!["raw-kept".to_owned()]);
+        assert!(!raw_names.iter().any(|name| name == "raw-dropped"));
+        let replay = crate::jsonl::import_jsonl_path_with_mode(
+            &raw_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(
+            representable_evidence(replay.run()),
+            representable_evidence(raw_shutdown.run())
+        );
+        assert_eq!(replay.run().truncation.dropped_requests, 0);
+        assert_eq!(replay.run().truncation.dropped_stages, 0);
+        assert_eq!(replay.run().truncation.dropped_queues, 0);
+        assert!(!replay.warnings().iter().any(|warning| warning
+            .message()
+            .contains("max_completed_candidate_spans=1")));
+        // Replay sees only retained source records, so it does not reproduce raw-drop
+        // warnings or raw-recorder pressure counters from omitted sources.
     }
 
     fn write_representative_live_session_jsonl(path: &Path) -> ImportedRun {
@@ -4277,6 +4429,147 @@ mod tests {
             representable_evidence(replay.run()),
             representable_evidence(first.run())
         );
+    }
+
+    fn assert_stable_wrapper_reemits_byte_identically(name: &str, spans: Vec<SpanRecord>) {
+        let dir = tempfile::tempdir().unwrap();
+        let first_path = dir.path().join(format!("{name}-first.jsonl"));
+        let second_path = dir.path().join(format!("{name}-second.jsonl"));
+        let direct = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
+        write_completed_span_jsonl_from_retained_sources(direct.retained_sources(), &first_path)
+            .unwrap();
+        let replay = crate::jsonl::import_jsonl_path_with_mode(
+            &first_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        write_completed_span_jsonl_from_retained_sources(replay.retained_sources(), &second_path)
+            .unwrap();
+        assert_eq!(
+            source_identity(replay.retained_sources()),
+            source_identity(direct.retained_sources())
+        );
+        assert_eq!(
+            std::fs::read(&first_path).unwrap(),
+            std::fs::read(&second_path).unwrap()
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_import_reemits_precise_and_repairable_sources_byte_identically() {
+        assert_stable_wrapper_reemits_byte_identically(
+            "precise",
+            vec![
+                request("precise-reemit-request", "reemit", 10, 30)
+                    .id("precise-req")
+                    .parent_id("root")
+                    .started_at_run_us(1)
+                    .finished_at_run_us(20_001)
+                    .duration_us(20_000)
+                    .field("custom", "kept"),
+                stage("precise-reemit-stage", "reemit", 12, 20)
+                    .id("precise-stage")
+                    .parent_id("precise-req"),
+                queue("precise-reemit-queue", "reemit", 21, 25)
+                    .id("precise-queue")
+                    .parent_id("precise-req"),
+            ],
+        );
+        assert_stable_wrapper_reemits_byte_identically(
+            "repair",
+            vec![
+                request("repair-reemit-request", "repair-reemit", 40, 80)
+                    .started_at_run_us(50)
+                    .finished_at_run_us(10)
+                    .duration_us(40_000),
+                stage("repair-reemit-stage", "repair-reemit", 45, 55)
+                    .started_at_run_us(20)
+                    .finished_at_run_us(15)
+                    .duration_us(10_000),
+                queue("repair-reemit-queue", "repair-reemit", 56, 60)
+                    .started_at_run_us(30)
+                    .finished_at_run_us(25)
+                    .duration_us(4_000),
+            ],
+        );
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn tokio_session_retained_sources_replay_request_stage_queue_but_not_runtime_snapshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("tokio-spans.jsonl");
+        let session = crate::tokio::TracingTokioSession::builder("svc")
+            .disable_background_sampler()
+            .start()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info_span!(
+                "tokio-request",
+                tt.kind = "request",
+                tt.request_id = "tokio-r1",
+                tt.route = "/tokio"
+            )
+            .in_scope(|| {
+                tracing::info_span!(
+                    "tokio-stage",
+                    tt.kind = "stage",
+                    tt.request_id = "tokio-r1",
+                    tt.stage = "db"
+                )
+                .in_scope(|| {});
+                tracing::info_span!(
+                    "tokio-queue",
+                    tt.kind = "queue",
+                    tt.request_id = "tokio-r1",
+                    tt.queue = "permits",
+                    tt.depth_at_start = 1_u64
+                )
+                .in_scope(|| {});
+            });
+        });
+        session.record_runtime_snapshot(tailtriage_core::RuntimeSnapshot {
+            at_unix_ms: tailtriage_core::unix_time_ms(),
+            at_run_us: Some(1_000),
+            alive_tasks: Some(2),
+            global_queue_depth: Some(3),
+            local_queue_depth: Some(4),
+            blocking_queue_depth: Some(5),
+            remote_schedule_count: Some(6),
+        });
+
+        let imported = session.shutdown().await.unwrap();
+        assert_eq!(
+            imported
+                .retained_sources()
+                .iter()
+                .map(SpanRecord::name)
+                .collect::<Vec<_>>(),
+            vec!["tokio-request", "tokio-stage", "tokio-queue"]
+        );
+        assert_eq!(imported.run().runtime_snapshots.len(), 1);
+        write_completed_span_jsonl_from_retained_sources(imported.retained_sources(), &spans_path)
+            .unwrap();
+        let replay = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(
+            representable_evidence(replay.run()),
+            representable_evidence(imported.run())
+        );
+        assert_eq!(
+            source_identity(replay.retained_sources()),
+            source_identity(imported.retained_sources())
+        );
+        assert!(replay.run().runtime_snapshots.is_empty());
+        assert_ne!(replay.run(), imported.run());
+        // Completed-span JSONL intentionally replays retained request/stage/queue
+        // evidence only; runtime snapshots remain Run-only metadata.
     }
 
     #[test]

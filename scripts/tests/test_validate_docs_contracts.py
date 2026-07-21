@@ -141,6 +141,9 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
     def test_user_guide_contract(self) -> None:
         validate_docs_contracts.validate_user_guide_contract()
 
+    def test_tracing_completed_jsonl_public_contract(self) -> None:
+        validate_docs_contracts.validate_tracing_completed_jsonl_public_contract()
+
     def test_operations_guide_contract(self) -> None:
         validate_docs_contracts.validate_operations_guide_contract()
 

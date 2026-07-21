@@ -1161,6 +1161,14 @@ mod tests {
                 source_index: 2,
                 span: queue("excluded", "child-queue", 111, 112),
             },
+            SourceSpan {
+                source_index: 3,
+                span: req("valid", 200, 240),
+            },
+            SourceSpan {
+                source_index: 4,
+                span: stage("valid", "valid-stage", 205, 210),
+            },
         ];
         let mut candidate = empty_candidate_run();
         candidate.requests.push(RequestEvent {
@@ -1194,6 +1202,27 @@ mod tests {
             wait_us: 1_000,
             depth_at_start: None,
         });
+        candidate.requests.push(RequestEvent {
+            request_id: "valid".to_owned(),
+            route: "/valid".to_owned(),
+            kind: None,
+            started_at_unix_ms: 200,
+            started_at_run_us: None,
+            finished_at_unix_ms: 240,
+            finished_at_run_us: None,
+            latency_us: 40_000,
+            outcome: "ok".to_owned(),
+        });
+        candidate.stages.push(StageEvent {
+            request_id: "valid".to_owned(),
+            stage: "valid-stage".to_owned(),
+            started_at_unix_ms: 205,
+            started_at_run_us: None,
+            finished_at_unix_ms: 210,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
         let provenance = CandidateProvenance {
             inputs: vec![
                 CandidateSource {
@@ -1211,9 +1240,23 @@ mod tests {
                     input_index: 0,
                     source_index: 2,
                 },
+                CandidateSource {
+                    section: RunSection::Requests,
+                    input_index: 1,
+                    source_index: 3,
+                },
+                CandidateSource {
+                    section: RunSection::Stages,
+                    input_index: 1,
+                    source_index: 4,
+                },
             ],
         };
 
+        // This constructs the malformed parent at the private candidate/core-disposition
+        // boundary because tracing source parsing rejects the corresponding malformed
+        // source fields before they can become candidates; the test must not emulate
+        // source parsing or core policy.
         let normalized = normalize_run_permissive(&candidate);
         let source_outcomes = SourceOutcomes::from_normalized(&provenance, &normalized);
 
@@ -1253,9 +1296,17 @@ mod tests {
                     0,
                     Err(vec![RunValidationIssueCode::ParentRequestExcluded])
                 ),
+                (3, RunSection::Requests, 1, Ok(0)),
+                (4, RunSection::Stages, 1, Ok(0)),
             ]
         );
-        assert!(source_outcomes.retained_sources(&source_spans).is_empty());
+        assert_eq!(
+            source_outcomes.retained_sources(&source_spans),
+            vec![source_spans[3].span.clone(), source_spans[4].span.clone()]
+        );
+        assert_eq!(normalized.run.requests.len(), 1);
+        assert_eq!(normalized.run.stages.len(), 1);
+        assert!(normalized.run.queues.is_empty());
         assert_eq!(candidate.truncation.dropped_requests, 0);
         assert_eq!(candidate.truncation.dropped_stages, 0);
         assert_eq!(candidate.truncation.dropped_queues, 0);

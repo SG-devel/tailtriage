@@ -1147,6 +1147,49 @@ def validate_sampler_integration_boundary() -> None:
         )
 
 
+
+def normalized_words(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+def require_doc_concepts(path: Path, concepts: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
+    text = normalized_words(path.read_text(encoding="utf-8"))
+    missing = [label for label, tokens in concepts if not all(token in text for token in tokens)]
+    if missing:
+        raise ValueError(
+            f"{path.relative_to(REPO_ROOT)} missing public docs contract concept(s): "
+            + ", ".join(missing)
+        )
+
+
+def validate_tracing_completed_jsonl_public_contract() -> None:
+    require_doc_concepts(
+        USER_GUIDE_PATH,
+        (
+            ("retained original source output", ("completed-span jsonl output contains retained original tracing source records",)),
+            ("representable-evidence-only replay parity", ("replay parity is limited to representable normalized request/stage/queue evidence",)),
+            ("complete run artifact", ("run json remains the complete persisted artifact",)),
+            ("run-only omissions", ("runtime snapshots", "in-flight snapshots", "semantic/raw truncation counters", "omitted-source diagnostics")),
+        ),
+    )
+    require_doc_concepts(
+        ARCHITECTURE_PATH,
+        (
+            ("tracing parser and retention role", ("tracing-specific parsing and retention",)),
+            ("core normalization role", ("core normalization",)),
+            ("private provenance role", ("private source provenance",)),
+            ("retained-source jsonl role", ("retained-source jsonl",)),
+            ("complete run artifact", ("run json remains the complete persisted artifact",)),
+        ),
+    )
+    require_doc_concepts(
+        SPEC_PATH,
+        (
+            ("prompt 05 public api boundary", ("prompt 05 owns public tracing api simplification",)),
+            ("prompt 06 compatibility boundary", ("prompt 06 owns compatibility-mode removal",)),
+        ),
+    )
+
 def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
@@ -1174,6 +1217,7 @@ def main() -> int:
     validate_no_user_facing_facade_wording()
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
+    validate_tracing_completed_jsonl_public_contract()
     print("docs contracts validated successfully")
     return 0
 
