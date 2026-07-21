@@ -1007,6 +1007,34 @@ mod tests {
             .field(TT_QUEUE, name)
     }
 
+    fn empty_candidate_run() -> Run {
+        Run {
+            schema_version: tailtriage_core::SCHEMA_VERSION,
+            metadata: RunMetadata {
+                run_id: "run".to_owned(),
+                service_name: "svc".to_owned(),
+                service_version: None,
+                started_at_unix_ms: 100,
+                finished_at_unix_ms: 120,
+                finalized_at_unix_ms: Some(120),
+                mode: CaptureMode::Light,
+                effective_core_config: None,
+                effective_tokio_sampler_config: None,
+                host: None,
+                pid: None,
+                lifecycle_warnings: Vec::new(),
+                unfinished_requests: UnfinishedRequests::default(),
+                run_end_reason: None,
+            },
+            requests: Vec::new(),
+            stages: Vec::new(),
+            queues: Vec::new(),
+            inflight: Vec::new(),
+            runtime_snapshots: Vec::new(),
+            truncation: TruncationSummary::default(),
+        }
+    }
+
     fn retained_indices(result: &ProvenanceImportedRun) -> Vec<usize> {
         result
             .source_outcomes
@@ -1029,6 +1057,47 @@ mod tests {
                     Some((outcome.source_index, issue_codes.clone()))
                 }
                 SourceOutcomeKind::Retained { .. } => None,
+            })
+            .collect()
+    }
+
+    type SourceOutcomeProjection = (
+        usize,
+        RunSection,
+        usize,
+        Result<usize, Vec<RunValidationIssueCode>>,
+    );
+
+    fn outcome_projection(result: &ProvenanceImportedRun) -> Vec<SourceOutcomeProjection> {
+        result
+            .source_outcomes
+            .outcomes
+            .iter()
+            .map(|outcome| {
+                let projected = match &outcome.outcome {
+                    SourceOutcomeKind::Retained { output_index } => Ok(*output_index),
+                    SourceOutcomeKind::Excluded { issue_codes } => Err(issue_codes.clone()),
+                };
+                (
+                    outcome.source_index,
+                    outcome.section,
+                    outcome.input_index,
+                    projected,
+                )
+            })
+            .collect()
+    }
+
+    fn retained_source_projection(result: &ProvenanceImportedRun) -> Vec<(String, String, String)> {
+        result
+            .retained_sources
+            .iter()
+            .map(|span| {
+                (
+                    span.name().to_owned(),
+                    span.id_ref().unwrap_or_default().to_owned(),
+                    span.parent_id_ref().unwrap_or_default().to_owned(),
+                )
             })
             .collect()
     }
@@ -1056,6 +1125,329 @@ mod tests {
         );
         assert_eq!(retained_indices(&result), vec![0, 1, 2]);
         assert_eq!(result.retained_sources, spans);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn provenance_excludes_children_of_core_excluded_parents_without_truncation() {
+        let source_spans = vec![
+            SourceSpan {
+                source_index: 0,
+                span: req("excluded", 100, 120),
+            },
+            SourceSpan {
+                source_index: 1,
+                span: stage("excluded", "child-stage", 105, 110),
+            },
+            SourceSpan {
+                source_index: 2,
+                span: queue("excluded", "child-queue", 111, 112),
+            },
+        ];
+        let mut candidate = empty_candidate_run();
+        candidate.requests.push(RequestEvent {
+            request_id: "excluded".to_owned(),
+            route: " ".to_owned(),
+            kind: None,
+            started_at_unix_ms: 100,
+            started_at_run_us: None,
+            finished_at_unix_ms: 120,
+            finished_at_run_us: None,
+            latency_us: 20_000,
+            outcome: "ok".to_owned(),
+        });
+        candidate.stages.push(StageEvent {
+            request_id: "excluded".to_owned(),
+            stage: "child-stage".to_owned(),
+            started_at_unix_ms: 105,
+            started_at_run_us: None,
+            finished_at_unix_ms: 110,
+            finished_at_run_us: None,
+            latency_us: 5_000,
+            success: true,
+        });
+        candidate.queues.push(QueueEvent {
+            request_id: "excluded".to_owned(),
+            queue: "child-queue".to_owned(),
+            waited_from_unix_ms: 111,
+            waited_from_run_us: None,
+            waited_until_unix_ms: 112,
+            waited_until_run_us: None,
+            wait_us: 1_000,
+            depth_at_start: None,
+        });
+        let provenance = CandidateProvenance {
+            inputs: vec![
+                CandidateSource {
+                    section: RunSection::Requests,
+                    input_index: 0,
+                    source_index: 0,
+                },
+                CandidateSource {
+                    section: RunSection::Stages,
+                    input_index: 0,
+                    source_index: 1,
+                },
+                CandidateSource {
+                    section: RunSection::Queues,
+                    input_index: 0,
+                    source_index: 2,
+                },
+            ],
+        };
+
+        let normalized = normalize_run_permissive(&candidate);
+        let source_outcomes = SourceOutcomes::from_normalized(&provenance, &normalized);
+
+        assert_eq!(
+            source_outcomes
+                .outcomes
+                .iter()
+                .map(|outcome| {
+                    let projected = match &outcome.outcome {
+                        SourceOutcomeKind::Retained { output_index } => Ok(*output_index),
+                        SourceOutcomeKind::Excluded { issue_codes } => Err(issue_codes.clone()),
+                    };
+                    (
+                        outcome.source_index,
+                        outcome.section,
+                        outcome.input_index,
+                        projected,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    0,
+                    RunSection::Requests,
+                    0,
+                    Err(vec![RunValidationIssueCode::EmptyRequiredField])
+                ),
+                (
+                    1,
+                    RunSection::Stages,
+                    0,
+                    Err(vec![RunValidationIssueCode::ParentRequestExcluded])
+                ),
+                (
+                    2,
+                    RunSection::Queues,
+                    0,
+                    Err(vec![RunValidationIssueCode::ParentRequestExcluded])
+                ),
+            ]
+        );
+        assert!(source_outcomes.retained_sources(&source_spans).is_empty());
+        assert_eq!(candidate.truncation.dropped_requests, 0);
+        assert_eq!(candidate.truncation.dropped_stages, 0);
+        assert_eq!(candidate.truncation.dropped_queues, 0);
+        assert!(!candidate.truncation.limits_hit);
+    }
+
+    #[test]
+    fn provenance_retained_output_indices_are_exact_and_contiguous_per_section() {
+        let spans = vec![
+            req("r1", 100, 120),
+            req("dup", 100, 120),
+            req("dup", 130, 150),
+            req("r2", 200, 240),
+            stage("r1", "s1", 101, 102),
+            stage("missing", "orphan", 101, 102),
+            stage("r2", "s2", 210, 220),
+            queue("r1", "q1", 103, 104),
+            queue("dup", "ambiguous", 103, 104),
+            queue("r2", "q2", 221, 222),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert_eq!(
+            outcome_projection(&result),
+            vec![
+                (0, RunSection::Requests, 0, Ok(0)),
+                (
+                    1,
+                    RunSection::Requests,
+                    1,
+                    Err(vec![RunValidationIssueCode::DuplicateCompletedRequestId])
+                ),
+                (
+                    2,
+                    RunSection::Requests,
+                    2,
+                    Err(vec![RunValidationIssueCode::DuplicateCompletedRequestId])
+                ),
+                (3, RunSection::Requests, 3, Ok(1)),
+                (4, RunSection::Stages, 0, Ok(0)),
+                (
+                    5,
+                    RunSection::Stages,
+                    1,
+                    Err(vec![RunValidationIssueCode::OrphanRequestScopedEvent])
+                ),
+                (6, RunSection::Stages, 2, Ok(1)),
+                (7, RunSection::Queues, 0, Ok(0)),
+                (
+                    8,
+                    RunSection::Queues,
+                    1,
+                    Err(vec![RunValidationIssueCode::AmbiguousParentRequestId])
+                ),
+                (9, RunSection::Queues, 2, Ok(1)),
+            ]
+        );
+        assert_eq!(
+            result
+                .imported
+                .run()
+                .requests
+                .iter()
+                .map(|request| request.request_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["r1", "r2"]
+        );
+        assert_eq!(
+            result
+                .imported
+                .run()
+                .stages
+                .iter()
+                .map(|stage| stage.stage.as_str())
+                .collect::<Vec<_>>(),
+            vec!["s1", "s2"]
+        );
+        assert_eq!(
+            result
+                .imported
+                .run()
+                .queues
+                .iter()
+                .map(|queue| queue.queue.as_str())
+                .collect::<Vec<_>>(),
+            vec!["q1", "q2"]
+        );
+    }
+
+    #[test]
+    fn provenance_retained_sources_follow_original_source_order_not_canonical_sections() {
+        let spans = vec![
+            stage("r1", "s1", 101, 102).id("stage-1").parent_id("req-1"),
+            req("r1", 100, 120).id("req-1"),
+            queue("r1", "q1", 103, 104).id("queue-1").parent_id("req-1"),
+            stage("r1", "s2", 105, 106).id("stage-2").parent_id("req-1"),
+            req("r2", 200, 220).id("req-2"),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert_eq!(
+            outcome_projection(&result),
+            vec![
+                (0, RunSection::Stages, 0, Ok(0)),
+                (1, RunSection::Requests, 0, Ok(0)),
+                (2, RunSection::Queues, 0, Ok(0)),
+                (3, RunSection::Stages, 1, Ok(1)),
+                (4, RunSection::Requests, 1, Ok(1)),
+            ]
+        );
+        assert_eq!(
+            retained_source_projection(&result),
+            vec![
+                (
+                    "stage-s1".to_owned(),
+                    "stage-1".to_owned(),
+                    "req-1".to_owned()
+                ),
+                ("req-r1".to_owned(), "req-1".to_owned(), String::new()),
+                (
+                    "queue-q1".to_owned(),
+                    "queue-1".to_owned(),
+                    "req-1".to_owned()
+                ),
+                (
+                    "stage-s2".to_owned(),
+                    "stage-2".to_owned(),
+                    "req-1".to_owned()
+                ),
+                ("req-r2".to_owned(), "req-2".to_owned(), String::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn provenance_core_exclusions_do_not_increment_tracing_truncation_counters() {
+        let spans = vec![
+            req("dup", 100, 120),
+            req("dup", 130, 150),
+            stage("dup", "ambiguous", 135, 140),
+            stage("orphan", "orphan", 200, 210),
+            req("precise", 400, 420)
+                .started_at_run_us(0)
+                .finished_at_run_us(20_000),
+            stage("precise", "outside", 400, 430)
+                .started_at_run_us(0)
+                .finished_at_run_us(30_000),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert!(excluded_codes(&result).iter().any(|(_, codes)| {
+            codes.contains(&RunValidationIssueCode::DuplicateCompletedRequestId)
+        }));
+        assert!(excluded_codes(&result).iter().any(|(_, codes)| {
+            codes.contains(&RunValidationIssueCode::AmbiguousParentRequestId)
+        }));
+        assert!(excluded_codes(&result)
+            .iter()
+            .any(|(_, codes)| codes.contains(&RunValidationIssueCode::OrphanRequestScopedEvent)));
+        assert!(excluded_codes(&result).iter().any(|(_, codes)| {
+            codes.contains(&RunValidationIssueCode::ChildIntervalOutsideRequest)
+        }));
+        assert_eq!(result.imported.run().truncation.dropped_requests, 0);
+        assert_eq!(result.imported.run().truncation.dropped_stages, 0);
+        assert_eq!(result.imported.run().truncation.dropped_queues, 0);
+        assert!(!result.imported.run().truncation.limits_hit);
+    }
+
+    #[test]
+    fn provenance_never_revives_source_parsing_drops() {
+        let spans = vec![
+            SpanRecord::new("unsupported-kind", 90, 91).field(TT_KIND, "unsupported"),
+            req("r", 100, 120)
+                .started_at_run_us(0)
+                .finished_at_run_us(20_000)
+                .field(TT_OUTCOME, "ok"),
+            stage("r", "s", 101, 102)
+                .started_at_run_us(1_000)
+                .finished_at_run_us(2_000)
+                .field(TT_SUCCESS, true),
+        ];
+
+        let result = convert_span_records_with_provenance(spans, opts()).unwrap();
+
+        assert!(!result
+            .candidate_provenance
+            .inputs
+            .iter()
+            .any(|input| input.source_index == 0));
+        assert!(!result
+            .source_outcomes
+            .outcomes
+            .iter()
+            .any(|outcome| outcome.source_index == 0));
+        assert!(!result
+            .retained_sources
+            .iter()
+            .any(|span| span.name() == "unsupported-kind"));
+        assert_eq!(
+            result
+                .imported
+                .warnings()
+                .iter()
+                .map(ImportWarning::message)
+                .collect::<Vec<_>>(),
+            vec!["unknown tt.kind 'unsupported' in span 'unsupported-kind'"]
+        );
     }
 
     #[test]
