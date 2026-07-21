@@ -216,10 +216,11 @@ span.record("tt.outcome", "timeout");
 - Child stage/queue evidence may be dropped or evicted under that pressure and is surfaced through warnings plus `truncation.limits_hit`.
 - Request/stage/queue semantic retention uses `CaptureMode`, `CaptureLimits`, and `CaptureLimitsOverride`.
 - `completed_span_jsonl_path(...)` writes retained original source spans as stable span-shaped JSONL on shutdown only when at least one completed request is retained.
-- Completed-span JSONL contains only span-derived evidence retained after tracing limits and core normalization. Excluded or unavailable source records are absent.
+- Completed-span JSONL contains only retained original source records selected after tracing-specific source parsing, semantic retention, and core normalization. Private provenance joins core dispositions back to original source records; excluded, semantically dropped, and raw-unavailable records are absent and never revived.
+- Direct conversion and JSONL import preserve supplied source order. Live completed-span output is section-grouped as requests, then stages, then queues, preserving recorder order within each section.
 - The writer preserves source span identity and fields represented by `SpanRecord`: original span name, span ID, parent ID, non-`tt.*` fields, `tt.*` fields, Unix-ms bounds, optional run-relative offsets, and optional explicit duration.
-- Completed-span JSONL is retained-evidence replay/debug export for the same request/stage/queue evidence path through `tailtriage import`; it is not a complete Run artifact or production trace archive.
-- It does not encode Run-only metadata, runtime/in-flight snapshots, lifecycle warnings, truncation counters, or omitted-source diagnostics.
+- Completed-span JSONL replay is equivalent to direct conversion for normalized request/stage/queue evidence that JSONL can represent; it is not a complete Run artifact or production trace archive.
+- It does not encode Run-only metadata, runtime/in-flight snapshots, lifecycle warnings, semantic truncation counters, raw-recorder drop counters, source file/line context, omitted-source diagnostics, or output-path failures. Run JSON remains the complete persisted triage artifact.
 - For production workflows that need the complete persisted triage artifact including warnings/truncation metadata, prefer `run_json_path(...)`.
 - Callers using JSONL-only export should inspect `session.shutdown()?.warnings()` in the same process.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
