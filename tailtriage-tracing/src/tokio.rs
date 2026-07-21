@@ -1,22 +1,17 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use tailtriage_core::Run;
 
-use tailtriage_core::{
-    BuildError, CaptureLimits, CaptureLimitsOverride, CaptureMode, LocalJsonSink, MemorySink, Run,
-    RunSink, RuntimeSnapshot, Tailtriage,
-};
-use tailtriage_tokio::{RuntimeSampler, SamplerStartError};
-
+#[cfg(any())]
 use crate::{
-    ensure_persistable_run_with_warnings, ImportError, ImportWarning, ImportedRun, RecorderLimits,
-    TailtriageLayer, TracingRecorder,
+    ensure_persistable_run_with_warnings, recorder::TracingRecorder, ImportError, RecorderLimits,
+    TailtriageLayer,
 };
+use crate::{ImportWarning, ImportedRun};
 
-/// Error returned when starting [`TracingTokioSession`].
+#[cfg(any())]
+/// Error returned when starting [`TracingSession`].
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum TracingTokioSessionStartError {
+pub(crate) enum TracingSessionStartError {
     /// Tracing recorder/import configuration failed validation.
     Import(ImportError),
     /// Internal runtime collector setup failed.
@@ -25,7 +20,8 @@ pub enum TracingTokioSessionStartError {
     SamplerStart(SamplerStartError),
 }
 
-impl core::fmt::Display for TracingTokioSessionStartError {
+#[cfg(any())]
+impl core::fmt::Display for TracingSessionStartError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Import(err) => write!(f, "invalid tracing recorder configuration: {err}"),
@@ -35,12 +31,14 @@ impl core::fmt::Display for TracingTokioSessionStartError {
     }
 }
 
-impl std::error::Error for TracingTokioSessionStartError {}
+#[cfg(any())]
+impl std::error::Error for TracingSessionStartError {}
 
-/// Error returned when shutting down [`TracingTokioSession`].
+#[cfg(any())]
+/// Error returned when shutting down [`TracingSession`].
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum TracingTokioSessionShutdownError {
+pub(crate) enum TracingSessionShutdownError {
     /// Snapshot import failed.
     Import(ImportError),
     /// Persisting run JSON failed.
@@ -52,7 +50,8 @@ pub enum TracingTokioSessionShutdownError {
     },
 }
 
-impl core::fmt::Display for TracingTokioSessionShutdownError {
+#[cfg(any())]
+impl core::fmt::Display for TracingSessionShutdownError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Import(err) => write!(f, "failed to import tracing spans during shutdown: {err}"),
@@ -63,30 +62,34 @@ impl core::fmt::Display for TracingTokioSessionShutdownError {
     }
 }
 
-impl std::error::Error for TracingTokioSessionShutdownError {}
+#[cfg(any())]
+impl std::error::Error for TracingSessionShutdownError {}
 
-/// Builder for [`TracingTokioSession`].
+#[cfg(any())]
+/// Builder for [`TracingSession`].
 #[derive(Debug, Clone)]
-pub struct TracingTokioSessionBuilder {
-    recorder_builder: crate::TracingRecorderBuilder,
+pub(crate) struct TracingSessionBuilder {
+    recorder_builder: crate::recorder::TracingRecorderBuilder,
     sampler_interval: Option<Duration>,
     disable_background_sampler: bool,
     run_json_path: Option<PathBuf>,
 }
 
+#[cfg(any())]
 /// Combined tracing and Tokio runtime sampler session.
 #[derive(Debug)]
-pub struct TracingTokioSession {
+pub(crate) struct TracingSession {
     recorder: TracingRecorder,
     runtime_collector: Arc<Tailtriage>,
     sampler: Option<RuntimeSampler>,
     run_json_path: Option<PathBuf>,
 }
 
-impl TracingTokioSession {
+#[cfg(any())]
+impl TracingSession {
     /// Creates a builder with required service name metadata.
-    pub fn builder(service_name: impl Into<String>) -> TracingTokioSessionBuilder {
-        TracingTokioSessionBuilder {
+    pub fn builder(service_name: impl Into<String>) -> TracingSessionBuilder {
+        TracingSessionBuilder {
             recorder_builder: TracingRecorder::builder(service_name),
             sampler_interval: None,
             disable_background_sampler: false,
@@ -125,8 +128,8 @@ impl TracingTokioSession {
     ///
     /// # Errors
     ///
-    /// Returns [`TracingTokioSessionShutdownError::Import`] when strict span import fails.
-    pub async fn shutdown(self) -> Result<ImportedRun, TracingTokioSessionShutdownError> {
+    /// Returns [`TracingSessionShutdownError::Import`] when strict span import fails.
+    pub async fn shutdown(self) -> Result<ImportedRun, TracingSessionShutdownError> {
         let sampler_disabled = self.sampler.is_none();
         if let Some(sampler) = self.sampler {
             sampler.shutdown().await;
@@ -134,15 +137,15 @@ impl TracingTokioSession {
         let imported = self
             .recorder
             .snapshot_run()
-            .map_err(TracingTokioSessionShutdownError::Import)?;
+            .map_err(TracingSessionShutdownError::Import)?;
         let runtime = self.runtime_collector.snapshot();
         let merged =
             with_manual_sampler_warning(merge_runtime_data(imported, &runtime), sampler_disabled);
         if let Some(path) = &self.run_json_path {
             ensure_persistable_run_with_warnings(merged.run(), merged.warnings())
-                .map_err(TracingTokioSessionShutdownError::Import)?;
+                .map_err(TracingSessionShutdownError::Import)?;
             write_run_json(path, merged.run()).map_err(|reason| {
-                TracingTokioSessionShutdownError::RunJsonWrite {
+                TracingSessionShutdownError::RunJsonWrite {
                     path: path.display().to_string(),
                     reason,
                 }
@@ -152,6 +155,7 @@ impl TracingTokioSession {
     }
 }
 
+#[cfg(any())]
 fn write_run_json(path: &Path, run: &Run) -> Result<(), String> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
@@ -161,7 +165,10 @@ fn write_run_json(path: &Path, run: &Run) -> Result<(), String> {
         .map_err(|err| err.to_string())
 }
 
-fn with_manual_sampler_warning(mut merged: ImportedRun, sampler_disabled: bool) -> ImportedRun {
+pub(crate) fn with_manual_sampler_warning(
+    mut merged: ImportedRun,
+    sampler_disabled: bool,
+) -> ImportedRun {
     if !sampler_disabled {
         return merged;
     }
@@ -181,7 +188,8 @@ fn with_manual_sampler_warning(mut merged: ImportedRun, sampler_disabled: bool) 
     merged
 }
 
-impl TracingTokioSessionBuilder {
+#[cfg(any())]
+impl TracingSessionBuilder {
     /// Sets service version metadata.
     #[must_use]
     pub fn service_version(mut self, service_version: impl Into<String>) -> Self {
@@ -270,17 +278,17 @@ impl TracingTokioSessionBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`TracingTokioSessionStartError`] when tracing service metadata is invalid,
+    /// Returns [`TracingSessionStartError`] when tracing service metadata is invalid,
     /// when runtime collector build fails, when sampler interval is zero while
     /// background runtime sampling is enabled,
     /// or when there is no active Tokio runtime.
-    pub fn start(self) -> Result<TracingTokioSession, TracingTokioSessionStartError> {
+    pub fn start(self) -> Result<TracingSession, TracingSessionStartError> {
         let mode = self.recorder_builder.selected_mode();
         let resolved_limits = self.recorder_builder.resolved_capture_limits();
         let recorder = self
             .recorder_builder
             .build()
-            .map_err(TracingTokioSessionStartError::Import)?;
+            .map_err(TracingSessionStartError::Import)?;
         let sink = MemorySink::new();
         let builder = Tailtriage::builder("tailtriage-tracing-runtime")
             .sink(sink)
@@ -290,17 +298,13 @@ impl TracingTokioSessionBuilder {
             CaptureMode::Light => builder.light(),
             CaptureMode::Investigation => builder.investigation(),
         };
-        let runtime_collector = Arc::new(
-            builder
-                .build()
-                .map_err(TracingTokioSessionStartError::Build)?,
-        );
+        let runtime_collector = Arc::new(builder.build().map_err(TracingSessionStartError::Build)?);
         let sampler = if self.disable_background_sampler {
             None
         } else {
             if let Some(interval) = self.sampler_interval {
                 if interval.is_zero() {
-                    return Err(TracingTokioSessionStartError::SamplerStart(
+                    return Err(TracingSessionStartError::SamplerStart(
                         SamplerStartError::ZeroInterval,
                     ));
                 }
@@ -315,11 +319,11 @@ impl TracingTokioSessionBuilder {
                 sampler_builder.max_runtime_snapshots(resolved_limits.max_runtime_snapshots);
             Some(
                 sampler_builder
-                    .start()
-                    .map_err(TracingTokioSessionStartError::SamplerStart)?,
+                    .build()
+                    .map_err(TracingSessionStartError::SamplerStart)?,
             )
         };
-        Ok(TracingTokioSession {
+        Ok(TracingSession {
             recorder,
             runtime_collector,
             sampler,
@@ -328,9 +332,9 @@ impl TracingTokioSessionBuilder {
     }
 }
 
-const MERGED_RUNTIME_SNAPSHOT_RUN_OFFSET_WARNING: &str = "TracingTokioSession merged runtime snapshots from a separate runtime collector; runtime snapshot at_run_us offsets were cleared so temporal runtime attribution uses Unix-ms windows.";
+const MERGED_RUNTIME_SNAPSHOT_RUN_OFFSET_WARNING: &str = "TracingSession merged runtime snapshots from a separate runtime collector; runtime snapshot at_run_us offsets were cleared so temporal runtime attribution uses Unix-ms windows.";
 
-fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
+pub(crate) fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
     let (mut tracing_run, mut warnings, retained_sources) = imported.into_internal_parts();
     let runtime_snapshot_offsets_cleared = runtime_run
         .runtime_snapshots
@@ -469,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_preserves_tracing_events_and_merges_runtime_fields() {
+    pub(crate) fn merge_runtime_data_preserves_tracing_events_and_merges_runtime_fields() {
         let mut tracing_run = empty_run("tracing");
         tracing_run.requests.push(tailtriage_core::RequestEvent {
             request_id: "r1".into(),
@@ -550,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_clears_runtime_snapshot_run_offsets_and_warns() {
+    pub(crate) fn merge_runtime_data_clears_runtime_snapshot_run_offsets_and_warns() {
         let mut tracing_run = empty_run("tracing");
         tracing_run.metadata.started_at_unix_ms = 1_500;
         tracing_run.metadata.finished_at_unix_ms = 1_800;
@@ -608,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_runtime_snapshots_expand_metadata_bounds() {
+    pub(crate) fn merge_runtime_data_runtime_snapshots_expand_metadata_bounds() {
         let mut tracing_run = empty_run("tracing");
         tracing_run.metadata.started_at_unix_ms = 1_500;
         tracing_run.metadata.finished_at_unix_ms = 1_800;
@@ -649,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_without_runtime_snapshots_preserves_metadata_bounds() {
+    pub(crate) fn merge_runtime_data_without_runtime_snapshots_preserves_metadata_bounds() {
         let mut tracing_run = empty_run("tracing");
         tracing_run.metadata.started_at_unix_ms = 1_500;
         tracing_run.metadata.finished_at_unix_ms = 1_800;
@@ -675,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_does_not_move_finalized_backwards() {
+    pub(crate) fn merge_runtime_data_does_not_move_finalized_backwards() {
         let mut tracing_run = empty_run("tracing");
         tracing_run.metadata.started_at_unix_ms = 1_500;
         tracing_run.metadata.finished_at_unix_ms = 1_800;
@@ -703,7 +707,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_repairs_missing_finalized_when_runtime_snapshots_present() {
+    pub(crate) fn merge_runtime_data_repairs_missing_finalized_when_runtime_snapshots_present() {
         let mut tracing_run = empty_run("tracing");
         tracing_run.metadata.started_at_unix_ms = 1_500;
         tracing_run.metadata.finished_at_unix_ms = 1_800;
@@ -729,7 +733,8 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_adds_runtime_lifecycle_warning_to_metadata_and_import_warnings() {
+    pub(crate) fn merge_runtime_data_adds_runtime_lifecycle_warning_to_metadata_and_import_warnings(
+    ) {
         let tracing_run = empty_run("tracing");
         let mut runtime_run = empty_run("runtime");
         runtime_run.metadata.lifecycle_warnings = vec!["runtime-warning".into()];
@@ -746,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_deduplicates_warning_messages_in_imported_run_warnings() {
+    pub(crate) fn merge_runtime_data_deduplicates_warning_messages_in_imported_run_warnings() {
         let tracing_run = empty_run("tracing");
         let mut runtime_run = empty_run("runtime");
         runtime_run.metadata.lifecycle_warnings = vec![
@@ -780,10 +785,10 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn tracing_tokio_session_investigation_mode_propagates_to_sampler_metadata() {
-        let session = super::TracingTokioSession::builder("svc")
+        let session = crate::TracingSession::builder("svc")
             .mode(CaptureMode::Investigation)
             .sampler_interval(Duration::from_millis(5))
-            .start()
+            .build()
             .expect("start tracing tokio session");
 
         let run = session
@@ -815,10 +820,10 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn tracing_tokio_session_light_mode_sampler_metadata_stays_light() {
-        let session = super::TracingTokioSession::builder("svc")
+        let session = crate::TracingSession::builder("svc")
             .mode(CaptureMode::Light)
             .sampler_interval(Duration::from_millis(5))
-            .start()
+            .build()
             .expect("start tracing tokio session");
 
         let run = session

@@ -375,7 +375,7 @@ fn import_tracing_spans_jsonl(
 }
 
 fn tracing_spans_jsonl_setup_guidance() -> &'static str {
-    "the file looks like ordinary tracing log JSON, not completed tailtriage tracing span JSONL. tailtriage requires completed spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Stable import expects wrapper JSONL records shaped like {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}. Ordinary tracing_subscriber::fmt().json() logs are unsupported. Recommended setup: TracingIntakeSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run-json>"
+    "the file looks like ordinary tracing log JSON, not completed tailtriage tracing span JSONL. tailtriage requires completed spans with literal dotted tt.* keys and explicit unix-ms start/end timestamps. Stable import expects wrapper JSONL records shaped like {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}. Ordinary tracing_subscriber::fmt().json() logs are unsupported. Recommended setup: TracingSession::builder(...).completed_span_jsonl_path(...). Then run: tailtriage import tracing-spans-jsonl <completed-spans.jsonl> --service <service> --output <run-json>"
 }
 
 fn should_append_wrapper_guidance(input_format: TracingInputFormat, err: &ImportError) -> bool {

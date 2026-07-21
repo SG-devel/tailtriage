@@ -164,7 +164,7 @@ Analyzer configuration contract:
 
 Users can depend on `tailtriage-tracing` directly for the narrow crate boundary, or enable the `tailtriage` façade features (`tracing`, `tracing-live`, `tracing-tokio`) to access the same APIs under `tailtriage::tracing`.
 
-- primary live path is `TracingIntakeSession` / `TracingIntakeSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
+- primary live path is `TracingSession` / `TracingSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
 - live session output can write standard Run JSON on shutdown via `run_json_path(...)`
 - live session output can write stable completed-span JSONL on shutdown via `completed_span_jsonl_path(...)`, using retained original source spans selected after tracing-specific parsing, semantic limits, and core normalization
 - private provenance joins core dispositions back to original `SpanRecord` values before writing; excluded, semantically dropped, and raw-unavailable records are absent and never revived

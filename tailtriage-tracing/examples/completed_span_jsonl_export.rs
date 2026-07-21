@@ -1,12 +1,12 @@
 use std::error::Error;
 
-use tailtriage_tracing::TracingIntakeSession;
+use tailtriage_tracing::TracingSession;
 use tracing_subscriber::prelude::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let spans_path = std::path::PathBuf::from("target/tailtriage-examples/completed-spans.jsonl");
 
-    let session = TracingIntakeSession::builder("checkout-service")
+    let session = TracingSession::builder("checkout-service")
         .completed_span_jsonl_path(&spans_path)
         .build()?;
 
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let imported = session.shutdown()?;
+    let imported = futures_executor::block_on(session.shutdown())?;
     for warning in imported.warnings() {
         eprintln!("warning: {}", warning.message());
     }

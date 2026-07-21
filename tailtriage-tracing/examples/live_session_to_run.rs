@@ -1,12 +1,12 @@
 use std::error::Error;
 
-use tailtriage_tracing::TracingIntakeSession;
+use tailtriage_tracing::TracingSession;
 use tracing_subscriber::prelude::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let run_path = std::path::PathBuf::from("target/tailtriage-examples/live-session-run.json");
 
-    let session = TracingIntakeSession::builder("checkout-service")
+    let session = TracingSession::builder("checkout-service")
         .run_json_path(&run_path)
         .build()?;
 
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    session.shutdown()?;
+    futures_executor::block_on(session.shutdown())?;
     println!("wrote run JSON to: {}", run_path.display());
     // Analyze with:
     // tailtriage analyze target/tailtriage-examples/live-session-run.json

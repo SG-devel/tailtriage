@@ -26,8 +26,8 @@ External trace/correlation IDs may repeat across retries, fanout branches, batch
 
 - Base crate: typed `SpanRecord`, `ImportOptions`, `ImportedRun`, semantic constants, and `run_from_span_records(...)`.
 - Default (`jsonl`): JSONL import APIs and stable wrapper parsing.
-- `live`: enables `TracingRecorder`, `TailtriageLayer`, and `TracingIntakeSession`.
-- `tokio`: enables `TracingTokioSession` runtime-sampler coupling and includes `live` (background sampler on by default; deterministic runs can call `disable_background_sampler()` and inject snapshots manually).
+- `live`: enables the single public live intake path: `TracingSession`, `TracingSessionBuilder`, `TailtriageLayer`, and `RecorderLimits`.
+- `tokio`: enables `TracingSession` runtime-sampler coupling and includes `live` (background sampling starts only when configured with `sampler_interval(...)`; deterministic runs can call `disable_background_sampler()` and inject snapshots manually).
 
 CLI offline import workflows only need JSONL import support and do not require the live `tracing_subscriber` layer dependency.
 
@@ -41,7 +41,7 @@ cargo add tracing tracing-subscriber
 cargo add tokio --features macros,rt-multi-thread
 ```
 
-If you use Tokio runtime sampler coupling via `TracingTokioSession`, use:
+If you use Tokio runtime sampler coupling via `TracingSession`, use:
 
 ```bash
 cargo add tailtriage-tracing --features tokio
@@ -52,7 +52,7 @@ cargo add tokio --features macros,rt-multi-thread
 ## Recommended live session setup (`live` feature)
 
 ```rust,no_run
-use tailtriage_tracing::TracingIntakeSession;
+use tailtriage_tracing::TracingSession;
 use tracing::Instrument as _;
 use tracing_subscriber::prelude::*;
 
@@ -62,7 +62,7 @@ async fn work() {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let session = TracingIntakeSession::builder("checkout-service")
+    let session = TracingSession::builder("checkout-service")
         .run_json_path("target/tailtriage-examples/checkout.run.json")
         .completed_span_jsonl_path("target/tailtriage-examples/checkout.spans.jsonl")
         .build()?;
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         work().instrument(request).await;
     } // the request span is closed before shutdown
 
-    let imported = session.shutdown()?;
+    let imported = session.shutdown().await?;
     let _ = imported;
     Ok(())
 }
@@ -115,7 +115,7 @@ Use `run_json_path(...)` when you want to skip a separate import step and write 
 tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
-For both `TracingIntakeSession` and `TracingTokioSession`, persisted-output shutdown
+For both `TracingSession` and `TracingSession`, persisted-output shutdown
 returns a zero-request error when no request is retained. When tracing intake warnings
 exist (for example malformed `tt.*` fields), shutdown includes those warning messages in
 the same error to guide setup corrections before rerunning capture.
@@ -222,7 +222,7 @@ span.record("tt.outcome", "timeout");
 - Completed-span JSONL replay is equivalent to direct conversion for normalized request/stage/queue evidence that JSONL can represent; it is not a complete Run artifact or production trace archive.
 - It does not encode Run-only metadata, runtime/in-flight snapshots, lifecycle warnings, semantic truncation counters, raw-recorder drop counters, source file/line context, omitted-source diagnostics, or output-path failures. Run JSON remains the complete persisted triage artifact.
 - For production workflows that need the complete persisted triage artifact including warnings/truncation metadata, prefer `run_json_path(...)`.
-- Callers using JSONL-only export should inspect `session.shutdown()?.warnings()` in the same process.
+- Callers using JSONL-only export should inspect `session.shutdown().await?.warnings()` in the same process.
 - This completed-span JSONL is a narrow retained-evidence export, not a generic tracing log stream and not OTel/OTLP.
 
 ## Runtime-pressure limitation
@@ -230,7 +230,7 @@ span.record("tt.outcome", "timeout");
 Tracing intake import and native capture share the same CaptureMode/CaptureLimits semantics for request/stage/queue evidence retention. Offline completed tailtriage tracing span JSONL import does not fabricate runtime snapshots. Runtime-pressure evidence still requires runtime snapshots/Tokio sampler coupling. Runtime-sensitive tracing contract parity uses deterministic/manual runtime snapshots and requires non-empty runtime snapshots, scenario-specific runtime field evidence, and the explicit disabled-background-sampler lifecycle warning (via `disable_background_sampler()` + `record_runtime_snapshot(...)`). It does not rely on ambient sampler metadata/noise.
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; shutdown fails for persisted-output sessions when zero completed requests are retained. When intake/lifecycle warnings are available, that shutdown error includes warning summaries to help tracing-intake setup triage. In-process library snapshots may still be zero-request for inspection.
 
-For `TracingTokioSession`, runtime snapshot retention also uses the same core capture-limit model. Run metadata time bounds cover merged retained tracing evidence plus retained runtime snapshots, which supports triage interpretation but is not root-cause proof:
+For `TracingSession`, runtime snapshot retention also uses the same core capture-limit model. Run metadata time bounds cover merged retained tracing evidence plus retained runtime snapshots, which supports triage interpretation but is not root-cause proof:
 
 - configure retention with `mode(...)`, `capture_limits(...)`, or `capture_limits_override(...)`
 - there is no tracing-specific `.max_runtime_snapshots(...)` session builder method
@@ -242,4 +242,44 @@ For `TracingTokioSession`, runtime snapshot retention also uses the same core ca
 - `tailtriage-tracing/examples/completed_span_jsonl_export.rs`
 
 
-`TracingTokioSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.
+`TracingSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.
+
+
+## Migration from recorder/intake/Tokio split
+
+Use `TracingSession::builder(service_name)` for every live tracing mode. Old recorder-only creation:
+
+```rust,no_run
+# use tailtriage_tracing::TracingSession;
+let session = TracingSession::builder("checkout-service").build()?;
+# Ok::<_, tailtriage_tracing::ImportError>(())
+```
+
+Old intake-session creation and output paths now use the same builder:
+
+```rust,no_run
+# use tailtriage_tracing::TracingSession;
+let session = TracingSession::builder("checkout-service")
+    .run_json_path("run.json")
+    .completed_span_jsonl_path("completed-spans.jsonl")
+    .build()?;
+# Ok::<_, tailtriage_tracing::ImportError>(())
+```
+
+Optional Tokio-assisted capture stays on the same builder when the `tokio` feature is enabled:
+
+```rust,no_run
+# use std::time::Duration;
+# use tailtriage_tracing::TracingSession;
+# async fn example() -> Result<(), tailtriage_tracing::ImportError> {
+let session = TracingSession::builder("checkout-service")
+    .sampler_interval(Duration::from_millis(100))
+    .build()?;
+let snapshot = session.snapshot_run()?;
+let final_run = session.shutdown().await?;
+# let _ = (snapshot, final_run);
+# Ok(())
+# }
+```
+
+For deterministic Tokio validation, call `disable_background_sampler()` and record explicit snapshots with `record_runtime_snapshot(...)`; shutdown is still `shutdown().await`.

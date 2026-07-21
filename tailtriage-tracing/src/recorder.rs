@@ -4,8 +4,14 @@ use std::fmt::Write as _;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "tokio")]
+use std::time::Duration;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tailtriage_core::{CaptureLimits, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink};
+#[cfg(feature = "tokio")]
+use tailtriage_core::{MemorySink, RuntimeSnapshot, Tailtriage};
+#[cfg(feature = "tokio")]
+use tailtriage_tokio::RuntimeSampler;
 
 use tracing::field::{Field, Visit};
 use tracing::{Id, Subscriber};
@@ -39,18 +45,26 @@ pub struct TracingRecorder {
 /// This API is intentionally a tracing intake bridge; it does not implement OTel/OTLP.
 /// Tracing-only evidence does not fabricate runtime-pressure snapshots, and suspects
 /// in resulting diagnosis reports remain triage leads rather than root-cause proof.
-#[derive(Debug, Clone)]
-pub struct TracingIntakeSession {
+#[derive(Debug)]
+pub struct TracingSession {
     recorder: TracingRecorder,
     completed_span_jsonl_path: Option<PathBuf>,
     run_json_path: Option<PathBuf>,
+    #[cfg(feature = "tokio")]
+    runtime_collector: Option<Arc<Tailtriage>>,
+    #[cfg(feature = "tokio")]
+    sampler: Option<RuntimeSampler>,
 }
-/// Builder for [`TracingIntakeSession`].
+/// Builder for [`TracingSession`].
 #[derive(Debug, Clone)]
-pub struct TracingIntakeSessionBuilder {
+pub struct TracingSessionBuilder {
     recorder_builder: TracingRecorderBuilder,
     completed_span_jsonl_path: Option<PathBuf>,
     run_json_path: Option<PathBuf>,
+    #[cfg(feature = "tokio")]
+    sampler_interval: Option<Duration>,
+    #[cfg(feature = "tokio")]
+    disable_background_sampler: bool,
 }
 
 /// Builder for [`TracingRecorder`].
@@ -258,22 +272,22 @@ impl TracingRecorder {
     /// # Errors
     ///
     /// Returns [`ImportError`] when strict conversion fails.
-    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
+    fn shutdown(self) -> Result<ImportedRun, ImportError> {
         self.snapshot_run()
     }
 }
 
-impl TracingIntakeSession {
+impl TracingSession {
     /// Creates a tracing intake session builder with required service metadata.
     ///
     /// Service startup should install `session.layer()` in the process-wide subscriber setup; use scoped defaults only for local/test-style usage.
     ///
     /// ```no_run
-    /// use tailtriage_tracing::TracingIntakeSession;
+    /// use tailtriage_tracing::TracingSession;
     /// use tracing_subscriber::prelude::*;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let session = TracingIntakeSession::builder("checkout")
+    /// let session = TracingSession::builder("checkout")
     ///     .completed_span_jsonl_path("completed-spans.jsonl")
     ///     .build()?;
     ///
@@ -290,15 +304,22 @@ impl TracingIntakeSession {
     ///     // measured work goes here
     /// } // the request span is closed before shutdown
     ///
-    /// session.shutdown()?;
+    /// # futures_executor::block_on(async move {
+    /// session.shutdown().await?;
+    /// # Ok::<_, tailtriage_tracing::ImportError>(())
+    /// # })?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn builder(service_name: impl Into<String>) -> TracingIntakeSessionBuilder {
-        TracingIntakeSessionBuilder {
+    pub fn builder(service_name: impl Into<String>) -> TracingSessionBuilder {
+        TracingSessionBuilder {
             recorder_builder: TracingRecorder::builder(service_name),
             completed_span_jsonl_path: None,
             run_json_path: None,
+            #[cfg(feature = "tokio")]
+            sampler_interval: None,
+            #[cfg(feature = "tokio")]
+            disable_background_sampler: false,
         }
     }
     /// Returns a `tracing_subscriber` layer for this intake session.
@@ -315,7 +336,25 @@ impl TracingIntakeSession {
     ///
     /// Returns an error when strict conversion fails.
     pub fn snapshot_run(&self) -> Result<ImportedRun, ImportError> {
-        self.recorder.snapshot_run()
+        let imported = self.recorder.snapshot_run()?;
+        #[cfg(feature = "tokio")]
+        {
+            if let Some(runtime_collector) = &self.runtime_collector {
+                let runtime = runtime_collector.snapshot();
+                return Ok(crate::tokio::with_manual_sampler_warning(
+                    crate::tokio::merge_runtime_data(imported, &runtime),
+                    self.sampler.is_none(),
+                ));
+            }
+        }
+        Ok(imported)
+    }
+    /// Records one Tokio runtime snapshot directly into the session when the `tokio` feature is enabled.
+    #[cfg(feature = "tokio")]
+    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
+        if let Some(runtime_collector) = &self.runtime_collector {
+            runtime_collector.record_runtime_snapshot(snapshot);
+        }
     }
     /// Finalizes intake and optionally writes configured output artifacts.
     ///
@@ -327,8 +366,26 @@ impl TracingIntakeSession {
     /// # Errors
     ///
     /// Returns an error when conversion fails or when configured output artifacts cannot be written.
-    pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
+    pub async fn shutdown(self) -> Result<ImportedRun, ImportError> {
+        #[cfg(feature = "tokio")]
+        let sampler_disabled = self.sampler.is_none();
+        #[cfg(feature = "tokio")]
+        let runtime_collector = self.runtime_collector.clone();
+        #[cfg(feature = "tokio")]
+        if let Some(sampler) = self.sampler {
+            sampler.shutdown().await;
+        }
         let imported = self.recorder.shutdown()?;
+        #[cfg(feature = "tokio")]
+        let imported = if let Some(runtime_collector) = runtime_collector {
+            let runtime = runtime_collector.snapshot();
+            crate::tokio::with_manual_sampler_warning(
+                crate::tokio::merge_runtime_data(imported, &runtime),
+                sampler_disabled,
+            )
+        } else {
+            imported
+        };
         let (run, warnings, retained_sources) = imported.into_internal_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
             ensure_persistable_run_with_warnings(&run, &warnings)?;
@@ -462,7 +519,7 @@ fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
     path.with_file_name(temp_name)
 }
 
-impl TracingIntakeSessionBuilder {
+impl TracingSessionBuilder {
     /// Enables or disables strict mode for conversion warnings.
     #[must_use]
     pub fn strict(mut self, strict: bool) -> Self {
@@ -551,13 +608,98 @@ impl TracingIntakeSessionBuilder {
     ///
     /// Returns an error when required recorder configuration is invalid,
     /// including blank/whitespace service metadata.
-    pub fn build(self) -> Result<TracingIntakeSession, ImportError> {
-        let recorder = self.recorder_builder.build()?;
-        Ok(TracingIntakeSession {
+    pub fn build(self) -> Result<TracingSession, ImportError> {
+        let recorder = self.recorder_builder.clone().build()?;
+        #[cfg(feature = "tokio")]
+        let runtime_collector = self.build_runtime_collector()?;
+        #[cfg(feature = "tokio")]
+        let sampler = self.build_runtime_sampler(runtime_collector.as_ref())?;
+        Ok(TracingSession {
             recorder,
             completed_span_jsonl_path: self.completed_span_jsonl_path,
             run_json_path: self.run_json_path,
+            #[cfg(feature = "tokio")]
+            runtime_collector,
+            #[cfg(feature = "tokio")]
+            sampler,
         })
+    }
+
+    /// Sets runtime sampler interval when background sampling is enabled.
+    #[cfg(feature = "tokio")]
+    #[must_use]
+    pub fn sampler_interval(mut self, sampler_interval: Duration) -> Self {
+        self.sampler_interval = Some(sampler_interval);
+        self
+    }
+
+    /// Disables background Tokio runtime sampling while preserving manual snapshots.
+    #[cfg(feature = "tokio")]
+    #[must_use]
+    pub fn disable_background_sampler(mut self) -> Self {
+        self.disable_background_sampler = true;
+        self
+    }
+
+    #[cfg(feature = "tokio")]
+    fn build_runtime_collector(&self) -> Result<Option<Arc<Tailtriage>>, ImportError> {
+        if self.sampler_interval.is_none() && !self.disable_background_sampler {
+            return Ok(None);
+        }
+        let mode = self.recorder_builder.selected_mode();
+        let resolved_limits = self.recorder_builder.resolved_capture_limits();
+        let sink = MemorySink::new();
+        let builder = Tailtriage::builder("tailtriage-tracing-runtime")
+            .sink(sink)
+            .strict_lifecycle(false)
+            .capture_limits(resolved_limits);
+        let builder = match mode {
+            CaptureMode::Light => builder.light(),
+            CaptureMode::Investigation => builder.investigation(),
+        };
+        let collector = builder.build().map_err(|err| ImportError::Io {
+            operation: "build tracing Tokio runtime collector",
+            context: "tailtriage-tracing-runtime".to_string(),
+            reason: err.to_string(),
+        })?;
+        Ok(Some(Arc::new(collector)))
+    }
+
+    #[cfg(feature = "tokio")]
+    fn build_runtime_sampler(
+        &self,
+        runtime_collector: Option<&Arc<Tailtriage>>,
+    ) -> Result<Option<RuntimeSampler>, ImportError> {
+        let Some(runtime_collector) = runtime_collector else {
+            return Ok(None);
+        };
+        if self.disable_background_sampler || self.sampler_interval.is_none() {
+            return Ok(None);
+        }
+        if let Some(interval) = self.sampler_interval {
+            if interval.is_zero() {
+                return Err(ImportError::Io {
+                    operation: "start tracing Tokio runtime sampler",
+                    context: "sampler interval".to_string(),
+                    reason: "sampler interval must be greater than zero".to_string(),
+                });
+            }
+        }
+        let mut sampler_builder = RuntimeSampler::builder(Arc::clone(runtime_collector));
+        if let Some(interval) = self.sampler_interval {
+            sampler_builder = sampler_builder.interval(interval);
+        }
+        let resolved_limits = self.recorder_builder.resolved_capture_limits();
+        sampler_builder =
+            sampler_builder.max_runtime_snapshots(resolved_limits.max_runtime_snapshots);
+        sampler_builder
+            .start()
+            .map(Some)
+            .map_err(|err| ImportError::Io {
+                operation: "start tracing Tokio runtime sampler",
+                context: "active Tokio runtime".to_string(),
+                reason: err.to_string(),
+            })
     }
 }
 
@@ -3418,7 +3560,7 @@ mod tests {
 
     #[test]
     fn tracing_intake_session_builder_rejects_blank_service_name() {
-        let err = TracingIntakeSession::builder("   ").build().unwrap_err();
+        let err = TracingSession::builder("   ").build().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
 
@@ -4269,7 +4411,7 @@ mod tests {
     fn semantic_unavailable_records_are_not_written_to_completed_jsonl() {
         let semantic_dir = tempfile::tempdir().unwrap();
         let semantic_path = semantic_dir.path().join("semantic.jsonl");
-        let semantic_session = TracingIntakeSession::builder("svc")
+        let semantic_session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&semantic_path)
             .capture_limits(CaptureLimits {
                 max_requests: 1,
@@ -4328,7 +4470,7 @@ mod tests {
         assert_eq!(semantic_snapshot.run().truncation.dropped_requests, 1);
         assert_eq!(semantic_snapshot.run().truncation.dropped_stages, 1);
         assert_eq!(semantic_snapshot.run().truncation.dropped_queues, 1);
-        semantic_session.shutdown().unwrap();
+        futures_executor::block_on(semantic_session.shutdown()).unwrap();
         assert_eq!(
             source_projection(&decode_completed_span_jsonl(&semantic_path)),
             vec![
@@ -4343,7 +4485,7 @@ mod tests {
     fn raw_unavailable_records_are_not_written_to_completed_jsonl() {
         let raw_dir = tempfile::tempdir().unwrap();
         let raw_path = raw_dir.path().join("raw.jsonl");
-        let raw_session = TracingIntakeSession::builder("svc")
+        let raw_session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&raw_path)
             .max_completed_candidate_spans(1)
             .build()
@@ -4371,7 +4513,7 @@ mod tests {
         assert_eq!(raw_snapshot.run().truncation.dropped_requests, 0);
         assert_eq!(raw_snapshot.run().truncation.dropped_stages, 0);
         assert_eq!(raw_snapshot.run().truncation.dropped_queues, 0);
-        let raw_shutdown = raw_session.shutdown().unwrap();
+        let raw_shutdown = futures_executor::block_on(raw_session.shutdown()).unwrap();
         assert_eq!(
             representable_evidence(raw_shutdown.run()),
             representable_evidence(raw_snapshot.run())
@@ -4404,7 +4546,7 @@ mod tests {
     }
 
     fn write_representative_live_session_jsonl(path: &Path) -> ImportedRun {
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(path)
             .build()
             .unwrap();
@@ -4436,7 +4578,7 @@ mod tests {
                     .field("custom", "identity"),
             );
         }
-        session.shutdown().unwrap()
+        futures_executor::block_on(session.shutdown()).unwrap()
     }
 
     #[test]
@@ -4556,9 +4698,9 @@ mod tests {
     async fn tokio_session_retained_sources_replay_request_stage_queue_but_not_runtime_snapshots() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("tokio-spans.jsonl");
-        let session = crate::tokio::TracingTokioSession::builder("svc")
+        let session = crate::TracingSession::builder("svc")
             .disable_background_sampler()
-            .start()
+            .build()
             .unwrap();
         let subscriber = tracing_subscriber::registry().with(session.layer());
         tracing::subscriber::with_default(subscriber, || {
@@ -4671,7 +4813,7 @@ mod tests {
             r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"old","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"old","tt.route":"/old"}}}"#,
         )
         .unwrap();
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .build()
             .unwrap();
@@ -4685,7 +4827,7 @@ mod tests {
             );
             drop(span);
         });
-        let imported = session.shutdown().unwrap();
+        let imported = futures_executor::block_on(session.shutdown()).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         let raw = std::fs::read_to_string(&spans_path).unwrap();
         assert!(!raw.contains("\"old\""));
@@ -4697,7 +4839,7 @@ mod tests {
     fn intake_session_emits_wrapper_shape_and_round_trips_wrapper_only() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .build()
             .unwrap();
@@ -4713,7 +4855,7 @@ mod tests {
         });
         assert!(session.snapshot_run().is_ok());
         assert!(!spans_path.exists());
-        let _ = session.shutdown().unwrap();
+        let _ = futures_executor::block_on(session.shutdown()).unwrap();
         let raw = std::fs::read_to_string(&spans_path).unwrap();
         let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 1);
@@ -4744,7 +4886,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .run_json_path(&run_path)
             .build()
@@ -4769,7 +4911,7 @@ mod tests {
             Some(&FieldValue::String("written".to_owned()))
         );
 
-        let imported = session.shutdown().unwrap();
+        let imported = futures_executor::block_on(session.shutdown()).unwrap();
         assert_eq!(imported.retained_sources(), snapshot.retained_sources());
         assert_eq!(imported.run(), snapshot.run());
         assert_eq!(imported.warnings(), snapshot.warnings());
@@ -4799,7 +4941,7 @@ mod tests {
     fn completed_jsonl_matches_retained_run_counts() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .capture_limits(tailtriage_core::CaptureLimits {
                 max_requests: 1,
@@ -4827,7 +4969,7 @@ mod tests {
         let snapshot = session.snapshot_run().unwrap();
         assert_eq!(snapshot.run().requests.len(), 1);
         assert_eq!(snapshot.run().truncation.dropped_requests, 1);
-        session.shutdown().unwrap();
+        futures_executor::block_on(session.shutdown()).unwrap();
         let imported = crate::jsonl::import_jsonl_path_with_mode(
             &spans_path,
             ImportOptions::new("svc"),
@@ -4845,7 +4987,7 @@ mod tests {
         let parent_file = dir.path().join("missing");
         std::fs::write(&parent_file, "not-a-directory").unwrap();
         let bad_path = parent_file.join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&bad_path)
             .strict(true)
             .build()
@@ -4859,7 +5001,7 @@ mod tests {
                 tt.route = "/ok"
             ));
         });
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
         assert!(err
             .to_string()
@@ -4872,7 +5014,7 @@ mod tests {
         let parent_file = dir.path().join("missing");
         std::fs::write(&parent_file, "not-a-directory").unwrap();
         let bad_path = parent_file.join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&bad_path)
             .build()
             .unwrap();
@@ -4886,7 +5028,7 @@ mod tests {
             ));
         });
 
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(err, ImportError::Io { .. }));
         assert!(err
             .to_string()
@@ -4897,7 +5039,7 @@ mod tests {
     fn intake_session_run_json_path_writes_valid_run_json() {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .run_json_path(&run_path)
             .build()
             .unwrap();
@@ -4910,7 +5052,7 @@ mod tests {
                 tt.route = "/a"
             ));
         });
-        session.shutdown().unwrap();
+        futures_executor::block_on(session.shutdown()).unwrap();
         assert!(run_path.exists());
         let run: tailtriage_core::Run =
             serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
@@ -4921,7 +5063,7 @@ mod tests {
     fn session_shutdown_succeeds_when_request_span_handle_is_dropped_before_shutdown() {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .run_json_path(&run_path)
             .build()
             .unwrap();
@@ -4936,7 +5078,7 @@ mod tests {
             .entered();
         });
 
-        session.shutdown().unwrap();
+        futures_executor::block_on(session.shutdown()).unwrap();
         assert!(run_path.exists());
     }
 
@@ -4944,7 +5086,7 @@ mod tests {
     fn session_shutdown_rejects_open_request_span_for_persisted_output() {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .run_json_path(&run_path)
             .build()
             .unwrap();
@@ -4964,7 +5106,7 @@ mod tests {
         });
 
         let span = open_span.expect("span handle retained across shutdown");
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(
             err,
             ImportError::ZeroRequestArtifactWithWarnings { .. }
@@ -4983,7 +5125,7 @@ mod tests {
     fn intake_session_run_json_path_creates_nested_parent_directories() {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("nested/out/run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .run_json_path(&run_path)
             .build()
             .unwrap();
@@ -4996,7 +5138,7 @@ mod tests {
                 tt.route = "/a"
             ));
         });
-        session.shutdown().unwrap();
+        futures_executor::block_on(session.shutdown()).unwrap();
         assert!(run_path.exists());
     }
 
@@ -5004,11 +5146,11 @@ mod tests {
     fn intake_session_run_json_path_rejects_zero_requests_without_creating_file() {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .run_json_path(&run_path)
             .build()
             .unwrap();
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert!(!run_path.exists());
     }
@@ -5017,7 +5159,7 @@ mod tests {
     fn intake_session_zero_request_persisted_error_includes_intake_warnings() {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .run_json_path(&run_path)
             .build()
             .unwrap();
@@ -5031,7 +5173,7 @@ mod tests {
             ));
         });
 
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(
             err,
             ImportError::ZeroRequestArtifactWithWarnings { .. }
@@ -5047,19 +5189,19 @@ mod tests {
     fn shutdown_with_completed_span_jsonl_only_and_zero_requests_writes_no_artifact() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .build()
             .unwrap();
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert!(!spans_path.exists());
     }
 
     #[test]
     fn shutdown_with_no_persisted_paths_and_zero_requests_still_returns_imported_run() {
-        let session = TracingIntakeSession::builder("svc").build().unwrap();
-        let imported = session.shutdown().unwrap();
+        let session = TracingSession::builder("svc").build().unwrap();
+        let imported = futures_executor::block_on(session.shutdown()).unwrap();
         assert_eq!(imported.run().requests.len(), 0);
     }
 
@@ -5068,11 +5210,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let run_path = dir.path().join("run.json");
         std::fs::write(&run_path, "keep-me").unwrap();
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .run_json_path(&run_path)
             .build()
             .unwrap();
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert_eq!(std::fs::read_to_string(&run_path).unwrap(), "keep-me");
     }
@@ -5082,12 +5224,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .run_json_path(&run_path)
             .build()
             .unwrap();
-        let err = session.shutdown().unwrap_err();
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert!(!spans_path.exists());
         assert!(!run_path.exists());
@@ -5098,7 +5240,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let run_path = dir.path().join("run.json");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .run_json_path(&run_path)
             .build()
@@ -5119,7 +5261,7 @@ mod tests {
             ));
         });
 
-        let imported = session.shutdown().unwrap();
+        let imported = futures_executor::block_on(session.shutdown()).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert!(imported
             .warnings()
@@ -5133,7 +5275,7 @@ mod tests {
     fn completed_span_jsonl_success_writes_final_wrapper_file() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .build()
             .unwrap();
@@ -5147,7 +5289,7 @@ mod tests {
             ));
         });
 
-        session.shutdown().unwrap();
+        futures_executor::block_on(session.shutdown()).unwrap();
         assert!(spans_path.exists());
         let raw = std::fs::read_to_string(&spans_path).unwrap();
         let lines: Vec<_> = raw.lines().filter(|line| !line.trim().is_empty()).collect();
@@ -5161,7 +5303,7 @@ mod tests {
     fn completed_span_jsonl_path_creates_nested_parent_directories() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("nested/out/spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .build()
             .unwrap();
@@ -5174,7 +5316,7 @@ mod tests {
                 tt.route = "/a"
             ));
         });
-        session.shutdown().unwrap();
+        futures_executor::block_on(session.shutdown()).unwrap();
         assert!(spans_path.exists());
     }
 
@@ -5188,7 +5330,7 @@ mod tests {
     fn unrelated_spans_are_ignored_by_completed_span_jsonl_writer() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .build()
             .unwrap();
@@ -5202,7 +5344,7 @@ mod tests {
                 tt.route = "/a"
             ));
         });
-        session.shutdown().unwrap();
+        futures_executor::block_on(session.shutdown()).unwrap();
         let raw = std::fs::read_to_string(&spans_path).unwrap();
         let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 1);
@@ -5215,7 +5357,7 @@ mod tests {
     fn completed_jsonl_excludes_malformed_and_orphan_stage_queue_spans() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
-        let session = TracingIntakeSession::builder("svc")
+        let session = TracingSession::builder("svc")
             .completed_span_jsonl_path(&spans_path)
             .build()
             .unwrap();
@@ -5248,7 +5390,7 @@ mod tests {
                 tt.outcome = "ok"
             ));
         });
-        let _ = session.shutdown().unwrap();
+        let _ = futures_executor::block_on(session.shutdown()).unwrap();
         let imported = crate::jsonl::import_jsonl_path_with_mode(
             &spans_path,
             ImportOptions::new("svc"),
@@ -5262,7 +5404,7 @@ mod tests {
 
     #[test]
     fn intake_session_captures_request_stage_queue() {
-        let session = TracingIntakeSession::builder("svc").build().unwrap();
+        let session = TracingSession::builder("svc").build().unwrap();
         let subscriber = tracing_subscriber::registry().with(session.layer());
         tracing::subscriber::with_default(subscriber, || {
             let req = tracing::info_span!(

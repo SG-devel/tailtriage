@@ -3,14 +3,10 @@
 use std::{path::PathBuf, time::Duration};
 
 use tailtriage_core::{unix_time_ms, CaptureLimitsOverride, RuntimeSnapshot};
-use tailtriage_tokio::SamplerStartError;
-use tailtriage_tracing::tokio::{
-    TracingTokioSession, TracingTokioSessionShutdownError, TracingTokioSessionStartError,
-};
-use tailtriage_tracing::ImportError;
+use tailtriage_tracing::{ImportError, TracingSession};
 use tracing_subscriber::prelude::*;
 
-async fn wait_for_runtime_snapshot(session: &TracingTokioSession) {
+async fn wait_for_runtime_snapshot(session: &TracingSession) {
     let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
     loop {
         let imported = session.snapshot_run().expect("snapshot run");
@@ -28,9 +24,9 @@ async fn wait_for_runtime_snapshot(session: &TracingTokioSession) {
 
 #[tokio::test(flavor = "current_thread")]
 async fn session_merges_tracing_and_runtime() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .sampler_interval(Duration::from_millis(1))
-        .start()
+        .build()
         .expect("start session");
 
     let subscriber = tracing_subscriber::registry().with(session.layer());
@@ -78,45 +74,46 @@ async fn session_merges_tracing_and_runtime() {
 
 #[test]
 fn start_outside_runtime_fails_clearly() {
-    let err = TracingTokioSession::builder("svc")
-        .start()
+    let err = TracingSession::builder("svc")
+        .sampler_interval(Duration::from_millis(1))
+        .build()
         .expect_err("must fail outside tokio runtime");
     assert!(matches!(
         err,
-        TracingTokioSessionStartError::SamplerStart(SamplerStartError::MissingRuntime)
+        ImportError::Io {
+            operation: "start tracing Tokio runtime sampler",
+            ..
+        }
     ));
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn tracing_tokio_session_start_rejects_blank_service_name() {
-    let err = TracingTokioSession::builder("   ")
+    let err = TracingSession::builder("   ")
         .sampler_interval(Duration::from_millis(1))
-        .start()
+        .build()
         .expect_err("blank service name must fail at start");
-    assert!(matches!(
-        err,
-        TracingTokioSessionStartError::Import(ImportError::EmptyServiceName)
-    ));
+    assert!(matches!(err, ImportError::EmptyServiceName));
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn zero_sampler_interval_fails_clearly() {
-    let err = TracingTokioSession::builder("svc")
+    let err = TracingSession::builder("svc")
         .sampler_interval(Duration::ZERO)
-        .start()
+        .build()
         .expect_err("zero interval must fail");
     assert!(matches!(
         err,
-        TracingTokioSessionStartError::SamplerStart(SamplerStartError::ZeroInterval)
+        ImportError::Io { operation: "start tracing Tokio runtime sampler", context, .. } if context == "sampler interval"
     ));
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn zero_sampler_interval_is_ignored_when_background_sampler_is_disabled() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .sampler_interval(Duration::ZERO)
         .disable_background_sampler()
-        .start()
+        .build()
         .expect("zero interval should be ignored when sampler is disabled");
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
@@ -142,9 +139,9 @@ async fn zero_sampler_interval_is_ignored_when_background_sampler_is_disabled() 
 
 #[tokio::test(flavor = "current_thread")]
 async fn runtime_merge_keeps_tracing_requests() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .sampler_interval(Duration::from_millis(1))
-        .start()
+        .build()
         .expect("start session");
 
     let subscriber = tracing_subscriber::registry().with(session.layer());
@@ -165,9 +162,9 @@ async fn runtime_merge_keeps_tracing_requests() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_preserves_tracing_spans() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .sampler_interval(Duration::from_millis(1))
-        .start()
+        .build()
         .expect("start session");
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
@@ -187,8 +184,9 @@ async fn shutdown_preserves_tracing_spans() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn record_runtime_snapshot_is_visible_in_snapshot_run() {
-    let session = TracingTokioSession::builder("svc")
-        .start()
+    let session = TracingSession::builder("svc")
+        .sampler_interval(Duration::from_millis(1))
+        .build()
         .expect("start session");
     let at = unix_time_ms();
     session.record_runtime_snapshot(RuntimeSnapshot {
@@ -215,8 +213,9 @@ async fn record_runtime_snapshot_is_visible_in_snapshot_run() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn record_runtime_snapshot_is_visible_in_shutdown_output() {
-    let session = TracingTokioSession::builder("svc")
-        .start()
+    let session = TracingSession::builder("svc")
+        .sampler_interval(Duration::from_millis(1))
+        .build()
         .expect("start session");
     let at = unix_time_ms();
     session.record_runtime_snapshot(RuntimeSnapshot {
@@ -243,8 +242,9 @@ async fn record_runtime_snapshot_is_visible_in_shutdown_output() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn record_runtime_snapshot_does_not_alter_tracing_events() {
-    let session = TracingTokioSession::builder("svc")
-        .start()
+    let session = TracingSession::builder("svc")
+        .sampler_interval(Duration::from_millis(1))
+        .build()
         .expect("start session");
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
@@ -290,12 +290,13 @@ async fn record_runtime_snapshot_does_not_alter_tracing_events() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn runtime_snapshot_truncation_propagates_to_imported_run() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
+        .disable_background_sampler()
         .capture_limits_override(CaptureLimitsOverride {
             max_runtime_snapshots: Some(1),
             ..CaptureLimitsOverride::default()
         })
-        .start()
+        .build()
         .expect("start session");
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
@@ -325,12 +326,13 @@ async fn runtime_snapshot_truncation_propagates_to_imported_run() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn capture_limits_override_controls_sampler_and_collector_retention() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
+        .disable_background_sampler()
         .capture_limits_override(CaptureLimitsOverride {
             max_runtime_snapshots: Some(2),
             ..CaptureLimitsOverride::default()
         })
-        .start()
+        .build()
         .expect("start session");
     for idx in 0_u64..5 {
         session.record_runtime_snapshot(RuntimeSnapshot {
@@ -346,13 +348,11 @@ async fn capture_limits_override_controls_sampler_and_collector_retention() {
     let run = session.snapshot_run().expect("snapshot run").run().clone();
     assert!(run.runtime_snapshots.len() <= 2);
     assert!(run.truncation.dropped_runtime_snapshots > 0);
-    assert_eq!(
-        run.metadata
-            .effective_tokio_sampler_config
-            .expect("tokio sampler metadata")
-            .resolved_runtime_snapshot_retention,
-        2
-    );
+    assert!(run
+        .metadata
+        .lifecycle_warnings
+        .iter()
+        .any(|warning| warning.contains("background runtime sampling disabled")));
 }
 
 fn unique_path(name: &str) -> PathBuf {
@@ -361,9 +361,9 @@ fn unique_path(name: &str) -> PathBuf {
 
 #[tokio::test(flavor = "current_thread")]
 async fn disabled_sampler_manual_snapshot_shutdown_has_manual_warning() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .disable_background_sampler()
-        .start()
+        .build()
         .expect("start");
     session.record_runtime_snapshot(RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
@@ -385,9 +385,9 @@ async fn disabled_sampler_manual_snapshot_shutdown_has_manual_warning() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn disabled_sampler_without_manual_snapshot_reports_clear_warning() {
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .disable_background_sampler()
-        .start()
+        .build()
         .expect("start");
     let run = session.shutdown().await.expect("shutdown").run().clone();
     assert!(run.runtime_snapshots.is_empty());
@@ -414,9 +414,9 @@ async fn run_json_path_writes_with_simple_relative_filename() {
     let _ = std::fs::remove_file(&run_path);
     let _cleanup = RemoveFileOnDrop(run_path.clone());
 
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .run_json_path(&run_path)
-        .start()
+        .build()
         .expect("start");
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
@@ -440,9 +440,9 @@ async fn run_json_path_writes_run_with_request_and_creates_parent() {
     let run_path = unique_path("tokio-session/nested/run.json");
     let _ = std::fs::remove_file(&run_path);
     let _ = std::fs::remove_dir_all(run_path.parent().expect("parent"));
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .run_json_path(&run_path)
-        .start()
+        .build()
         .expect("start");
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
@@ -464,15 +464,12 @@ async fn run_json_path_writes_run_with_request_and_creates_parent() {
 async fn zero_request_run_json_path_fails_and_does_not_write_file() {
     let run_path = unique_path("tokio-session-empty/run.json");
     let _ = std::fs::remove_file(&run_path);
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .run_json_path(&run_path)
-        .start()
+        .build()
         .expect("start");
     let err = session.shutdown().await.expect_err("must fail");
-    assert!(matches!(
-        err,
-        TracingTokioSessionShutdownError::Import(ImportError::ZeroRequestArtifact { .. })
-    ));
+    assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
     let err_text = err.to_string();
     assert!(err_text.contains("tracing import produced zero request events"));
     assert!(!err_text.contains("warnings observed during tracing intake:"));
@@ -483,9 +480,9 @@ async fn zero_request_run_json_path_fails_and_does_not_write_file() {
 async fn zero_request_run_json_path_surfaces_intake_warnings_in_shutdown_error() {
     let run_path = unique_path("tokio-session-empty-with-warnings/run.json");
     let _ = std::fs::remove_file(&run_path);
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .run_json_path(&run_path)
-        .start()
+        .build()
         .expect("start");
     let subscriber = tracing_subscriber::registry().with(session.layer());
     tracing::subscriber::with_default(subscriber, || {
@@ -500,9 +497,7 @@ async fn zero_request_run_json_path_surfaces_intake_warnings_in_shutdown_error()
     let err = session.shutdown().await.expect_err("must fail");
     assert!(matches!(
         err,
-        TracingTokioSessionShutdownError::Import(
-            ImportError::ZeroRequestArtifactWithWarnings { .. }
-        )
+        ImportError::ZeroRequestArtifactWithWarnings { .. }
     ));
     let err_text = err.to_string();
     assert!(err_text.contains("tracing import produced zero request events"));
@@ -515,9 +510,9 @@ async fn zero_request_run_json_path_surfaces_intake_warnings_in_shutdown_error()
 async fn snapshot_run_does_not_write_run_json() {
     let run_path = unique_path("tokio-session-snapshot-only/run.json");
     let _ = std::fs::remove_file(&run_path);
-    let session = TracingTokioSession::builder("svc")
+    let session = TracingSession::builder("svc")
         .run_json_path(&run_path)
-        .start()
+        .build()
         .expect("start");
     let _ = session.snapshot_run().expect("snapshot run");
     assert!(!run_path.exists());

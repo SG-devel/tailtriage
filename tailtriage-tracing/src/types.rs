@@ -378,6 +378,7 @@ impl ImportedRun {
         &self.retained_sources
     }
 
+    #[allow(dead_code)]
     pub(crate) fn into_internal_parts(
         self,
     ) -> (tailtriage_core::Run, Vec<ImportWarning>, Vec<SpanRecord>) {

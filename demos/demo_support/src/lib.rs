@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::Context;
 use tailtriage_core::{CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink, Tailtriage};
 use tailtriage_tracing::ensure_persistable_run_has_requests;
-use tailtriage_tracing::{tokio::TracingTokioSession, TracingRecorder};
+use tailtriage_tracing::TracingSession;
 use tokio::sync::Barrier;
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
@@ -220,7 +220,7 @@ pub struct RuntimeDemoInstrumentation {
 
 enum RuntimeDemoBackend {
     Native(Arc<Tailtriage>),
-    Tracing(Box<TracingTokioSession>),
+    Tracing(Box<TracingSession>),
 }
 
 enum DemoInstrumentationBackend {
@@ -238,7 +238,7 @@ enum DemoRequestInner {
 }
 
 struct TracingState {
-    recorder: TracingRecorder,
+    recorder: TracingSession,
 }
 
 struct TracingRequest {
@@ -269,7 +269,7 @@ impl DemoInstrumentation {
                 )?),
             }),
             InstrumentationMode::Tracing => {
-                let mut builder = TracingRecorder::builder(service_name).strict(false);
+                let mut builder = TracingSession::builder(service_name).strict(false);
                 builder = builder.mode(capture.mode);
                 if capture.max_requests.is_some()
                     || capture.max_stages.is_some()
@@ -352,9 +352,24 @@ impl DemoInstrumentation {
                 Ok(())
             }
             DemoInstrumentationBackend::Tracing(state) => {
-                let imported = state.recorder.shutdown()?;
+                let imported = block_on_ready(state.recorder.shutdown())?;
                 write_persistable_demo_run(&imported, output_path)
             }
+        }
+    }
+}
+
+fn block_on_ready<F: std::future::Future>(future: F) -> F::Output {
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
+    let mut future = pin!(future);
+    match future.as_mut().poll(&mut cx) {
+        Poll::Ready(output) => output,
+        Poll::Pending => {
+            panic!("tailtriage tracing shutdown unexpectedly yielded in sync demo shutdown")
         }
     }
 }
@@ -380,7 +395,7 @@ impl RuntimeDemoInstrumentation {
                 )?),
             }),
             InstrumentationMode::Tracing => {
-                let mut builder = TracingTokioSession::builder(service_name)
+                let mut builder = TracingSession::builder(service_name)
                     .strict(false)
                     .disable_background_sampler();
                 builder = builder.mode(capture.mode);
@@ -396,7 +411,7 @@ impl RuntimeDemoInstrumentation {
                         max_runtime_snapshots: None,
                     });
                 }
-                let session = builder.start()?;
+                let session = builder.build()?;
                 let subscriber = tracing_subscriber::registry().with(session.layer());
                 // Demo binaries run one instrumentation backend per process, so installing a
                 // global subscriber is acceptable here. Do not reuse this helper in libraries

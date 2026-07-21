@@ -111,7 +111,7 @@ Keep the optional tracing intake path clear for teams already using Rust `tracin
 Near-term tasks:
 
 - keep docs aligned to the implemented tracing-intake path:
-  - `TracingIntakeSession` as the primary live setup
+  - `TracingSession` as the primary live setup
   - stable completed-span JSONL wrapper (`tailtriage.tracing-span.v1`)
   - CLI `--input-format` guardrails (`compatible`, `tailtriage-span-jsonl`)
   - golden wrapper fixture, examples, and contract tests for request/stage/queue + duration preservation

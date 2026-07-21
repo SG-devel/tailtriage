@@ -8,8 +8,7 @@ use serde::Serialize;
 use tailtriage_analyzer::{render_json_pretty, try_analyze_run, AnalyzeOptions};
 use tailtriage_core::{CaptureLimitsOverride, CaptureMode, MemorySink, Run, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
-use tailtriage_tracing::tokio::TracingTokioSession;
-use tailtriage_tracing::TracingRecorder;
+use tailtriage_tracing::TracingSession;
 use tokio::sync::{Mutex, Semaphore};
 use tracing::Instrument;
 use tracing_subscriber::layer::SubscriberExt;
@@ -164,11 +163,11 @@ enum Backend {
         sampler: Option<RuntimeSampler>,
         sink: MemorySink,
     },
-    TracingRecorder {
-        rec: TracingRecorder,
+    TracingSession {
+        session: TracingSession,
     },
     TracingTokio {
-        session: TracingTokioSession,
+        session: TracingSession,
     },
 }
 
@@ -277,7 +276,7 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
         InstrumentationKind::Tracing => {
             if cli.mode.uses_runtime_sampler() {
                 let mut session_builder =
-                    TracingTokioSession::builder("runtime_cost_demo").strict(false);
+                    TracingSession::builder("runtime_cost_demo").strict(false);
                 if cli.mode.uses_drop_path_limits() {
                     session_builder =
                         session_builder.capture_limits_override(CaptureLimitsOverride {
@@ -288,7 +287,9 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
                             max_runtime_snapshots: Some(64),
                         });
                 }
-                let session = session_builder.start()?;
+                let session = session_builder
+                    .sampler_interval(Duration::from_millis(10))
+                    .build()?;
                 // One mode runs per process in this demo, so process-global subscriber init is acceptable.
                 tracing::subscriber::set_global_default(
                     tracing_subscriber::registry().with(session.layer()),
@@ -296,7 +297,7 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
                 .map_err(|e| anyhow!("failed installing tracing Tokio session subscriber: {e}"))?;
                 Ok(Backend::TracingTokio { session })
             } else {
-                let mut b = TracingRecorder::builder("runtime_cost_demo").strict(false);
+                let mut b = TracingSession::builder("runtime_cost_demo").strict(false);
                 if cli.mode.uses_drop_path_limits() {
                     b = b.max_open_spans(64);
                 }
@@ -306,7 +307,7 @@ fn build_backend(cli: &Cli) -> anyhow::Result<Backend> {
                     tracing_subscriber::registry().with(rec.layer()),
                 )
                 .map_err(|e| anyhow!("failed installing tracing recorder subscriber: {e}"))?;
-                Ok(Backend::TracingRecorder { rec })
+                Ok(Backend::TracingSession { session: rec })
             }
         }
     }
@@ -331,7 +332,7 @@ async fn finalize_backend_and_write_artifact(
                 anyhow!("native runtime-cost run sink did not receive finalized run")
             })?)
         }
-        Backend::TracingRecorder { rec } => Some(rec.shutdown()?.into_parts().0),
+        Backend::TracingSession { session } => Some(session.shutdown().await?.into_parts().0),
         Backend::TracingTokio { session } => Some(session.shutdown().await?.into_parts().0),
     };
     let artifact_path = write_run_artifact(cli, run.as_ref())?;

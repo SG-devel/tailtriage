@@ -1,16 +1,16 @@
 use std::error::Error;
 
 use tailtriage_core::{unix_time_ms, RuntimeSnapshot};
-use tailtriage_tracing::tokio::TracingTokioSession;
+use tailtriage_tracing::TracingSession;
 use tracing_subscriber::prelude::*;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
     let run_path = std::path::PathBuf::from("target/tailtriage-examples/tokio-run.json");
-    let session = TracingTokioSession::builder("checkout-service")
+    let session = TracingSession::builder("checkout-service")
         .run_json_path(&run_path)
         .disable_background_sampler()
-        .start()?;
+        .build()?;
 
     // This standalone example uses a scoped local subscriber; service startup
     // should install the tailtriage layer in the process-wide subscriber setup.
