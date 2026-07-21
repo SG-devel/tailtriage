@@ -12,7 +12,6 @@ use tracing::{Id, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 
 use crate::{
-    duration_within_derived_tolerance, duration_within_tolerance,
     ensure_persistable_run_with_warnings, run_from_span_records, FieldValue, ImportError,
     ImportOptions, ImportedRun, SpanRecord, TT_KIND,
 };
@@ -31,8 +30,11 @@ pub struct TracingRecorder {
 /// artifacts through [`Self::snapshot_run`] or [`Self::shutdown`].
 ///
 /// When configured, the session emits stable completed-span JSONL records in the
-/// wrapper form `{"format":"tailtriage.tracing-span.v1","span":{...}}` and can
-/// optionally write a Run JSON file on shutdown.
+/// wrapper form `{"format":"tailtriage.tracing-span.v1","span":{...}}` from
+/// retained original source spans and can optionally write a Run JSON file on shutdown.
+/// The JSONL evidence preserves source span identity and fields represented by
+/// [`SpanRecord`], but does not encode Run-only metadata, runtime/in-flight snapshots,
+/// lifecycle warnings, truncation counters, or omitted-source diagnostics.
 ///
 /// This API is intentionally a tracing intake bridge; it does not implement OTel/OTLP.
 /// Tracing-only evidence does not fabricate runtime-pressure snapshots, and suspects
@@ -332,7 +334,14 @@ impl TracingIntakeSession {
             ensure_persistable_run_with_warnings(&run, &warnings)?;
         }
         if let Some(path) = &self.completed_span_jsonl_path {
-            write_completed_span_jsonl_from_run(&run, path)?;
+            if retained_sources.is_empty() && !run.requests.is_empty() {
+                return Err(ImportError::Io {
+                    operation: "prepare completed span jsonl retained sources",
+                    context: path.display().to_string(),
+                    reason: "internal invariant violation: completed-span JSONL output requires retained original source spans".to_string(),
+                });
+            }
+            write_completed_span_jsonl_from_retained_sources(&retained_sources, path)?;
         }
         if let Some(path) = self.run_json_path {
             create_output_parent_dir(&path, "create run json parent directory")?;
@@ -351,8 +360,8 @@ impl TracingIntakeSession {
     }
 }
 
-fn write_completed_span_jsonl_from_run(
-    run: &tailtriage_core::Run,
+fn write_completed_span_jsonl_from_retained_sources(
+    retained_sources: &[SpanRecord],
     path: &Path,
 ) -> Result<(), ImportError> {
     create_output_parent_dir(path, "create completed span jsonl parent directory")?;
@@ -369,7 +378,7 @@ fn write_completed_span_jsonl_from_run(
         })?;
 
     let write_result = (|| -> Result<(), ImportError> {
-        for span in retained_span_records_from_run(run) {
+        for span in retained_sources {
             let wrapped =
                 serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
 
@@ -441,113 +450,6 @@ fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
         std::process::id(),
     );
     path.with_file_name(temp_name)
-}
-
-fn retained_span_records_from_run(run: &tailtriage_core::Run) -> Vec<SpanRecord> {
-    let mut spans = Vec::new();
-    for req in &run.requests {
-        let mut span = SpanRecord::new(
-            "tt.request",
-            req.started_at_unix_ms,
-            req.finished_at_unix_ms,
-        )
-        .field("tt.kind", "request")
-        .field("tt.request_id", req.request_id.clone())
-        .field("tt.route", req.route.clone())
-        .field("tt.outcome", req.outcome.clone());
-        if let Some(started_at_run_us) = req.started_at_run_us {
-            span = span.started_at_run_us(started_at_run_us);
-        }
-        if let Some(finished_at_run_us) = req.finished_at_run_us {
-            span = span.finished_at_run_us(finished_at_run_us);
-        }
-        span = span_with_replay_safe_duration(
-            span,
-            req.latency_us,
-            req.started_at_unix_ms,
-            req.finished_at_unix_ms,
-        );
-        spans.push(span);
-    }
-    for stage in &run.stages {
-        let mut span = SpanRecord::new(
-            "tt.stage",
-            stage.started_at_unix_ms,
-            stage.finished_at_unix_ms,
-        )
-        .field("tt.kind", "stage")
-        .field("tt.request_id", stage.request_id.clone())
-        .field("tt.stage", stage.stage.clone())
-        .field("tt.success", stage.success);
-        if let Some(started_at_run_us) = stage.started_at_run_us {
-            span = span.started_at_run_us(started_at_run_us);
-        }
-        if let Some(finished_at_run_us) = stage.finished_at_run_us {
-            span = span.finished_at_run_us(finished_at_run_us);
-        }
-        span = span_with_replay_safe_duration(
-            span,
-            stage.latency_us,
-            stage.started_at_unix_ms,
-            stage.finished_at_unix_ms,
-        );
-        spans.push(span);
-    }
-    for queue in &run.queues {
-        let mut span = SpanRecord::new(
-            "tt.queue",
-            queue.waited_from_unix_ms,
-            queue.waited_until_unix_ms,
-        )
-        .field("tt.kind", "queue")
-        .field("tt.request_id", queue.request_id.clone())
-        .field("tt.queue", queue.queue.clone());
-        if let Some(waited_from_run_us) = queue.waited_from_run_us {
-            span = span.started_at_run_us(waited_from_run_us);
-        }
-        if let Some(waited_until_run_us) = queue.waited_until_run_us {
-            span = span.finished_at_run_us(waited_until_run_us);
-        }
-        span = span_with_replay_safe_duration(
-            span,
-            queue.wait_us,
-            queue.waited_from_unix_ms,
-            queue.waited_until_unix_ms,
-        );
-        if let Some(depth) = queue.depth_at_start {
-            span = span.field("tt.depth_at_start", depth);
-        }
-        spans.push(span);
-    }
-    spans
-}
-fn span_with_replay_safe_duration(
-    span: SpanRecord,
-    duration_us: u64,
-    started_at_unix_ms: u64,
-    finished_at_unix_ms: u64,
-) -> SpanRecord {
-    let run_relative_derived_us =
-        match (span.started_at_run_us_ref(), span.finished_at_run_us_ref()) {
-            (Some(started_at_run_us), Some(finished_at_run_us))
-                if finished_at_run_us >= started_at_run_us =>
-            {
-                Some(finished_at_run_us.saturating_sub(started_at_run_us))
-            }
-            _ => None,
-        };
-
-    let replay_safe = if let Some(run_relative_derived_us) = run_relative_derived_us {
-        duration_within_derived_tolerance(duration_us, run_relative_derived_us)
-    } else {
-        duration_within_tolerance(duration_us, started_at_unix_ms, finished_at_unix_ms)
-    };
-
-    if replay_safe {
-        span.duration_us(duration_us)
-    } else {
-        span
-    }
 }
 
 impl TracingIntakeSessionBuilder {
@@ -1351,7 +1253,6 @@ impl Visit for FieldVisitor {
 mod tests {
     use super::*;
     use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
-    use tailtriage_core::{MemorySink, Tailtriage};
     use tracing_subscriber::prelude::*;
 
     fn with_recorder<T>(f: impl FnOnce(&TracingRecorder) -> T) -> T {
@@ -1361,14 +1262,6 @@ mod tests {
             .unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || f(&recorder))
-    }
-
-    fn empty_run() -> tailtriage_core::Run {
-        Tailtriage::builder("svc")
-            .sink(MemorySink::new())
-            .build()
-            .expect("collector")
-            .snapshot()
     }
 
     #[test]
@@ -3706,7 +3599,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(value["format"], "tailtriage.tracing-span.v1");
         assert!(value["span"].is_object());
-        assert_eq!(value["span"]["name"], "tt.request");
+        assert_eq!(value["span"]["name"], "request");
         assert!(value["span"]["started_at_unix_ms"].is_number());
         assert!(value["span"]["finished_at_unix_ms"].is_number());
         assert!(value["span"]["duration_us"].is_number());
@@ -3726,7 +3619,7 @@ mod tests {
     }
 
     #[test]
-    fn session_shutdown_keeps_private_sources_while_completed_span_writer_reconstructs_run_shape() {
+    fn session_shutdown_writes_retained_original_sources_without_reconstruction() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let run_path = dir.path().join("run.json");
@@ -3743,7 +3636,7 @@ mod tests {
                 tt.request_id = "r1",
                 tt.route = "/a",
                 tt.outcome = "ok",
-                custom_source = "not-written"
+                custom_source = "written"
             ));
         });
 
@@ -3752,7 +3645,7 @@ mod tests {
         assert_eq!(snapshot.retained_sources()[0].name(), "request-source-name");
         assert_eq!(
             snapshot.retained_sources()[0].fields().get("custom_source"),
-            Some(&FieldValue::String("not-written".to_owned()))
+            Some(&FieldValue::String("written".to_owned()))
         );
 
         let imported = session.shutdown().unwrap();
@@ -3771,12 +3664,10 @@ mod tests {
         assert_eq!(written.run().queues, imported.run().queues);
         assert_eq!(written.run().truncation, imported.run().truncation);
         assert_eq!(written.retained_sources().len(), 1);
-        assert_eq!(written.retained_sources()[0].name(), "tt.request");
-        assert_eq!(written.retained_sources()[0].id_ref(), None);
-        assert_eq!(written.retained_sources()[0].parent_id_ref(), None);
+        assert_eq!(written.retained_sources()[0].name(), "request-source-name");
         assert_eq!(
             written.retained_sources()[0].fields().get("custom_source"),
-            None
+            Some(&FieldValue::String("written".to_owned()))
         );
         let run_json: tailtriage_core::Run =
             serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
@@ -4246,196 +4137,6 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
-    }
-
-    fn run_with_coherent_replay_timing() -> tailtriage_core::Run {
-        let mut run = empty_run();
-        run.requests.push(tailtriage_core::RequestEvent {
-            request_id: "r1".into(),
-            route: "/a".into(),
-            kind: None,
-            started_at_unix_ms: 100,
-            started_at_run_us: Some(1_000),
-            finished_at_unix_ms: 199,
-            finished_at_run_us: Some(100_000),
-            latency_us: 99_000,
-            outcome: "ok".into(),
-        });
-        run.stages.push(tailtriage_core::StageEvent {
-            request_id: "r1".into(),
-            stage: "db".into(),
-            started_at_unix_ms: 100,
-            started_at_run_us: Some(2_000),
-            finished_at_unix_ms: 101,
-            finished_at_run_us: Some(72_000),
-            latency_us: 70_000,
-            success: true,
-        });
-        run.queues.push(tailtriage_core::QueueEvent {
-            request_id: "r1".into(),
-            queue: "permits".into(),
-            waited_from_unix_ms: 100,
-            waited_from_run_us: Some(3_000),
-            waited_until_unix_ms: 101,
-            waited_until_run_us: Some(33_000),
-            wait_us: 30_000,
-            depth_at_start: None,
-        });
-        run
-    }
-
-    #[test]
-    fn retained_request_stage_queue_emit_only_replay_safe_durations_and_run_offsets() {
-        let run = run_with_coherent_replay_timing();
-        let spans = retained_span_records_from_run(&run);
-        assert_eq!(spans.len(), 3);
-
-        let request = spans
-            .iter()
-            .find(|span| {
-                span.fields().get("tt.kind") == Some(&FieldValue::String("request".into()))
-            })
-            .expect("request span");
-        assert_eq!(request.duration_us_ref(), Some(99_000));
-        assert_eq!(request.started_at_run_us_ref(), Some(1_000));
-        assert_eq!(request.finished_at_run_us_ref(), Some(100_000));
-
-        let stage = spans
-            .iter()
-            .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("stage".into())))
-            .expect("stage span");
-        assert_eq!(stage.duration_us_ref(), Some(70_000));
-        assert_eq!(stage.started_at_run_us_ref(), Some(2_000));
-        assert_eq!(stage.finished_at_run_us_ref(), Some(72_000));
-
-        let queue = spans
-            .iter()
-            .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("queue".into())))
-            .expect("queue span");
-        assert_eq!(queue.duration_us_ref(), Some(30_000));
-        assert_eq!(queue.started_at_run_us_ref(), Some(3_000));
-        assert_eq!(queue.finished_at_run_us_ref(), Some(33_000));
-
-        let imported = run_from_span_records(spans, ImportOptions::new("svc").strict(true))
-            .expect("coherent replay spans should import strictly");
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().stages.len(), 1);
-        assert_eq!(imported.run().queues.len(), 1);
-        assert_eq!(imported.run().requests[0].latency_us, 99_000);
-        assert_eq!(imported.run().stages[0].latency_us, 70_000);
-        assert_eq!(imported.run().queues[0].wait_us, 30_000);
-        assert_eq!(imported.run().requests[0].started_at_run_us, Some(1_000));
-        assert_eq!(imported.run().requests[0].finished_at_run_us, Some(100_000));
-        assert_eq!(imported.run().stages[0].started_at_run_us, Some(2_000));
-        assert_eq!(imported.run().stages[0].finished_at_run_us, Some(72_000));
-        assert_eq!(imported.run().queues[0].waited_from_run_us, Some(3_000));
-        assert_eq!(imported.run().queues[0].waited_until_run_us, Some(33_000));
-    }
-
-    #[test]
-    fn completed_span_jsonl_export_omits_duration_when_run_relative_offsets_disagree_even_if_unix_matches(
-    ) {
-        let mut run = empty_run();
-        run.requests.push(tailtriage_core::RequestEvent {
-            request_id: "r1".into(),
-            route: "/a".into(),
-            kind: None,
-            started_at_unix_ms: 10,
-            started_at_run_us: Some(1_000),
-            finished_at_unix_ms: 60,
-            finished_at_run_us: Some(11_000),
-            latency_us: 50_000,
-            outcome: "ok".into(),
-        });
-
-        let spans = retained_span_records_from_run(&run);
-
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].duration_us_ref(), None);
-
-        let imported =
-            run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap();
-
-        assert_eq!(imported.run().requests[0].latency_us, 10_000);
-    }
-
-    #[test]
-    fn completed_span_jsonl_export_preserves_duration_when_run_relative_offsets_match() {
-        let mut run = empty_run();
-        run.requests.push(tailtriage_core::RequestEvent {
-            request_id: "r1".into(),
-            route: "/a".into(),
-            kind: None,
-            started_at_unix_ms: 10,
-            started_at_run_us: Some(1_000),
-            finished_at_unix_ms: 11,
-            finished_at_run_us: Some(51_000),
-            latency_us: 50_000,
-            outcome: "ok".into(),
-        });
-
-        let spans = retained_span_records_from_run(&run);
-
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].duration_us_ref(), Some(50_000));
-
-        let imported =
-            run_from_span_records(spans, ImportOptions::new("svc").strict(true)).unwrap();
-
-        assert_eq!(imported.run().requests[0].latency_us, 50_000);
-    }
-
-    #[test]
-    fn completed_span_jsonl_preserves_run_relative_safe_durations_for_strict_replay() {
-        let dir = tempfile::tempdir().unwrap();
-        let spans_path = dir.path().join("spans.jsonl");
-        let run = run_with_coherent_replay_timing();
-        write_completed_span_jsonl_from_run(&run, &spans_path).unwrap();
-
-        let raw = std::fs::read_to_string(&spans_path).unwrap();
-        let records: Vec<SpanRecord> = raw
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| {
-                let value: serde_json::Value = serde_json::from_str(line).unwrap();
-                serde_json::from_value(value.get("span").unwrap().clone()).unwrap()
-            })
-            .collect();
-
-        let request = records
-            .iter()
-            .find(|span| {
-                span.fields().get("tt.kind") == Some(&FieldValue::String("request".into()))
-            })
-            .expect("request span");
-        assert_eq!(request.duration_us_ref(), Some(99_000));
-
-        let stage = records
-            .iter()
-            .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("stage".into())))
-            .expect("stage span");
-        assert_eq!(stage.duration_us_ref(), Some(70_000));
-
-        let queue = records
-            .iter()
-            .find(|span| span.fields().get("tt.kind") == Some(&FieldValue::String("queue".into())))
-            .expect("queue span");
-        assert_eq!(queue.duration_us_ref(), Some(30_000));
-
-        let replay = crate::jsonl::import_jsonl_path_with_mode(
-            &spans_path,
-            ImportOptions::new("svc").strict(true),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
-        assert_eq!(replay.run().requests.len(), 1);
-        assert_eq!(replay.run().stages.len(), 1);
-        assert_eq!(replay.run().queues.len(), 1);
-        assert_eq!(replay.run().requests[0].latency_us, 99_000);
-        assert_eq!(replay.run().stages[0].latency_us, 70_000);
-        assert_eq!(replay.run().queues[0].wait_us, 30_000);
-        assert_eq!(replay.run().requests[0].started_at_run_us, Some(1_000));
-        assert_eq!(replay.run().requests[0].finished_at_run_us, Some(100_000));
     }
 
     #[test]
