@@ -170,14 +170,14 @@ fn with_manual_sampler_warning(mut merged: ImportedRun, sampler_disabled: bool) 
     } else {
         "tailtriage-tracing session ran with background runtime sampling disabled; runtime snapshots were manually recorded"
     };
-    let (mut run, mut warnings) = merged.into_parts();
+    let (mut run, mut warnings, retained_sources) = merged.into_internal_parts();
     if !run.metadata.lifecycle_warnings.iter().any(|w| w == warning) {
         run.metadata.lifecycle_warnings.push(warning.to_string());
     }
     if !warnings.iter().any(|w| w.message() == warning) {
         warnings.push(ImportWarning::new(warning.to_string()));
     }
-    merged = ImportedRun::new(run, warnings);
+    merged = ImportedRun::with_retained_sources(run, warnings, retained_sources);
     merged
 }
 
@@ -331,7 +331,7 @@ impl TracingTokioSessionBuilder {
 const MERGED_RUNTIME_SNAPSHOT_RUN_OFFSET_WARNING: &str = "TracingTokioSession merged runtime snapshots from a separate runtime collector; runtime snapshot at_run_us offsets were cleared so temporal runtime attribution uses Unix-ms windows.";
 
 fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
-    let (mut tracing_run, mut warnings) = imported.into_parts();
+    let (mut tracing_run, mut warnings, retained_sources) = imported.into_internal_parts();
     let runtime_snapshot_offsets_cleared = runtime_run
         .runtime_snapshots
         .iter()
@@ -407,7 +407,7 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
             warnings.push(ImportWarning::new(warning.to_string()));
         }
     }
-    ImportedRun::new(tracing_run, warnings)
+    ImportedRun::with_retained_sources(tracing_run, warnings, retained_sources)
 }
 
 #[cfg(test)]
@@ -423,6 +423,49 @@ mod tests {
             .build()
             .expect("build collector")
             .snapshot()
+    }
+
+    #[test]
+    fn tokio_merge_and_manual_sampler_warning_preserve_private_retained_sources() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/r1".into(),
+            kind: None,
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 1_000,
+            outcome: "ok".into(),
+        });
+        let source = crate::SpanRecord::new("source-request", 1, 2)
+            .id("source-id")
+            .parent_id("root-id")
+            .field("tt.kind", "request")
+            .field("tt.request_id", "r1")
+            .field("tt.route", "/r1")
+            .field("custom", "kept");
+        let imported = ImportedRun::with_retained_sources(
+            tracing_run,
+            vec![ImportWarning::new("existing warning")],
+            vec![source.clone()],
+        );
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.runtime_snapshots = vec![RuntimeSnapshot {
+            at_unix_ms: 2,
+            at_run_us: Some(1_000),
+            alive_tasks: Some(1),
+            global_queue_depth: Some(0),
+            local_queue_depth: Some(0),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: Some(0),
+        }];
+
+        let merged = merge_runtime_data(imported, &runtime_run);
+        assert_eq!(merged.retained_sources(), std::slice::from_ref(&source));
+        let warned = super::with_manual_sampler_warning(merged, true);
+        assert_eq!(warned.retained_sources(), &[source]);
     }
 
     #[test]

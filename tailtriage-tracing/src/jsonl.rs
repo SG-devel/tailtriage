@@ -78,10 +78,14 @@ pub fn import_jsonl_reader_with_mode<R: Read>(
     }
 
     let imported = run_from_span_records(spans, options)?;
-    let (mut run, mut conversion_warnings) = imported.into_parts();
+    let (mut run, mut conversion_warnings, retained_sources) = imported.into_internal_parts();
     attach_parse_warnings_to_lifecycle(&mut run, &parse_warnings);
     parse_warnings.append(&mut conversion_warnings);
-    Ok(ImportedRun::new(run, parse_warnings))
+    Ok(ImportedRun::with_retained_sources(
+        run,
+        parse_warnings,
+        retained_sources,
+    ))
 }
 
 fn attach_parse_warnings_to_lifecycle(
@@ -558,6 +562,82 @@ mod tests {
         let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
+    }
+
+    #[test]
+    fn compatible_jsonl_retained_sources_preserve_decoded_original_and_skip_bad_records() {
+        let input = r#"
+{"message":"completed request","span":{"id":"req-id","parent_id":"root-id","name":"req","started_at_unix_ms":1000,"started_at_run_us":10,"finished_at_unix_ms":1020,"finished_at_run_us":20010,"duration_us":20000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","custom":"request-source"}}}
+{"timestamp":"2026-06-01T00:00:00Z","level":"INFO","target":"svc","message":"ordinary log","fields":{"request_id":"noise"}}
+{"message":"completed stage","span":{"id":"stage-id","parent_id":"req-id","name":"stage","started_at_unix_ms":1005,"started_at_run_us":5010,"finished_at_unix_ms":1010,"finished_at_run_us":10010,"duration_us":5000,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db","custom":"stage-source"}}}
+"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|warning| warning.message().contains("fmt JSON")));
+        let retained = imported.retained_sources();
+        assert_eq!(retained.len(), 2);
+        assert_eq!(
+            retained.iter().map(SpanRecord::name).collect::<Vec<_>>(),
+            vec!["req", "stage"]
+        );
+
+        let request = &retained[0];
+        assert_eq!(request.id_ref(), Some("req-id"));
+        assert_eq!(request.parent_id_ref(), Some("root-id"));
+        assert_eq!(
+            request.fields().get("custom"),
+            Some(&FieldValue::String("request-source".to_owned()))
+        );
+        assert_eq!(request.started_at_unix_ms(), 1000);
+        assert_eq!(request.finished_at_unix_ms(), 1020);
+        assert_eq!(request.started_at_run_us_ref(), Some(10));
+        assert_eq!(request.finished_at_run_us_ref(), Some(20010));
+        assert_eq!(request.duration_us_ref(), Some(20_000));
+
+        let stage = &retained[1];
+        assert_eq!(stage.id_ref(), Some("stage-id"));
+        assert_eq!(stage.parent_id_ref(), Some("req-id"));
+        assert_eq!(
+            stage.fields().get("custom"),
+            Some(&FieldValue::String("stage-source".to_owned()))
+        );
+        assert_eq!(stage.started_at_unix_ms(), 1005);
+        assert_eq!(stage.finished_at_unix_ms(), 1010);
+        assert_eq!(stage.started_at_run_us_ref(), Some(5010));
+        assert_eq!(stage.finished_at_run_us_ref(), Some(10010));
+        assert_eq!(stage.duration_us_ref(), Some(5000));
+    }
+
+    #[test]
+    fn stable_wrapper_jsonl_privately_carries_decoded_original_sources_in_input_order() {
+        let input = r#"
+{"format":"tailtriage.tracing-span.v1","span":{"id":"req-id","parent_id":"root","name":"req","started_at_unix_ms":10,"started_at_run_us":100,"finished_at_unix_ms":20,"finished_at_run_us":200,"duration_us":100,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","extra":"kept"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"id":"stage-id","parent_id":"req-id","name":"stage","started_at_unix_ms":12,"started_at_run_us":120,"finished_at_unix_ms":15,"finished_at_run_us":150,"duration_us":30,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
+"#;
+        let imported = super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc"))
+            .expect("stable import should work");
+
+        assert_eq!(
+            imported
+                .retained_sources()
+                .iter()
+                .map(SpanRecord::name)
+                .collect::<Vec<_>>(),
+            vec!["req", "stage"]
+        );
+        assert_eq!(imported.retained_sources()[0].id_ref(), Some("req-id"));
+        assert_eq!(imported.retained_sources()[0].parent_id_ref(), Some("root"));
+        assert_eq!(
+            imported.retained_sources()[0].fields().get("extra"),
+            Some(&FieldValue::String("kept".to_owned()))
+        );
+        assert_eq!(
+            imported.retained_sources()[1].started_at_run_us_ref(),
+            Some(120)
+        );
     }
 
     #[test]

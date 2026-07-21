@@ -327,7 +327,7 @@ impl TracingIntakeSession {
     /// Returns an error when conversion fails or when configured output artifacts cannot be written.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         let imported = self.recorder.shutdown()?;
-        let (run, warnings) = imported.into_parts();
+        let (run, warnings, retained_sources) = imported.into_internal_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
             ensure_persistable_run_with_warnings(&run, &warnings)?;
         }
@@ -343,7 +343,11 @@ impl TracingIntakeSession {
                     reason: err.to_string(),
                 })?;
         }
-        Ok(ImportedRun::new(run, warnings))
+        Ok(ImportedRun::with_retained_sources(
+            run,
+            warnings,
+            retained_sources,
+        ))
     }
 }
 
@@ -1282,9 +1286,13 @@ fn imported_with_drop_warnings(
         return Ok(imported);
     }
 
-    let (mut run, mut warnings) = imported.into_parts();
+    let (mut run, mut warnings, retained_sources) = imported.into_internal_parts();
     append_non_strict_drop_warnings(&mut run, &mut warnings, stats, limits);
-    Ok(ImportedRun::new(run, warnings))
+    Ok(ImportedRun::with_retained_sources(
+        run,
+        warnings,
+        retained_sources,
+    ))
 }
 
 fn scalar_field_string(value: Option<&FieldValue>) -> Option<String> {
@@ -2417,11 +2425,117 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert!(request_ids.is_empty());
         assert_eq!(imported.run().requests.len(), 0);
+        assert!(imported.retained_sources().is_empty());
+        assert_eq!(imported.run().truncation.dropped_requests, 0);
         assert!(imported.warnings().iter().any(|w| {
             w.message()
                 .contains("dropped 1 completed request candidate span(s)")
                 && w.message().contains("max_completed_candidate_spans=2")
         }));
+    }
+
+    #[test]
+    fn retained_sources_follow_live_recorder_section_order_with_exact_identity() {
+        let recorder = TracingRecorder::builder("svc").build().unwrap();
+        {
+            let mut state = recorder.state.lock().unwrap();
+            state.completed_stages.push(
+                SpanRecord::new("stage-a", 110, 120)
+                    .id("stage-id")
+                    .parent_id("req-id")
+                    .field(TT_KIND, "stage")
+                    .field("tt.request_id", "r1")
+                    .field("tt.stage", "db")
+                    .field("custom", "stage-custom"),
+            );
+            state.completed_queues.push(
+                SpanRecord::new("queue-a", 105, 109)
+                    .id("queue-id")
+                    .parent_id("req-id")
+                    .field(TT_KIND, "queue")
+                    .field("tt.request_id", "r1")
+                    .field("tt.queue", "permits")
+                    .field("custom", "queue-custom"),
+            );
+            state.completed_requests.push(
+                SpanRecord::new("request-a", 100, 130)
+                    .id("req-id")
+                    .parent_id("root-id")
+                    .field(TT_KIND, "request")
+                    .field("tt.request_id", "r1")
+                    .field("tt.route", "/a")
+                    .field("custom", "request-custom"),
+            );
+        }
+
+        let imported = recorder.snapshot_run().unwrap();
+        let retained = imported.retained_sources();
+        assert_eq!(
+            retained.iter().map(SpanRecord::name).collect::<Vec<_>>(),
+            vec!["request-a", "stage-a", "queue-a"]
+        );
+        assert_eq!(retained[0].id_ref(), Some("req-id"));
+        assert_eq!(retained[0].parent_id_ref(), Some("root-id"));
+        assert_eq!(
+            retained[0].fields().get("custom"),
+            Some(&FieldValue::String("request-custom".to_owned()))
+        );
+        assert_eq!(
+            retained[0].fields().get(TT_KIND),
+            Some(&FieldValue::String("request".to_owned()))
+        );
+        assert_eq!(retained[1].id_ref(), Some("stage-id"));
+        assert_eq!(retained[1].parent_id_ref(), Some("req-id"));
+        assert_eq!(
+            retained[1].fields().get("custom"),
+            Some(&FieldValue::String("stage-custom".to_owned()))
+        );
+        assert_eq!(
+            retained[1].fields().get("tt.stage"),
+            Some(&FieldValue::String("db".to_owned()))
+        );
+        assert_eq!(retained[2].id_ref(), Some("queue-id"));
+        assert_eq!(retained[2].parent_id_ref(), Some("req-id"));
+        assert_eq!(
+            retained[2].fields().get("custom"),
+            Some(&FieldValue::String("queue-custom".to_owned()))
+        );
+        assert_eq!(
+            retained[2].fields().get("tt.queue"),
+            Some(&FieldValue::String("permits".to_owned()))
+        );
+    }
+
+    #[test]
+    fn snapshots_are_non_consuming_and_shutdown_retained_sources_are_deterministic() {
+        let build = || {
+            let recorder = TracingRecorder::builder("svc")
+                .run_id("rid")
+                .build()
+                .unwrap();
+            recorder.state.lock().unwrap().completed_requests.push(
+                SpanRecord::new("request", 100, 120)
+                    .id("req-id")
+                    .field(TT_KIND, "request")
+                    .field("tt.request_id", "r1")
+                    .field("tt.route", "/a")
+                    .field("tt.outcome", "ok")
+                    .field("custom", "kept"),
+            );
+            recorder
+        };
+
+        let recorder = build();
+        let first = recorder.snapshot_run().unwrap();
+        let second = recorder.snapshot_run().unwrap();
+        assert_eq!(first.run(), second.run());
+        assert_eq!(first.warnings(), second.warnings());
+        assert_eq!(first.retained_sources(), second.retained_sources());
+
+        let shutdown = build().shutdown().unwrap();
+        assert_eq!(first.run(), shutdown.run());
+        assert_eq!(first.warnings(), shutdown.warnings());
+        assert_eq!(first.retained_sources(), shutdown.retained_sources());
     }
 
     #[test]
@@ -2453,7 +2567,17 @@ mod tests {
         let imported = recorder.snapshot_run().unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].request_id, "r1");
+        assert_eq!(
+            imported
+                .retained_sources()
+                .iter()
+                .map(SpanRecord::name)
+                .collect::<Vec<_>>(),
+            vec!["request-1"]
+        );
         assert_eq!(imported.run().truncation.dropped_requests, 1);
+        assert_eq!(imported.run().truncation.dropped_stages, 0);
+        assert_eq!(imported.run().truncation.dropped_queues, 0);
         assert!(!imported
             .warnings()
             .iter()
@@ -3599,6 +3723,64 @@ mod tests {
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].request_id, "r1");
         assert_eq!(imported.run().requests[0].route, "/a");
+    }
+
+    #[test]
+    fn session_shutdown_keeps_private_sources_while_completed_span_writer_reconstructs_run_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let run_path = dir.path().join("run.json");
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "request-source-name",
+                tt.kind = "request",
+                tt.request_id = "r1",
+                tt.route = "/a",
+                tt.outcome = "ok",
+                custom_source = "not-written"
+            ));
+        });
+
+        let snapshot = session.snapshot_run().unwrap();
+        assert_eq!(snapshot.retained_sources().len(), 1);
+        assert_eq!(snapshot.retained_sources()[0].name(), "request-source-name");
+        assert_eq!(
+            snapshot.retained_sources()[0].fields().get("custom_source"),
+            Some(&FieldValue::String("not-written".to_owned()))
+        );
+
+        let imported = session.shutdown().unwrap();
+        assert_eq!(imported.retained_sources(), snapshot.retained_sources());
+        assert_eq!(imported.run(), snapshot.run());
+        assert_eq!(imported.warnings(), snapshot.warnings());
+
+        let written = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(written.run().requests, imported.run().requests);
+        assert_eq!(written.run().stages, imported.run().stages);
+        assert_eq!(written.run().queues, imported.run().queues);
+        assert_eq!(written.run().truncation, imported.run().truncation);
+        assert_eq!(written.retained_sources().len(), 1);
+        assert_eq!(written.retained_sources()[0].name(), "tt.request");
+        assert_eq!(written.retained_sources()[0].id_ref(), None);
+        assert_eq!(written.retained_sources()[0].parent_id_ref(), None);
+        assert_eq!(
+            written.retained_sources()[0].fields().get("custom_source"),
+            None
+        );
+        let run_json: tailtriage_core::Run =
+            serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
+        assert_eq!(&run_json, imported.run());
     }
 
     #[test]
