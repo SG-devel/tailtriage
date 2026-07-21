@@ -4942,6 +4942,24 @@ mod tests {
         assert_eq!(imported.run().queues.len(), 0);
     }
 
+    fn assert_no_temp_artifacts(dir: &Path) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            assert!(
+                !file_name.contains("tailtriage-tmp"),
+                "unexpected completed-span JSONL temp artifact: {}",
+                entry.path().display()
+            );
+            assert!(
+                !file_name.contains(".tmp-"),
+                "unexpected Run JSON temp artifact: {}",
+                entry.path().display()
+            );
+        }
+    }
+
     #[test]
     fn intake_session_write_failure_returns_io_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
@@ -5181,7 +5199,7 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_with_both_outputs_and_zero_requests_writes_no_final_artifacts() {
+    fn shutdown_with_both_outputs_and_zero_requests_writes_no_final_or_temp_artifacts() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let run_path = dir.path().join("run.json");
@@ -5194,6 +5212,103 @@ mod tests {
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert!(!spans_path.exists());
         assert!(!run_path.exists());
+        assert_no_temp_artifacts(dir.path());
+    }
+
+    #[test]
+    fn completed_jsonl_failure_prevents_run_json_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent_file = dir.path().join("not-a-directory");
+        std::fs::write(&parent_file, "not-a-directory").unwrap();
+        let spans_path = parent_file.join("spans.jsonl");
+        let run_path = dir.path().join("run.json");
+        std::fs::write(&run_path, "run-json-must-not-change").unwrap();
+
+        let session = TracingSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "jsonl-failure-request",
+                tt.kind = "request",
+                tt.request_id = "jsonl-failure-r1",
+                tt.route = "/jsonl-failure"
+            ));
+        });
+
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
+        match err {
+            ImportError::Io {
+                operation,
+                context,
+                reason: _,
+            } => {
+                assert_eq!(operation, "create completed span jsonl parent directory");
+                assert_eq!(context, parent_file.display().to_string());
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(&run_path).unwrap(),
+            "run-json-must-not-change"
+        );
+        assert!(!spans_path.exists());
+        assert_no_temp_artifacts(dir.path());
+    }
+
+    #[test]
+    fn completed_jsonl_remains_finalized_when_run_json_write_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let run_path = dir.path().join("run-json-target");
+        std::fs::create_dir(&run_path).unwrap();
+
+        let session = TracingSession::builder("svc")
+            .completed_span_jsonl_path(&spans_path)
+            .run_json_path(&run_path)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "run-json-failure-request",
+                tt.kind = "request",
+                tt.request_id = "run-json-failure-r1",
+                tt.route = "/run-json-failure",
+                custom_failure_field = "jsonl-survives"
+            ));
+        });
+
+        let err = futures_executor::block_on(session.shutdown()).unwrap_err();
+        match err {
+            ImportError::RunJsonWrite { path, reason: _ } => {
+                assert_eq!(path, run_path.display().to_string());
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        assert!(spans_path.is_file());
+        assert!(run_path.is_dir());
+        assert_no_temp_artifacts(dir.path());
+
+        let decoded = decode_completed_span_jsonl(&spans_path);
+        assert_eq!(decoded.len(), 1);
+        let span = &decoded[0];
+        assert_eq!(span.name(), "run-json-failure-request");
+        assert_eq!(
+            span.fields().get("tt.request_id"),
+            Some(&FieldValue::String("run-json-failure-r1".to_owned()))
+        );
+        assert_eq!(
+            span.fields().get("tt.route"),
+            Some(&FieldValue::String("/run-json-failure".to_owned()))
+        );
+        assert_eq!(
+            span.fields().get("custom_failure_field"),
+            Some(&FieldValue::String("jsonl-survives".to_owned()))
+        );
     }
 
     #[test]

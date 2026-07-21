@@ -1199,7 +1199,31 @@ def strip_live_tracing_migration_sections(text: str) -> str:
     return pattern.sub("", text)
 
 
+def validate_tracing_readme_migration_section_contract() -> None:
+    path = REPO_ROOT / "tailtriage-tracing" / "README.md"
+    text = path.read_text(encoding="utf-8")
+    normalized = normalized_words(text)
+    duplicate = "for both `tracingsession` and `tracingsession`"
+    if duplicate in normalized:
+        raise ValueError(
+            "tailtriage-tracing/README.md contains duplicated TracingSession migration wording"
+        )
+    heading_count = len(
+        re.findall(
+            r"^## Live tracing session migration\s*$",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+    )
+    if heading_count != 1:
+        raise ValueError(
+            "tailtriage-tracing/README.md must contain exactly one "
+            "'## Live tracing session migration' heading"
+        )
+
+
 def validate_live_tracing_session_public_contract() -> None:
+    validate_tracing_readme_migration_section_contract()
     required = (
         USER_GUIDE_PATH,
         REPO_ROOT / "tailtriage-tracing" / "README.md",

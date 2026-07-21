@@ -1103,5 +1103,45 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
                 validate_docs_contracts.validate_docs_index_contract()
 
 
+    def test_tracing_readme_migration_section_contract_rejects_duplicate_sentence(self) -> None:
+        readme_text = """# README
+
+For both `TracingSession` and `TracingSession`, use the builder.
+
+## Live tracing session migration
+
+Use `TracingSession` as the sole current live entry point for capture-to-Run workflows.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            readme_path = repo_root / "tailtriage-tracing" / "README.md"
+            readme_path.parent.mkdir(parents=True)
+            readme_path.write_text(readme_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaisesRegex(ValueError, r"duplicated TracingSession"):
+                    validate_docs_contracts.validate_tracing_readme_migration_section_contract()
+
+    def test_tracing_readme_migration_section_contract_requires_one_heading(self) -> None:
+        readme_text = """# README
+
+## Live tracing session migration
+
+Use `TracingSession` as the sole current live entry point.
+
+## Live tracing session migration
+
+Duplicate.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            readme_path = repo_root / "tailtriage-tracing" / "README.md"
+            readme_path.parent.mkdir(parents=True)
+            readme_path.write_text(readme_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaisesRegex(ValueError, r"exactly one"):
+                    validate_docs_contracts.validate_tracing_readme_migration_section_contract()
+
 if __name__ == "__main__":
     unittest.main()

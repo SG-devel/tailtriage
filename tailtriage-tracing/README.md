@@ -115,8 +115,7 @@ Use `run_json_path(...)` when you want to skip a separate import step and write 
 tailtriage analyze target/tailtriage-examples/checkout.run.json
 ```
 
-For both `TracingSession` and `TracingSession`, persisted-output shutdown
-returns a zero-request error when no request is retained. When tracing intake warnings
+`TracingSession` persisted-output shutdown returns a zero-request error when no request is retained. When tracing intake warnings
 exist (for example malformed `tt.*` fields), shutdown includes those warning messages in
 the same error to guide setup corrections before rerunning capture.
 
@@ -244,45 +243,6 @@ For `TracingSession`, runtime snapshot retention also uses the same core capture
 
 `TracingSession::builder(...).run_json_path(...)` persists merged Run JSON on `shutdown()`. Analysis remains a separate `tailtriage analyze <run.json>` step, and runtime-pressure evidence is triage input rather than root-cause proof.
 
-
-## Migration from recorder/intake/Tokio split
-
-Use `TracingSession::builder(service_name)` for every live tracing mode. Old recorder-only creation:
-
-```rust,no_run
-# use tailtriage_tracing::TracingSession;
-let session = TracingSession::builder("checkout-service").build()?;
-# Ok::<_, tailtriage_tracing::ImportError>(())
-```
-
-Old intake-session creation and output paths now use the same builder:
-
-```rust,no_run
-# use tailtriage_tracing::TracingSession;
-let session = TracingSession::builder("checkout-service")
-    .run_json_path("run.json")
-    .completed_span_jsonl_path("completed-spans.jsonl")
-    .build()?;
-# Ok::<_, tailtriage_tracing::ImportError>(())
-```
-
-Optional Tokio-assisted capture stays on the same builder when the `tokio` feature is enabled:
-
-```rust,no_run
-# use std::time::Duration;
-# use tailtriage_tracing::TracingSession;
-# async fn example() -> Result<(), tailtriage_tracing::ImportError> {
-let session = TracingSession::builder("checkout-service")
-    .sampler_interval(Duration::from_millis(100))
-    .build()?;
-let snapshot = session.snapshot_run()?;
-let final_run = session.shutdown().await?;
-# let _ = (snapshot, final_run);
-# Ok(())
-# }
-```
-
-For deterministic Tokio validation, call `manual_runtime_snapshots()` and record explicit snapshots with `record_runtime_snapshot(...)`; shutdown is still `shutdown().await`.
 
 ## Live tracing session migration
 
