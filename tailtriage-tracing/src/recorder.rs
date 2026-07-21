@@ -327,7 +327,7 @@ impl TracingIntakeSession {
     /// Returns an error when conversion fails or when configured output artifacts cannot be written.
     pub fn shutdown(self) -> Result<ImportedRun, ImportError> {
         let imported = self.recorder.shutdown()?;
-        let (run, warnings) = imported.into_parts();
+        let (run, warnings, retained_sources) = imported.into_internal_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
             ensure_persistable_run_with_warnings(&run, &warnings)?;
         }
@@ -343,7 +343,11 @@ impl TracingIntakeSession {
                     reason: err.to_string(),
                 })?;
         }
-        Ok(ImportedRun::new(run, warnings))
+        Ok(ImportedRun::with_retained_sources(
+            run,
+            warnings,
+            retained_sources,
+        ))
     }
 }
 
@@ -1282,9 +1286,13 @@ fn imported_with_drop_warnings(
         return Ok(imported);
     }
 
-    let (mut run, mut warnings) = imported.into_parts();
+    let (mut run, mut warnings, retained_sources) = imported.into_internal_parts();
     append_non_strict_drop_warnings(&mut run, &mut warnings, stats, limits);
-    Ok(ImportedRun::new(run, warnings))
+    Ok(ImportedRun::with_retained_sources(
+        run,
+        warnings,
+        retained_sources,
+    ))
 }
 
 fn scalar_field_string(value: Option<&FieldValue>) -> Option<String> {

@@ -170,14 +170,14 @@ fn with_manual_sampler_warning(mut merged: ImportedRun, sampler_disabled: bool) 
     } else {
         "tailtriage-tracing session ran with background runtime sampling disabled; runtime snapshots were manually recorded"
     };
-    let (mut run, mut warnings) = merged.into_parts();
+    let (mut run, mut warnings, retained_sources) = merged.into_internal_parts();
     if !run.metadata.lifecycle_warnings.iter().any(|w| w == warning) {
         run.metadata.lifecycle_warnings.push(warning.to_string());
     }
     if !warnings.iter().any(|w| w.message() == warning) {
         warnings.push(ImportWarning::new(warning.to_string()));
     }
-    merged = ImportedRun::new(run, warnings);
+    merged = ImportedRun::with_retained_sources(run, warnings, retained_sources);
     merged
 }
 
@@ -331,7 +331,7 @@ impl TracingTokioSessionBuilder {
 const MERGED_RUNTIME_SNAPSHOT_RUN_OFFSET_WARNING: &str = "TracingTokioSession merged runtime snapshots from a separate runtime collector; runtime snapshot at_run_us offsets were cleared so temporal runtime attribution uses Unix-ms windows.";
 
 fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
-    let (mut tracing_run, mut warnings) = imported.into_parts();
+    let (mut tracing_run, mut warnings, retained_sources) = imported.into_internal_parts();
     let runtime_snapshot_offsets_cleared = runtime_run
         .runtime_snapshots
         .iter()
@@ -407,7 +407,7 @@ fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> ImportedRun {
             warnings.push(ImportWarning::new(warning.to_string()));
         }
     }
-    ImportedRun::new(tracing_run, warnings)
+    ImportedRun::with_retained_sources(tracing_run, warnings, retained_sources)
 }
 
 #[cfg(test)]

@@ -414,7 +414,7 @@ where
     }
 
     Ok(ProvenanceImportedRun {
-        imported: ImportedRun::new(run, warnings),
+        imported: ImportedRun::with_retained_sources(run, warnings, retained_sources.clone()),
         normalized,
         candidate_provenance: provenance,
         source_outcomes,
@@ -434,6 +434,7 @@ struct ProvenanceImportedRun {
     normalized: NormalizedRun,
     candidate_provenance: CandidateProvenance,
     source_outcomes: SourceOutcomes,
+    #[allow(dead_code)]
     retained_sources: Vec<SpanRecord>,
 }
 
@@ -443,7 +444,6 @@ impl ProvenanceImportedRun {
             &self.normalized,
             &self.candidate_provenance,
             &self.source_outcomes,
-            &self.retained_sources,
         );
         self.imported
     }
@@ -1125,6 +1125,39 @@ mod tests {
         );
         assert_eq!(retained_indices(&result), vec![0, 1, 2]);
         assert_eq!(result.retained_sources, spans);
+    }
+
+    #[test]
+    fn imported_run_privately_carries_exact_retained_original_sources() {
+        let request = req("a", 100, 120)
+            .id("req-span")
+            .parent_id("root")
+            .started_at_run_us(10)
+            .finished_at_run_us(30)
+            .duration_us(20_000)
+            .field("custom", 7_u64);
+        let child = stage("a", "db", 105, 110)
+            .id("stage-span")
+            .parent_id("req-span")
+            .started_at_run_us(15)
+            .finished_at_run_us(20)
+            .duration_us(5_000);
+        let imported = run_from_span_records(vec![request.clone(), child.clone()], opts()).unwrap();
+
+        assert_eq!(
+            imported.retained_sources(),
+            &[request.clone(), child.clone()]
+        );
+        assert_eq!(imported.clone().retained_sources(), &[request, child]);
+
+        let (_run, _warnings) = imported.into_parts();
+    }
+
+    #[test]
+    fn imported_run_new_has_no_private_retained_sources() {
+        let imported = ImportedRun::new(empty_candidate_run(), Vec::new());
+
+        assert!(imported.retained_sources().is_empty());
     }
 
     #[test]

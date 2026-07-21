@@ -347,13 +347,41 @@ impl core::fmt::Display for ImportWarning {
 pub struct ImportedRun {
     run: tailtriage_core::Run,
     warnings: Vec<ImportWarning>,
+    retained_sources: Vec<SpanRecord>,
 }
 
 impl ImportedRun {
     /// Creates imported output from a converted run and non-fatal warnings.
     #[must_use]
     pub fn new(run: tailtriage_core::Run, warnings: Vec<ImportWarning>) -> Self {
-        Self { run, warnings }
+        Self {
+            run,
+            warnings,
+            retained_sources: Vec::new(),
+        }
+    }
+
+    pub(crate) fn with_retained_sources(
+        run: tailtriage_core::Run,
+        warnings: Vec<ImportWarning>,
+        retained_sources: Vec<SpanRecord>,
+    ) -> Self {
+        Self {
+            run,
+            warnings,
+            retained_sources,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn retained_sources(&self) -> &[SpanRecord] {
+        &self.retained_sources
+    }
+
+    pub(crate) fn into_internal_parts(
+        self,
+    ) -> (tailtriage_core::Run, Vec<ImportWarning>, Vec<SpanRecord>) {
+        (self.run, self.warnings, self.retained_sources)
     }
 
     /// Returns converted run artifact.
