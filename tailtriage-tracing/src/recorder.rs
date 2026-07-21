@@ -334,13 +334,7 @@ impl TracingIntakeSession {
             ensure_persistable_run_with_warnings(&run, &warnings)?;
         }
         if let Some(path) = &self.completed_span_jsonl_path {
-            if retained_sources.is_empty() && !run.requests.is_empty() {
-                return Err(ImportError::Io {
-                    operation: "prepare completed span jsonl retained sources",
-                    context: path.display().to_string(),
-                    reason: "internal invariant violation: completed-span JSONL output requires retained original source spans".to_string(),
-                });
-            }
+            validate_completed_span_jsonl_retained_sources(&run, &retained_sources, path)?;
             write_completed_span_jsonl_from_retained_sources(&retained_sources, path)?;
         }
         if let Some(path) = self.run_json_path {
@@ -358,6 +352,22 @@ impl TracingIntakeSession {
             retained_sources,
         ))
     }
+}
+
+fn validate_completed_span_jsonl_retained_sources(
+    run: &tailtriage_core::Run,
+    retained_sources: &[SpanRecord],
+    path: &Path,
+) -> Result<(), ImportError> {
+    if retained_sources.is_empty() && !run.requests.is_empty() {
+        return Err(ImportError::Io {
+            operation: "prepare completed span jsonl retained sources",
+            context: path.display().to_string(),
+            reason: "internal invariant violation: completed-span JSONL output requires retained original source spans".to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 fn write_completed_span_jsonl_from_retained_sources(
@@ -1262,6 +1272,31 @@ mod tests {
             .unwrap();
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || f(&recorder))
+    }
+
+    fn decode_completed_span_jsonl(path: &Path) -> Vec<SpanRecord> {
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                let value: serde_json::Value = serde_json::from_str(line).unwrap();
+                assert_eq!(value["format"], "tailtriage.tracing-span.v1");
+                serde_json::from_value(value["span"].clone()).unwrap()
+            })
+            .collect()
+    }
+
+    fn source_projection(spans: &[SpanRecord]) -> Vec<(String, String)> {
+        spans
+            .iter()
+            .map(|span| {
+                (
+                    span.name().to_owned(),
+                    span.id_ref().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -3539,6 +3574,317 @@ mod tests {
                 .message()
                 .contains("open candidate span(s) at snapshot/shutdown")));
         });
+    }
+
+    #[test]
+    fn direct_completed_span_jsonl_writer_preserves_exact_retained_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let first_path = dir.path().join("first.jsonl");
+        let second_path = dir.path().join("second.jsonl");
+        let sources = vec![
+            SpanRecord::new("request-source", 1_700_000_000_001, 1_700_000_000_051)
+                .id("req-span")
+                .parent_id("root-span")
+                .started_at_run_us(10)
+                .finished_at_run_us(50_010)
+                .duration_us(50_000)
+                .field(TT_KIND, "request")
+                .field("tt.request_id", "r1")
+                .field("tt.route", "/exact")
+                .field("tt.outcome", "ok")
+                .field("custom.string", "value")
+                .field("custom.bool", true)
+                .field("custom.u64", 7_u64),
+            SpanRecord::new("stage-source", 1_700_000_000_010, 1_700_000_000_020)
+                .id("stage-span")
+                .parent_id("req-span")
+                .started_at_run_us(9_000)
+                .finished_at_run_us(19_000)
+                .duration_us(10_000)
+                .field(TT_KIND, "stage")
+                .field("tt.request_id", "r1")
+                .field("tt.stage", "db")
+                .field("custom.i64", -3_i64)
+                .field("custom.f64", 1.25_f64),
+            SpanRecord::new("queue-source", 1_700_000_000_021, 1_700_000_000_025)
+                .id("queue-span")
+                .parent_id("req-span")
+                .duration_us(4_000)
+                .field(TT_KIND, "queue")
+                .field("tt.request_id", "r1")
+                .field("tt.queue", "permits")
+                .field("custom.null", FieldValue::Null),
+        ];
+
+        write_completed_span_jsonl_from_retained_sources(&sources, &first_path).unwrap();
+        write_completed_span_jsonl_from_retained_sources(&sources, &second_path).unwrap();
+
+        let raw = std::fs::read_to_string(&first_path).unwrap();
+        let lines = raw.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), sources.len());
+        for line in &lines {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert_eq!(value["format"], "tailtriage.tracing-span.v1");
+        }
+        assert_eq!(decode_completed_span_jsonl(&first_path), sources);
+        assert_eq!(
+            source_projection(&decode_completed_span_jsonl(&first_path)),
+            source_projection(&sources)
+        );
+        assert_eq!(
+            std::fs::read(&first_path).unwrap(),
+            std::fs::read(&second_path).unwrap()
+        );
+    }
+
+    #[test]
+    fn direct_completed_span_jsonl_writer_excludes_core_excluded_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let sources = vec![
+            SpanRecord::new("duplicate-request-a", 100, 150)
+                .id("dup-a")
+                .field(TT_KIND, "request")
+                .field("tt.request_id", "dup")
+                .field("tt.route", "/dup-a"),
+            SpanRecord::new("duplicate-request-b", 101, 151)
+                .id("dup-b")
+                .field(TT_KIND, "request")
+                .field("tt.request_id", "dup")
+                .field("tt.route", "/dup-b"),
+            SpanRecord::new("ambiguous-child", 110, 120)
+                .id("ambiguous")
+                .parent_id("dup-a")
+                .field(TT_KIND, "stage")
+                .field("tt.request_id", "dup")
+                .field("tt.stage", "ambiguous"),
+            SpanRecord::new("orphan-child", 110, 120)
+                .id("orphan")
+                .field(TT_KIND, "queue")
+                .field("tt.request_id", "missing")
+                .field("tt.queue", "orphan"),
+            SpanRecord::new("child-of-excluded-parent", 111, 121)
+                .id("excluded-child")
+                .parent_id("dup-a")
+                .field(TT_KIND, "queue")
+                .field("tt.request_id", "dup")
+                .field("tt.queue", "excluded-parent"),
+            SpanRecord::new("valid-request", 200, 300)
+                .id("valid-req")
+                .started_at_run_us(0)
+                .finished_at_run_us(100_000)
+                .field(TT_KIND, "request")
+                .field("tt.request_id", "ok")
+                .field("tt.route", "/ok"),
+            SpanRecord::new("outside-child", 301, 310)
+                .id("outside")
+                .parent_id("valid-req")
+                .started_at_run_us(101_000)
+                .finished_at_run_us(110_000)
+                .field(TT_KIND, "stage")
+                .field("tt.request_id", "ok")
+                .field("tt.stage", "outside"),
+            SpanRecord::new("valid-child", 210, 220)
+                .id("valid-child")
+                .parent_id("valid-req")
+                .started_at_run_us(10_000)
+                .finished_at_run_us(20_000)
+                .field(TT_KIND, "stage")
+                .field("tt.request_id", "ok")
+                .field("tt.stage", "inside"),
+        ];
+        let imported = run_from_span_records(sources, ImportOptions::new("svc")).unwrap();
+
+        write_completed_span_jsonl_from_retained_sources(imported.retained_sources(), &spans_path)
+            .unwrap();
+
+        assert_eq!(
+            source_projection(&decode_completed_span_jsonl(&spans_path)),
+            vec![
+                ("valid-request".to_owned(), "valid-req".to_owned()),
+                ("valid-child".to_owned(), "valid-child".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn repaired_optional_precision_writer_emits_original_source_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let source = SpanRecord::new("repairable-request", 1_000, 1_020)
+            .id("repairable")
+            .started_at_run_us(50)
+            .finished_at_run_us(10)
+            .duration_us(20_000)
+            .field(TT_KIND, "request")
+            .field("tt.request_id", "repair")
+            .field("tt.route", "/repair");
+        let direct =
+            run_from_span_records(vec![source.clone()], ImportOptions::new("svc")).unwrap();
+        assert_eq!(direct.run().requests[0].started_at_run_us, None);
+        assert_eq!(direct.run().requests[0].finished_at_run_us, None);
+        assert_eq!(direct.run().requests[0].latency_us, 20_000);
+        assert_eq!(direct.retained_sources(), std::slice::from_ref(&source));
+
+        write_completed_span_jsonl_from_retained_sources(direct.retained_sources(), &spans_path)
+            .unwrap();
+        assert_eq!(decode_completed_span_jsonl(&spans_path), vec![source]);
+        let replay = crate::jsonl::import_jsonl_path_with_mode(
+            &spans_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(replay.run().requests, direct.run().requests);
+        assert_eq!(
+            analyze_run(replay.run(), AnalyzeOptions::default()),
+            analyze_run(direct.run(), AnalyzeOptions::default())
+        );
+    }
+
+    #[test]
+    fn semantic_unavailable_records_are_not_written_to_completed_jsonl() {
+        let semantic_dir = tempfile::tempdir().unwrap();
+        let semantic_path = semantic_dir.path().join("semantic.jsonl");
+        let semantic_session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&semantic_path)
+            .capture_limits(CaptureLimits {
+                max_requests: 1,
+                max_stages: 1,
+                max_queues: 1,
+                ..CaptureMode::Light.core_defaults()
+            })
+            .build()
+            .unwrap();
+        {
+            let mut state = semantic_session.recorder.state.lock().unwrap();
+            state.completed_requests.push(
+                SpanRecord::new("sem-request-kept", 100, 200)
+                    .id("sr1")
+                    .field(TT_KIND, "request")
+                    .field("tt.request_id", "sr1")
+                    .field("tt.route", "/one"),
+            );
+            state.completed_requests.push(
+                SpanRecord::new("sem-request-dropped", 101, 201)
+                    .id("sr2")
+                    .field(TT_KIND, "request")
+                    .field("tt.request_id", "sr2")
+                    .field("tt.route", "/two"),
+            );
+            state.completed_stages.push(
+                SpanRecord::new("sem-stage-kept", 110, 120)
+                    .id("ss1")
+                    .field(TT_KIND, "stage")
+                    .field("tt.request_id", "sr1")
+                    .field("tt.stage", "db"),
+            );
+            state.completed_stages.push(
+                SpanRecord::new("sem-stage-dropped", 121, 130)
+                    .id("ss2")
+                    .field(TT_KIND, "stage")
+                    .field("tt.request_id", "sr1")
+                    .field("tt.stage", "cache"),
+            );
+            state.completed_queues.push(
+                SpanRecord::new("sem-queue-kept", 130, 140)
+                    .id("sq1")
+                    .field(TT_KIND, "queue")
+                    .field("tt.request_id", "sr1")
+                    .field("tt.queue", "permits"),
+            );
+            state.completed_queues.push(
+                SpanRecord::new("sem-queue-dropped", 141, 150)
+                    .id("sq2")
+                    .field(TT_KIND, "queue")
+                    .field("tt.request_id", "sr1")
+                    .field("tt.queue", "work"),
+            );
+        }
+        let semantic_snapshot = semantic_session.snapshot_run().unwrap();
+        assert_eq!(semantic_snapshot.run().truncation.dropped_requests, 1);
+        assert_eq!(semantic_snapshot.run().truncation.dropped_stages, 1);
+        assert_eq!(semantic_snapshot.run().truncation.dropped_queues, 1);
+        semantic_session.shutdown().unwrap();
+        assert_eq!(
+            source_projection(&decode_completed_span_jsonl(&semantic_path)),
+            vec![
+                ("sem-request-kept".into(), "sr1".into()),
+                ("sem-stage-kept".into(), "ss1".into()),
+                ("sem-queue-kept".into(), "sq1".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn raw_unavailable_records_are_not_written_to_completed_jsonl() {
+        let raw_dir = tempfile::tempdir().unwrap();
+        let raw_path = raw_dir.path().join("raw.jsonl");
+        let raw_session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(&raw_path)
+            .max_completed_candidate_spans(1)
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(raw_session.layer());
+        tracing::subscriber::with_default(subscriber, || {
+            drop(tracing::info_span!(
+                "raw-kept",
+                tt.kind = "request",
+                tt.request_id = "raw-kept",
+                tt.route = "/kept"
+            ));
+            drop(tracing::info_span!(
+                "raw-dropped",
+                tt.kind = "stage",
+                tt.request_id = "raw-kept",
+                tt.stage = "dropped"
+            ));
+        });
+        let raw_snapshot = raw_session.snapshot_run().unwrap();
+        assert!(raw_snapshot.warnings().iter().any(|w| w
+            .message()
+            .contains("dropped 1 completed child candidate span(s)")
+            && w.message().contains("max_completed_candidate_spans=1")));
+        raw_session.shutdown().unwrap();
+        let raw_names = decode_completed_span_jsonl(&raw_path)
+            .iter()
+            .map(|span| span.name().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(raw_names, vec!["raw-kept".to_owned()]);
+    }
+
+    #[test]
+    fn completed_jsonl_missing_retained_sources_error_is_deterministic_without_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("spans.jsonl");
+        let imported = run_from_span_records(
+            vec![SpanRecord::new("request", 100, 200)
+                .field(TT_KIND, "request")
+                .field("tt.request_id", "r1")
+                .field("tt.route", "/a")],
+            ImportOptions::new("svc"),
+        )
+        .unwrap();
+        let err = validate_completed_span_jsonl_retained_sources(imported.run(), &[], &spans_path)
+            .unwrap_err();
+        match err {
+            ImportError::Io {
+                operation,
+                context,
+                reason,
+            } => {
+                assert_eq!(operation, "prepare completed span jsonl retained sources");
+                assert_eq!(context, spans_path.display().to_string());
+                assert_eq!(reason, "internal invariant violation: completed-span JSONL output requires retained original source spans");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        assert!(!spans_path.exists());
+        assert!(completed_span_jsonl_temp_path(&spans_path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("tailtriage-tmp"));
     }
 
     #[test]
