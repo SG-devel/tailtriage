@@ -1551,6 +1551,18 @@ mod tests {
             && codes.contains(&RunValidationIssueCode::OrphanRequestScopedEvent)));
         assert!(excluded.iter().any(|(idx, codes)| *idx == 5
             && codes.contains(&RunValidationIssueCode::ChildIntervalOutsideRequest)));
+        assert_eq!(
+            result
+                .imported
+                .retained_sources()
+                .iter()
+                .map(SpanRecord::name)
+                .collect::<Vec<_>>(),
+            vec!["req-bad"]
+        );
+        assert_eq!(result.imported.run().truncation.dropped_requests, 0);
+        assert_eq!(result.imported.run().truncation.dropped_stages, 0);
+        assert_eq!(result.imported.run().truncation.dropped_queues, 0);
     }
 
     #[test]
@@ -1580,9 +1592,26 @@ mod tests {
             vec![0, 2, 4]
         );
         assert_eq!(retained_indices(&result), vec![0, 2, 4]);
+        assert_eq!(
+            result
+                .imported
+                .retained_sources()
+                .iter()
+                .map(SpanRecord::name)
+                .collect::<Vec<_>>(),
+            vec!["req-r1", "stage-s1", "queue-q1"]
+        );
         assert_eq!(result.imported.run().truncation.dropped_requests, 1);
         assert_eq!(result.imported.run().truncation.dropped_stages, 1);
         assert_eq!(result.imported.run().truncation.dropped_queues, 1);
+        assert_eq!(
+            result.imported.run().truncation.dropped_inflight_snapshots,
+            0
+        );
+        assert_eq!(
+            result.imported.run().truncation.dropped_runtime_snapshots,
+            0
+        );
     }
 
     #[test]

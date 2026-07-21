@@ -426,6 +426,49 @@ mod tests {
     }
 
     #[test]
+    fn tokio_merge_and_manual_sampler_warning_preserve_private_retained_sources() {
+        let mut tracing_run = empty_run("tracing");
+        tracing_run.requests.push(tailtriage_core::RequestEvent {
+            request_id: "r1".into(),
+            route: "/r1".into(),
+            kind: None,
+            started_at_unix_ms: 1,
+            started_at_run_us: None,
+            finished_at_unix_ms: 2,
+            finished_at_run_us: None,
+            latency_us: 1_000,
+            outcome: "ok".into(),
+        });
+        let source = crate::SpanRecord::new("source-request", 1, 2)
+            .id("source-id")
+            .parent_id("root-id")
+            .field("tt.kind", "request")
+            .field("tt.request_id", "r1")
+            .field("tt.route", "/r1")
+            .field("custom", "kept");
+        let imported = ImportedRun::with_retained_sources(
+            tracing_run,
+            vec![ImportWarning::new("existing warning")],
+            vec![source.clone()],
+        );
+        let mut runtime_run = empty_run("runtime");
+        runtime_run.runtime_snapshots = vec![RuntimeSnapshot {
+            at_unix_ms: 2,
+            at_run_us: Some(1_000),
+            alive_tasks: Some(1),
+            global_queue_depth: Some(0),
+            local_queue_depth: Some(0),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: Some(0),
+        }];
+
+        let merged = merge_runtime_data(imported, &runtime_run);
+        assert_eq!(merged.retained_sources(), std::slice::from_ref(&source));
+        let warned = super::with_manual_sampler_warning(merged, true);
+        assert_eq!(warned.retained_sources(), &[source]);
+    }
+
+    #[test]
     fn merge_runtime_data_preserves_tracing_events_and_merges_runtime_fields() {
         let mut tracing_run = empty_run("tracing");
         tracing_run.requests.push(tailtriage_core::RequestEvent {
