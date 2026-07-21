@@ -1299,6 +1299,128 @@ mod tests {
             .collect()
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RepresentableEvidence {
+        requests: Vec<RepresentableRequest>,
+        stages: Vec<RepresentableStage>,
+        queues: Vec<RepresentableQueue>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RepresentableRequest {
+        request_id: String,
+        route: String,
+        kind: Option<String>,
+        started_at_unix_ms: u64,
+        finished_at_unix_ms: u64,
+        started_at_run_us: Option<u64>,
+        finished_at_run_us: Option<u64>,
+        latency_us: u64,
+        outcome: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RepresentableStage {
+        request_id: String,
+        stage: String,
+        started_at_unix_ms: u64,
+        finished_at_unix_ms: u64,
+        started_at_run_us: Option<u64>,
+        finished_at_run_us: Option<u64>,
+        latency_us: u64,
+        success: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RepresentableQueue {
+        request_id: String,
+        queue: String,
+        waited_from_unix_ms: u64,
+        waited_until_unix_ms: u64,
+        waited_from_run_us: Option<u64>,
+        waited_until_run_us: Option<u64>,
+        wait_us: u64,
+        depth_at_start: Option<u64>,
+    }
+
+    fn representable_evidence(run: &tailtriage_core::Run) -> RepresentableEvidence {
+        RepresentableEvidence {
+            requests: run
+                .requests
+                .iter()
+                .map(|request| RepresentableRequest {
+                    request_id: request.request_id.clone(),
+                    route: request.route.clone(),
+                    kind: request.kind.clone(),
+                    started_at_unix_ms: request.started_at_unix_ms,
+                    finished_at_unix_ms: request.finished_at_unix_ms,
+                    started_at_run_us: request.started_at_run_us,
+                    finished_at_run_us: request.finished_at_run_us,
+                    latency_us: request.latency_us,
+                    outcome: request.outcome.clone(),
+                })
+                .collect(),
+            stages: run
+                .stages
+                .iter()
+                .map(|stage| RepresentableStage {
+                    request_id: stage.request_id.clone(),
+                    stage: stage.stage.clone(),
+                    started_at_unix_ms: stage.started_at_unix_ms,
+                    finished_at_unix_ms: stage.finished_at_unix_ms,
+                    started_at_run_us: stage.started_at_run_us,
+                    finished_at_run_us: stage.finished_at_run_us,
+                    latency_us: stage.latency_us,
+                    success: stage.success,
+                })
+                .collect(),
+            queues: run
+                .queues
+                .iter()
+                .map(|queue| RepresentableQueue {
+                    request_id: queue.request_id.clone(),
+                    queue: queue.queue.clone(),
+                    waited_from_unix_ms: queue.waited_from_unix_ms,
+                    waited_until_unix_ms: queue.waited_until_unix_ms,
+                    waited_from_run_us: queue.waited_from_run_us,
+                    waited_until_run_us: queue.waited_until_run_us,
+                    wait_us: queue.wait_us,
+                    depth_at_start: queue.depth_at_start,
+                })
+                .collect(),
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct SourceIdentity {
+        name: String,
+        id: Option<String>,
+        parent_id: Option<String>,
+        fields: BTreeMap<String, FieldValue>,
+        started_at_unix_ms: u64,
+        finished_at_unix_ms: u64,
+        started_at_run_us: Option<u64>,
+        finished_at_run_us: Option<u64>,
+        duration_us: Option<u64>,
+    }
+
+    fn source_identity(spans: &[SpanRecord]) -> Vec<SourceIdentity> {
+        spans
+            .iter()
+            .map(|span| SourceIdentity {
+                name: span.name().to_owned(),
+                id: span.id_ref().map(ToOwned::to_owned),
+                parent_id: span.parent_id_ref().map(ToOwned::to_owned),
+                fields: span.fields().clone(),
+                started_at_unix_ms: span.started_at_unix_ms(),
+                finished_at_unix_ms: span.finished_at_unix_ms(),
+                started_at_run_us: span.started_at_run_us_ref(),
+                finished_at_run_us: span.finished_at_run_us_ref(),
+                duration_us: span.duration_us_ref(),
+            })
+            .collect()
+    }
+
     #[test]
     fn open_span_from_start_sample_uses_supplied_start_times() {
         let started_at_unix_ms = 123_456_789;
@@ -3707,6 +3829,226 @@ mod tests {
         );
     }
 
+    fn request(name: &str, id: &str, start: u64, finish: u64) -> SpanRecord {
+        SpanRecord::new(name, start, finish)
+            .id(format!("{id}-span"))
+            .field(TT_KIND, "request")
+            .field("tt.request_id", id)
+            .field("tt.route", format!("/{id}"))
+            .field("tt.outcome", "ok")
+    }
+
+    fn stage(name: &str, id: &str, start: u64, finish: u64) -> SpanRecord {
+        SpanRecord::new(name, start, finish)
+            .id(format!("{name}-span"))
+            .parent_id(format!("{id}-span"))
+            .field(TT_KIND, "stage")
+            .field("tt.request_id", id)
+            .field("tt.stage", name)
+            .field("tt.success", true)
+    }
+
+    fn queue(name: &str, id: &str, start: u64, finish: u64) -> SpanRecord {
+        SpanRecord::new(name, start, finish)
+            .id(format!("{name}-span"))
+            .parent_id(format!("{id}-span"))
+            .field(TT_KIND, "queue")
+            .field("tt.request_id", id)
+            .field("tt.queue", name)
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn canonical_completed_span_jsonl_replay_matches_representable_evidence_projection() {
+        struct Case {
+            name: &'static str,
+            spans: Vec<SpanRecord>,
+            options: ImportOptions,
+            strict_replay: bool,
+        }
+
+        let cases = vec![
+            Case {
+                name: "precise custom identity and fields",
+                spans: vec![
+                    request("custom-http", "precise", 1_000, 1_050)
+                        .id("req-custom")
+                        .parent_id("root")
+                        .started_at_run_us(10)
+                        .finished_at_run_us(50_010)
+                        .duration_us(50_000)
+                        .field("custom.string", "kept")
+                        .field("custom.u64", 42_u64),
+                    stage("custom-db", "precise", 1_010, 1_030)
+                        .id("stage-custom")
+                        .parent_id("req-custom")
+                        .started_at_run_us(10_010)
+                        .finished_at_run_us(30_010)
+                        .duration_us(20_000)
+                        .field("custom.bool", false),
+                    queue("custom-permits", "precise", 1_031, 1_040)
+                        .id("queue-custom")
+                        .parent_id("req-custom")
+                        .started_at_run_us(31_010)
+                        .finished_at_run_us(40_010)
+                        .duration_us(9_000)
+                        .field("tt.depth_at_start", 8_u64)
+                        .field("custom.null", FieldValue::Null),
+                ],
+                options: ImportOptions::new("svc"),
+                strict_replay: true,
+            },
+            Case {
+                name: "duration only",
+                spans: vec![
+                    request("duration-request", "duration", 2_000, 2_050).duration_us(123_456),
+                    stage("duration-stage", "duration", 2_010, 2_020).duration_us(10_000),
+                    queue("duration-queue", "duration", 2_021, 2_025).duration_us(4_000),
+                ],
+                options: ImportOptions::new("svc"),
+                strict_replay: true,
+            },
+            Case {
+                name: "repairable optional offsets",
+                spans: vec![
+                    request("repair-request", "repair", 3_000, 3_050)
+                        .started_at_run_us(50)
+                        .finished_at_run_us(10)
+                        .duration_us(50_000),
+                    stage("repair-stage", "repair", 3_010, 3_020)
+                        .started_at_run_us(20)
+                        .finished_at_run_us(15)
+                        .duration_us(10_000),
+                    queue("repair-queue", "repair", 3_021, 3_030)
+                        .started_at_run_us(30)
+                        .finished_at_run_us(25)
+                        .duration_us(9_000),
+                ],
+                options: ImportOptions::new("svc"),
+                strict_replay: false,
+            },
+            Case {
+                name: "duplicates ambiguous children and valid survivor",
+                spans: vec![
+                    request("dup-a", "dup", 4_000, 4_050),
+                    request("dup-b", "dup", 4_001, 4_051),
+                    stage("ambiguous-stage", "dup", 4_010, 4_020),
+                    request("survivor", "survivor", 4_100, 4_150),
+                    queue("survivor-queue", "survivor", 4_110, 4_120),
+                ],
+                options: ImportOptions::new("svc"),
+                strict_replay: false,
+            },
+            Case {
+                name: "orphan child with valid survivor",
+                spans: vec![
+                    stage("orphan-stage", "missing", 5_010, 5_020),
+                    queue("orphan-queue", "missing", 5_021, 5_025),
+                    request("orphan-survivor", "orphan-survivor", 5_100, 5_150),
+                ],
+                options: ImportOptions::new("svc"),
+                strict_replay: false,
+            },
+            Case {
+                name: "excluded invalid parent does not revive child",
+                spans: vec![
+                    SpanRecord::new("invalid-parent", 6_050, 6_000)
+                        .id("invalid-parent-span")
+                        .field(TT_KIND, "request")
+                        .field("tt.request_id", "bad-parent")
+                        .field("tt.route", "/bad-parent"),
+                    stage("child-of-invalid-parent", "bad-parent", 6_010, 6_020),
+                    request("valid-with-excluded-peer", "valid-peer", 6_100, 6_150),
+                ],
+                options: ImportOptions::new("svc"),
+                strict_replay: false,
+            },
+            Case {
+                name: "contained parent with precise outside child",
+                spans: vec![
+                    request("containment-parent", "contained", 7_000, 7_050)
+                        .started_at_run_us(0)
+                        .finished_at_run_us(50_000),
+                    stage("outside-stage", "contained", 7_060, 7_070)
+                        .started_at_run_us(60_000)
+                        .finished_at_run_us(70_000),
+                    queue("inside-queue", "contained", 7_010, 7_020)
+                        .started_at_run_us(10_000)
+                        .finished_at_run_us(20_000),
+                ],
+                options: ImportOptions::new("svc"),
+                strict_replay: false,
+            },
+            Case {
+                name: "semantic limits",
+                spans: vec![
+                    request("limit-request-kept", "limit-kept", 8_000, 8_050),
+                    request("limit-request-dropped", "limit-dropped", 8_100, 8_150),
+                    stage("limit-stage-kept", "limit-kept", 8_010, 8_020),
+                    stage("limit-stage-dropped", "limit-kept", 8_021, 8_030),
+                    queue("limit-queue-kept", "limit-kept", 8_031, 8_035),
+                    queue("limit-queue-dropped", "limit-kept", 8_036, 8_040),
+                ],
+                options: ImportOptions::new("svc").capture_limits_override(
+                    tailtriage_core::CaptureLimitsOverride {
+                        max_requests: Some(1),
+                        max_stages: Some(1),
+                        max_queues: Some(1),
+                        ..tailtriage_core::CaptureLimitsOverride::default()
+                    },
+                ),
+                strict_replay: false,
+            },
+        ];
+
+        for case in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let spans_path = dir.path().join("spans.jsonl");
+            let direct = run_from_span_records(case.spans.clone(), case.options.clone())
+                .unwrap_or_else(|err| panic!("{} direct conversion failed: {err}", case.name));
+            let direct_projection = representable_evidence(direct.run());
+            write_completed_span_jsonl_from_retained_sources(
+                direct.retained_sources(),
+                &spans_path,
+            )
+            .unwrap_or_else(|err| panic!("{} write failed: {err}", case.name));
+            let decoded = decode_completed_span_jsonl(&spans_path);
+            assert_eq!(
+                source_identity(&decoded),
+                source_identity(direct.retained_sources()),
+                "{} retained source identity write/read mismatch",
+                case.name
+            );
+            let replay = crate::jsonl::import_jsonl_path_with_mode(
+                &spans_path,
+                ImportOptions::new("svc"),
+                crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+            )
+            .unwrap_or_else(|err| panic!("{} permissive replay failed: {err}", case.name));
+            assert_eq!(
+                representable_evidence(replay.run()),
+                direct_projection,
+                "{} direct/replay representable projection mismatch",
+                case.name
+            );
+            assert_eq!(
+                source_identity(replay.retained_sources()),
+                source_identity(direct.retained_sources()),
+                "{} replay retained source identity mismatch",
+                case.name
+            );
+            if case.strict_replay {
+                let strict = crate::jsonl::import_jsonl_path_with_mode(
+                    &spans_path,
+                    ImportOptions::new("svc").strict(true),
+                    crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+                )
+                .unwrap_or_else(|err| panic!("{} strict replay failed: {err}", case.name));
+                assert_eq!(representable_evidence(strict.run()), direct_projection);
+            }
+        }
+    }
+
     #[test]
     fn repaired_optional_precision_writer_emits_original_source_values() {
         let dir = tempfile::tempdir().unwrap();
@@ -3853,6 +4195,90 @@ mod tests {
         assert_eq!(raw_names, vec!["raw-kept".to_owned()]);
     }
 
+    fn write_representative_live_session_jsonl(path: &Path) -> ImportedRun {
+        let session = TracingIntakeSession::builder("svc")
+            .completed_span_jsonl_path(path)
+            .build()
+            .unwrap();
+        {
+            let mut state = session.recorder.state.lock().unwrap();
+            state.completed_stages.push(
+                SpanRecord::new("live-stage-first", 10, 20)
+                    .started_at_run_us(10_000)
+                    .finished_at_run_us(20_000)
+                    .field(TT_KIND, "stage")
+                    .field("tt.request_id", "live-1")
+                    .field("tt.stage", "db"),
+            );
+            state.completed_queues.push(
+                SpanRecord::new("live-queue-second", 21, 25)
+                    .started_at_run_us(21_000)
+                    .finished_at_run_us(25_000)
+                    .field(TT_KIND, "queue")
+                    .field("tt.request_id", "live-1")
+                    .field("tt.queue", "permits"),
+            );
+            state.completed_requests.push(
+                SpanRecord::new("live-request-third", 1, 50)
+                    .started_at_run_us(1_000)
+                    .finished_at_run_us(50_000)
+                    .field(TT_KIND, "request")
+                    .field("tt.request_id", "live-1")
+                    .field("tt.route", "/live")
+                    .field("custom", "identity"),
+            );
+        }
+        session.shutdown().unwrap()
+    }
+
+    #[test]
+    fn live_session_completed_jsonl_is_section_grouped_and_byte_deterministic() {
+        let first_dir = tempfile::tempdir().unwrap();
+        let second_dir = tempfile::tempdir().unwrap();
+        let first_path = first_dir.path().join("spans.jsonl");
+        let second_path = second_dir.path().join("spans.jsonl");
+
+        let first = write_representative_live_session_jsonl(&first_path);
+        let second = write_representative_live_session_jsonl(&second_path);
+        assert_eq!(
+            representable_evidence(first.run()),
+            representable_evidence(second.run())
+        );
+        assert_eq!(
+            source_identity(first.retained_sources()),
+            source_identity(second.retained_sources())
+        );
+        assert_eq!(
+            std::fs::read(&first_path).unwrap(),
+            std::fs::read(&second_path).unwrap()
+        );
+
+        let decoded = decode_completed_span_jsonl(&first_path);
+        assert_eq!(
+            decoded.iter().map(SpanRecord::name).collect::<Vec<_>>(),
+            vec![
+                "live-request-third",
+                "live-stage-first",
+                "live-queue-second"
+            ]
+        );
+        assert_eq!(
+            source_identity(&decoded),
+            source_identity(first.retained_sources())
+        );
+
+        let replay = crate::jsonl::import_jsonl_path_with_mode(
+            &first_path,
+            ImportOptions::new("svc"),
+            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
+        )
+        .unwrap();
+        assert_eq!(
+            representable_evidence(replay.run()),
+            representable_evidence(first.run())
+        );
+    }
+
     #[test]
     fn completed_jsonl_missing_retained_sources_error_is_deterministic_without_output() {
         let dir = tempfile::tempdir().unwrap();
@@ -3965,7 +4391,7 @@ mod tests {
     }
 
     #[test]
-    fn session_shutdown_writes_retained_original_sources_without_reconstruction() {
+    fn session_shutdown_writes_retained_original_sources_directly() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
         let run_path = dir.path().join("run.json");

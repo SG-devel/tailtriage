@@ -166,7 +166,11 @@ Users can depend on `tailtriage-tracing` directly for the narrow crate boundary,
 
 - primary live path is `TracingIntakeSession` / `TracingIntakeSessionBuilder`; users add `session.layer()` beside their existing `tracing_subscriber` setup
 - live session output can write standard Run JSON on shutdown via `run_json_path(...)`
-- live session output can write stable completed-span JSONL on shutdown via `completed_span_jsonl_path(...)`, using retained semantically valid request/stage/queue evidence
+- live session output can write stable completed-span JSONL on shutdown via `completed_span_jsonl_path(...)`, using retained original source spans selected after tracing-specific parsing, semantic limits, and core normalization
+- private provenance joins core dispositions back to original `SpanRecord` values before writing; excluded, semantically dropped, and raw-unavailable records are absent and never revived
+- direct conversion and wrapper JSONL import preserve supplied source order; live session JSONL is section-grouped as requests, then stages, then queues, preserving recorder order inside each section
+- completed-span JSONL replay is equivalent to direct conversion for representable normalized request/stage/queue evidence only; it does not encode Run-only metadata, runtime/in-flight snapshots, lifecycle warnings, truncation/drop counters, source file/line context, omitted-source diagnostics, or output-path failures
+- Run JSON remains the complete persisted triage artifact; configured JSONL and Run outputs are independent file transactions
 - stable completed-span JSONL wrapper format is:
   `{"format":"tailtriage.tracing-span.v1","span":{...}}`
 - CLI imports that wrapper shape with:
@@ -219,7 +223,7 @@ Core Run integrity contract:
 - Canonical core issue-code summaries are surfaced by analyzer, CLI, tracing import, and native lifecycle output where appropriate; suspects remain evidence-ranked leads, not proof of root cause.
 - Native capture owns lifecycle, retention, and artifact construction; tracing owns `tt.*` source parsing, raw retention, semantic limits, JSONL decoding, and line/source warnings; the CLI owns file reading, JSON decoding, schema-envelope errors, command-specific minimum-request requirements, output formatting, stderr, and exit behavior; the analyzer owns diagnostic scoring, evidence quality, report rendering, and non-validation analyzer warnings.
 - Strict entry points validate the original unnormalized candidate and reject error-level core findings. Warning-only missing optional precision does not reject.
-- Deferred work: tracing source-span provenance through normalization, direct accepted-source JSONL output, tracing API simplification, and JSONL compatibility-format removal are not implemented here.
+- Current tracing provenance keeps retained source spans private through normalization and writes completed-span JSONL directly from retained original sources. Prompt 05 owns public tracing API simplification; Prompt 06 owns compatibility-mode removal and stable-wrapper-only input.
 
 
 - artifacts require top-level `schema_version`
