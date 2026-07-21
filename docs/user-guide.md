@@ -169,7 +169,7 @@ tailtriage analyze target/tailtriage-examples/checkout.run.json
 
 Use `.instrument(...)` for async work; `snapshot_run()` is the non-consuming inspection API, while `shutdown()` finalizes the session.
 
-Tokio runtime sampler coupling via `TracingSession` requires `tracing-tokio` on the `tailtriage` façade or `tokio` on the focused `tailtriage-tracing` crate. Background sampling is explicit: configure `sampler_interval(...)` to start it, or call `disable_background_sampler()` for deterministic demos/validation and inject snapshots manually with `record_runtime_snapshot(...)`. Use `run_json_path(...)` to write Run JSON on shutdown, then analyze separately with `tailtriage analyze <run.json>`:
+Tokio runtime sampler coupling via `TracingSession` requires `tracing-tokio` on the `tailtriage` façade or `tokio` on the focused `tailtriage-tracing` crate. Background sampling is explicit: configure `sampler_interval(...)` to start it, or call `manual_runtime_snapshots()` for deterministic demos/validation and inject snapshots manually with `record_runtime_snapshot(...)`. Use `run_json_path(...)` to write Run JSON on shutdown, then analyze separately with `tailtriage analyze <run.json>`:
 
 ```bash
 cargo add tailtriage --features tracing-tokio

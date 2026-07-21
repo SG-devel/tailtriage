@@ -24,7 +24,7 @@ use crate::{
 
 /// In-memory recorder for completed tracing spans with `tt.*` fields.
 #[derive(Debug, Clone)]
-pub struct TracingRecorder {
+pub(crate) struct TracingRecorder {
     state: Arc<Mutex<RecorderState>>,
     options: ImportOptions,
     limits: RecorderLimits,
@@ -64,17 +64,17 @@ pub struct TracingSessionBuilder {
     #[cfg(feature = "tokio")]
     sampler_interval: Option<Duration>,
     #[cfg(feature = "tokio")]
-    disable_background_sampler: bool,
+    manual_runtime_snapshots: bool,
 }
 
-/// Builder for [`TracingRecorder`].
+/// Internal builder for the live tracing recorder.
 #[derive(Debug, Clone)]
-pub struct TracingRecorderBuilder {
+pub(crate) struct TracingRecorderBuilder {
     options: ImportOptions,
     limits: RecorderLimits,
 }
 
-/// `tracing_subscriber` layer that feeds completed spans into a [`TracingRecorder`].
+/// `tracing_subscriber` layer that feeds completed spans into a [`TracingSession`].
 #[derive(Debug, Clone)]
 pub struct TailtriageLayer {
     state: Arc<Mutex<RecorderState>>,
@@ -319,7 +319,7 @@ impl TracingSession {
             #[cfg(feature = "tokio")]
             sampler_interval: None,
             #[cfg(feature = "tokio")]
-            disable_background_sampler: false,
+            manual_runtime_snapshots: false,
         }
     }
     /// Returns a `tracing_subscriber` layer for this intake session.
@@ -349,12 +349,23 @@ impl TracingSession {
         }
         Ok(imported)
     }
-    /// Records one Tokio runtime snapshot directly into the session when the `tokio` feature is enabled.
+    /// Records one Tokio runtime snapshot directly into the session when runtime collection is enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ImportError::InvalidConfiguration`] when neither
+    /// [`TracingSessionBuilder::manual_runtime_snapshots`] nor
+    /// [`TracingSessionBuilder::sampler_interval`] enabled runtime collection.
     #[cfg(feature = "tokio")]
-    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) {
-        if let Some(runtime_collector) = &self.runtime_collector {
-            runtime_collector.record_runtime_snapshot(snapshot);
-        }
+    pub fn record_runtime_snapshot(&self, snapshot: RuntimeSnapshot) -> Result<(), ImportError> {
+        let Some(runtime_collector) = &self.runtime_collector else {
+            return Err(ImportError::InvalidConfiguration {
+                option: "runtime_snapshots",
+                reason: "runtime collection is not enabled; call manual_runtime_snapshots() or sampler_interval(...) before build".to_string(),
+            });
+        };
+        runtime_collector.record_runtime_snapshot(snapshot);
+        Ok(())
     }
     /// Finalizes intake and optionally writes configured output artifacts.
     ///
@@ -581,10 +592,14 @@ impl TracingSessionBuilder {
     }
     /// Enables completed-span JSONL output at the given path.
     ///
-    /// Writes retained tailtriage semantic evidence as stable span-shaped JSONL on shutdown.
+    /// Writes retained original [`SpanRecord`] values as stable span-shaped JSONL on shutdown.
+    /// Where present, those retained records preserve span name, span ID, parent ID,
+    /// `tt.*` fields, non-`tt.*` fields, Unix-ms bounds, optional run-relative offsets,
+    /// and optional explicit duration.
     ///
-    /// Intended for replay through `tailtriage import`, not trace archival; this output
-    /// does not preserve original tracing span names, span IDs, parent IDs, or non-`tt.*` fields.
+    /// Excluded, semantically dropped, and raw-unavailable records are absent.
+    /// Completed-span JSONL does not encode Run-only metadata, runtime snapshots,
+    /// lifecycle warnings, drop counters, or omitted-source diagnostics.
     ///
     /// When both output paths are configured, this file is finalized independently and may
     /// exist even if the later run-json write fails.
@@ -625,25 +640,25 @@ impl TracingSessionBuilder {
         })
     }
 
-    /// Sets runtime sampler interval when background sampling is enabled.
+    /// Enables background Tokio runtime sampling at the given interval.
     #[cfg(feature = "tokio")]
     #[must_use]
-    pub fn sampler_interval(mut self, sampler_interval: Duration) -> Self {
-        self.sampler_interval = Some(sampler_interval);
+    pub fn sampler_interval(mut self, interval: Duration) -> Self {
+        self.sampler_interval = Some(interval);
         self
     }
 
-    /// Disables background Tokio runtime sampling while preserving manual snapshots.
+    /// Enables manual Tokio runtime snapshot collection without starting the background sampler.
     #[cfg(feature = "tokio")]
     #[must_use]
-    pub fn disable_background_sampler(mut self) -> Self {
-        self.disable_background_sampler = true;
+    pub fn manual_runtime_snapshots(mut self) -> Self {
+        self.manual_runtime_snapshots = true;
         self
     }
 
     #[cfg(feature = "tokio")]
     fn build_runtime_collector(&self) -> Result<Option<Arc<Tailtriage>>, ImportError> {
-        if self.sampler_interval.is_none() && !self.disable_background_sampler {
+        if self.sampler_interval.is_none() && !self.manual_runtime_snapshots {
             return Ok(None);
         }
         let mode = self.recorder_builder.selected_mode();
@@ -673,14 +688,13 @@ impl TracingSessionBuilder {
         let Some(runtime_collector) = runtime_collector else {
             return Ok(None);
         };
-        if self.disable_background_sampler || self.sampler_interval.is_none() {
+        if self.sampler_interval.is_none() {
             return Ok(None);
         }
         if let Some(interval) = self.sampler_interval {
             if interval.is_zero() {
-                return Err(ImportError::Io {
-                    operation: "start tracing Tokio runtime sampler",
-                    context: "sampler interval".to_string(),
+                return Err(ImportError::InvalidConfiguration {
+                    option: "sampler_interval",
                     reason: "sampler interval must be greater than zero".to_string(),
                 });
             }
@@ -705,14 +719,16 @@ impl TracingSessionBuilder {
 
 impl TracingRecorderBuilder {
     /// Returns selected capture mode for import conversion semantics.
+    #[cfg(feature = "tokio")]
     #[must_use]
     pub(crate) fn selected_mode(&self) -> CaptureMode {
         self.options.mode_value()
     }
 
     /// Returns capture limits resolved from configured mode/base/override settings.
+    #[cfg(feature = "tokio")]
     #[must_use]
-    pub fn resolved_capture_limits(&self) -> CaptureLimits {
+    pub(crate) fn resolved_capture_limits(&self) -> CaptureLimits {
         self.options.resolved_capture_limits()
     }
 
@@ -4699,7 +4715,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("tokio-spans.jsonl");
         let session = crate::TracingSession::builder("svc")
-            .disable_background_sampler()
+            .manual_runtime_snapshots()
             .build()
             .unwrap();
         let subscriber = tracing_subscriber::registry().with(session.layer());
@@ -4728,15 +4744,17 @@ mod tests {
                 .in_scope(|| {});
             });
         });
-        session.record_runtime_snapshot(tailtriage_core::RuntimeSnapshot {
-            at_unix_ms: tailtriage_core::unix_time_ms(),
-            at_run_us: Some(1_000),
-            alive_tasks: Some(2),
-            global_queue_depth: Some(3),
-            local_queue_depth: Some(4),
-            blocking_queue_depth: Some(5),
-            remote_schedule_count: Some(6),
-        });
+        session
+            .record_runtime_snapshot(tailtriage_core::RuntimeSnapshot {
+                at_unix_ms: tailtriage_core::unix_time_ms(),
+                at_run_us: Some(1_000),
+                alive_tasks: Some(2),
+                global_queue_depth: Some(3),
+                local_queue_depth: Some(4),
+                blocking_queue_depth: Some(5),
+                remote_schedule_count: Some(6),
+            })
+            .expect("record runtime snapshot");
 
         let imported = session.shutdown().await.unwrap();
         assert_eq!(

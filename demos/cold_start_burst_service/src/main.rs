@@ -112,7 +112,8 @@ async fn main() -> anyhow::Result<()> {
 
     Arc::into_inner(instrumentation)
         .expect("instrumentation still referenced")
-        .shutdown(&args.output_path)?;
+        .shutdown(&args.output_path)
+        .await?;
     println!("wrote {}", args.output_path.display());
 
     Ok(())

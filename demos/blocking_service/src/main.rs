@@ -88,8 +88,9 @@ async fn run_demo(
                     local_queue_depth: None,
                     blocking_queue_depth: Some(pending),
                     remote_schedule_count: None,
-                });
+                })?;
             }
+            Ok::<(), anyhow::Error>(())
         })
     };
 
@@ -142,7 +143,7 @@ async fn run_demo(
         task.await.context("request task panicked")?;
     }
 
-    sampler.await.context("sampler task panicked")?;
+    sampler.await.context("sampler task panicked")??;
 
     Arc::into_inner(instrumentation)
         .expect("instrumentation still referenced")

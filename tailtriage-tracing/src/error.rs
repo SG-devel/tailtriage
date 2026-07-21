@@ -33,6 +33,13 @@ pub enum ImportError {
         /// Human-readable reason.
         reason: String,
     },
+    /// Import or live-session configuration is invalid.
+    InvalidConfiguration {
+        /// Configuration option name.
+        option: &'static str,
+        /// Human-readable reason.
+        reason: String,
+    },
     /// Import strictness rejected records that would otherwise be warnings.
     StrictViolation(String),
     /// Service name was empty or whitespace-only.
@@ -77,6 +84,9 @@ impl fmt::Display for ImportError {
             Self::MissingField(field) => write!(f, "missing required field: {field}"),
             Self::InvalidField { field, reason } => {
                 write!(f, "invalid field `{field}`: {reason}")
+            }
+            Self::InvalidConfiguration { option, reason } => {
+                write!(f, "invalid configuration `{option}`: {reason}")
             }
             Self::StrictViolation(message) => write!(f, "strict import violation: {message}"),
             Self::EmptyServiceName => write!(f, "service name must not be empty"),

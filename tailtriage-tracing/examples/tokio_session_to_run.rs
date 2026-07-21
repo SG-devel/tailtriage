@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let run_path = std::path::PathBuf::from("target/tailtriage-examples/tokio-run.json");
     let session = TracingSession::builder("checkout-service")
         .run_json_path(&run_path)
-        .disable_background_sampler()
+        .manual_runtime_snapshots()
         .build()?;
 
     // This standalone example uses a scoped local subscriber; service startup
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         local_queue_depth: Some(0),
         blocking_queue_depth: Some(0),
         remote_schedule_count: Some(2),
-    });
+    })?;
 
     session.shutdown().await?;
     println!("wrote run JSON to: {}", run_path.display());

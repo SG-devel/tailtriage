@@ -345,31 +345,16 @@ impl DemoInstrumentation {
     /// # Errors
     ///
     /// Returns an error when shutting down instrumentation or writing output fails.
-    pub fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
+    pub async fn shutdown(self, output_path: &Path) -> anyhow::Result<()> {
         match self.backend {
             DemoInstrumentationBackend::Native(tailtriage) => {
                 tailtriage.shutdown()?;
                 Ok(())
             }
             DemoInstrumentationBackend::Tracing(state) => {
-                let imported = block_on_ready(state.recorder.shutdown())?;
+                let imported = state.recorder.shutdown().await?;
                 write_persistable_demo_run(&imported, output_path)
             }
-        }
-    }
-}
-
-fn block_on_ready<F: std::future::Future>(future: F) -> F::Output {
-    use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
-
-    let waker = Waker::noop();
-    let mut cx = Context::from_waker(waker);
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut cx) {
-        Poll::Ready(output) => output,
-        Poll::Pending => {
-            panic!("tailtriage tracing shutdown unexpectedly yielded in sync demo shutdown")
         }
     }
 }
@@ -397,7 +382,7 @@ impl RuntimeDemoInstrumentation {
             InstrumentationMode::Tracing => {
                 let mut builder = TracingSession::builder(service_name)
                     .strict(false)
-                    .disable_background_sampler();
+                    .manual_runtime_snapshots();
                 builder = builder.mode(capture.mode);
                 if capture.max_requests.is_some()
                     || capture.max_stages.is_some()
@@ -469,11 +454,19 @@ impl RuntimeDemoInstrumentation {
     ///
     /// Runtime-sensitive tracing parity uses this to inject runtime-pressure evidence because
     /// tracing request/stage/queue spans alone do not infer runtime-pressure signals.
-    pub fn record_runtime_snapshot(&self, snapshot: tailtriage_core::RuntimeSnapshot) {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when tracing runtime collection was not enabled for the demo backend.
+    pub fn record_runtime_snapshot(
+        &self,
+        snapshot: tailtriage_core::RuntimeSnapshot,
+    ) -> anyhow::Result<()> {
         match &self.backend {
             RuntimeDemoBackend::Native(tailtriage) => tailtriage.record_runtime_snapshot(snapshot),
-            RuntimeDemoBackend::Tracing(session) => session.record_runtime_snapshot(snapshot),
+            RuntimeDemoBackend::Tracing(session) => session.record_runtime_snapshot(snapshot)?,
         }
+        Ok(())
     }
 
     /// Flush instrumentation and write the final run artifact.
