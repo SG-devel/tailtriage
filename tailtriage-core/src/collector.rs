@@ -15,22 +15,20 @@ use crate::{
 
 /// Per-run collector that records request events and writes the final artifact.
 pub struct Tailtriage {
-    state: CollectorStateCell,
-    pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
+    pub(crate) state: CollectorStateCell,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) mode: crate::CaptureMode,
     pub(crate) effective_core_config: crate::EffectiveCoreConfig,
     pub(crate) limits: crate::CaptureLimits,
     pub(crate) run_clock: RunClock,
     pub(crate) strict_lifecycle: bool,
-    truncation_state: TruncationState,
-    runtime_sampler_registered: AtomicBool,
+    pub(crate) truncation_state: TruncationState,
     limits_hit_listener: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Debug)]
-struct CollectorStateCell {
-    mutex: Mutex<CollectorState>,
+pub(crate) struct CollectorStateCell {
+    pub(crate) mutex: Mutex<CollectorState>,
     closed: Condvar,
 }
 
@@ -40,6 +38,8 @@ impl CollectorStateCell {
             mutex: Mutex::new(CollectorState {
                 run,
                 pending_requests: HashMap::new(),
+                inflight_counts: HashMap::new(),
+                runtime_sampler_registered: false,
                 phase: CollectorPhase::Open,
             }),
             closed: Condvar::new(),
@@ -48,21 +48,23 @@ impl CollectorStateCell {
 }
 
 #[derive(Debug)]
-struct CollectorState {
-    run: Run,
+pub(crate) struct CollectorState {
+    pub(crate) run: Run,
     pending_requests: HashMap<u64, PendingRequest>,
-    phase: CollectorPhase,
+    pub(crate) inflight_counts: HashMap<String, u64>,
+    runtime_sampler_registered: bool,
+    pub(crate) phase: CollectorPhase,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum CollectorPhase {
+pub(crate) enum CollectorPhase {
     Open,
     Finalizing,
     Closed(TerminalShutdown),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum TerminalShutdown {
+pub(crate) enum TerminalShutdown {
     Success,
     Failure(String),
 }
@@ -76,37 +78,23 @@ struct ArmedCompletion {
 type CompletionState = Option<ArmedCompletion>;
 
 #[derive(Debug, Default)]
-struct SectionSaturationState {
+pub(crate) struct SectionSaturationState {
     saturated: AtomicBool,
-    dropped_after_saturation: AtomicU64,
 }
 
 impl SectionSaturationState {
-    fn is_saturated(&self) -> bool {
-        self.saturated.load(Ordering::Relaxed)
-    }
-
-    fn mark_saturated(&self) {
+    pub(crate) fn mark_saturated(&self) {
         self.saturated.store(true, Ordering::Relaxed);
-    }
-
-    fn increment_drop(&self) {
-        self.dropped_after_saturation
-            .fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn dropped_after_saturation(&self) -> u64 {
-        self.dropped_after_saturation.load(Ordering::Relaxed)
     }
 }
 
 #[derive(Debug, Default)]
-struct TruncationState {
+pub(crate) struct TruncationState {
     limits_hit: AtomicBool,
     requests: SectionSaturationState,
     stages: SectionSaturationState,
     queues: SectionSaturationState,
-    inflight: SectionSaturationState,
+    pub(crate) inflight: SectionSaturationState,
     runtime_snapshots: SectionSaturationState,
 }
 
@@ -117,24 +105,9 @@ impl TruncationState {
             .is_ok()
     }
 
-    fn merge_into(&self, truncation: &mut crate::TruncationSummary) {
-        truncation.dropped_requests = truncation
-            .dropped_requests
-            .saturating_add(self.requests.dropped_after_saturation());
-        truncation.dropped_stages = truncation
-            .dropped_stages
-            .saturating_add(self.stages.dropped_after_saturation());
-        truncation.dropped_queues = truncation
-            .dropped_queues
-            .saturating_add(self.queues.dropped_after_saturation());
-        truncation.dropped_inflight_snapshots = truncation
-            .dropped_inflight_snapshots
-            .saturating_add(self.inflight.dropped_after_saturation());
-        truncation.dropped_runtime_snapshots = truncation
-            .dropped_runtime_snapshots
-            .saturating_add(self.runtime_snapshots.dropped_after_saturation());
-        truncation.limits_hit |=
-            self.limits_hit.load(Ordering::Relaxed) || truncation.is_truncated();
+    pub(crate) fn mark_run_limits_hit(&self, run: &mut Run) -> bool {
+        run.truncation.limits_hit = true;
+        self.mark_limits_hit()
     }
 }
 
@@ -215,6 +188,7 @@ pub struct RequestHandle<'a> {
     request_id: String,
     route: String,
     kind: Option<String>,
+    admitted: bool,
 }
 
 /// Instrumentation-facing request handle backed by `Arc<Tailtriage>`.
@@ -227,6 +201,7 @@ pub struct OwnedRequestHandle {
     request_id: String,
     route: String,
     kind: Option<String>,
+    admitted: bool,
 }
 
 /// Completion-facing request token.
@@ -295,7 +270,6 @@ impl Tailtriage {
 
         Ok(Self {
             state: CollectorStateCell::new(run),
-            inflight_counts: Mutex::new(HashMap::new()),
             sink: config.sink,
             mode: config.mode,
             effective_core_config: config.effective_core,
@@ -303,7 +277,6 @@ impl Tailtriage {
             run_clock,
             strict_lifecycle: config.strict_lifecycle,
             truncation_state: TruncationState::default(),
-            runtime_sampler_registered: AtomicBool::new(false),
             limits_hit_listener: Mutex::new(None),
         })
     }
@@ -346,6 +319,7 @@ impl Tailtriage {
                 request_id: request_id.clone(),
                 route,
                 kind,
+                admitted: pending_key.is_some(),
             },
             completion: RequestCompletion {
                 tailtriage: self,
@@ -382,6 +356,7 @@ impl Tailtriage {
                 request_id: request_id.clone(),
                 route,
                 kind,
+                admitted: pending_key.is_some(),
             },
             completion: OwnedRequestCompletion {
                 tailtriage: Arc::clone(self),
@@ -404,9 +379,7 @@ impl Tailtriage {
     #[must_use]
     pub fn snapshot(&self) -> Run {
         let state = lock_state(&self.state.mutex);
-        let mut run = state.run.clone();
-        self.truncation_state.merge_into(&mut run.truncation);
-        run
+        state.run.clone()
     }
 
     /// Writes the current run artifact and finishes the run lifecycle.
@@ -435,7 +408,7 @@ impl Tailtriage {
                     }
                     CollectorPhase::Closed(TerminalShutdown::Success) => return Ok(()),
                     CollectorPhase::Closed(TerminalShutdown::Failure(message)) => {
-                        return Err(prior_sink_failure(message));
+                        return Err(prior_sink_failure(message.as_str()));
                     }
                 }
             }
@@ -447,11 +420,12 @@ impl Tailtriage {
                 });
             }
 
-            let pending_samples = state
-                .pending_requests
-                .values()
+            let mut pending_samples = state.pending_requests.iter().collect::<Vec<_>>();
+            pending_samples.sort_by_key(|(pending_key, _)| **pending_key);
+            let pending_samples = pending_samples
+                .into_iter()
                 .take(5)
-                .map(|req| UnfinishedRequestSample {
+                .map(|(_, req)| UnfinishedRequestSample {
                     request_id: req.request_id.clone(),
                     route: req.route.clone(),
                 })
@@ -466,7 +440,6 @@ impl Tailtriage {
                 state.run.metadata.unfinished_requests.count = pending_count as u64;
                 state.run.metadata.unfinished_requests.sample = pending_samples;
             }
-            self.truncation_state.merge_into(&mut state.run.truncation);
             let candidate = state.run.clone();
             state.phase = CollectorPhase::Finalizing;
             candidate
@@ -515,19 +488,37 @@ impl Tailtriage {
     pub(crate) fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         let gauge = gauge.into();
         let count = {
-            let mut counts = lock_map(&self.inflight_counts);
-            let entry = counts.entry(gauge.clone()).or_insert(0);
+            let sample = self.run_clock.sample();
+            let mut state = lock_state(&self.state.mutex);
+            if !matches!(state.phase, CollectorPhase::Open) {
+                return InflightGuard {
+                    tailtriage: self,
+                    gauge,
+                    enabled: false,
+                };
+            }
+            let entry = state.inflight_counts.entry(gauge.clone()).or_insert(0);
             *entry += 1;
-            *entry
+            let count = *entry;
+            let mut notify_limits_hit = false;
+            if crate::retention::push_inflight_snapshot_bounded(
+                &mut state.run,
+                self.limits,
+                InFlightSnapshot {
+                    gauge: gauge.clone(),
+                    at_unix_ms: sample.unix_ms,
+                    at_run_us: Some(sample.run_elapsed_us),
+                    count,
+                },
+            ) {
+                self.truncation_state.inflight.mark_saturated();
+                notify_limits_hit = self.truncation_state.mark_run_limits_hit(&mut state.run);
+            }
+            notify_limits_hit
         };
-
-        let sample = self.run_clock.sample();
-        self.record_inflight_snapshot(InFlightSnapshot {
-            gauge: gauge.clone(),
-            at_unix_ms: sample.unix_ms,
-            at_run_us: Some(sample.run_elapsed_us),
-            count,
-        });
+        if count {
+            self.notify_limits_hit_listener();
+        }
 
         InflightGuard {
             tailtriage: self,
@@ -538,18 +529,11 @@ impl Tailtriage {
 
     /// Records one runtime metrics sample captured by an integration crate.
     pub fn record_runtime_snapshot(&self, mut snapshot: RuntimeSnapshot) {
-        if self.truncation_state.runtime_snapshots.is_saturated() {
-            self.truncation_state.runtime_snapshots.increment_drop();
-            self.notify_limits_hit_transition();
-            return;
-        }
-
         if snapshot.at_run_us.is_none() {
             snapshot.at_run_us = Some(self.run_clock.sample().run_elapsed_us);
         }
 
-        let mut notify_limits_hit = false;
-        {
+        let notify_limits_hit = {
             let mut state = lock_state(&self.state.mutex);
             if !matches!(state.phase, CollectorPhase::Open) {
                 return;
@@ -560,11 +544,13 @@ impl Tailtriage {
                 snapshot,
             ) {
                 self.truncation_state.runtime_snapshots.mark_saturated();
-                notify_limits_hit = true;
+                self.truncation_state.mark_run_limits_hit(&mut state.run)
+            } else {
+                false
             }
-        }
+        };
         if notify_limits_hit {
-            self.notify_limits_hit_transition();
+            self.notify_limits_hit_listener();
         }
     }
 
@@ -580,96 +566,51 @@ impl Tailtriage {
         &self,
         config: crate::EffectiveTokioSamplerConfig,
     ) -> Result<(), RuntimeSamplerRegistrationError> {
-        if self
-            .runtime_sampler_registered
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Err(RuntimeSamplerRegistrationError::DuplicateStart);
-        }
-
         let mut state = lock_state(&self.state.mutex);
         if !matches!(state.phase, CollectorPhase::Open) {
             return Ok(());
         }
+        if state.runtime_sampler_registered {
+            return Err(RuntimeSamplerRegistrationError::DuplicateStart);
+        }
+        state.runtime_sampler_registered = true;
         state.run.metadata.effective_tokio_sampler_config = Some(config);
         Ok(())
     }
 
     pub(crate) fn record_stage_event(&self, event: StageEvent) {
-        if self.truncation_state.stages.is_saturated() {
-            self.truncation_state.stages.increment_drop();
-            self.notify_limits_hit_transition();
-            return;
-        }
-
-        let mut notify_limits_hit = false;
-        {
+        let notify_limits_hit = {
             let mut state = lock_state(&self.state.mutex);
             if !matches!(state.phase, CollectorPhase::Open) {
                 return;
             }
             if crate::retention::push_stage_bounded(&mut state.run, self.limits, event) {
                 self.truncation_state.stages.mark_saturated();
-                notify_limits_hit = true;
+                self.truncation_state.mark_run_limits_hit(&mut state.run)
+            } else {
+                false
             }
-        }
+        };
         if notify_limits_hit {
-            self.notify_limits_hit_transition();
+            self.notify_limits_hit_listener();
         }
     }
 
     pub(crate) fn record_queue_event(&self, event: QueueEvent) {
-        if self.truncation_state.queues.is_saturated() {
-            self.truncation_state.queues.increment_drop();
-            self.notify_limits_hit_transition();
-            return;
-        }
-
-        let mut notify_limits_hit = false;
-        {
+        let notify_limits_hit = {
             let mut state = lock_state(&self.state.mutex);
             if !matches!(state.phase, CollectorPhase::Open) {
                 return;
             }
             if crate::retention::push_queue_bounded(&mut state.run, self.limits, event) {
                 self.truncation_state.queues.mark_saturated();
-                notify_limits_hit = true;
+                self.truncation_state.mark_run_limits_hit(&mut state.run)
+            } else {
+                false
             }
-        }
+        };
         if notify_limits_hit {
-            self.notify_limits_hit_transition();
-        }
-    }
-
-    pub(crate) fn record_inflight_snapshot(&self, mut snapshot: InFlightSnapshot) {
-        if self.truncation_state.inflight.is_saturated() {
-            self.truncation_state.inflight.increment_drop();
-            self.notify_limits_hit_transition();
-            return;
-        }
-
-        if snapshot.at_run_us.is_none() {
-            snapshot.at_run_us = Some(self.run_clock.sample().run_elapsed_us);
-        }
-
-        let mut notify_limits_hit = false;
-        {
-            let mut state = lock_state(&self.state.mutex);
-            if !matches!(state.phase, CollectorPhase::Open) {
-                return;
-            }
-            if crate::retention::push_inflight_snapshot_bounded(
-                &mut state.run,
-                self.limits,
-                snapshot,
-            ) {
-                self.truncation_state.inflight.mark_saturated();
-                notify_limits_hit = true;
-            }
-        }
-        if notify_limits_hit {
-            self.notify_limits_hit_transition();
+            self.notify_limits_hit_listener();
         }
     }
 
@@ -684,27 +625,21 @@ impl Tailtriage {
             let Some(pending) = state.pending_requests.remove(&pending_key) else {
                 return;
             };
-            if self.truncation_state.requests.is_saturated() {
-                self.truncation_state.requests.increment_drop();
-                notify_limits_hit = true;
-            } else if crate::retention::push_request_bounded(
+            if crate::retention::push_request_bounded(
                 &mut state.run,
                 self.limits,
                 request_event_from_finished_interval(pending, finished, outcome),
             ) {
                 self.truncation_state.requests.mark_saturated();
-                notify_limits_hit = true;
+                notify_limits_hit = self.truncation_state.mark_run_limits_hit(&mut state.run);
             }
         }
         if notify_limits_hit {
-            self.notify_limits_hit_transition();
+            self.notify_limits_hit_listener();
         }
     }
 
-    fn notify_limits_hit_transition(&self) {
-        if !self.truncation_state.mark_limits_hit() {
-            return;
-        }
+    pub(crate) fn notify_limits_hit_listener(&self) {
         let listener = self
             .limits_hit_listener
             .lock()
@@ -770,7 +705,7 @@ impl RequestHandle<'_> {
     pub fn queue(&self, queue: impl Into<String>) -> QueueTimer<'_> {
         QueueTimer {
             tailtriage: self.tailtriage,
-            enabled: true,
+            enabled: self.admitted,
             request_id: self.request_id.clone(),
             queue: queue.into(),
             depth_at_start: None,
@@ -784,7 +719,7 @@ impl RequestHandle<'_> {
     pub fn stage(&self, stage: impl Into<String>) -> StageTimer<'_> {
         StageTimer {
             tailtriage: self.tailtriage,
-            enabled: true,
+            enabled: self.admitted,
             request_id: self.request_id.clone(),
             stage: stage.into(),
         }
@@ -795,7 +730,15 @@ impl RequestHandle<'_> {
     /// In-flight instrumentation does not finish the request lifecycle.
     #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
-        self.tailtriage.inflight(gauge)
+        if self.admitted {
+            self.tailtriage.inflight(gauge)
+        } else {
+            InflightGuard {
+                tailtriage: self.tailtriage,
+                gauge: gauge.into(),
+                enabled: false,
+            }
+        }
     }
 }
 
@@ -858,7 +801,7 @@ impl OwnedRequestHandle {
     pub fn queue(&self, queue: impl Into<String>) -> QueueTimer<'_> {
         QueueTimer {
             tailtriage: self.tailtriage.as_ref(),
-            enabled: true,
+            enabled: self.admitted,
             request_id: self.request_id.clone(),
             queue: queue.into(),
             depth_at_start: None,
@@ -870,7 +813,7 @@ impl OwnedRequestHandle {
     pub fn stage(&self, stage: impl Into<String>) -> StageTimer<'_> {
         StageTimer {
             tailtriage: self.tailtriage.as_ref(),
-            enabled: true,
+            enabled: self.admitted,
             request_id: self.request_id.clone(),
             stage: stage.into(),
         }
@@ -879,7 +822,15 @@ impl OwnedRequestHandle {
     /// Creates an in-flight guard for `gauge`.
     #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
-        self.tailtriage.as_ref().inflight(gauge)
+        if self.admitted {
+            self.tailtriage.as_ref().inflight(gauge)
+        } else {
+            InflightGuard {
+                tailtriage: self.tailtriage.as_ref(),
+                gauge: gauge.into(),
+                enabled: false,
+            }
+        }
     }
 }
 
@@ -976,16 +927,9 @@ fn normalize_for_lifecycle(run: &Run) -> Run {
     run
 }
 
-pub(crate) fn lock_map(
-    map: &Mutex<HashMap<String, u64>>,
-) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
-    match map.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-fn lock_state(mutex: &Mutex<CollectorState>) -> std::sync::MutexGuard<'_, CollectorState> {
+pub(crate) fn lock_state(
+    mutex: &Mutex<CollectorState>,
+) -> std::sync::MutexGuard<'_, CollectorState> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
