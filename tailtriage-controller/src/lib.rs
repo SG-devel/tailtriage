@@ -773,15 +773,28 @@ impl TailtriageController {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
+            let message = active
+                .last_finalize_error
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            if let Some(message) = message {
+                return Err(DisableError::Finalize(tailtriage_core::SinkError::Io(
+                    std::io::Error::other(message),
+                )));
+            }
             return Ok(());
         }
 
         active.clear_finalize_error();
         Self::stop_runtime_sampler(active);
         if let Err(source) = active.run.shutdown() {
+            let retryable = matches!(source, tailtriage_core::SinkError::Lifecycle { .. });
             let error = DisableError::Finalize(source);
             active.record_finalize_error(&error);
-            active.finalize_started.store(false, Ordering::Release);
+            if retryable {
+                active.finalize_started.store(false, Ordering::Release);
+            }
             return Err(error);
         }
 
@@ -909,6 +922,16 @@ impl ControllerRequestCompletion {
             }
         }
         result
+    }
+}
+
+impl Drop for ControllerRequestCompletion {
+    fn drop(&mut self) {
+        if let ControllerCompletionKind::Active(active) = &mut self.kind {
+            let completion = active.completion.take();
+            drop(completion);
+            active.mark_finished();
+        }
     }
 }
 
@@ -1248,9 +1271,9 @@ pub struct ActiveGenerationState {
     pub finalization_in_progress: bool,
     /// Last finalization error observed for this generation, if any.
     ///
-    /// When present, generation remains active-but-closing and callers can retry
-    /// finalization via [`TailtriageController::disable`] or
-    /// [`TailtriageController::shutdown`].
+    /// Strict lifecycle errors are retryable because no sink attempt occurred.
+    /// Sink-attempted failures are terminal for that core generation and are
+    /// reported here without scheduling another sink write.
     pub last_finalize_error: Option<String>,
     /// Effective activation settings fixed for this generation.
     pub activation_config: ControllerActivationTemplate,
@@ -2523,6 +2546,40 @@ mod tests {
     }
 
     #[test]
+    fn dropped_controller_completion_drains_closing_generation_as_cancelled() {
+        let output = test_output("drop-drain-cancelled");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-drop-drain"),
+        );
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == active.generation_id
+        ));
+
+        drop(started.completion);
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let run = read_artifact(&active.artifact_path);
+        assert!(run.contains("req-drop-drain"));
+        assert!(run.contains("cancelled"));
+        assert!(!run.contains("unfinished request(s) remained at shutdown"));
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
     fn controller_output_is_finalized_schema_v2() {
         let output = test_output("shutdown-active");
         let controller = TailtriageController::builder("checkout-service")
@@ -2574,7 +2631,7 @@ mod tests {
     }
 
     #[test]
-    fn drain_finalization_sink_failure_is_observable_and_retriable() {
+    fn drain_finalization_sink_failure_is_observable_and_terminal() {
         let output = std::env::temp_dir().join(format!(
             "tailtriage-controller-missing-dir-{}-{}",
             std::process::id(),
@@ -2604,7 +2661,7 @@ mod tests {
         };
         assert!(active_state.closing);
         assert!(!active_state.accepting_new_admissions);
-        assert!(!active_state.finalization_in_progress);
+        assert!(active_state.finalization_in_progress);
         let first_error = active_state
             .last_finalize_error
             .expect("failed drain finalization should be recorded");
@@ -2616,7 +2673,7 @@ mod tests {
         let disable_retry = controller.disable();
         assert!(
             matches!(disable_retry, Err(super::DisableError::Finalize(_))),
-            "disable should return finalization failure after prior failed drain finalization"
+            "disable should return prior terminal finalization failure"
         );
 
         let shutdown_retry = controller.shutdown();
@@ -2627,7 +2684,7 @@ mod tests {
                     super::DisableError::Finalize(_)
                 ))
             ),
-            "shutdown should return finalization failure after prior failed drain finalization"
+            "shutdown should return prior terminal finalization failure"
         );
     }
 
@@ -2686,7 +2743,7 @@ mod tests {
     }
 
     #[test]
-    fn drain_finalization_failure_allows_recovery_after_environment_fix() {
+    fn drain_finalization_sink_failure_is_not_retried_after_environment_fix() {
         let output_dir = std::env::temp_dir().join(format!(
             "tailtriage-controller-recovery-dir-{}-{}",
             std::process::id(),
@@ -2713,17 +2770,16 @@ mod tests {
         let GenerationState::Active(active_before_retry) = status_before_retry.generation else {
             panic!("failed drain finalization should keep generation active");
         };
+        assert!(active_before_retry.finalization_in_progress);
         assert!(active_before_retry.last_finalize_error.is_some());
 
         fs::create_dir_all(&output_dir).expect("create output directory for retry should succeed");
 
         assert!(matches!(
             controller.disable(),
-            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+            Err(super::DisableError::Finalize(_))
         ));
-        assert!(output_dir.join("artifact-generation-1.json").exists());
-        fs::remove_file(output_dir.join("artifact-generation-1.json"))
-            .expect("cleanup artifact should succeed");
+        assert!(!output_dir.join("artifact-generation-1.json").exists());
         fs::remove_dir(output_dir).expect("cleanup output dir should succeed");
     }
 

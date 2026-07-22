@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Condvar, Mutex};
 
 use crate::config::Config;
 use crate::time::{FinishedInterval, IntervalStart, RunClock};
@@ -16,9 +15,8 @@ use crate::{
 
 /// Per-run collector that records request events and writes the final artifact.
 pub struct Tailtriage {
-    pub(crate) run: Mutex<Run>,
+    state: CollectorStateCell,
     pub(crate) inflight_counts: Mutex<HashMap<String, u64>>,
-    pending_requests: Mutex<HashMap<u64, PendingRequest>>,
     pub(crate) sink: Arc<dyn RunSink + Send + Sync>,
     pub(crate) mode: crate::CaptureMode,
     pub(crate) effective_core_config: crate::EffectiveCoreConfig,
@@ -29,6 +27,53 @@ pub struct Tailtriage {
     runtime_sampler_registered: AtomicBool,
     limits_hit_listener: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
+
+#[derive(Debug)]
+struct CollectorStateCell {
+    mutex: Mutex<CollectorState>,
+    closed: Condvar,
+}
+
+impl CollectorStateCell {
+    fn new(run: Run) -> Self {
+        Self {
+            mutex: Mutex::new(CollectorState {
+                run,
+                pending_requests: HashMap::new(),
+                phase: CollectorPhase::Open,
+            }),
+            closed: Condvar::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CollectorState {
+    run: Run,
+    pending_requests: HashMap<u64, PendingRequest>,
+    phase: CollectorPhase,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CollectorPhase {
+    Open,
+    Finalizing,
+    Closed(TerminalShutdown),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TerminalShutdown {
+    Success,
+    Failure(String),
+}
+
+#[derive(Debug)]
+struct ArmedCompletion {
+    pending_key: u64,
+    interval_start: IntervalStart,
+}
+
+type CompletionState = Option<ArmedCompletion>;
 
 #[derive(Debug, Default)]
 struct SectionSaturationState {
@@ -190,27 +235,25 @@ pub struct OwnedRequestHandle {
 /// [`RequestCompletion::finish`], [`RequestCompletion::finish_ok`], or
 /// [`RequestCompletion::finish_result`].
 ///
-/// Dropping this token does not auto-finish the request.
+/// Dropping an admitted token while capture is open records one `cancelled`
+/// request. After shutdown finalization wins, Drop and explicit finish are inert.
 #[must_use = "request completion tokens must be finished explicitly"]
 #[derive(Debug)]
 pub struct RequestCompletion<'a> {
     tailtriage: &'a Tailtriage,
-    pending_key: u64,
-    interval_start: IntervalStart,
-    finished: bool,
+    state: CompletionState,
 }
 
 /// Completion-facing request token backed by `Arc<Tailtriage>`.
 ///
-/// Owned variant of [`RequestCompletion`]. Dropping this token does not
-/// auto-finish the request.
+/// Owned variant of [`RequestCompletion`]. Dropping an admitted token while
+/// capture is open records one `cancelled` request. After shutdown finalization
+/// wins, Drop and explicit finish are inert.
 #[must_use = "request completion tokens must be finished explicitly"]
 #[derive(Debug)]
 pub struct OwnedRequestCompletion {
     tailtriage: Arc<Tailtriage>,
-    pending_key: u64,
-    interval_start: IntervalStart,
-    finished: bool,
+    state: CompletionState,
 }
 
 /// Error returned when registering Tokio runtime sampler metadata.
@@ -251,9 +294,8 @@ impl Tailtriage {
         });
 
         Ok(Self {
-            run: Mutex::new(run),
+            state: CollectorStateCell::new(run),
             inflight_counts: Mutex::new(HashMap::new()),
-            pending_requests: Mutex::new(HashMap::new()),
             sink: config.sink,
             mode: config.mode,
             effective_core_config: config.effective_core,
@@ -307,9 +349,10 @@ impl Tailtriage {
             },
             completion: RequestCompletion {
                 tailtriage: self,
-                pending_key,
-                interval_start,
-                finished: false,
+                state: pending_key.map(|pending_key| ArmedCompletion {
+                    pending_key,
+                    interval_start,
+                }),
             },
         }
     }
@@ -342,9 +385,10 @@ impl Tailtriage {
             },
             completion: OwnedRequestCompletion {
                 tailtriage: Arc::clone(self),
-                pending_key,
-                interval_start,
-                finished: false,
+                state: pending_key.map(|pending_key| ArmedCompletion {
+                    pending_key,
+                    interval_start,
+                }),
             },
         }
     }
@@ -359,7 +403,8 @@ impl Tailtriage {
     /// `None`; active snapshots have no run-level end timestamp.
     #[must_use]
     pub fn snapshot(&self) -> Run {
-        let mut run = lock_run(&self.run).clone();
+        let state = lock_state(&self.state.mutex);
+        let mut run = state.run.clone();
         self.truncation_state.merge_into(&mut run.truncation);
         run
     }
@@ -370,50 +415,82 @@ impl Tailtriage {
     /// metadata warnings and unfinished-request samples, then the artifact is written.
     ///
     /// With `strict_lifecycle(true)`, unfinished requests cause an early
-    /// [`SinkError::Lifecycle`] return and the artifact is not written.
+    /// retryable [`SinkError::Lifecycle`] return and the artifact is not written
+    /// or attempted. Once an eligible shutdown reaches the sink, finalization is
+    /// terminal and repeated calls replay that terminal result without a second
+    /// sink write.
     ///
     /// # Errors
     ///
     /// Returns [`SinkError`] if lifecycle validation fails in strict mode, or if
     /// serialization or writing fails.
     pub fn shutdown(&self) -> Result<(), SinkError> {
-        let mut pending_samples = Vec::new();
-        let pending_count = {
-            let pending = lock_pending(&self.pending_requests);
-            pending_samples.extend(pending.values().take(5).map(|req| UnfinishedRequestSample {
-                request_id: req.request_id.clone(),
-                route: req.route.clone(),
-            }));
-            pending.len()
-        };
+        let candidate = {
+            let mut state = lock_state(&self.state.mutex);
+            loop {
+                match &state.phase {
+                    CollectorPhase::Open => break,
+                    CollectorPhase::Finalizing => {
+                        state = wait_state_closed(&self.state, state);
+                    }
+                    CollectorPhase::Closed(TerminalShutdown::Success) => return Ok(()),
+                    CollectorPhase::Closed(TerminalShutdown::Failure(message)) => {
+                        return Err(prior_sink_failure(message));
+                    }
+                }
+            }
 
-        let mut guard = lock_run(&self.run);
-        let finalized_at = unix_time_ms();
-        guard.metadata.finalized_at_unix_ms = Some(finalized_at);
-        if pending_count > 0 {
-            guard.metadata.lifecycle_warnings.push(format!(
-                "{pending_count} unfinished request(s) remained at shutdown; run includes no fabricated completions"
-            ));
-            guard.metadata.unfinished_requests.count = pending_count as u64;
-            guard.metadata.unfinished_requests.sample = pending_samples;
-            if self.strict_lifecycle {
+            let pending_count = state.pending_requests.len();
+            if pending_count > 0 && self.strict_lifecycle {
                 return Err(SinkError::Lifecycle {
                     unfinished_count: pending_count,
                 });
             }
-        }
 
-        self.truncation_state.merge_into(&mut guard.truncation);
-        let candidate = guard.clone();
+            let pending_samples = state
+                .pending_requests
+                .values()
+                .take(5)
+                .map(|req| UnfinishedRequestSample {
+                    request_id: req.request_id.clone(),
+                    route: req.route.clone(),
+                })
+                .collect::<Vec<_>>();
+            state.pending_requests.clear();
+            let finalized_at = unix_time_ms();
+            state.run.metadata.finalized_at_unix_ms = Some(finalized_at);
+            if pending_count > 0 {
+                state.run.metadata.lifecycle_warnings.push(format!(
+                    "{pending_count} unfinished request(s) remained at shutdown; run includes no fabricated completions"
+                ));
+                state.run.metadata.unfinished_requests.count = pending_count as u64;
+                state.run.metadata.unfinished_requests.sample = pending_samples;
+            }
+            self.truncation_state.merge_into(&mut state.run.truncation);
+            let candidate = state.run.clone();
+            state.phase = CollectorPhase::Finalizing;
+            candidate
+        };
+
         let normalized = normalize_for_lifecycle(&candidate);
-        self.sink.write(&normalized)
+        let result = self.sink.write(&normalized);
+        let terminal = match &result {
+            Ok(()) => TerminalShutdown::Success,
+            Err(err) => TerminalShutdown::Failure(err.to_string()),
+        };
+        let mut state = lock_state(&self.state.mutex);
+        state.phase = CollectorPhase::Closed(terminal);
+        self.state.closed.notify_all();
+        result
     }
 
     /// Sets the run-end reason if not already set.
     pub fn set_run_end_reason_if_absent(&self, reason: RunEndReason) {
-        let mut run = lock_run(&self.run);
-        if run.metadata.run_end_reason.is_none() {
-            run.metadata.run_end_reason = Some(reason);
+        let mut state = lock_state(&self.state.mutex);
+        if matches!(state.phase, CollectorPhase::Open)
+            && state.run.metadata.run_end_reason.is_none()
+        {
+            state.run.metadata.run_end_reason = Some(reason);
         }
     }
 
@@ -473,8 +550,15 @@ impl Tailtriage {
 
         let mut notify_limits_hit = false;
         {
-            let mut run = lock_run(&self.run);
-            if crate::retention::push_runtime_snapshot_bounded(&mut run, self.limits, snapshot) {
+            let mut state = lock_state(&self.state.mutex);
+            if !matches!(state.phase, CollectorPhase::Open) {
+                return;
+            }
+            if crate::retention::push_runtime_snapshot_bounded(
+                &mut state.run,
+                self.limits,
+                snapshot,
+            ) {
                 self.truncation_state.runtime_snapshots.mark_saturated();
                 notify_limits_hit = true;
             }
@@ -504,8 +588,11 @@ impl Tailtriage {
             return Err(RuntimeSamplerRegistrationError::DuplicateStart);
         }
 
-        let mut run = lock_run(&self.run);
-        run.metadata.effective_tokio_sampler_config = Some(config);
+        let mut state = lock_state(&self.state.mutex);
+        if !matches!(state.phase, CollectorPhase::Open) {
+            return Ok(());
+        }
+        state.run.metadata.effective_tokio_sampler_config = Some(config);
         Ok(())
     }
 
@@ -518,8 +605,11 @@ impl Tailtriage {
 
         let mut notify_limits_hit = false;
         {
-            let mut run = lock_run(&self.run);
-            if crate::retention::push_stage_bounded(&mut run, self.limits, event) {
+            let mut state = lock_state(&self.state.mutex);
+            if !matches!(state.phase, CollectorPhase::Open) {
+                return;
+            }
+            if crate::retention::push_stage_bounded(&mut state.run, self.limits, event) {
                 self.truncation_state.stages.mark_saturated();
                 notify_limits_hit = true;
             }
@@ -538,8 +628,11 @@ impl Tailtriage {
 
         let mut notify_limits_hit = false;
         {
-            let mut run = lock_run(&self.run);
-            if crate::retention::push_queue_bounded(&mut run, self.limits, event) {
+            let mut state = lock_state(&self.state.mutex);
+            if !matches!(state.phase, CollectorPhase::Open) {
+                return;
+            }
+            if crate::retention::push_queue_bounded(&mut state.run, self.limits, event) {
                 self.truncation_state.queues.mark_saturated();
                 notify_limits_hit = true;
             }
@@ -562,8 +655,15 @@ impl Tailtriage {
 
         let mut notify_limits_hit = false;
         {
-            let mut run = lock_run(&self.run);
-            if crate::retention::push_inflight_snapshot_bounded(&mut run, self.limits, snapshot) {
+            let mut state = lock_state(&self.state.mutex);
+            if !matches!(state.phase, CollectorPhase::Open) {
+                return;
+            }
+            if crate::retention::push_inflight_snapshot_bounded(
+                &mut state.run,
+                self.limits,
+                snapshot,
+            ) {
                 self.truncation_state.inflight.mark_saturated();
                 notify_limits_hit = true;
             }
@@ -573,17 +673,25 @@ impl Tailtriage {
         }
     }
 
-    fn record_request_event(&self, event: RequestEvent) {
-        if self.truncation_state.requests.is_saturated() {
-            self.truncation_state.requests.increment_drop();
-            self.notify_limits_hit_transition();
-            return;
-        }
-
+    fn resolve_request(&self, pending_key: u64, interval_start: IntervalStart, outcome: Outcome) {
+        let finished = self.run_clock.finish_interval(interval_start);
         let mut notify_limits_hit = false;
         {
-            let mut run = lock_run(&self.run);
-            if crate::retention::push_request_bounded(&mut run, self.limits, event) {
+            let mut state = lock_state(&self.state.mutex);
+            if !matches!(state.phase, CollectorPhase::Open) {
+                return;
+            }
+            let Some(pending) = state.pending_requests.remove(&pending_key) else {
+                return;
+            };
+            if self.truncation_state.requests.is_saturated() {
+                self.truncation_state.requests.increment_drop();
+                notify_limits_hit = true;
+            } else if crate::retention::push_request_bounded(
+                &mut state.run,
+                self.limits,
+                request_event_from_finished_interval(pending, finished, outcome),
+            ) {
                 self.truncation_state.requests.mark_saturated();
                 notify_limits_hit = true;
             }
@@ -611,7 +719,7 @@ impl Tailtriage {
         &self,
         route: String,
         options: RequestOptions,
-    ) -> (String, String, Option<String>, u64, IntervalStart) {
+    ) -> (String, String, Option<String>, Option<u64>, IntervalStart) {
         let request_id = options
             .request_id
             .unwrap_or_else(|| generate_request_id(&route));
@@ -624,7 +732,13 @@ impl Tailtriage {
             kind: kind.clone(),
             interval_start,
         };
-        lock_pending(&self.pending_requests).insert(pending_key, pending);
+        let mut state = lock_state(&self.state.mutex);
+        let pending_key = if matches!(state.phase, CollectorPhase::Open) {
+            state.pending_requests.insert(pending_key, pending);
+            Some(pending_key)
+        } else {
+            None
+        };
 
         (request_id, route, kind, pending_key, interval_start)
     }
@@ -713,33 +827,10 @@ impl RequestCompletion<'_> {
     }
 
     fn finish_internal(&mut self, outcome: Outcome) {
-        if self.finished {
-            debug_assert!(
-                !self.finished,
-                "tailtriage request completion was finished more than once; each request must be finished exactly once"
-            );
-            return;
+        if let Some(armed) = self.state.take() {
+            self.tailtriage
+                .resolve_request(armed.pending_key, armed.interval_start, outcome);
         }
-
-        let finished = self
-            .tailtriage
-            .run_clock
-            .finish_interval(self.interval_start);
-        let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
-        let Some(pending) = pending else {
-            debug_assert!(
-                false,
-                "tailtriage request completion token had no pending request entry"
-            );
-            self.finished = true;
-            return;
-        };
-        self.finished = true;
-
-        self.tailtriage
-            .record_request_event(request_event_from_finished_interval(
-                pending, finished, outcome,
-            ));
     }
 }
 
@@ -763,8 +854,6 @@ impl OwnedRequestHandle {
     }
 
     /// Starts queue-wait timing instrumentation for `queue`.
-    ///
-    /// Recording queue events does not finish the request.
     #[must_use]
     pub fn queue(&self, queue: impl Into<String>) -> QueueTimer<'_> {
         QueueTimer {
@@ -777,8 +866,6 @@ impl OwnedRequestHandle {
     }
 
     /// Starts stage timing instrumentation for `stage`.
-    ///
-    /// Recording stage events does not finish the request.
     #[must_use]
     pub fn stage(&self, stage: impl Into<String>) -> StageTimer<'_> {
         StageTimer {
@@ -790,8 +877,6 @@ impl OwnedRequestHandle {
     }
 
     /// Creates an in-flight guard for `gauge`.
-    ///
-    /// In-flight instrumentation does not finish the request lifecycle.
     #[must_use]
     pub fn inflight(&self, gauge: impl Into<String>) -> InflightGuard<'_> {
         self.tailtriage.as_ref().inflight(gauge)
@@ -826,29 +911,10 @@ impl OwnedRequestCompletion {
     }
 
     fn finish_internal(&mut self, outcome: Outcome) {
-        if self.finished {
-            debug_assert!(
-                !self.finished,
-                "tailtriage request completion was finished more than once; each request must be finished exactly once"
-            );
-            return;
+        if let Some(armed) = self.state.take() {
+            self.tailtriage
+                .resolve_request(armed.pending_key, armed.interval_start, outcome);
         }
-
-        let finished = self
-            .tailtriage
-            .run_clock
-            .finish_interval(self.interval_start);
-        let pending = lock_pending(&self.tailtriage.pending_requests).remove(&self.pending_key);
-        let Some(pending) = pending else {
-            self.finished = true;
-            return;
-        };
-        self.finished = true;
-
-        self.tailtriage
-            .record_request_event(request_event_from_finished_interval(
-                pending, finished, outcome,
-            ));
     }
 }
 
@@ -876,19 +942,25 @@ fn request_event_from_finished_interval(
 
 impl Drop for RequestCompletion<'_> {
     fn drop(&mut self) {
-        debug_assert!(
-            self.finished || std::thread::panicking(),
-            "tailtriage request completion dropped without finish(...), finish_ok(), or finish_result(...)"
-        );
+        if let Some(armed) = self.state.take() {
+            self.tailtriage.resolve_request(
+                armed.pending_key,
+                armed.interval_start,
+                Outcome::Cancelled,
+            );
+        }
     }
 }
 
 impl Drop for OwnedRequestCompletion {
     fn drop(&mut self) {
-        debug_assert!(
-            self.finished || std::thread::panicking(),
-            "tailtriage request completion dropped without finish(...), finish_ok(), or finish_result(...)"
-        );
+        if let Some(armed) = self.state.take() {
+            self.tailtriage.resolve_request(
+                armed.pending_key,
+                armed.interval_start,
+                Outcome::Cancelled,
+            );
+        }
     }
 }
 
@@ -904,13 +976,6 @@ fn normalize_for_lifecycle(run: &Run) -> Run {
     run
 }
 
-pub(crate) fn lock_run(run: &Mutex<Run>) -> std::sync::MutexGuard<'_, Run> {
-    match run.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
 pub(crate) fn lock_map(
     map: &Mutex<HashMap<String, u64>>,
 ) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
@@ -920,13 +985,27 @@ pub(crate) fn lock_map(
     }
 }
 
-fn lock_pending(
-    map: &Mutex<HashMap<u64, PendingRequest>>,
-) -> std::sync::MutexGuard<'_, HashMap<u64, PendingRequest>> {
-    match map.lock() {
+fn lock_state(mutex: &Mutex<CollectorState>) -> std::sync::MutexGuard<'_, CollectorState> {
+    match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
+}
+
+fn wait_state_closed<'a>(
+    cell: &CollectorStateCell,
+    guard: std::sync::MutexGuard<'a, CollectorState>,
+) -> std::sync::MutexGuard<'a, CollectorState> {
+    match cell.closed.wait(guard) {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn prior_sink_failure(message: &str) -> SinkError {
+    SinkError::Io(std::io::Error::other(format!(
+        "prior tailtriage sink attempt failed: {message}"
+    )))
 }
 
 pub(crate) fn generate_run_id() -> String {
