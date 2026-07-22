@@ -11,6 +11,7 @@ mod evidence;
 mod options;
 mod route;
 mod scoring;
+mod stage_attribution;
 mod temporal;
 
 pub use evidence::{EvidenceQuality, EvidenceQualityLevel, SignalCoverageStatus};

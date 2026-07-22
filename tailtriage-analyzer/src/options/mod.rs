@@ -108,7 +108,7 @@ impl Default for ExecutorOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DownstreamOptions {
-    /// Minimum stage sample count required before downstream-stage suspect ranking can trigger.
+    /// Minimum distinct completed-request count with retained evidence for a stage before downstream-stage suspect ranking can trigger.
     pub min_stage_samples: usize,
     /// Stage-name substrings used to detect downstream evidence that may correlate with blocking work.
     pub blocking_correlated_stage_patterns: Vec<String>,

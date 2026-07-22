@@ -94,6 +94,8 @@ Signal families used for scoring:
 - **Executor pressure**: global queue depth, local queue depth, alive-task signal (when present), in-flight growth, and sample quality.
 - **Downstream dominance**: eligible stage samples, cumulative stage share, tail-request contribution, with stage p95 reported as supporting evidence.
 
+Downstream stage attribution groups retained normalized events by `(stage name, request ID)`. For each group, complete run-relative microsecond intervals use overlap-safe union, so repeated, nested, touching, duplicate, or overlapping same-name events cannot inflate one request beyond elapsed covered time; disjoint repeated events remain additive. If any event in that request-stage group lacks complete run-relative precision, attribution falls back to a capped sum of authoritative `latency_us` values for that group. Stage p95 is calculated from one attributed duration per stage-bearing request, cumulative and tail shares sum those per-request attributed durations, and `downstream.min_stage_samples` means distinct completed requests with retained evidence for that stage rather than raw event count. Different stage names are attributed independently and are not subtracted from each other. Suspects remain triage leads, not proof.
+
 Downstream candidate selection filters out very low-sample stages before ranking. That keeps sparse stage noise from outranking better-supported leads.
 
 Blocking-looking stage names (for example `spawn_blocking`-style paths) can corroborate blocking-pool pressure when runtime blocking signals are strong; they are not always treated as independent downstream root-cause leads.
