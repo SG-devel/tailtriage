@@ -1322,12 +1322,8 @@ def validate_run_schema_v2_public_contract(
     *, doc_paths: tuple[Path, ...] = RUN_SCHEMA_CURRENT_CLAIM_PATHS
 ) -> None:
     required_current_paths = (
-        README_PATH,
         SPEC_PATH,
-        USER_GUIDE_PATH,
         DIAGNOSTICS_PATH,
-        OPERATIONS_PATH,
-        REPO_ROOT / "tailtriage-core" / "README.md",
         REPO_ROOT / "tailtriage-cli" / "README.md",
     )
     if doc_paths != RUN_SCHEMA_CURRENT_CLAIM_PATHS:

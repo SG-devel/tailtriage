@@ -2543,13 +2543,16 @@ mod tests {
         ));
         assert!(active.artifact_path.exists());
 
-        let run = read_run(&active.artifact_path);
+        let artifact = read_artifact(&active.artifact_path);
+        let raw: serde_json::Value = serde_json::from_str(&artifact).expect("artifact JSON");
+        assert_eq!(raw["schema_version"], serde_json::json!(2));
+        assert!(raw["metadata"]["started_at_unix_ms"].is_u64());
+        assert!(raw["metadata"]["finalized_at_unix_ms"].is_u64());
+        assert!(raw["metadata"].get("finished_at_unix_ms").is_none());
+        let run: Run = serde_json::from_str(&artifact).expect("artifact should parse as Run");
         assert_eq!(run.schema_version, tailtriage_core::SCHEMA_VERSION);
-        assert!(run.metadata.finalized_at_unix_ms.is_some());
-        assert!(
-            run.metadata.finalized_at_unix_ms.expect("finalized")
-                >= run.metadata.started_at_unix_ms
-        );
+        let finalized = run.metadata.finalized_at_unix_ms.expect("finalized");
+        assert!(finalized >= run.metadata.started_at_unix_ms);
         assert_eq!(
             run.metadata.run_end_reason,
             Some(tailtriage_core::RunEndReason::Shutdown)

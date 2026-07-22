@@ -747,7 +747,3 @@ Core Run integrity contract:
 - Strict entry points validate the original unnormalized candidate and reject error-level core findings. Warning-only missing optional precision does not reject.
 - Current tracing provenance keeps retained source spans private through normalization and writes completed-span JSONL directly from retained original sources. Prompt 05 owns public tracing API simplification; Prompt 06 owns compatibility-mode removal and stable-wrapper-only input.
 
-
-## Run JSON schema v2 finalization
-
-Run metadata uses `started_at_unix_ms` and optional `finalized_at_unix_ms`. Active in-memory snapshots keep finalization absent; completed artifacts set it. Event-level `finished_at_unix_ms` fields remain interval evidence.

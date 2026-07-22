@@ -480,7 +480,3 @@ A plain live session still captures request, stage, and queue evidence. Backgrou
 
 Run JSON is the complete persisted artifact. Completed-span JSONL output contains retained original tracing source records and preserves the retained original source identity for replayable tracing evidence, but it omits runtime snapshots and other Run-only state. Each output file is an independent transaction, so completed-span JSONL and Run JSON are written, flushed, and renamed separately.
 
-
-## Run JSON schema v2 finalization
-
-Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Active snapshots have no finalization timestamp and serialize `metadata.finalized_at_unix_ms` as `null`. Completed Run JSON artifacts have a numeric `metadata.finalized_at_unix_ms`. Schema-v1 Run JSON is not accepted by the current CLI and must be regenerated with a current tailtriage version. Event-level completion timestamps, such as request, stage, queue, and tracing-span timestamps, remain unchanged.

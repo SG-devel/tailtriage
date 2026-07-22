@@ -71,7 +71,9 @@ async fn tracing_session_shutdown_output_is_finalized() {
     });
 
     wait_for_runtime_snapshot(&session).await;
+    let before_shutdown = unix_time_ms();
     let imported = session.shutdown().await.expect("shutdown session");
+    let after_shutdown = unix_time_ms();
     let run = imported.run();
     assert!(!run.requests.is_empty());
     assert!(!run.stages.is_empty());
@@ -84,6 +86,8 @@ async fn tracing_session_shutdown_output_is_finalized() {
         .metadata
         .finalized_at_unix_ms
         .expect("shutdown output is finalized");
+    assert!(before_shutdown <= finalized);
+    assert!(finalized <= after_shutdown);
     assert!(finalized >= run.metadata.started_at_unix_ms);
     let max_evidence_end = run
         .requests
@@ -207,7 +211,9 @@ async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
     assert_eq!(snapshot.run().metadata.started_at_unix_ms, 42);
     assert!(snapshot.run().metadata.finalized_at_unix_ms.is_none());
 
+    let before_shutdown = unix_time_ms();
     let imported = session.shutdown().await.expect("shutdown");
+    let after_shutdown = unix_time_ms();
     assert_eq!(imported.run().runtime_snapshots.len(), 1);
     assert_eq!(imported.run().runtime_snapshots[0].at_unix_ms, 42);
     let finalized = imported
@@ -215,8 +221,12 @@ async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
         .metadata
         .finalized_at_unix_ms
         .expect("shutdown finalizes run");
+    assert!(before_shutdown <= finalized);
+    assert!(finalized <= after_shutdown);
     assert!(finalized >= imported.run().metadata.started_at_unix_ms);
     assert!(finalized >= 42);
+    let serialized = serde_json::to_value(imported.run()).expect("serialize run");
+    assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
     assert!(imported
         .run()
         .metadata

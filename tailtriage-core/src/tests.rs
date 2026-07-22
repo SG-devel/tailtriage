@@ -421,9 +421,22 @@ fn shutdown_sets_one_finalization_timestamp() {
         .expect("build should succeed");
 
     tailtriage.begin_request("/health").completion.finish_ok();
+    let before_shutdown = crate::unix_time_ms();
     tailtriage.shutdown().expect("shutdown should succeed");
+    let after_shutdown = crate::unix_time_ms();
 
     let bytes = std::fs::read(output).expect("artifact should exist");
+    let raw: serde_json::Value =
+        serde_json::from_slice(&bytes).expect("artifact should parse as JSON");
+    assert_eq!(raw["schema_version"], serde_json::json!(2));
+    assert!(raw["metadata"]["started_at_unix_ms"].is_u64());
+    assert!(raw["metadata"]["finalized_at_unix_ms"].is_u64());
+    assert!(raw["metadata"].get("finished_at_unix_ms").is_none());
+    let raw_finalized = raw["metadata"]["finalized_at_unix_ms"]
+        .as_u64()
+        .expect("raw finalized timestamp is numeric");
+    assert!(before_shutdown <= raw_finalized);
+    assert!(raw_finalized <= after_shutdown);
     let run: crate::Run = serde_json::from_slice(&bytes).expect("artifact should deserialize");
     assert_eq!(run.schema_version, crate::SCHEMA_VERSION);
     assert_eq!(run.requests.len(), 1);
@@ -435,10 +448,12 @@ fn shutdown_sets_one_finalization_timestamp() {
             .capture_limits,
         CaptureMode::Light.core_defaults()
     );
-    assert!(
-        run.metadata.finalized_at_unix_ms.is_some(),
-        "shutdown artifact should include finalized timestamp"
-    );
+    let typed_finalized = run
+        .metadata
+        .finalized_at_unix_ms
+        .expect("shutdown artifact should include finalized timestamp");
+    assert_eq!(typed_finalized, raw_finalized);
+    assert!(typed_finalized >= run.metadata.started_at_unix_ms);
 }
 
 #[test]

@@ -45,18 +45,8 @@ pub(crate) fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> Im
             .map(|snapshot| snapshot.at_unix_ms)
             .min()
             .expect("non-empty runtime snapshots have a minimum timestamp");
-        let runtime_max = tracing_run
-            .runtime_snapshots
-            .iter()
-            .map(|snapshot| snapshot.at_unix_ms)
-            .max()
-            .expect("non-empty runtime snapshots have a maximum timestamp");
-
         tracing_run.metadata.started_at_unix_ms =
             tracing_run.metadata.started_at_unix_ms.min(runtime_min);
-        if let Some(existing) = tracing_run.metadata.finalized_at_unix_ms {
-            tracing_run.metadata.finalized_at_unix_ms = Some(existing.max(runtime_max));
-        }
     }
     tracing_run.metadata.effective_tokio_sampler_config =
         runtime_run.metadata.effective_tokio_sampler_config;
@@ -160,8 +150,8 @@ mod tests {
     }
 
     #[test]
-    fn merge_runtime_data_widens_finalized_input_lifecycle() {
-        let imported = ImportedRun::new(base_run(100, Some(120)), Vec::new());
+    fn merge_runtime_data_preserves_finalized_input_lifecycle() {
+        let imported = ImportedRun::new(base_run(100, Some(500)), Vec::new());
         let mut runtime = base_run(250, Some(300));
         runtime.runtime_snapshots.push(RuntimeSnapshot {
             at_unix_ms: 150,
@@ -177,7 +167,7 @@ mod tests {
         let run = merged.run();
 
         assert_eq!(run.metadata.started_at_unix_ms, 100);
-        assert_eq!(run.metadata.finalized_at_unix_ms, Some(150));
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(500));
         assert_eq!(run.runtime_snapshots.len(), 1);
     }
 }

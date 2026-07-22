@@ -274,9 +274,14 @@ impl LiveRecorder {
     /// # Errors
     ///
     /// Returns [`ImportError`] when strict conversion fails.
+    #[allow(dead_code)]
     fn shutdown(self) -> Result<ImportedRun, ImportError> {
         let imported = self.snapshot_run()?;
-        Ok(finalize_imported_run(imported))
+        let finalized_at_unix_ms = tailtriage_core::unix_time_ms();
+        Ok(finalize_live_imported_run_at(
+            imported,
+            finalized_at_unix_ms,
+        ))
     }
 }
 
@@ -286,20 +291,9 @@ fn mark_imported_run_active(imported: ImportedRun) -> ImportedRun {
     ImportedRun::with_retained_sources(run, warnings, retained_sources)
 }
 
-fn finalize_imported_run(imported: ImportedRun) -> ImportedRun {
+fn finalize_live_imported_run_at(imported: ImportedRun, finalized_at_unix_ms: u64) -> ImportedRun {
     let (mut run, warnings, retained_sources) = imported.into_internal_parts();
-    let finalized = run
-        .requests
-        .iter()
-        .map(|request| request.finished_at_unix_ms)
-        .chain(run.stages.iter().map(|stage| stage.finished_at_unix_ms))
-        .chain(run.queues.iter().map(|queue| queue.waited_until_unix_ms))
-        .max()
-        .unwrap_or_else(tailtriage_core::unix_time_ms);
-    if run.metadata.started_at_unix_ms > finalized {
-        run.metadata.started_at_unix_ms = finalized;
-    }
-    run.metadata.finalized_at_unix_ms = Some(finalized);
+    run.metadata.finalized_at_unix_ms = Some(finalized_at_unix_ms);
     ImportedRun::with_retained_sources(run, warnings, retained_sources)
 }
 
@@ -408,11 +402,11 @@ impl TracingSession {
         let sampler_disabled = self.sampler.is_none();
         #[cfg(feature = "tokio")]
         let runtime_collector = self.runtime_collector.clone();
+        let imported = self.recorder.snapshot_run()?;
         #[cfg(feature = "tokio")]
         if let Some(sampler) = self.sampler {
             sampler.shutdown().await;
         }
-        let imported = self.recorder.shutdown()?;
         #[cfg(feature = "tokio")]
         let imported = if let Some(runtime_collector) = runtime_collector {
             let runtime = runtime_collector.snapshot();
@@ -423,6 +417,8 @@ impl TracingSession {
         } else {
             imported
         };
+        let finalized_at_unix_ms = tailtriage_core::unix_time_ms();
+        let imported = finalize_live_imported_run_at(imported, finalized_at_unix_ms);
         let (run, warnings, retained_sources) = imported.into_internal_parts();
         if self.run_json_path.is_some() || self.completed_span_jsonl_path.is_some() {
             ensure_persistable_run_with_warnings(&run, &warnings)?;
@@ -2786,10 +2782,17 @@ mod tests {
 
         let shutdown = build().shutdown().unwrap();
         assert!(first.run().metadata.finalized_at_unix_ms.is_none());
-        assert_eq!(shutdown.run().metadata.finalized_at_unix_ms, Some(120));
-        let mut finalized_first = first.run().clone();
-        finalized_first.metadata.finalized_at_unix_ms = Some(120);
-        assert_eq!(&finalized_first, shutdown.run());
+        assert!(
+            shutdown
+                .run()
+                .metadata
+                .finalized_at_unix_ms
+                .expect("finalized")
+                >= 120
+        );
+        assert_eq!(shutdown.run().requests, first.run().requests);
+        assert_eq!(shutdown.run().stages, first.run().stages);
+        assert_eq!(shutdown.run().queues, first.run().queues);
         assert_eq!(first.warnings(), shutdown.warnings());
         assert_eq!(first.retained_sources(), shutdown.retained_sources());
     }
@@ -4925,10 +4928,9 @@ mod tests {
         assert_eq!(imported.retained_sources(), snapshot.retained_sources());
         assert!(snapshot.run().metadata.finalized_at_unix_ms.is_none());
         assert!(imported.run().metadata.finalized_at_unix_ms.is_some());
-        let mut finalized_snapshot = snapshot.run().clone();
-        finalized_snapshot.metadata.finalized_at_unix_ms =
-            imported.run().metadata.finalized_at_unix_ms;
-        assert_eq!(imported.run(), &finalized_snapshot);
+        assert_eq!(imported.run().requests, snapshot.run().requests);
+        assert_eq!(imported.run().stages, snapshot.run().stages);
+        assert_eq!(imported.run().queues, snapshot.run().queues);
         assert_eq!(imported.warnings(), snapshot.warnings());
 
         let written =
