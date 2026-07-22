@@ -84,13 +84,48 @@ fn generated_default_run_ids_are_unique() {
 }
 
 #[test]
-fn active_snapshot_is_not_finalized() {
+fn active_snapshot_has_no_finalization_timestamp() {
     let tailtriage = Tailtriage::builder("payments")
         .build()
         .expect("build should succeed");
 
     let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.schema_version, crate::SCHEMA_VERSION);
     assert!(snapshot.metadata.finalized_at_unix_ms.is_none());
+    let serialized = serde_json::to_value(&snapshot).expect("snapshot serializes");
+    assert!(serialized["metadata"].get("finalized_at_unix_ms").is_some());
+    assert!(serialized["metadata"]["finalized_at_unix_ms"].is_null());
+    assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
+}
+
+#[test]
+fn serialized_completed_run_uses_schema_v2_finalization_shape() {
+    let run = crate::RunBuilder::new(
+        crate::RunBuilderOptions::new("svc")
+            .started_at_unix_ms(1)
+            .finalized_at_unix_ms(2),
+    )
+    .expect("builder")
+    .finish();
+    let serialized = serde_json::to_value(&run).expect("run serializes");
+    assert_eq!(serialized["schema_version"], serde_json::json!(2));
+    assert_eq!(
+        serialized["metadata"]["started_at_unix_ms"],
+        serde_json::json!(1)
+    );
+    assert_eq!(
+        serialized["metadata"]["finalized_at_unix_ms"],
+        serde_json::json!(2)
+    );
+}
+
+#[test]
+fn serialized_run_has_no_metadata_finished_at_unix_ms() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
+        .expect("builder")
+        .finish();
+    let serialized = serde_json::to_value(&run).expect("run serializes");
+    assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
 }
 
 #[test]
@@ -182,7 +217,7 @@ fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
     }));
     assert_eq!(
         written.metadata.finalized_at_unix_ms,
-        Some(written.metadata.finished_at_unix_ms)
+        Some(written.metadata.finalized_at_unix_ms.expect("finalized"))
     );
 }
 
@@ -380,7 +415,7 @@ fn unfinished_requests_still_trigger_strict_lifecycle_errors() {
 }
 
 #[test]
-fn shutdown_writes_artifact() {
+fn shutdown_sets_one_finalization_timestamp() {
     let output = std::env::temp_dir().join("tailtriage-core-shutdown.json");
     let tailtriage = Tailtriage::builder("payments")
         .output(&output)
@@ -894,7 +929,7 @@ fn mode_does_not_change_event_types_or_lifecycle_shape() {
 }
 
 #[test]
-fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
+fn schema_v2_artifact_without_effective_core_config_deserializes_as_unknown() {
     let legacy = serde_json::json!({
         "schema_version": crate::SCHEMA_VERSION,
         "metadata": {
@@ -902,7 +937,7 @@ fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
             "service_name": "payments",
             "service_version": null,
             "started_at_unix_ms": 1,
-            "finished_at_unix_ms": 2,
+            "finalized_at_unix_ms": 2,
             "mode": "investigation",
             "host": null,
             "pid": 123,
@@ -959,10 +994,10 @@ fn legacy_artifact_without_effective_core_config_deserializes_as_unknown() {
         }
     });
 
-    let parsed: crate::Run = serde_json::from_value(legacy).expect("legacy run should parse");
+    let parsed: crate::Run = serde_json::from_value(legacy).expect("run should parse");
     assert_eq!(parsed.metadata.mode, CaptureMode::Investigation);
     assert!(parsed.metadata.effective_core_config.is_none());
-    assert!(parsed.metadata.finalized_at_unix_ms.is_none());
+    assert_eq!(parsed.metadata.finalized_at_unix_ms, Some(2));
     assert_eq!(parsed.requests[0].started_at_run_us, None);
     assert_eq!(parsed.requests[0].finished_at_run_us, None);
     assert_eq!(parsed.stages[0].started_at_run_us, None);
@@ -982,7 +1017,7 @@ fn run_deserialization_ignores_unknown_metadata_fields() {
             "service_name": "payments",
             "service_version": null,
             "started_at_unix_ms": 1,
-            "finished_at_unix_ms": 2,
+            "finalized_at_unix_ms": 2,
             "mode": "light",
             "host": null,
             "pid": 123,
@@ -1043,7 +1078,7 @@ fn run_deserialization_ignores_unknown_metadata_fields() {
     let parsed: crate::Run =
         serde_json::from_value(with_extra).expect("run with extra fields should parse");
     assert_eq!(parsed.metadata.run_id, "run-extra");
-    assert!(parsed.metadata.finalized_at_unix_ms.is_none());
+    assert_eq!(parsed.metadata.finalized_at_unix_ms, Some(2));
 }
 
 #[test]
@@ -1230,7 +1265,6 @@ fn run_builder_creates_empty_run_with_explicit_metadata() {
             .capture_limits(limits)
             .strict_lifecycle(true)
             .started_at_unix_ms(100)
-            .finished_at_unix_ms(200)
             .finalized_at_unix_ms(300)
             .host("svc-host")
             .pid(42)
@@ -1252,11 +1286,11 @@ fn run_builder_creates_empty_run_with_explicit_metadata() {
         .expect("ok");
     let run = builder.finish();
 
+    assert_eq!(run.schema_version, crate::SCHEMA_VERSION);
     assert_eq!(run.metadata.service_name, "payments");
     assert_eq!(run.metadata.service_version.as_deref(), Some("1.2.3"));
     assert_eq!(run.metadata.run_id, "run-explicit");
     assert_eq!(run.metadata.started_at_unix_ms, 100);
-    assert_eq!(run.metadata.finished_at_unix_ms, 200);
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(300));
     assert_eq!(run.metadata.mode, CaptureMode::Investigation);
     assert_eq!(run.metadata.host.as_deref(), Some("svc-host"));
@@ -1303,53 +1337,44 @@ fn run_builder_defaults_host_and_pid_to_none() {
 }
 
 #[test]
-fn run_builder_default_finalized_timestamp_is_some() {
+fn run_builder_defaults_start_and_finalization_from_one_timestamp() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("ok")
         .finish();
-    assert!(run.metadata.finalized_at_unix_ms.is_some());
+    assert_eq!(
+        run.metadata.finalized_at_unix_ms,
+        Some(run.metadata.started_at_unix_ms)
+    );
 }
 
 #[test]
-fn run_builder_defaults_finalized_timestamp_to_finished_timestamp() {
+fn run_builder_preserves_explicit_start_and_finalization() {
     let run = crate::RunBuilder::new(
         crate::RunBuilderOptions::new("svc")
             .started_at_unix_ms(100)
-            .finished_at_unix_ms(200),
-    )
-    .expect("ok")
-    .finish();
-    assert_eq!(run.metadata.finished_at_unix_ms, 200);
-    assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
-}
-
-#[test]
-fn run_builder_preserves_explicit_finalized_timestamp() {
-    let run = crate::RunBuilder::new(
-        crate::RunBuilderOptions::new("svc")
-            .started_at_unix_ms(100)
-            .finished_at_unix_ms(200)
             .finalized_at_unix_ms(777),
     )
     .expect("ok")
     .finish();
+    assert_eq!(run.metadata.started_at_unix_ms, 100);
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(777));
 }
 
 #[test]
-fn run_builder_preserves_explicit_timestamps_exactly() {
-    let run = crate::RunBuilder::new(
-        crate::RunBuilderOptions::new("svc")
-            .started_at_unix_ms(100)
-            .finished_at_unix_ms(150)
-            .finalized_at_unix_ms(200),
-    )
-    .expect("ok")
-    .finish();
+fn run_builder_preserves_explicit_start_with_default_finalization() {
+    let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").started_at_unix_ms(100))
+        .expect("ok")
+        .finish();
+    assert!(run.metadata.finalized_at_unix_ms.expect("finalized") >= 100);
+}
 
-    assert_eq!(run.metadata.started_at_unix_ms, 100);
-    assert_eq!(run.metadata.finished_at_unix_ms, 150);
-    assert_eq!(run.metadata.finalized_at_unix_ms, Some(200));
+#[test]
+fn run_builder_preserves_explicit_finalization_with_default_start() {
+    let run =
+        crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").finalized_at_unix_ms(u64::MAX))
+            .expect("ok")
+            .finish();
+    assert_eq!(run.metadata.finalized_at_unix_ms, Some(u64::MAX));
 }
 
 #[test]
@@ -1357,50 +1382,29 @@ fn run_builder_allows_equal_timestamp_bounds() {
     let run = crate::RunBuilder::new(
         crate::RunBuilderOptions::new("svc")
             .started_at_unix_ms(100)
-            .finished_at_unix_ms(100)
             .finalized_at_unix_ms(100),
     )
     .expect("ok")
     .finish();
 
     assert_eq!(run.metadata.started_at_unix_ms, 100);
-    assert_eq!(run.metadata.finished_at_unix_ms, 100);
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(100));
 }
 
 #[test]
-fn run_builder_rejects_finished_before_started() {
+fn run_builder_rejects_finalization_before_start() {
     let err = crate::RunBuilder::new(
         crate::RunBuilderOptions::new("svc")
             .started_at_unix_ms(100)
-            .finished_at_unix_ms(99),
-    )
-    .expect_err("should fail");
-
-    assert_eq!(
-        err,
-        BuildError::InvalidRunTimeBounds {
-            started_at_unix_ms: 100,
-            finished_at_unix_ms: 99
-        }
-    );
-}
-
-#[test]
-fn run_builder_rejects_finalized_before_finished() {
-    let err = crate::RunBuilder::new(
-        crate::RunBuilderOptions::new("svc")
-            .started_at_unix_ms(100)
-            .finished_at_unix_ms(150)
-            .finalized_at_unix_ms(149),
+            .finalized_at_unix_ms(99),
     )
     .expect_err("should fail");
 
     assert_eq!(
         err,
         BuildError::InvalidFinalizationTime {
-            finished_at_unix_ms: 150,
-            finalized_at_unix_ms: 149
+            started_at_unix_ms: 100,
+            finalized_at_unix_ms: 99
         }
     );
 }
@@ -1412,11 +1416,11 @@ fn run_builder_default_timestamps_produce_valid_finalized_run() {
         .finish();
 
     assert!(run.metadata.finalized_at_unix_ms.is_some());
-    assert!(run.metadata.finished_at_unix_ms >= run.metadata.started_at_unix_ms);
     assert!(
-        run.metadata.finalized_at_unix_ms.expect("finalized") >= run.metadata.finished_at_unix_ms
+        run.metadata.finalized_at_unix_ms.expect("finalized") >= run.metadata.started_at_unix_ms
     );
 }
+
 #[test]
 fn run_builder_strict_lifecycle_in_effective_core_config() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").strict_lifecycle(true))
@@ -2043,7 +2047,6 @@ mod run_validation_contract {
             service_name: "svc".into(),
             service_version: None,
             started_at_unix_ms: 1_000,
-            finished_at_unix_ms: 2_000,
             finalized_at_unix_ms: Some(2_000),
             mode: CaptureMode::Light,
             effective_core_config: None,

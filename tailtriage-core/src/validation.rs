@@ -443,25 +443,15 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
             "metadata.service_name must not be blank",
         );
     }
-    if run.metadata.finished_at_unix_ms < run.metadata.started_at_unix_ms {
-        ctx.issue(
-            RunSection::Metadata,
-            None,
-            Some("finished_at_unix_ms"),
-            RunValidationIssueCode::InvertedInterval,
-            RunValidationSeverity::Error,
-            "metadata finished time is before started time",
-        );
-    }
-    if let Some(f) = run.metadata.finalized_at_unix_ms {
-        if f < run.metadata.finished_at_unix_ms {
+    if let Some(finalized_at_unix_ms) = run.metadata.finalized_at_unix_ms {
+        if finalized_at_unix_ms < run.metadata.started_at_unix_ms {
             ctx.issue(
                 RunSection::Metadata,
                 None,
                 Some("finalized_at_unix_ms"),
                 RunValidationIssueCode::InvertedInterval,
                 RunValidationSeverity::Error,
-                "metadata finalization time is before finished time",
+                "metadata finalization time is before started time",
             );
         }
     }

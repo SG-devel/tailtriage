@@ -473,7 +473,6 @@ mod tests {
             service_name: "checkout-service".to_owned(),
             service_version: Some("1.2.3".to_owned()),
             started_at_unix_ms: 10,
-            finished_at_unix_ms: 20,
             finalized_at_unix_ms: None,
             mode: tailtriage_core::CaptureMode::Light,
             effective_core_config: None,

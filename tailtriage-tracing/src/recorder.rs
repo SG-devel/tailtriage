@@ -262,7 +262,9 @@ impl LiveRecorder {
                 },
             )
         };
-        imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)
+        let imported =
+            imported_with_drop_warnings(spans, self.options.clone(), &stats, self.limits)?;
+        Ok(mark_imported_run_active(imported))
     }
 
     /// Consumes this recorder handle and returns a final imported run snapshot.
@@ -273,8 +275,32 @@ impl LiveRecorder {
     ///
     /// Returns [`ImportError`] when strict conversion fails.
     fn shutdown(self) -> Result<ImportedRun, ImportError> {
-        self.snapshot_run()
+        let imported = self.snapshot_run()?;
+        Ok(finalize_imported_run(imported))
     }
+}
+
+fn mark_imported_run_active(imported: ImportedRun) -> ImportedRun {
+    let (mut run, warnings, retained_sources) = imported.into_internal_parts();
+    run.metadata.finalized_at_unix_ms = None;
+    ImportedRun::with_retained_sources(run, warnings, retained_sources)
+}
+
+fn finalize_imported_run(imported: ImportedRun) -> ImportedRun {
+    let (mut run, warnings, retained_sources) = imported.into_internal_parts();
+    let finalized = run
+        .requests
+        .iter()
+        .map(|request| request.finished_at_unix_ms)
+        .chain(run.stages.iter().map(|stage| stage.finished_at_unix_ms))
+        .chain(run.queues.iter().map(|queue| queue.waited_until_unix_ms))
+        .max()
+        .unwrap_or_else(tailtriage_core::unix_time_ms);
+    if run.metadata.started_at_unix_ms > finalized {
+        run.metadata.started_at_unix_ms = finalized;
+    }
+    run.metadata.finalized_at_unix_ms = Some(finalized);
+    ImportedRun::with_retained_sources(run, warnings, retained_sources)
 }
 
 impl TracingSession {
@@ -2759,7 +2785,11 @@ mod tests {
         assert_eq!(first.retained_sources(), second.retained_sources());
 
         let shutdown = build().shutdown().unwrap();
-        assert_eq!(first.run(), shutdown.run());
+        assert!(first.run().metadata.finalized_at_unix_ms.is_none());
+        assert_eq!(shutdown.run().metadata.finalized_at_unix_ms, Some(120));
+        let mut finalized_first = first.run().clone();
+        finalized_first.metadata.finalized_at_unix_ms = Some(120);
+        assert_eq!(&finalized_first, shutdown.run());
         assert_eq!(first.warnings(), shutdown.warnings());
         assert_eq!(first.retained_sources(), shutdown.retained_sources());
     }
@@ -4893,7 +4923,12 @@ mod tests {
 
         let imported = futures_executor::block_on(session.shutdown()).unwrap();
         assert_eq!(imported.retained_sources(), snapshot.retained_sources());
-        assert_eq!(imported.run(), snapshot.run());
+        assert!(snapshot.run().metadata.finalized_at_unix_ms.is_none());
+        assert!(imported.run().metadata.finalized_at_unix_ms.is_some());
+        let mut finalized_snapshot = snapshot.run().clone();
+        finalized_snapshot.metadata.finalized_at_unix_ms =
+            imported.run().metadata.finalized_at_unix_ms;
+        assert_eq!(imported.run(), &finalized_snapshot);
         assert_eq!(imported.warnings(), snapshot.warnings());
 
         let written =

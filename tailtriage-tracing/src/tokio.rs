@@ -54,14 +54,11 @@ pub(crate) fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> Im
 
         tracing_run.metadata.started_at_unix_ms =
             tracing_run.metadata.started_at_unix_ms.min(runtime_min);
-        tracing_run.metadata.finished_at_unix_ms =
-            tracing_run.metadata.finished_at_unix_ms.max(runtime_max);
-
         let finalized = tracing_run
             .metadata
             .finalized_at_unix_ms
-            .unwrap_or(tracing_run.metadata.finished_at_unix_ms)
-            .max(tracing_run.metadata.finished_at_unix_ms);
+            .unwrap_or(tracing_run.metadata.started_at_unix_ms)
+            .max(runtime_max);
         tracing_run.metadata.finalized_at_unix_ms = Some(finalized);
     }
     tracing_run.metadata.effective_tokio_sampler_config =

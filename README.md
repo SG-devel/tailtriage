@@ -392,3 +392,8 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 The canonical user documentation index lives in [`docs/README.md`](docs/README.md).
 
 Start there for the user workflow, crate selection, controller configuration, analyzer and CLI contracts, diagnostics interpretation, demos, validation, runtime-cost measurement, collector limits, and architecture.
+
+
+## Run JSON schema v2 finalization
+
+Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Active snapshots have no finalization timestamp and serialize `metadata.finalized_at_unix_ms` as `null`. Completed Run JSON artifacts have a numeric `metadata.finalized_at_unix_ms`. Schema-v1 Run JSON is not accepted by the current CLI and must be regenerated with a current tailtriage version. Event completion timestamps, such as request, stage, queue, and tracing-span timestamps, remain unchanged.

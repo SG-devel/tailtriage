@@ -23,7 +23,19 @@ async fn wait_for_runtime_snapshot(session: &TracingSession) {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn session_merges_tracing_and_runtime() {
+async fn tracing_session_snapshot_is_unfinalized() {
+    let session = TracingSession::builder("svc")
+        .build()
+        .expect("start session");
+    let imported = session.snapshot_run().expect("snapshot run");
+    let run = imported.run();
+    assert_eq!(run.schema_version, tailtriage_core::SCHEMA_VERSION);
+    assert!(run.metadata.finalized_at_unix_ms.is_none());
+    session.shutdown().await.expect("shutdown session");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn tracing_session_shutdown_output_is_finalized() {
     let session = TracingSession::builder("svc")
         .sampler_interval(Duration::from_millis(1))
         .build()
@@ -68,7 +80,7 @@ async fn session_merges_tracing_and_runtime() {
     assert!(run.metadata.effective_tokio_sampler_config.is_some());
     assert_eq!(
         run.metadata.finalized_at_unix_ms,
-        Some(run.metadata.finished_at_unix_ms)
+        Some(run.metadata.finalized_at_unix_ms.expect("finalized"))
     );
 }
 

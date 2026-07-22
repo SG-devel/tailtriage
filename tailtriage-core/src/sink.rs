@@ -243,7 +243,6 @@ mod tests {
             service_name: "checkout".to_string(),
             service_version: Some("1.0.0".to_string()),
             started_at_unix_ms: 1,
-            finished_at_unix_ms: 2,
             finalized_at_unix_ms: Some(2),
             mode: CaptureMode::Light,
             effective_core_config: Some(crate::EffectiveCoreConfig {

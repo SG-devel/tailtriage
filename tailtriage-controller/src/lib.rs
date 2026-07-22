@@ -2523,7 +2523,7 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_active_generation_finalizes_and_disables_even_with_inflight_request() {
+    fn controller_output_is_finalized_schema_v2() {
         let output = test_output("shutdown-active");
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
@@ -2544,6 +2544,12 @@ mod tests {
         assert!(active.artifact_path.exists());
 
         let run = read_run(&active.artifact_path);
+        assert_eq!(run.schema_version, tailtriage_core::SCHEMA_VERSION);
+        assert!(run.metadata.finalized_at_unix_ms.is_some());
+        assert!(
+            run.metadata.finalized_at_unix_ms.expect("finalized")
+                >= run.metadata.started_at_unix_ms
+        );
         assert_eq!(
             run.metadata.run_end_reason,
             Some(tailtriage_core::RunEndReason::Shutdown)

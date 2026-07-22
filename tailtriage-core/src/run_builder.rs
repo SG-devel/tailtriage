@@ -28,7 +28,6 @@ pub struct RunBuilderOptions {
     capture_limits: Option<CaptureLimits>,
     strict_lifecycle: bool,
     started_at_unix_ms: Option<u64>,
-    finished_at_unix_ms: Option<u64>,
     finalized_at_unix_ms: Option<u64>,
     host: Option<String>,
     pid: Option<u32>,
@@ -47,7 +46,6 @@ impl RunBuilderOptions {
             capture_limits: None,
             strict_lifecycle: false,
             started_at_unix_ms: None,
-            finished_at_unix_ms: None,
             finalized_at_unix_ms: None,
             host: None,
             pid: None,
@@ -89,12 +87,6 @@ impl RunBuilderOptions {
     #[must_use]
     pub const fn started_at_unix_ms(mut self, started_at_unix_ms: u64) -> Self {
         self.started_at_unix_ms = Some(started_at_unix_ms);
-        self
-    }
-    /// Sets finish timestamp in unix milliseconds.
-    #[must_use]
-    pub const fn finished_at_unix_ms(mut self, finished_at_unix_ms: u64) -> Self {
-        self.finished_at_unix_ms = Some(finished_at_unix_ms);
         self
     }
     /// Sets finalization timestamp in unix milliseconds.
@@ -179,11 +171,8 @@ impl RunBuilder {
     ///
     /// Returns [`BuildError::EmptyServiceName`] when the service name is blank.
     ///
-    /// Returns [`BuildError::InvalidRunTimeBounds`] when finished timestamp is
-    /// earlier than start timestamp.
-    ///
     /// Returns [`BuildError::InvalidFinalizationTime`] when finalization
-    /// timestamp is earlier than finished timestamp.
+    /// timestamp is earlier than start timestamp.
     pub fn new(options: RunBuilderOptions) -> Result<Self, BuildError> {
         if options.service_name.trim().is_empty() {
             return Err(BuildError::EmptyServiceName);
@@ -195,21 +184,12 @@ impl RunBuilder {
             .unwrap_or_else(|| mode.core_defaults());
         let ts = unix_time_ms();
         let started_at_unix_ms = options.started_at_unix_ms.unwrap_or(ts);
-        let finished_at_unix_ms = options.finished_at_unix_ms.unwrap_or(ts);
-        let finalized_at_unix_ms_value =
-            options.finalized_at_unix_ms.unwrap_or(finished_at_unix_ms);
+        let finalized_at_unix_ms_value = options.finalized_at_unix_ms.unwrap_or(ts);
         let finalized_at_unix_ms = Some(finalized_at_unix_ms_value);
 
-        if finished_at_unix_ms < started_at_unix_ms {
-            return Err(BuildError::InvalidRunTimeBounds {
-                started_at_unix_ms,
-                finished_at_unix_ms,
-            });
-        }
-
-        if finalized_at_unix_ms_value < finished_at_unix_ms {
+        if finalized_at_unix_ms_value < started_at_unix_ms {
             return Err(BuildError::InvalidFinalizationTime {
-                finished_at_unix_ms,
+                started_at_unix_ms,
                 finalized_at_unix_ms: finalized_at_unix_ms_value,
             });
         }
@@ -220,7 +200,6 @@ impl RunBuilder {
                 service_name: options.service_name,
                 service_version: options.service_version,
                 started_at_unix_ms,
-                finished_at_unix_ms,
                 finalized_at_unix_ms,
                 mode,
                 effective_core_config: Some(EffectiveCoreConfig {

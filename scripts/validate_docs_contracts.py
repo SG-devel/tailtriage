@@ -1299,6 +1299,39 @@ def validate_live_tracing_session_public_contract() -> None:
                 f"{path.relative_to(REPO_ROOT)} contains obsolete current live tracing guidance outside migration section: {found}"
             )
 
+
+def validate_run_schema_v2_public_contract() -> None:
+    public_paths = (
+        README_PATH,
+        SPEC_PATH,
+        USER_GUIDE_PATH,
+        OPERATIONS_PATH,
+        REPO_ROOT / "tailtriage-core" / "README.md",
+        REPO_ROOT / "tailtriage-cli" / "README.md",
+    )
+    required = (
+        "Run JSON schema version 2",
+        "metadata.finalized_at_unix_ms",
+        "sole run-level finalization timestamp",
+        "Schema-v1 Run JSON is not accepted",
+        "Event completion timestamps",
+    )
+    for path in public_paths:
+        text = path.read_text(encoding="utf-8")
+        missing = [token for token in required if token not in text]
+        if missing:
+            raise ValueError(f"{path.relative_to(REPO_ROOT)} missing Run schema v2 wording: {missing}")
+        if "metadata.finished_at_unix_ms" in text:
+            raise ValueError(f"{path.relative_to(REPO_ROOT)} documents removed run-level metadata.finished_at_unix_ms")
+        forbidden_claims = (
+            "schema-v1 Run JSON is accepted",
+            "supports schema_version=1",
+            "schema version 1 Run JSON is accepted",
+        )
+        found = [claim for claim in forbidden_claims if claim in text]
+        if found:
+            raise ValueError(f"{path.relative_to(REPO_ROOT)} claims current schema-v1 Run support: {found}")
+
 def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
@@ -1329,6 +1362,7 @@ def main() -> int:
     validate_tracing_completed_jsonl_public_contract()
     validate_tracing_jsonl_no_compat_guidance_contract()
     validate_live_tracing_session_public_contract()
+    validate_run_schema_v2_public_contract()
     print("docs contracts validated successfully")
     return 0
 

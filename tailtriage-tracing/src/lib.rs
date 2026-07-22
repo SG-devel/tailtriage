@@ -360,7 +360,6 @@ where
             service_name: options.service_name().to_owned(),
             service_version: options.service_version_ref().map(ToOwned::to_owned),
             started_at_unix_ms,
-            finished_at_unix_ms,
             finalized_at_unix_ms: Some(finished_at_unix_ms),
             mode,
             effective_core_config: Some(EffectiveCoreConfig {
@@ -625,7 +624,6 @@ fn refresh_normalized_metadata_bounds(run: &mut Run, explicit_run_id: bool) {
         retained_event_time_bounds(&run.requests, &run.stages, &run.queues)
     {
         run.metadata.started_at_unix_ms = started_at_unix_ms;
-        run.metadata.finished_at_unix_ms = finished_at_unix_ms;
         run.metadata.finalized_at_unix_ms = Some(finished_at_unix_ms);
         if !explicit_run_id {
             run.metadata.run_id =
@@ -996,7 +994,6 @@ mod tests {
                 service_name: "svc".to_owned(),
                 service_version: None,
                 started_at_unix_ms: 100,
-                finished_at_unix_ms: 120,
                 finalized_at_unix_ms: Some(120),
                 mode: CaptureMode::Light,
                 effective_core_config: None,
@@ -2102,7 +2099,7 @@ mod tests {
         assert_eq!(run.requests.len(), 1);
         assert_eq!(run.stages.len(), 0);
         assert_eq!(run.metadata.started_at_unix_ms, 100);
-        assert_eq!(run.metadata.finished_at_unix_ms, 120);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 120);
         assert!(run.metadata.run_id.contains("tracing-import-100-120"));
         assert!(imported
             .warnings()
@@ -2625,7 +2622,7 @@ mod tests {
         assert_eq!(run.stages.len(), 0);
         assert_eq!(run.queues.len(), 0);
         assert_eq!(run.metadata.started_at_unix_ms, 100);
-        assert_eq!(run.metadata.finished_at_unix_ms, 120);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 120);
         assert!(run.metadata.run_id.contains("tracing-import-100-120"));
     }
 
@@ -2648,7 +2645,7 @@ mod tests {
         assert_eq!(run.requests.len(), 1);
         assert_eq!(run.queues.len(), 0);
         assert_eq!(run.metadata.started_at_unix_ms, 100);
-        assert_eq!(run.metadata.finished_at_unix_ms, 120);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 120);
         assert!(run.metadata.run_id.contains("tracing-import-100-120"));
     }
 
@@ -2685,7 +2682,7 @@ mod tests {
         assert_eq!(run.requests.len(), max_requests);
         assert_eq!(run.truncation.dropped_requests, 1);
         assert_eq!(run.metadata.started_at_unix_ms, 100);
-        assert_eq!(run.metadata.finished_at_unix_ms, 120);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 120);
         assert!(run.metadata.run_id.contains("tracing-import-100-120"));
         assert!(!imported.warnings().iter().any(|w| w
             .message()
@@ -2729,7 +2726,7 @@ mod tests {
         assert_eq!(run.stages.len(), max_stages);
         assert_eq!(run.truncation.dropped_stages, 1);
         assert_eq!(run.metadata.started_at_unix_ms, 100);
-        assert_eq!(run.metadata.finished_at_unix_ms, 120);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 120);
         assert!(!imported.warnings().iter().any(|w| w
             .message()
             .contains("missing optional 'tt.success'; assumed true")));
@@ -2771,7 +2768,7 @@ mod tests {
         assert_eq!(run.queues.len(), max_queues);
         assert_eq!(run.truncation.dropped_queues, 1);
         assert_eq!(run.metadata.started_at_unix_ms, 100);
-        assert_eq!(run.metadata.finished_at_unix_ms, 120);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 120);
     }
 
     #[test]
@@ -3062,17 +3059,27 @@ mod tests {
         assert!(imported.run().stages.is_empty());
         assert!(imported.run().queues.is_empty());
         assert_eq!(
-            imported.run().metadata.finished_at_unix_ms,
+            imported
+                .run()
+                .metadata
+                .finalized_at_unix_ms
+                .expect("finalized"),
             imported.run().metadata.started_at_unix_ms
         );
         assert_eq!(
             imported.run().metadata.finalized_at_unix_ms,
-            Some(imported.run().metadata.finished_at_unix_ms)
+            Some(
+                imported
+                    .run()
+                    .metadata
+                    .finalized_at_unix_ms
+                    .expect("finalized")
+            )
         );
     }
 
     #[test]
-    fn run_from_span_records_uses_schema_v1_finalization_semantics() {
+    fn tracing_import_uses_min_start_and_max_finish_as_run_bounds() {
         let spans = vec![SpanRecord::new("req", 10, 20)
             .field(TT_KIND, "request")
             .field(TT_REQUEST_ID, "r1")
@@ -3082,7 +3089,7 @@ mod tests {
             .run()
             .clone();
         assert_eq!(run.metadata.started_at_unix_ms, 10);
-        assert_eq!(run.metadata.finished_at_unix_ms, 20);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 20);
         assert_eq!(run.metadata.finalized_at_unix_ms, Some(20));
     }
 
@@ -3133,7 +3140,7 @@ mod tests {
             .run()
             .clone();
         assert_eq!(run.metadata.started_at_unix_ms, 10);
-        assert_eq!(run.metadata.finished_at_unix_ms, 20);
+        assert_eq!(run.metadata.finalized_at_unix_ms.expect("finalized"), 20);
     }
 
     #[test]
@@ -3147,7 +3154,14 @@ mod tests {
         ];
         let imported = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
-        assert_eq!(imported.run().metadata.finished_at_unix_ms, 20);
+        assert_eq!(
+            imported
+                .run()
+                .metadata
+                .finalized_at_unix_ms
+                .expect("finalized"),
+            20
+        );
         assert!(imported
             .run()
             .metadata
@@ -3744,7 +3758,14 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 0);
         assert!(!imported.warnings().is_empty());
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
-        assert_eq!(imported.run().metadata.finished_at_unix_ms, 20);
+        assert_eq!(
+            imported
+                .run()
+                .metadata
+                .finalized_at_unix_ms
+                .expect("finalized"),
+            20
+        );
     }
 
     #[test]
@@ -3782,7 +3803,14 @@ mod tests {
         assert_eq!(imported.run().queues.len(), 0);
         assert!(!imported.warnings().is_empty());
         assert_eq!(imported.run().metadata.started_at_unix_ms, 10);
-        assert_eq!(imported.run().metadata.finished_at_unix_ms, 20);
+        assert_eq!(
+            imported
+                .run()
+                .metadata
+                .finalized_at_unix_ms
+                .expect("finalized"),
+            20
+        );
     }
 
     #[test]

@@ -102,7 +102,6 @@ fn deterministic_native_run() -> Run {
             service_name: "svc".to_owned(),
             service_version: None,
             started_at_unix_ms: start_ms,
-            finished_at_unix_ms: start_ms + 700,
             finalized_at_unix_ms: Some(start_ms + 700),
             mode: CaptureMode::Light,
             effective_core_config: Some(EffectiveCoreConfig {

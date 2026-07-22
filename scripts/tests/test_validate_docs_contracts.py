@@ -18,6 +18,24 @@ import validate_docs_contracts  # noqa: E402
 
 class ValidateDocsContractsTests(unittest.TestCase):
 
+    def test_run_schema_v2_public_contract_rejects_removed_run_metadata_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = []
+            body = """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Schema-v1 Run JSON is not accepted. Event completion timestamps remain unchanged. `metadata.finished_at_unix_ms` is current."""
+            for name in ("README.md", "SPEC.md", "user-guide.md", "operations.md", "core.md", "cli.md"):
+                path = Path(tmp_dir) / name
+                path.write_text(body, encoding="utf-8")
+                paths.append(path)
+            with (
+                mock.patch.object(validate_docs_contracts, "README_PATH", paths[0]),
+                mock.patch.object(validate_docs_contracts, "SPEC_PATH", paths[1]),
+                mock.patch.object(validate_docs_contracts, "USER_GUIDE_PATH", paths[2]),
+                mock.patch.object(validate_docs_contracts, "OPERATIONS_PATH", paths[3]),
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+            ):
+                with self.assertRaisesRegex(ValueError, r"metadata.finished_at_unix_ms"):
+                    validate_docs_contracts.validate_run_schema_v2_public_contract()
+
     def test_governance_strictness_contract_accepts_distinct_policies(self) -> None:
         spec_text = """# Spec
 

@@ -479,3 +479,8 @@ Use `TracingSession` as the current live tracing entry point. Older names may ap
 A plain live session still captures request, stage, and queue evidence. Background runtime sampling is opt-in through `sampler_interval(...)`; compiling Tokio support does not automatically start runtime sampling. Manual runtime collection is opt-in through `manual_runtime_snapshots()`, and manual recording without runtime collection returns a configuration error. Manual snapshots may coexist with background sampling.
 
 Run JSON is the complete persisted artifact. Completed-span JSONL output contains retained original tracing source records and preserves the retained original source identity for replayable tracing evidence, but it omits runtime snapshots and other Run-only state. Each output file is an independent transaction, so completed-span JSONL and Run JSON are written, flushed, and renamed separately.
+
+
+## Run JSON schema v2 finalization
+
+Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Active snapshots have no finalization timestamp and serialize `metadata.finalized_at_unix_ms` as `null`. Completed Run JSON artifacts have a numeric `metadata.finalized_at_unix_ms`. Schema-v1 Run JSON is not accepted by the current CLI and must be regenerated with a current tailtriage version. Event completion timestamps, such as request, stage, queue, and tracing-span timestamps, remain unchanged.
