@@ -19,7 +19,7 @@ pub enum ImportError {
         /// Underlying JSON parser error text.
         reason: String,
     },
-    /// JSONL input did not match the stable tailtriage wrapper shape required by wrapper-only mode.
+    /// JSONL input did not match the stable tailtriage wrapper shape required by the stable tracing JSONL wrapper contract.
     ExpectedTailtriageWrapper {
         /// Human-readable reason the wrapper shape was rejected.
         reason: String,

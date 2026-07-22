@@ -113,7 +113,7 @@ Near-term tasks:
 - keep docs aligned to the implemented tracing-intake path:
   - `TracingSession` as the primary live setup
   - stable completed-span JSONL wrapper (`tailtriage.tracing-span.v1`)
-  - CLI `--input-format` guardrails (`compatible`, `tailtriage-span-jsonl`)
+  - CLI stable import guardrails (the command accepts only `tailtriage.tracing-span.v1`)
   - golden wrapper fixture, examples, and contract tests for request/stage/queue + duration preservation
 - keep positioning explicit: tracing intake converts tracing-shaped evidence into standard Runs for the existing analyzer
 - preserve bounded claims: no tracing backend semantics, no OTel/OTLP, no observability-platform expansion

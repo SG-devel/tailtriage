@@ -656,8 +656,6 @@ fn import_tracing_spans_jsonl_capture_limit_overrides_apply() {
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .arg("--max-requests")
         .arg("1")
         .arg("--max-stages")
@@ -829,7 +827,7 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_rejects_unwra
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
-    std::fs::write(&spans_path, one_valid_request_span_fixture()).expect("fixture should write");
+    std::fs::write(&spans_path, r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}"#).expect("fixture should write");
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("import")
         .arg("tracing-spans-jsonl")
@@ -844,7 +842,7 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_rejects_unwra
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("tailtriage.tracing-span.v1") || stderr.contains("stable wrapper"));
     assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
-    assert!(!stderr.contains("ordinary tracing log JSON"));
+    assert!(!stderr.contains("ordinary tracing formatter JSON"));
     assert!(!run_path.exists());
 }
 
@@ -993,8 +991,8 @@ fn import_tracing_spans_jsonl_default_rejects_fmt_json_with_guidance() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("tailtriage.tracing-span.v1"));
     assert!(stderr.contains("tracing_subscriber::fmt().json() logs are unsupported"));
-    assert!(!stderr.contains("line 1: expected stable wrapper shape"));
-    assert!(!stderr.contains("line 2: expected stable wrapper shape"));
+    assert!(!stderr.contains("line 1: stable import expects wrapper JSONL records"));
+    assert!(!stderr.contains("line 2: stable import expects wrapper JSONL records"));
     assert!(!run_path.exists());
 }
 
@@ -1016,8 +1014,6 @@ fn import_tracing_spans_jsonl_compatible_rejects_ordinary_fmt_json_without_compl
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
     assert!(
@@ -1025,12 +1021,12 @@ fn import_tracing_spans_jsonl_compatible_rejects_ordinary_fmt_json_without_compl
         "cli unexpectedly succeeded: {output:?}"
     );
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("ordinary tracing log JSON"));
+    assert!(stderr.contains("ordinary tracing formatter JSON"));
     assert!(!run_path.exists(), "run json should not be written");
 }
 
 #[test]
-fn import_tracing_spans_jsonl_compatible_accepts_fmt_metadata_with_completed_span_timing() {
+fn import_tracing_spans_jsonl_rejects_fmt_metadata_with_completed_span_timing() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("compatible.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1047,19 +1043,12 @@ fn import_tracing_spans_jsonl_compatible_accepts_fmt_metadata_with_completed_spa
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
-    assert!(output.status.success(), "cli failed: {output:?}");
-    assert_precise_interval_warning_only_in_stderr(&output);
-    assert!(run_path.exists(), "run json should be written");
-
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
-    assert_eq!(loaded.run.requests.len(), 1);
-    assert_eq!(loaded.run.requests[0].route, "/checkout");
-    assert_no_precise_interval_lifecycle_warning(&loaded.run);
+    assert!(!output.status.success(), "cli unexpectedly succeeded");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ordinary tracing formatter JSON is unsupported"));
+    assert!(!run_path.exists(), "run json should not be written");
 }
 
 #[test]
@@ -1072,13 +1061,13 @@ fn import_tracing_spans_jsonl_help_shows_only_live_input_format_values() {
         .expect("cli should run");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("compatible"));
-    assert!(stdout.contains("tailtriage-span-jsonl"));
+    assert!(!stdout.contains("compatible"));
+    assert!(!stdout.contains("tailtriage-span-jsonl"));
     assert!(!stdout.contains("tracing-subscriber-fmt-json"));
 }
 
 #[test]
-fn import_tracing_spans_jsonl_auto_is_rejected() {
+fn import_tracing_spans_jsonl_input_format_compatible_is_clap_unknown_argument() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1092,10 +1081,21 @@ fn import_tracing_spans_jsonl_auto_is_rejected() {
         .arg("--output")
         .arg(&run_path)
         .arg("--input-format")
-        .arg("auto")
+        .arg("compatible")
         .output()
         .expect("cli should run");
     assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("--input-format"), "{stderr}");
+    assert!(
+        stderr.contains("unexpected argument") || stderr.contains("unknown argument"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Usage:"), "{stderr}");
+    assert!(!stderr.contains("tailtriage.tracing-span.v1"), "{stderr}");
+    assert!(!stderr.contains("ExpectedTailtriageWrapper"), "{stderr}");
+    assert!(!stderr.contains("MalformedJsonLine"), "{stderr}");
+    assert!(!run_path.exists());
 }
 
 #[test]
@@ -1114,8 +1114,6 @@ fn import_tracing_spans_jsonl_strict_fails_on_incomplete_tailtriage_span() {
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .arg("--strict")
         .output()
         .expect("cli should run");
@@ -1290,8 +1288,6 @@ fn import_tracing_spans_jsonl_non_strict_writes_output_and_emits_warning_to_stde
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
 
@@ -1325,8 +1321,6 @@ fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
         .arg("run-42")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
 
@@ -1357,8 +1351,6 @@ fn import_tracing_spans_jsonl_accepts_paths_with_spaces() {
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
 
@@ -1388,7 +1380,7 @@ fn import_tracing_spans_jsonl_rejects_whitespace_service_name() {
         .expect("cli should run");
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("expected stable wrapper shape"));
+    assert!(stderr.contains("service name must not be empty"));
     assert!(!run_path.exists(), "run output should not be written");
 }
 
@@ -1433,7 +1425,7 @@ fn import_tracing_spans_jsonl_fails_when_non_strict_skips_all_malformed_tt_spans
         .expect("cli should run");
     assert!(!output.status.success(), "cli unexpectedly succeeded");
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("expected stable wrapper shape"));
+    assert!(stderr.contains("stable import expects wrapper JSONL records"));
     assert!(!stderr.trim().is_empty());
     assert!(!run_path.exists(), "run output should not be written");
 }
@@ -1453,8 +1445,6 @@ fn import_tracing_spans_jsonl_fails_when_only_tt_spans_are_missing_kind() {
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
     assert!(!output.status.success(), "cli unexpectedly succeeded");
@@ -1480,8 +1470,6 @@ fn import_tracing_spans_jsonl_warns_for_tt_fields_missing_kind_and_still_writes_
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
     assert!(
@@ -1519,8 +1507,6 @@ fn import_tracing_spans_jsonl_persists_unknown_kind_warning_in_run_artifact() {
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
 
@@ -1557,8 +1543,6 @@ fn import_tracing_spans_jsonl_persists_optional_default_assumption_warnings_in_r
         .arg("checkout")
         .arg("--output")
         .arg(&run_path)
-        .arg("--input-format")
-        .arg("compatible")
         .output()
         .expect("cli should run");
 
@@ -1676,8 +1660,8 @@ fn valid_cli_artifact_with_requests() -> &'static str {
 }
 
 fn missing_optional_defaults_fixture() -> &'static str {
-    r#"{"span":{"name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
-{"span":{"name":"stage","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"stage","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
 "#
 }
 
@@ -1742,50 +1726,50 @@ fn complete_span_jsonl_fixture() -> &'static str {
 }
 
 fn incomplete_tailtriage_span_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
 "#
 }
 
 fn one_valid_request_span_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }
 
 fn multi_span_jsonl_fixture() -> &'static str {
-    r#"{"span":{"name":"req-1","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
-{"span":{"name":"req-2","started_at_unix_ms":1020,"finished_at_unix_ms":1030,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout"}}}
-{"span":{"name":"stage-1","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
-{"span":{"name":"stage-2","started_at_unix_ms":1021,"finished_at_unix_ms":1029,"fields":{"tt.kind":"stage","tt.request_id":"req-2","tt.stage":"cache"}}}
-{"span":{"name":"queue-1","started_at_unix_ms":1002,"finished_at_unix_ms":1008,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"permits"}}}
-{"span":{"name":"queue-2","started_at_unix_ms":1022,"finished_at_unix_ms":1028,"fields":{"tt.kind":"queue","tt.request_id":"req-2","tt.queue":"permits"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req-1","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"req-2","started_at_unix_ms":1020,"finished_at_unix_ms":1030,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"stage-1","started_at_unix_ms":1001,"finished_at_unix_ms":1009,"fields":{"tt.kind":"stage","tt.request_id":"req-1","tt.stage":"db"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"stage-2","started_at_unix_ms":1021,"finished_at_unix_ms":1029,"fields":{"tt.kind":"stage","tt.request_id":"req-2","tt.stage":"cache"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"queue-1","started_at_unix_ms":1002,"finished_at_unix_ms":1008,"fields":{"tt.kind":"queue","tt.request_id":"req-1","tt.queue":"permits"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"queue-2","started_at_unix_ms":1022,"finished_at_unix_ms":1028,"fields":{"tt.kind":"queue","tt.request_id":"req-2","tt.queue":"permits"}}}
 "#
 }
 
 fn malformed_tailtriage_span_fixture() -> &'static str {
-    r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#
 }
 
 fn mixed_valid_and_incomplete_request_span_fixture() -> &'static str {
-    r#"{"span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
-{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1000,"finished_at_unix_ms":1010,"fields":{"tt.kind":"request","tt.request_id":"req-1"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }
 
 fn mixed_valid_and_missing_kind_fixture() -> &'static str {
-    r#"{"span":{"name":"oops","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
-{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"oops","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }
 
 fn only_missing_kind_tailtriage_spans_fixture() -> &'static str {
-    r#"{"span":{"name":"oops-1","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
-{"span":{"name":"oops-2","started_at_unix_ms":1010,"finished_at_unix_ms":1015,"fields":{"tt.request_id":"req-1","tt.route":"/oops2"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"oops-1","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.request_id":"req-0","tt.route":"/oops"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"oops-2","started_at_unix_ms":1010,"finished_at_unix_ms":1015,"fields":{"tt.request_id":"req-1","tt.route":"/oops2"}}}
 "#
 }
 
 fn mixed_valid_and_unknown_kind_fixture() -> &'static str {
-    r#"{"span":{"name":"unknown","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.kind":"mystery"}}}
-{"span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
+    r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"unknown","started_at_unix_ms":1000,"finished_at_unix_ms":1005,"fields":{"tt.kind":"mystery"}}}
+{"format":"tailtriage.tracing-span.v1","span":{"name":"http.request","started_at_unix_ms":1020,"finished_at_unix_ms":1032,"fields":{"tt.kind":"request","tt.request_id":"req-2","tt.route":"/checkout","tt.outcome":"ok"}}}
 "#
 }
 

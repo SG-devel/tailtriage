@@ -265,8 +265,8 @@ def validate_governance_strictness_contract() -> None:
         "tracing import `--strict` separately controls",
         "does not replace strict run artifact validation",
         "stable wrapper format",
-        "explicitly selected compatibility parser",
-        "supported pre-stable/internal record shapes",
+        "only accepted tracing jsonl file format",
+        "pre-stable/internal jsonl must be regenerated",
     )
     for token in required_tokens:
         if token not in lower_text:
@@ -1191,6 +1191,32 @@ def validate_tracing_completed_jsonl_public_contract() -> None:
     )
 
 
+
+def validate_tracing_jsonl_no_compat_guidance_contract() -> None:
+    public_paths = (
+        README_PATH,
+        SPEC_PATH,
+        USER_GUIDE_PATH,
+        DOCS_INDEX_PATH,
+        ARCHITECTURE_PATH,
+        REPO_ROOT / "tailtriage-cli" / "README.md",
+        REPO_ROOT / "tailtriage-tracing" / "README.md",
+    )
+    disallowed_patterns = (
+        (r"jsonl" + r"parse" + r"mode", "JSONL parse mode API"),
+        (r"wrapper" + r"\s*" + r"-?" + r"\s*" + r"only" + r"\s+" + r"mode", "tracing JSONL wrapper-only mode wording"),
+        (r"--" + r"\s*" + r"input-format", "CLI input format option"),
+        (r"compatible\s+(?:mode|parser|tracing\s+import)", "compatible tracing import guidance"),
+        (r'(?<!"format":"tailtriage\.tracing-span\.v1",)"span"\s*:\s*\{', "unversioned tracing JSONL example"),
+    )
+    for path in public_paths:
+        text = path.read_text(encoding="utf-8")
+        compact = re.sub(r"\s+", " ", text.lower())
+        for pattern, label in disallowed_patterns:
+            if re.search(pattern, compact):
+                raise ValueError(f"{path.relative_to(REPO_ROOT)} contains unsupported tracing JSONL guidance: {label}")
+
+
 def strip_live_tracing_migration_sections(text: str) -> str:
     pattern = re.compile(
         r"^## Live tracing session migration\s*$.*?(?=^##\s+|\Z)",
@@ -1301,6 +1327,7 @@ def main() -> int:
     validate_controller_example_usage_contract()
     validate_sampler_integration_boundary()
     validate_tracing_completed_jsonl_public_contract()
+    validate_tracing_jsonl_no_compat_guidance_contract()
     validate_live_tracing_session_public_contract()
     print("docs contracts validated successfully")
     return 0

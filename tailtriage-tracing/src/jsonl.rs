@@ -1,54 +1,28 @@
-use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 use serde_json::Value;
 
-use crate::{
-    run_from_span_records, FieldValue, ImportError, ImportOptions, ImportedRun, SpanRecord,
-};
+use crate::{run_from_span_records, ImportError, ImportOptions, ImportedRun, SpanRecord};
 
-/// Imports newline-delimited JSON records from a reader into a converted run.
+const FORMAT_MARKER: &str = "tailtriage.tracing-span.v1";
+
+/// Imports newline-delimited stable completed-span JSONL records from a reader into a converted run.
 ///
-/// This parser accepts only the stable wrapper shape
-/// `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
-/// Use [`crate::import_jsonl_reader_with_mode`] with [`JsonlParseMode::Compatible`]
-/// for explicit compatibility parsing.
+/// This parser accepts only records shaped as
+/// `{"format":"tailtriage.tracing-span.v1","span":{...}}`. Empty or
+/// whitespace-only lines are ignored.
 ///
 /// # Errors
 ///
 /// Returns [`ImportError::Io`] for reader I/O failures,
 /// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
+/// [`ImportError::ExpectedTailtriageWrapper`] for structural JSONL shape errors,
 /// and existing field/conversion errors for malformed tailtriage span records
 /// or strict conversion violations surfaced by [`run_from_span_records`].
 pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
-) -> Result<ImportedRun, ImportError> {
-    import_jsonl_reader_with_mode(reader, options, JsonlParseMode::TailtriageWrapperOnly)
-}
-
-/// Parse mode for completed tailtriage tracing span JSONL import.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JsonlParseMode {
-    /// Accept stable wrapper records plus compatibility legacy shapes.
-    Compatible,
-    /// Accept only the stable wrapper shape `{"format":"tailtriage.tracing-span.v1","span":{...}}`.
-    TailtriageWrapperOnly,
-}
-
-/// Imports newline-delimited JSON records from a reader with an explicit parse mode.
-///
-/// # Errors
-///
-/// Returns [`ImportError::Io`] for reader I/O failures,
-/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
-/// and existing field/conversion errors for malformed tailtriage span records
-/// or strict conversion violations surfaced by [`run_from_span_records`].
-pub fn import_jsonl_reader_with_mode<R: Read>(
-    reader: R,
-    options: ImportOptions,
-    mode: JsonlParseMode,
 ) -> Result<ImportedRun, ImportError> {
     let mut spans = Vec::new();
     let mut parse_warnings = Vec::new();
@@ -56,9 +30,10 @@ pub fn import_jsonl_reader_with_mode<R: Read>(
     let strict = options.strict_mode();
 
     for (line_no, line_result) in reader.lines().enumerate() {
+        let line_no = line_no + 1;
         let line = line_result.map_err(|err| ImportError::Io {
             operation: "read jsonl line",
-            context: format!("line {}", line_no + 1),
+            context: format!("line {line_no}"),
             reason: err.to_string(),
         })?;
 
@@ -68,11 +43,11 @@ pub fn import_jsonl_reader_with_mode<R: Read>(
 
         let value: Value =
             serde_json::from_str(&line).map_err(|err| ImportError::MalformedJsonLine {
-                line: line_no + 1,
+                line: line_no,
                 reason: err.to_string(),
             })?;
 
-        if let Some(span) = parse_record(line_no + 1, &value, strict, &mut parse_warnings, mode)? {
+        if let Some(span) = parse_record(line_no, &value, strict, &mut parse_warnings)? {
             spans.push(span);
         }
     }
@@ -105,32 +80,18 @@ fn attach_parse_warnings_to_lifecycle(
     }
 }
 
-/// Imports newline-delimited JSON records from a filesystem path.
+/// Imports newline-delimited stable completed-span JSONL records from a filesystem path.
 ///
 /// # Errors
 ///
 /// Returns [`ImportError::Io`] when path open or line reads fail,
 /// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
+/// [`ImportError::ExpectedTailtriageWrapper`] for structural JSONL shape errors,
 /// and existing field/conversion errors for malformed tailtriage-tagged records
 /// or strict conversion violations.
 pub fn import_jsonl_path(
     path: impl AsRef<Path>,
     options: ImportOptions,
-) -> Result<ImportedRun, ImportError> {
-    import_jsonl_path_with_mode(path, options, JsonlParseMode::TailtriageWrapperOnly)
-}
-
-/// Imports newline-delimited JSON records from a filesystem path with an explicit parse mode.
-///
-/// # Errors
-///
-/// Returns [`ImportError::Io`] for path open/read failures,
-/// [`ImportError::MalformedJsonLine`] for malformed non-empty JSON lines,
-/// and strict/field errors for invalid span records.
-pub fn import_jsonl_path_with_mode(
-    path: impl AsRef<Path>,
-    options: ImportOptions,
-    mode: JsonlParseMode,
 ) -> Result<ImportedRun, ImportError> {
     let path_ref = path.as_ref();
     let file = std::fs::File::open(path_ref).map_err(|err| ImportError::Io {
@@ -138,1551 +99,423 @@ pub fn import_jsonl_path_with_mode(
         context: path_ref.display().to_string(),
         reason: err.to_string(),
     })?;
-    import_jsonl_reader_with_mode(file, options, mode)
+    import_jsonl_reader(file, options)
 }
 
-#[allow(clippy::too_many_lines)]
 fn parse_record(
     line_no: usize,
     value: &Value,
     strict: bool,
     warnings: &mut Vec<crate::ImportWarning>,
-    mode: JsonlParseMode,
 ) -> Result<Option<SpanRecord>, ImportError> {
-    if let Some(obj) = value.as_object() {
-        if let Some(format) = obj.get("format") {
-            let Some(format_marker) = format.as_str() else {
-                let message = format!(
-                    "line {line_no}: invalid field 'format': expected string format marker"
-                );
-                return if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
-                    Err(ImportError::ExpectedTailtriageWrapper { reason: message })
-                } else if strict {
-                    Err(ImportError::StrictViolation(message))
-                } else {
-                    warnings.push(crate::ImportWarning::new(message));
-                    Ok(None)
-                };
-            };
+    let obj = value
+        .as_object()
+        .ok_or_else(|| wrapper_error(line_no, "JSONL record must be an object"))?;
 
-            if format_marker != "tailtriage.tracing-span.v1" {
-                let message =
-                    format!("line {line_no}: unsupported span format marker '{format_marker}'");
-                return if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
-                    Err(ImportError::ExpectedTailtriageWrapper { reason: message })
-                } else if strict {
-                    Err(ImportError::StrictViolation(message))
-                } else {
-                    warnings.push(crate::ImportWarning::new(message));
-                    Ok(None)
-                };
-            }
-
-            let Some(span_value) = obj.get("span") else {
-                let message = format!(
-                    "line {line_no}: missing field 'span' for tailtriage.tracing-span.v1 wrapper"
-                );
-                return if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
-                    Err(ImportError::ExpectedTailtriageWrapper { reason: message })
-                } else if strict {
-                    Err(ImportError::StrictViolation(message))
-                } else {
-                    warnings.push(crate::ImportWarning::new(message));
-                    Ok(None)
-                };
-            };
-
-            let Some(_) = span_value.as_object() else {
-                let message = format!(
-                    "line {line_no}: invalid field 'span': expected completed span object for tailtriage.tracing-span.v1"
-                );
-                return if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
-                    Err(ImportError::ExpectedTailtriageWrapper { reason: message })
-                } else if strict {
-                    Err(ImportError::StrictViolation(message))
-                } else {
-                    warnings.push(crate::ImportWarning::new(message));
-                    Ok(None)
-                };
-            };
-
-            if let Some(span_obj) = span_value.as_object() {
-                validate_optional_run_relative_fields(span_obj)?;
-            }
-
-            return match serde_json::from_value::<SpanRecord>(span_value.clone()) {
-                Ok(span) => Ok(Some(span)),
-                Err(err) => {
-                    let message =
-                        format!("line {line_no}: invalid tailtriage.tracing-span.v1 span: {err}");
-                    if strict {
-                        Err(ImportError::StrictViolation(message))
-                    } else {
-                        warnings.push(crate::ImportWarning::new(message));
-                        Ok(None)
-                    }
-                }
-            };
-        }
-    }
-    if matches!(mode, JsonlParseMode::TailtriageWrapperOnly) {
-        let message = format!(
-            "line {line_no}: expected stable wrapper shape {{\"format\":\"tailtriage.tracing-span.v1\",\"span\":{{...}}}}"
-        );
-        return Err(ImportError::ExpectedTailtriageWrapper { reason: message });
-    }
-    if is_ordinary_fmt_json_without_completed_span_timing(value) {
-        let message = format!(
-            "line {line_no}: unsupported tracing fmt JSON envelope for compatible import (timestamp/level/target without completed-span timing)"
-        );
-        if strict {
-            return Err(ImportError::StrictViolation(message));
-        }
-        warnings.push(crate::ImportWarning::new(message));
-        return Ok(None);
-    }
-    if let Ok(span) = serde_json::from_value::<SpanRecord>(value.clone()) {
-        return Ok(Some(span));
-    }
-    if let Some(field_name) = first_non_scalar_tailtriage_field(value) {
-        let message = format!(
-            "line {line_no}: invalid field '{field_name}': expected scalar tt.* value in JSONL record"
-        );
-        if strict {
-            return Err(ImportError::StrictViolation(message));
-        }
-        warnings.push(crate::ImportWarning::new(message));
-        return Ok(None);
-    }
-
-    let has_tt = value_has_tailtriage_field(value);
-    if let Some(span_obj) = value.get("span").and_then(Value::as_object) {
-        let is_normalized_shape = span_obj.contains_key("name")
-            && (span_obj.contains_key("started_at_unix_ms")
-                || span_obj.contains_key("start_unix_ms"))
-            && (span_obj.contains_key("finished_at_unix_ms")
-                || span_obj.contains_key("end_unix_ms"));
-        if is_normalized_shape {
-            if !has_tt {
-                return Ok(None);
-            }
-            return match parse_normalized_span(value, span_obj) {
-                Ok(span) => Ok(Some(span)),
-                Err(err) => {
-                    let message = format!("line {line_no}: {err}");
-                    if strict {
-                        Err(ImportError::StrictViolation(message))
-                    } else {
-                        warnings.push(crate::ImportWarning::new(message));
-                        Ok(None)
-                    }
-                }
-            };
-        }
-        if has_tt {
-            let message = format!(
-                "line {line_no}: invalid field `span`: tailtriage span must include name, started_at_unix_ms/start_unix_ms, and finished_at_unix_ms/end_unix_ms"
-            );
-            if strict {
-                return Err(ImportError::StrictViolation(message));
-            }
-            warnings.push(crate::ImportWarning::new(message));
-            return Ok(None);
-        }
-    }
-
-    if has_tt {
-        let message = format!(
-            "line {line_no}: tailtriage JSONL record must use normalized completed-span shape with explicit timestamps"
-        );
-        if strict {
-            Err(ImportError::StrictViolation(message))
-        } else {
-            warnings.push(crate::ImportWarning::new(message));
-            Ok(None)
-        }
-    } else {
-        Ok(None)
-    }
-}
-
-fn is_ordinary_fmt_json_without_completed_span_timing(value: &Value) -> bool {
-    value.as_object().is_some_and(|obj| {
-        let looks_like_fmt = obj.contains_key("timestamp")
-            && obj.contains_key("level")
-            && obj.contains_key("target");
-        looks_like_fmt && !has_completed_span_timing(value)
-    })
-}
-
-fn has_completed_span_timing(value: &Value) -> bool {
-    has_start_and_end_timing(value) || value.get("span").is_some_and(has_start_and_end_timing)
-}
-
-fn has_start_and_end_timing(value: &Value) -> bool {
-    value.as_object().is_some_and(|obj| {
-        (obj.contains_key("started_at_unix_ms") || obj.contains_key("start_unix_ms"))
-            && (obj.contains_key("finished_at_unix_ms") || obj.contains_key("end_unix_ms"))
-    })
-}
-
-fn first_non_scalar_tailtriage_field(value: &Value) -> Option<String> {
-    let is_non_scalar = |v: &Value| matches!(v, Value::Array(_) | Value::Object(_));
-    let mut first: Option<String> = None;
-    let mut consider = |key: &str, raw: &Value| {
-        if key.starts_with("tt.") && is_non_scalar(raw) && first.is_none() {
-            first = Some(key.to_owned());
-        }
+    let format = obj
+        .get("format")
+        .ok_or_else(|| wrapper_error(line_no, classify_missing_format(obj)))?;
+    let Some(format_marker) = format.as_str() else {
+        return Err(wrapper_error(
+            line_no,
+            "invalid field 'format': expected string format marker",
+        ));
     };
-
-    if let Some(map) = value.get("fields").and_then(Value::as_object) {
-        for (k, v) in map {
-            consider(k, v);
-        }
-    }
-    if let Some(map) = value
-        .get("span")
-        .and_then(Value::as_object)
-        .and_then(|span| span.get("fields"))
-        .and_then(Value::as_object)
-    {
-        for (k, v) in map {
-            consider(k, v);
-        }
-    }
-    if let Some(map) = value.as_object() {
-        for (k, v) in map {
-            consider(k, v);
-        }
+    if format_marker != FORMAT_MARKER {
+        return Err(wrapper_error(
+            line_no,
+            format!("unsupported span format marker '{format_marker}'"),
+        ));
     }
 
-    first
+    reject_forbidden_wrapper_keys(line_no, obj)?;
+
+    let span_value = obj.get("span").ok_or_else(|| {
+        wrapper_error(
+            line_no,
+            "missing field 'span' for tailtriage.tracing-span.v1 wrapper",
+        )
+    })?;
+    let span_obj = span_value.as_object().ok_or_else(|| {
+        wrapper_error(
+            line_no,
+            "invalid field 'span': expected completed span object for tailtriage.tracing-span.v1",
+        )
+    })?;
+    reject_forbidden_span_keys(line_no, span_obj)?;
+
+    match serde_json::from_value::<SpanRecord>(span_value.clone()) {
+        Ok(span) => Ok(Some(span)),
+        Err(err) => {
+            let message = format!("line {line_no}: invalid tailtriage.tracing-span.v1 span: {err}");
+            if strict {
+                Err(ImportError::StrictViolation(message))
+            } else {
+                warnings.push(crate::ImportWarning::new(message));
+                Ok(None)
+            }
+        }
+    }
 }
 
-fn value_has_tailtriage_field(value: &Value) -> bool {
-    value
-        .get("fields")
-        .and_then(Value::as_object)
-        .is_some_and(|fields| fields.keys().any(|k| k.starts_with("tt.")))
-        || value
-            .get("span")
-            .and_then(Value::as_object)
-            .and_then(|span| span.get("fields"))
-            .and_then(Value::as_object)
-            .is_some_and(|fields| fields.keys().any(|k| k.starts_with("tt.")))
-        || value
-            .as_object()
-            .is_some_and(|obj| obj.keys().any(|k| k.starts_with("tt.")))
-}
-
-fn validate_optional_run_relative_fields(
+fn reject_forbidden_wrapper_keys(
+    line_no: usize,
     obj: &serde_json::Map<String, Value>,
 ) -> Result<(), ImportError> {
-    let _ = optional_u64(obj, "started_at_run_us")?;
-    let _ = optional_u64(obj, "finished_at_run_us")?;
+    if obj.contains_key("fields") {
+        return Err(wrapper_error(
+            line_no,
+            "forbidden wrapper-level compatibility key 'fields'",
+        ));
+    }
+    if let Some(key) = obj.keys().find(|key| key.starts_with("tt.")) {
+        return Err(wrapper_error(
+            line_no,
+            format!("forbidden wrapper-level compatibility key '{key}'"),
+        ));
+    }
     Ok(())
 }
 
-fn parse_normalized_span(
-    value: &Value,
-    span_obj: &serde_json::Map<String, Value>,
-) -> Result<SpanRecord, ImportError> {
-    let name = required_string(span_obj, "name")?;
-    let id = optional_string(span_obj, "id")?;
-    let parent_id = optional_string(span_obj, "parent_id")?;
-    let started_at_unix_ms = required_timestamp(span_obj, "started_at_unix_ms", "start_unix_ms")?;
-    let finished_at_unix_ms = required_timestamp(span_obj, "finished_at_unix_ms", "end_unix_ms")?;
-    let started_at_run_us = optional_u64(span_obj, "started_at_run_us")?;
-    let finished_at_run_us = optional_u64(span_obj, "finished_at_run_us")?;
-    let duration_us = optional_duration_us(span_obj)?;
-
-    let mut span = SpanRecord::new(name, started_at_unix_ms, finished_at_unix_ms);
-    if let Some(id) = id {
-        span = span.id(id);
-    }
-    if let Some(parent_id) = parent_id {
-        span = span.parent_id(parent_id);
-    }
-    if let Some(started_at_run_us) = started_at_run_us {
-        span = span.started_at_run_us(started_at_run_us);
-    }
-    if let Some(finished_at_run_us) = finished_at_run_us {
-        span = span.finished_at_run_us(finished_at_run_us);
-    }
-    if let Some(duration_us) = duration_us {
-        span = span.duration_us(duration_us);
-    }
-
-    let fields = extract_fields_for_span(value);
-    for (k, v) in fields {
-        span = span.field(k, v);
-    }
-
-    Ok(span)
-}
-
-fn extract_fields_for_span(value: &Value) -> BTreeMap<String, FieldValue> {
-    let mut out = BTreeMap::new();
-    // Precedence for duplicate keys is: outer fields < span.fields < top-level tt.*.
-    collect_fields_object(value.get("fields"), &mut out);
-    collect_fields_object(value.get("span").and_then(|s| s.get("fields")), &mut out);
-    collect_tt_top_level(value, &mut out);
-    out
-}
-
-fn collect_fields_object(value: Option<&Value>, out: &mut BTreeMap<String, FieldValue>) {
-    let Some(map) = value.and_then(Value::as_object) else {
-        return;
-    };
-    for (k, v) in map {
-        if let Some(scalar) = to_field_value(v) {
-            out.insert(k.clone(), scalar);
+fn reject_forbidden_span_keys(
+    line_no: usize,
+    obj: &serde_json::Map<String, Value>,
+) -> Result<(), ImportError> {
+    for key in ["start_unix_ms", "end_unix_ms"] {
+        if obj.contains_key(key) {
+            return Err(wrapper_error(
+                line_no,
+                format!("forbidden span timestamp alias '{key}'"),
+            ));
         }
     }
+    Ok(())
 }
-fn collect_tt_top_level(value: &Value, out: &mut BTreeMap<String, FieldValue>) {
-    let Some(map) = value.as_object() else {
-        return;
-    };
-    for (k, v) in map {
-        if k.starts_with("tt.") {
-            if let Some(scalar) = to_field_value(v) {
-                out.insert(k.clone(), scalar);
-            }
-        }
+
+fn classify_missing_format(obj: &serde_json::Map<String, Value>) -> &'static str {
+    if looks_like_ordinary_fmt_json(obj) {
+        "ordinary tracing formatter JSON is unsupported; expected stable wrapper shape {\"format\":\"tailtriage.tracing-span.v1\",\"span\":{...}}"
+    } else if obj.contains_key("span") {
+        "missing field 'format'; unversioned tracing span envelopes are unsupported"
+    } else if obj.contains_key("name")
+        || obj.contains_key("start_unix_ms")
+        || obj.contains_key("end_unix_ms")
+    {
+        "missing field 'format'; raw or pre-stable tracing span records are unsupported"
+    } else if obj.keys().any(|k| k.starts_with("tt.")) || obj.contains_key("fields") {
+        "missing field 'format'; compatibility field placement is unsupported"
+    } else {
+        "missing field 'format' for tailtriage.tracing-span.v1 wrapper"
     }
 }
 
-fn to_field_value(value: &Value) -> Option<FieldValue> {
-    match value {
-        Value::String(s) => Some(FieldValue::String(s.clone())),
-        Value::Bool(b) => Some(FieldValue::Bool(*b)),
-        Value::Number(n) => {
-            if let Some(u) = n.as_u64() {
-                Some(FieldValue::U64(u))
-            } else if let Some(i) = n.as_i64() {
-                Some(FieldValue::I64(i))
-            } else {
-                n.as_f64().map(FieldValue::F64)
-            }
-        }
-        Value::Null => Some(FieldValue::Null),
-        _ => None,
-    }
+fn looks_like_ordinary_fmt_json(obj: &serde_json::Map<String, Value>) -> bool {
+    obj.contains_key("timestamp") && obj.contains_key("level") && obj.contains_key("target")
 }
 
-fn required_string(
-    obj: &serde_json::Map<String, Value>,
-    key: &'static str,
-) -> Result<String, ImportError> {
-    optional_string(obj, key)?.ok_or(ImportError::MissingField(key))
-}
-fn optional_string(
-    obj: &serde_json::Map<String, Value>,
-    key: &'static str,
-) -> Result<Option<String>, ImportError> {
-    match obj.get(key) {
-        Some(Value::String(s)) => Ok(Some(s.clone())),
-        Some(_) => Err(ImportError::InvalidField {
-            field: key,
-            reason: "expected string".to_owned(),
-        }),
-        None => Ok(None),
+fn wrapper_error(line_no: usize, reason: impl Into<String>) -> ImportError {
+    ImportError::ExpectedTailtriageWrapper {
+        reason: format!("line {line_no}: {}", reason.into()),
     }
-}
-fn required_timestamp(
-    obj: &serde_json::Map<String, Value>,
-    primary: &'static str,
-    alias: &'static str,
-) -> Result<u64, ImportError> {
-    required_timestamp_obj(obj, primary, alias)
-}
-fn required_timestamp_obj(
-    obj: &serde_json::Map<String, Value>,
-    primary: &'static str,
-    alias: &'static str,
-) -> Result<u64, ImportError> {
-    if let Some(v) = obj.get(primary).or_else(|| obj.get(alias)) {
-        return parse_u64(v, primary);
-    }
-    Err(ImportError::MissingField(primary))
-}
-fn optional_duration_us(obj: &serde_json::Map<String, Value>) -> Result<Option<u64>, ImportError> {
-    optional_u64(obj, "duration_us").map_err(|err| match err {
-        ImportError::InvalidField { .. } => ImportError::InvalidField {
-            field: "duration_us",
-            reason: "expected unsigned integer microseconds as u64".to_owned(),
-        },
-        other => other,
-    })
-}
-
-fn optional_u64(
-    obj: &serde_json::Map<String, Value>,
-    key: &'static str,
-) -> Result<Option<u64>, ImportError> {
-    match obj.get(key) {
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .ok_or_else(|| ImportError::InvalidField {
-                field: key,
-                reason: "expected unsigned integer as u64".to_owned(),
-            })
-            .map(Some),
-        Some(_) => Err(ImportError::InvalidField {
-            field: key,
-            reason: "expected unsigned integer as u64".to_owned(),
-        }),
-        None => Ok(None),
-    }
-}
-
-fn parse_u64(v: &Value, field: &'static str) -> Result<u64, ImportError> {
-    v.as_u64().ok_or_else(|| ImportError::InvalidField {
-        field,
-        reason: "expected unix timestamp in milliseconds as u64".to_owned(),
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ImportOptions;
-    use std::io::{Cursor, Read};
+    use crate::{FieldValue, ImportOptions};
+    use std::io::Cursor;
 
-    fn import_jsonl_reader<R: Read>(
-        reader: R,
-        options: ImportOptions,
-    ) -> Result<ImportedRun, ImportError> {
-        super::import_jsonl_reader_with_mode(reader, options, JsonlParseMode::Compatible)
-    }
-
-    #[test]
-    fn normalized_jsonl_request_only() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-    }
-
-    #[test]
-    fn compatible_jsonl_retained_sources_preserve_decoded_original_and_skip_bad_records() {
-        let input = r#"
-{"message":"completed request","span":{"id":"req-id","parent_id":"root-id","name":"req","started_at_unix_ms":1000,"started_at_run_us":10,"finished_at_unix_ms":1020,"finished_at_run_us":20010,"duration_us":20000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","custom":"request-source"}}}
-{"timestamp":"2026-06-01T00:00:00Z","level":"INFO","target":"svc","message":"ordinary log","fields":{"request_id":"noise"}}
-{"message":"completed stage","span":{"id":"stage-id","parent_id":"req-id","name":"stage","started_at_unix_ms":1005,"started_at_run_us":5010,"finished_at_unix_ms":1010,"finished_at_run_us":10010,"duration_us":5000,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db","custom":"stage-source"}}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|warning| warning.message().contains("fmt JSON")));
-        let retained = imported.retained_sources();
-        assert_eq!(retained.len(), 2);
-        assert_eq!(
-            retained.iter().map(SpanRecord::name).collect::<Vec<_>>(),
-            vec!["req", "stage"]
-        );
-
-        let request = &retained[0];
-        assert_eq!(request.id_ref(), Some("req-id"));
-        assert_eq!(request.parent_id_ref(), Some("root-id"));
-        assert_eq!(
-            request.fields().get("custom"),
-            Some(&FieldValue::String("request-source".to_owned()))
-        );
-        assert_eq!(request.started_at_unix_ms(), 1000);
-        assert_eq!(request.finished_at_unix_ms(), 1020);
-        assert_eq!(request.started_at_run_us_ref(), Some(10));
-        assert_eq!(request.finished_at_run_us_ref(), Some(20010));
-        assert_eq!(request.duration_us_ref(), Some(20_000));
-
-        let stage = &retained[1];
-        assert_eq!(stage.id_ref(), Some("stage-id"));
-        assert_eq!(stage.parent_id_ref(), Some("req-id"));
-        assert_eq!(
-            stage.fields().get("custom"),
-            Some(&FieldValue::String("stage-source".to_owned()))
-        );
-        assert_eq!(stage.started_at_unix_ms(), 1005);
-        assert_eq!(stage.finished_at_unix_ms(), 1010);
-        assert_eq!(stage.started_at_run_us_ref(), Some(5010));
-        assert_eq!(stage.finished_at_run_us_ref(), Some(10010));
-        assert_eq!(stage.duration_us_ref(), Some(5000));
-    }
-
-    #[test]
-    fn stable_wrapper_jsonl_privately_carries_decoded_original_sources_in_input_order() {
-        let input = r#"
-{"format":"tailtriage.tracing-span.v1","span":{"id":"req-id","parent_id":"root","name":"req","started_at_unix_ms":10,"started_at_run_us":100,"finished_at_unix_ms":20,"finished_at_run_us":200,"duration_us":100,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","extra":"kept"}}}
-{"format":"tailtriage.tracing-span.v1","span":{"id":"stage-id","parent_id":"req-id","name":"stage","started_at_unix_ms":12,"started_at_run_us":120,"finished_at_unix_ms":15,"finished_at_run_us":150,"duration_us":30,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
-"#;
-        let imported = super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc"))
-            .expect("stable import should work");
-
-        assert_eq!(
-            imported
-                .retained_sources()
-                .iter()
-                .map(SpanRecord::name)
-                .collect::<Vec<_>>(),
-            vec!["req", "stage"]
-        );
-        assert_eq!(imported.retained_sources()[0].id_ref(), Some("req-id"));
-        assert_eq!(imported.retained_sources()[0].parent_id_ref(), Some("root"));
-        assert_eq!(
-            imported.retained_sources()[0].fields().get("extra"),
-            Some(&FieldValue::String("kept".to_owned()))
-        );
-        assert_eq!(
-            imported.retained_sources()[1].started_at_run_us_ref(),
-            Some(120)
-        );
-    }
-
-    #[test]
-    fn normalized_jsonl_request_stage_queue() {
-        let input = r#"
-{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
-{"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
-{"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().stages.len(), 1);
-        assert_eq!(imported.run().queues.len(), 1);
-        assert_eq!(imported.run().queues[0].queue, "permits");
-    }
-
-    #[test]
-    fn stable_wrapper_jsonl_preserves_run_relative_fields_into_run_events() {
-        let input = r#"
-{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"started_at_run_us":100,"finished_at_unix_ms":20,"finished_at_run_us":10100,"duration_us":10000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
-{"format":"tailtriage.tracing-span.v1","span":{"name":"st","started_at_unix_ms":11,"started_at_run_us":1100,"finished_at_unix_ms":18,"finished_at_run_us":8100,"duration_us":7000,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
-{"format":"tailtriage.tracing-span.v1","span":{"name":"q","started_at_unix_ms":12,"started_at_run_us":2100,"finished_at_unix_ms":13,"finished_at_run_us":3100,"duration_us":1000,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits"}}}
-"#;
-        let imported =
-            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        let run = imported.run();
-
-        assert_eq!(run.requests[0].started_at_run_us, Some(100));
-        assert_eq!(run.requests[0].finished_at_run_us, Some(10_100));
-        assert_eq!(run.stages[0].started_at_run_us, Some(1_100));
-        assert_eq!(run.stages[0].finished_at_run_us, Some(8_100));
-        assert_eq!(run.queues[0].waited_from_run_us, Some(2_100));
-        assert_eq!(run.queues[0].waited_until_run_us, Some(3_100));
-    }
-
-    #[test]
-    fn stable_wrapper_jsonl_without_run_relative_fields_imports_none() {
-        let input = r#"
-{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":10000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
-{"format":"tailtriage.tracing-span.v1","span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":7000,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
-{"format":"tailtriage.tracing-span.v1","span":{"name":"q","started_at_unix_ms":12,"finished_at_unix_ms":13,"duration_us":1000,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits"}}}
-"#;
-        let imported =
-            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        let run = imported.run();
-
-        assert_eq!(run.requests[0].started_at_run_us, None);
-        assert_eq!(run.requests[0].finished_at_run_us, None);
-        assert_eq!(run.stages[0].started_at_run_us, None);
-        assert_eq!(run.stages[0].finished_at_run_us, None);
-        assert_eq!(run.queues[0].waited_from_run_us, None);
-        assert_eq!(run.queues[0].waited_until_run_us, None);
-    }
-
-    #[test]
-    fn stable_wrapper_jsonl_invalid_run_relative_field_fails_invalid_field() {
-        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":10,"started_at_run_us":"bad","finished_at_unix_ms":20,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err =
-            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
-
-        assert!(matches!(
-            err,
-            ImportError::InvalidField {
-                field: "started_at_run_us",
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn stable_wrapper_non_strict_duration_mismatch_keeps_duration_us_authoritative() {
-        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":100,"started_at_run_us":10,"finished_at_unix_ms":101,"finished_at_run_us":20,"duration_us":50000,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            super::import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-
-        assert_eq!(imported.run().requests[0].latency_us, 50_000);
-        assert_eq!(imported.run().requests[0].started_at_run_us, None);
-        assert_eq!(imported.run().requests[0].finished_at_run_us, None);
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|warning| warning.message().contains("duration_mismatch")));
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|warning| warning.message().contains("duration evidence was retained")));
-    }
-
-    #[test]
-    fn unrelated_line_ignored() {
-        let input = r#"{"message":"ordinary log","level":"info"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-    }
-
-    #[test]
-    fn empty_lines_ignored() {
-        let input = "\n\n";
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-    }
-
-    #[test]
-    fn malformed_json_returns_malformed_json_line_error() {
-        let err =
-            import_jsonl_reader(Cursor::new("{not-json}"), ImportOptions::new("svc")).unwrap_err();
-        assert!(matches!(
-            err,
-            ImportError::MalformedJsonLine { line: 1, .. }
-        ));
-    }
-
-    #[test]
-    fn malformed_json_reports_correct_line_number() {
-        let input = "{\"message\":\"ok\"}\n{not-json}";
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
-        assert!(matches!(
-            err,
-            ImportError::MalformedJsonLine { line: 2, .. }
-        ));
-    }
-
-    #[test]
-    fn missing_required_fields_surface_conversion_warnings() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-    }
-
-    #[test]
-    fn strict_mode_propagates_conversion_errors() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn path_import_works() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("input.jsonl");
-        std::fs::write(&path, r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#).unwrap();
-        let imported = import_jsonl_path_with_mode(
-            &path,
-            ImportOptions::new("svc"),
-            JsonlParseMode::Compatible,
+    fn stable_request(name: &str, request_id: &str) -> String {
+        format!(
+            r#"{{"format":"tailtriage.tracing-span.v1","span":{{"name":"{name}","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{{"tt.kind":"request","tt.request_id":"{request_id}","tt.route":"/a"}}}}}}"#
         )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
     }
 
-    #[test]
-    fn path_open_failure_returns_io_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("missing.jsonl");
-        let err = import_jsonl_path(&path, ImportOptions::new("svc")).unwrap_err();
+    fn assert_wrapper_rejected(input: &str, line: usize, text: &str) {
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc"))
+            .expect_err("record should be structurally rejected");
         match err {
-            ImportError::Io {
-                operation, context, ..
-            } => {
-                assert_eq!(operation, "open jsonl path");
-                assert!(context.contains("missing.jsonl"));
+            ImportError::ExpectedTailtriageWrapper { reason } => {
+                assert!(reason.contains(&format!("line {line}")), "{reason}");
+                assert!(reason.contains(text), "{reason}");
             }
             other => panic!("unexpected error: {other:?}"),
         }
     }
 
-    struct BoomReader;
+    #[test]
+    fn stable_wrapper_fixture_imports() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/tailtriage-span-v1.jsonl");
+        let imported = import_jsonl_path(fixture, ImportOptions::new("svc")).unwrap();
+        assert!(!imported.run().requests.is_empty());
+    }
 
-    impl Read for BoomReader {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("boom"))
+    #[test]
+    fn rejects_raw_top_level_span_record() {
+        assert_wrapper_rejected(
+            r#"{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}"#,
+            1,
+            "raw or pre-stable",
+        );
+    }
+
+    #[test]
+    fn rejects_unversioned_span_envelope() {
+        assert_wrapper_rejected(
+            r#"{"span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "unversioned",
+        );
+    }
+
+    #[test]
+    fn rejects_start_unix_ms_and_end_unix_ms_aliases() {
+        assert_wrapper_rejected(
+            r#"{"name":"request","start_unix_ms":1,"end_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}"#,
+            1,
+            "raw or pre-stable",
+        );
+    }
+
+    #[test]
+    fn rejects_top_level_tt_fields() {
+        assert_wrapper_rejected(
+            r#"{"span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}"#,
+            1,
+            "unversioned",
+        );
+    }
+
+    #[test]
+    fn rejects_outer_fields_compatibility_input() {
+        assert_wrapper_rejected(
+            r#"{"span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}"#,
+            1,
+            "unversioned",
+        );
+    }
+
+    #[test]
+    fn rejects_mixed_compatibility_field_locations() {
+        assert_wrapper_rejected(
+            r#"{"span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}},"fields":{"tt.request_id":"r1"},"tt.route":"/"}"#,
+            1,
+            "unversioned",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_wrapper_level_fields() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","fields":{"tt.request_id":"legacy"},"span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden wrapper-level compatibility key 'fields'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_wrapper_level_tt_key() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","tt.route":"/legacy","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden wrapper-level compatibility key 'tt.route'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_mixed_compatibility_placement_deterministically() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","fields":{"tt.request_id":"legacy"},"tt.route":"/legacy","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden wrapper-level compatibility key 'fields'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_alias_only_timestamps_in_strict_and_non_strict() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","start_unix_ms":1,"end_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#;
+        assert_wrapper_rejected(input, 1, "forbidden span timestamp alias 'start_unix_ms'");
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .expect_err("strict mode must reject forbidden aliases structurally");
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+        assert!(err.to_string().contains("line 1"));
+        assert!(err.to_string().contains("start_unix_ms"));
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_canonical_timestamps_plus_aliases() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"start_unix_ms":100,"end_unix_ms":200,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden span timestamp alias 'start_unix_ms'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_accepts_unrelated_wrapper_extension_key() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","producer":"example","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.retained_sources().len(), 1);
+        assert_eq!(imported.retained_sources()[0].name(), "request");
+    }
+
+    #[test]
+    fn rejects_ordinary_tracing_formatter_json() {
+        assert_wrapper_rejected(
+            r#"{"timestamp":"2026-01-01T00:00:00Z","level":"INFO","target":"svc","fields":{"message":"hello"}}"#,
+            1,
+            "ordinary tracing formatter JSON is unsupported",
+        );
+    }
+
+    #[test]
+    fn rejects_missing_format() {
+        assert_wrapper_rejected(r#"{"message":"x"}"#, 1, "missing field 'format'");
+    }
+
+    #[test]
+    fn rejects_non_string_format() {
+        assert_wrapper_rejected(r#"{"format":1,"span":{}}"#, 1, "invalid field 'format'");
+    }
+
+    #[test]
+    fn rejects_unsupported_format_marker() {
+        assert_wrapper_rejected(
+            r#"{"format":"other","span":{}}"#,
+            1,
+            "unsupported span format marker 'other'",
+        );
+    }
+
+    #[test]
+    fn rejects_missing_span() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1"}"#,
+            1,
+            "missing field 'span'",
+        );
+    }
+
+    #[test]
+    fn rejects_non_object_span() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","span":"bad"}"#,
+            1,
+            "invalid field 'span'",
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_json_with_line_number() {
+        let err =
+            import_jsonl_reader(Cursor::new("\n{bad"), ImportOptions::new("svc")).unwrap_err();
+        match err {
+            ImportError::MalformedJsonLine { line, .. } => assert_eq!(line, 2),
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 
     #[test]
-    fn reader_error_returns_io_error() {
-        let err = import_jsonl_reader(BoomReader, ImportOptions::new("svc")).unwrap_err();
-        assert!(matches!(
-            err,
-            ImportError::Io {
-                operation: "read jsonl line",
-                ..
+    fn rejects_non_object_json_value() {
+        assert_wrapper_rejected("[]", 1, "JSONL record must be an object");
+    }
+
+    #[test]
+    fn structural_errors_are_fatal_even_non_strict() {
+        let input = format!(
+            "{}\n\n{{\"name\":\"legacy\",\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2}}\n{}",
+            stable_request("req", "r1"),
+            stable_request("stage", "r2")
+        );
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(false))
+            .unwrap_err();
+        match err {
+            ImportError::ExpectedTailtriageWrapper { reason } => {
+                assert!(reason.contains("line 3"));
+                assert!(reason.contains("raw or pre-stable"));
             }
-        ));
-    }
-
-    #[test]
-    fn compatible_mode_rejects_close_event_shape_with_explicit_timestamps() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
-{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}},"started_at_unix_ms":5,"finished_at_unix_ms":8}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().stages.is_empty());
-        assert!(!imported.warnings().is_empty());
-    }
-
-    #[test]
-    fn incomplete_normalized_tt_kind_span_warns_non_strict_and_errors_strict() {
-        let input = r#"{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 0);
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("line 1"));
-
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn compatible_mode_accepts_normalized_span_with_top_level_event_when_timed() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":10,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a","tt.outcome":"ok","tt.success":true}}}
-{"event":"close","span":{"name":"st","started_at_unix_ms":5,"finished_at_unix_ms":8,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db","tt.success":true}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().stages.len(), 1);
-        assert!(imported.warnings().iter().any(|w| w
-            .message()
-            .contains("precise_interval_validation_unavailable")));
-    }
-
-    #[test]
-    fn non_strict_normalized_tt_span_invalid_timestamp_warns_and_skips() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("line 1"));
-    }
-
-    #[test]
-    fn strict_normalized_tt_span_invalid_timestamp_errors() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn malformed_unrelated_normalized_spans_are_ignored() {
-        let input = r#"
-{"span":{"name":"other","id":123,"started_at_unix_ms":1,"finished_at_unix_ms":2}}
-{"span":{"name":"other","parent_id":{},"started_at_unix_ms":1,"finished_at_unix_ms":2}}
-{"span":{"name":123,"started_at_unix_ms":1,"finished_at_unix_ms":2}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.warnings().is_empty());
-    }
-
-    #[test]
-    fn parse_warnings_are_persisted_to_run_lifecycle_warnings() {
-        let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
-{"span":{"name":"broken","fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/broken"}}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("line 3")));
-        let warning_message = imported
-            .warnings()
-            .iter()
-            .find(|w| w.message().contains("line 3"))
-            .unwrap()
-            .message();
-        assert!(imported
-            .run()
-            .metadata
-            .lifecycle_warnings
-            .iter()
-            .any(|warning| warning == warning_message));
-    }
-
-    #[test]
-    fn conversion_warnings_still_follow_existing_lifecycle_policy() {
-        let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
-{"span":{"name":"req2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2"}}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("tt.route")));
-        let conversion_warning = imported
-            .warnings()
-            .iter()
-            .find(|w| w.message().contains("tt.route"))
-            .unwrap()
-            .message();
-        assert!(imported
-            .run()
-            .metadata
-            .lifecycle_warnings
-            .iter()
-            .any(|warning| warning == conversion_warning));
-    }
-
-    #[test]
-    fn unknown_kind_warning_is_durable_once_with_valid_request_present() {
-        let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
-{"span":{"name":"unknown","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"mystery"}}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        let warning_message = "unknown tt.kind 'mystery' in span 'unknown'";
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message() == warning_message));
-        let matches = imported
-            .run()
-            .metadata
-            .lifecycle_warnings
-            .iter()
-            .filter(|warning| warning.as_str() == warning_message)
-            .count();
-        assert_eq!(matches, 1);
-    }
-
-    #[test]
-    fn tt_fields_without_kind_warn_non_strict_and_error_strict() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.request_id":"r1","tt.route":"/ok"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.warnings().iter().any(|w| w
-            .message()
-            .contains("missing required field 'tt.kind' in span 'req'")));
-
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn non_scalar_span_fields_tt_kind_warns_non_strict_and_errors_strict() {
-        let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":{"bad":true}}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn non_scalar_outer_fields_tt_kind_warns_non_strict_and_errors_strict() {
-        let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":{"bad":true}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn non_scalar_top_level_tt_kind_warns_non_strict_and_errors_strict() {
-        let input = r#"{"span":{"name":"bad","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":{"bad":true}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported
-            .warnings()
-            .iter()
-            .any(|w| w.message().contains("line 1") && w.message().contains("tt.kind")));
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn missing_optional_defaults_emit_aggregate_warnings_once() {
-        let input = r#"
-{"span":{"name":"req1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok"}}}
-{"span":{"name":"req2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"request","tt.request_id":"r2","tt.route":"/ok2"}}}
-{"span":{"name":"st1","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
-{"span":{"name":"st2","started_at_unix_ms":3,"finished_at_unix_ms":4,"fields":{"tt.kind":"stage","tt.request_id":"r2","tt.stage":"cache"}}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        let msgs = imported
-            .warnings()
-            .iter()
-            .map(|w| w.message().to_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            msgs.iter()
-                .filter(|m| m.contains("missing optional 'tt.outcome'"))
-                .count(),
-            1
-        );
-        assert_eq!(
-            msgs.iter()
-                .filter(|m| m.contains("missing optional 'tt.success'"))
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn unrelated_malformed_normalized_span_does_not_create_lifecycle_warning() {
-        let input = r#"
-{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/ok","tt.outcome":"ok"}}}
-{"span":{"name":"other","id":123,"started_at_unix_ms":3,"finished_at_unix_ms":4}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert!(imported.warnings().iter().any(|w| w
-            .message()
-            .contains("precise_interval_validation_unavailable")));
-        assert!(imported.run().metadata.lifecycle_warnings.is_empty());
-    }
-
-    #[test]
-    fn strict_parse_warning_case_still_errors_without_run() {
-        let input = r#"{"span":{"name":"req","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn malformed_tt_normalized_spans_warn_non_strict_and_error_strict() {
-        let malformed = [
-            r#"{"span":{"name":"req","id":123,"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#,
-            r#"{"span":{"name":"req","parent_id":{},"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#,
-            r#"{"span":{"name":123,"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#,
-        ];
-        for line in malformed {
-            let imported =
-                import_jsonl_reader(Cursor::new(line), ImportOptions::new("svc")).unwrap();
-            assert!(imported.run().requests.is_empty());
-            assert_eq!(imported.warnings().len(), 1);
-            let err =
-                import_jsonl_reader(Cursor::new(line), ImportOptions::new("svc").strict(true))
-                    .unwrap_err();
-            assert!(matches!(err, ImportError::StrictViolation(_)));
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 
     #[test]
-    fn normalized_contradictory_duration_us_warns_and_retains_duration_us() {
-        let input = r#"
-{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
-{"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":1234,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
-{"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":1234,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
-"#;
+    fn valid_only_multiline_preserves_source_order() {
+        let input = format!(
+            "{}\n{}",
+            stable_request("req-a", "r1"),
+            stable_request("req-b", "r2")
+        );
         let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 1234);
-        assert_eq!(imported.run().stages[0].latency_us, 1234);
-        assert_eq!(imported.run().queues[0].wait_us, 1234);
+        let retained = imported.retained_sources();
+        assert_eq!(retained.len(), 2);
+        assert_eq!(retained[0].name(), "req-a");
+        assert_eq!(retained[1].name(), "req-b");
+    }
+
+    #[test]
+    fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1700000000000,"started_at_run_us":0,"finished_at_unix_ms":1700000000001,"finished_at_run_us":1000,"duration_us":50000,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc"))
+            .expect("non-strict import should retain mismatched duration");
+        assert_eq!(imported.run().requests.len(), 1);
+        assert_eq!(imported.run().requests[0].latency_us, 50_000);
         assert!(imported
             .warnings()
             .iter()
-            .any(|w| w.message().contains("duration evidence was retained")));
-    }
-
-    #[test]
-    fn normalized_zero_duration_us_outside_tolerance_retains_duration_us() {
-        let input = r#"
-{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":0,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}
-{"span":{"name":"st","started_at_unix_ms":11,"finished_at_unix_ms":18,"duration_us":0,"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}
-{"span":{"name":"q","started_at_unix_ms":10,"finished_at_unix_ms":11,"duration_us":0,"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}}
-"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 0);
-        assert_eq!(imported.run().stages[0].latency_us, 0);
-        assert_eq!(imported.run().queues[0].wait_us, 0);
-    }
-
-    #[test]
-    fn normalized_request_fields_import_from_outer_fields() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().requests[0].route, "/outer");
-    }
-
-    #[test]
-    fn normalized_request_fields_import_from_top_level_tt_keys() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"request","tt.request_id":"r1","tt.route":"/top"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().requests[0].route, "/top");
-    }
-
-    #[test]
-    fn normalized_stage_fields_import_from_outer_fields() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
-{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().stages.len(), 1);
-        assert_eq!(imported.run().stages[0].stage, "db");
-    }
-
-    #[test]
-    fn normalized_stage_fields_import_from_top_level_tt_keys() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
-{"span":{"name":"st","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"stage","tt.request_id":"r1","tt.stage":"cache"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().stages.len(), 1);
-        assert_eq!(imported.run().stages[0].stage, "cache");
-    }
-
-    #[test]
-    fn normalized_queue_fields_import_from_outer_fields() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
-{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":3}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().queues.len(), 1);
-        assert_eq!(imported.run().queues[0].depth_at_start, Some(3));
-    }
-
-    #[test]
-    fn normalized_queue_fields_import_from_top_level_tt_keys() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}
-{"span":{"name":"q","started_at_unix_ms":1,"finished_at_unix_ms":2},"tt.kind":"queue","tt.request_id":"r1","tt.queue":"permits","tt.depth_at_start":7}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().queues.len(), 1);
-        assert_eq!(imported.run().queues[0].depth_at_start, Some(7));
-    }
-
-    #[test]
-    fn normalized_span_fields_still_imports() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/span"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().requests[0].route, "/span");
-    }
-
-    #[test]
-    fn normalized_field_precedence_is_outer_then_span_then_top_level() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.route":"/span","tt.kind":"request","tt.request_id":"r1"}},"fields":{"tt.route":"/outer"},"tt.route":"/top"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].route, "/top");
-    }
-
-    #[test]
-    fn normalized_duration_us_from_outer_fields_retains_duration_us_when_outside_tolerance() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/outer"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 1234);
-    }
-
-    #[test]
-    fn normalized_duration_us_from_top_level_tt_keys_retains_duration_us_when_outside_tolerance() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":10,"finished_at_unix_ms":20,"duration_us":1234},"tt.kind":"request","tt.request_id":"r1","tt.route":"/top"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests[0].latency_us, 1234);
-    }
-
-    #[test]
-    fn invalid_duration_us_on_tt_span_warns_or_errors() {
-        let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"duration_us":"bad","fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
+            .any(|warning| warning.message().contains("duration_mismatch")));
         let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
+            .expect_err("strict import should reject mismatched duration");
+        assert!(err.to_string().contains("duration_mismatch"));
     }
 
     #[test]
-    fn invalid_duration_us_on_unrelated_normalized_span_is_ignored() {
-        let input = r#"{"span":{"name":"other","started_at_unix_ms":1,"finished_at_unix_ms":2,"duration_us":"bad"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.warnings().is_empty());
-    }
-
-    #[test]
-    fn compatible_mode_close_event_like_tt_span_missing_timestamps_warns_and_skips() {
-        let input = r#"{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().stages.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("line 1"));
-    }
-
-    #[test]
-    fn compatible_mode_close_event_like_tt_span_missing_timestamps_errors() {
-        let input = r#"{"event":"close","span":{"name":"st","fields":{"tt.kind":"stage","tt.request_id":"r1","tt.stage":"db"}}}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn top_level_tt_record_without_span_shape_warns_non_strict() {
-        let input = r#"{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        let msg = imported.warnings()[0].message();
-        assert!(msg.contains("line 1"));
-        assert!(msg.contains("normalized completed-span shape"));
-        assert!(imported
-            .run()
-            .metadata
-            .lifecycle_warnings
-            .iter()
-            .any(|w| w == msg));
-    }
-
-    #[test]
-    fn top_level_tt_record_without_span_shape_errors_strict() {
-        let input = r#"{"tt.kind":"request","tt.request_id":"r1","tt.route":"/checkout"}"#;
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(err.to_string().contains("normalized completed-span shape"));
-    }
-
-    #[test]
-    fn unrelated_top_level_json_record_still_ignored() {
-        let input = r#"{"message":"ordinary log","level":"info","request_id":"r1"}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert!(imported.warnings().is_empty());
-    }
-
-    #[test]
-    fn compatible_mode_accepts_normalized_span_with_top_level_message_when_timed() {
-        let input = r#"{"message":"completed request","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/message","tt.outcome":"ok","tt.success":true}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().requests[0].route, "/message");
-        assert!(imported.warnings().iter().any(|w| w
-            .message()
-            .contains("precise_interval_validation_unavailable")));
-    }
-
-    #[test]
-    fn compatible_mode_accepts_normalized_span_with_fmt_metadata_when_timed() {
-        let input = r#"{"timestamp":"2026-06-01T00:00:00Z","level":"INFO","target":"svc","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/fmt","tt.outcome":"ok","tt.success":true}}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-        assert_eq!(imported.run().requests[0].route, "/fmt");
-        assert!(imported.warnings().iter().any(|w| w
-            .message()
-            .contains("precise_interval_validation_unavailable")));
-    }
-
-    #[test]
-    fn compatible_mode_rejects_ordinary_fmt_json_without_completed_span_timing() {
-        let input = r#"{"timestamp":"2026-06-01T00:00:00Z","level":"INFO","target":"svc","message":"ordinary log","fields":{"request_id":"r1"}}"#;
-        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("fmt JSON"));
-
-        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
-            .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(err.to_string().contains("fmt JSON"));
-    }
-
-    #[test]
-    fn wrapper_only_rejects_non_wrapper_compatible_normalized_record() {
-        let input = r#"{"timestamp":"2026-06-01T00:00:00Z","level":"INFO","target":"svc","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/fmt","tt.outcome":"ok","tt.success":true}}}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn wrapper_only_mode_accepts_wrapper_and_rejects_unwrapped() {
-        let wrapped = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader_with_mode(
-            Cursor::new(wrapped),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-
-        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(unwrapped),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn wrapper_only_mode_missing_span_strict_returns_expected_wrapper_error() {
-        let missing_span = r#"{"format":"tailtriage.tracing-span.v1"}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(missing_span),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn wrapper_only_non_strict_unwrapped_errors() {
-        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(unwrapped),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn wrapper_only_unsupported_marker_strict_errors_and_non_strict_warns() {
-        let v2 = r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(v2),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-        assert!(err.to_string().contains("v2") || err.to_string().contains("unsupported"));
-
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(v2),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn compatible_mode_wrapper_marker_missing_span_warns_non_strict_and_errors_strict() {
-        let missing_span = r#"{"format":"tailtriage.tracing-span.v1"}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(missing_span), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("line 1"));
-        assert!(imported.warnings()[0]
-            .message()
-            .contains("missing field 'span'"));
-
-        let err = import_jsonl_reader(
-            Cursor::new(missing_span),
-            ImportOptions::new("svc").strict(true),
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(err.to_string().contains("line 1"));
-        assert!(err.to_string().contains("missing field 'span'"));
-    }
-
-    #[test]
-    fn compatible_mode_wrapper_marker_non_object_span_warns_non_strict_and_errors_strict() {
-        let span_not_object = r#"{"format":"tailtriage.tracing-span.v1","span":"not an object"}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(span_not_object), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("line 1"));
-        assert!(imported.warnings()[0]
-            .message()
-            .contains("invalid field 'span'"));
-
-        let err = import_jsonl_reader(
-            Cursor::new(span_not_object),
-            ImportOptions::new("svc").strict(true),
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(err.to_string().contains("line 1"));
-        assert!(err.to_string().contains("invalid field 'span'"));
-    }
-
-    #[test]
-    fn compatible_mode_wrapper_marker_non_string_format_warns_non_strict_and_errors_strict() {
-        let format_not_string = r#"{"format":1,"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(format_not_string), ImportOptions::new("svc")).unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("line 1"));
-        assert!(imported.warnings()[0]
-            .message()
-            .contains("expected string format marker"));
-
-        let err = import_jsonl_reader(
-            Cursor::new(format_not_string),
-            ImportOptions::new("svc").strict(true),
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(err.to_string().contains("line 1"));
-        assert!(err.to_string().contains("expected string format marker"));
-    }
-
-    #[test]
-    fn compatible_mode_wrapper_marker_unsupported_format_warns_non_strict_and_errors_strict() {
-        let unsupported_format = r#"{"format":"tailtriage.tracing-span.v2","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            import_jsonl_reader(Cursor::new(unsupported_format), ImportOptions::new("svc"))
-                .unwrap();
-        assert!(imported.run().requests.is_empty());
-        assert!(imported.run().stages.is_empty());
-        assert!(imported.run().queues.is_empty());
-        assert_eq!(imported.warnings().len(), 1);
-        assert!(imported.warnings()[0].message().contains("line 1"));
-        assert!(imported.warnings()[0]
-            .message()
-            .contains("unsupported span format marker"));
-        assert!(imported.warnings()[0].message().contains("v2"));
-
-        let err = import_jsonl_reader(
-            Cursor::new(unsupported_format),
-            ImportOptions::new("svc").strict(true),
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(err.to_string().contains("line 1"));
-        assert!(err.to_string().contains("unsupported span format marker"));
-        assert!(err.to_string().contains("v2"));
-    }
-
-    #[test]
-    fn wrapper_v1_with_bad_span_timestamp_reports_invalid_span_not_marker() {
+    fn invalid_contained_span_warns_non_strict_and_errors_strict() {
         let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        let msg = err.to_string();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(msg.contains("tailtriage.tracing-span.v1"));
-        assert!(msg.contains("started_at_unix_ms") || msg.contains("expected"));
-        assert!(!msg.contains("unsupported span format marker"));
-
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-    }
-
-    #[test]
-    fn wrapper_v1_with_missing_required_span_field_reports_invalid_span() {
-        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        let msg = err.to_string();
-        assert!(matches!(err, ImportError::StrictViolation(_)));
-        assert!(msg.contains("span") || msg.contains("name"));
-        assert!(!msg.contains("unsupported span format marker"));
-    }
-
-    #[test]
-    fn default_library_import_rejects_non_wrapper_records() {
-        let err = super::import_jsonl_reader(
-            Cursor::new(r#"{"message":"ordinary"}"#),
-            ImportOptions::new("svc"),
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn wrapper_only_tt_like_non_wrapper_returns_expected_wrapper_error() {
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(r#"{"span":{"name":"x"},"tt.kind":"request"}"#),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn wrapper_v1_with_non_object_span_reports_invalid_span_field() {
-        let input = r#"{"format":"tailtriage.tracing-span.v1","span":"not an object"}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        let msg = err.to_string();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-        assert!(
-            msg.contains("invalid field 'span'") || msg.contains("expected completed span object")
-        );
-        assert!(!msg.contains("unsupported span format marker"));
-
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn wrapper_with_non_string_format_reports_invalid_format_field() {
-        let input = r#"{"format":1,"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc").strict(true),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        let msg = err.to_string();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-        assert!(msg.contains("format") && msg.contains("expected string"));
-
-        let err = import_jsonl_reader_with_mode(
-            Cursor::new(input),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn compatible_mode_accepts_old_normalized_shape() {
-        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported = import_jsonl_reader_with_mode(
-            Cursor::new(unwrapped),
-            ImportOptions::new("svc"),
-            JsonlParseMode::Compatible,
-        )
-        .unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-    }
-
-    #[test]
-    fn import_jsonl_reader_accepts_wrapper_by_default() {
-        let wrapped = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let imported =
-            super::import_jsonl_reader(Cursor::new(wrapped), ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-    }
-
-    #[test]
-    fn import_jsonl_reader_unwrapped_non_strict_rejects_by_default() {
-        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = super::import_jsonl_reader(Cursor::new(unwrapped), ImportOptions::new("svc"))
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert!(imported.run().requests.is_empty());
+        assert!(imported
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("line 1")));
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
             .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+        assert!(err.to_string().contains("line 1"));
     }
 
     #[test]
-    fn import_jsonl_reader_unwrapped_strict_rejects_with_expected_wrapper_error() {
-        let unwrapped = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-        let err = super::import_jsonl_reader(
-            Cursor::new(unwrapped),
-            ImportOptions::new("svc").strict(true),
-        )
-        .unwrap_err();
-        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
-    }
-
-    #[test]
-    fn import_jsonl_path_accepts_wrapper_by_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("wrapped.jsonl");
-        std::fs::write(
-            &path,
-            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#,
-        )
-        .unwrap();
-        let imported = super::import_jsonl_path(&path, ImportOptions::new("svc")).unwrap();
-        assert_eq!(imported.run().requests.len(), 1);
-    }
-
-    #[test]
-    fn wrapper_fixture_imports_request_stage_queue() {
-        let imported = import_jsonl_reader_with_mode(
-            Cursor::new(include_str!("../tests/fixtures/tailtriage-span-v1.jsonl")),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
-        let run = imported.run();
-        assert_eq!(run.requests.len(), 1);
-        assert_eq!(run.stages.len(), 1);
-        assert_eq!(run.queues.len(), 1);
-        assert_eq!(run.requests[0].request_id, "req-1");
-        assert_eq!(run.requests[0].route, "/checkout");
-        assert_eq!(run.stages[0].stage, "db");
-        assert_eq!(run.queues[0].queue, "admission");
-        assert_eq!(run.queues[0].depth_at_start, Some(7));
-    }
-
-    #[test]
-    fn wrapper_fixture_preserves_duration_us() {
-        let imported = import_jsonl_reader_with_mode(
-            Cursor::new(include_str!("../tests/fixtures/tailtriage-span-v1.jsonl")),
-            ImportOptions::new("svc"),
-            JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
-        let run = imported.run();
-        assert_eq!(run.requests[0].latency_us, 30_000);
-        assert_eq!(run.stages[0].latency_us, 10_000);
-        assert_eq!(run.queues[0].wait_us, 4_000);
-    }
-
-    #[test]
-    fn empty_service_name_is_rejected_for_jsonl_import() {
-        let err = import_jsonl_reader(Cursor::new(""), ImportOptions::new("")).unwrap_err();
-        assert!(matches!(err, ImportError::EmptyServiceName));
+    fn stable_writer_output_reimports_with_explicit_evidence() {
+        let span = SpanRecord::new("http.request", 1000, 1100)
+            .id("span-id")
+            .parent_id("parent-id")
+            .started_at_run_us(10)
+            .finished_at_run_us(100_010)
+            .duration_us(100_000)
+            .field(crate::TT_KIND, "request")
+            .field(crate::TT_REQUEST_ID, "req-1")
+            .field(crate::TT_ROUTE, "/checkout")
+            .field("custom", "kept");
+        let jsonl =
+            serde_json::json!({"format":"tailtriage.tracing-span.v1","span":span}).to_string();
+        let imported = import_jsonl_reader(Cursor::new(jsonl), ImportOptions::new("svc")).unwrap();
+        let retained = imported.retained_sources();
+        assert_eq!(retained.len(), 1);
+        let source = &retained[0];
+        assert_eq!(source.id_ref(), Some("span-id"));
+        assert_eq!(source.parent_id_ref(), Some("parent-id"));
+        assert_eq!(source.name(), "http.request");
+        assert_eq!(source.started_at_unix_ms(), 1000);
+        assert_eq!(source.finished_at_unix_ms(), 1100);
+        assert_eq!(source.started_at_run_us_ref(), Some(10));
+        assert_eq!(source.finished_at_run_us_ref(), Some(100_010));
+        assert_eq!(source.duration_us_ref(), Some(100_000));
+        assert_eq!(
+            source.fields().get(crate::TT_KIND),
+            Some(&FieldValue::String("request".to_owned()))
+        );
+        assert_eq!(
+            source.fields().get("custom"),
+            Some(&FieldValue::String("kept".to_owned()))
+        );
     }
 }
