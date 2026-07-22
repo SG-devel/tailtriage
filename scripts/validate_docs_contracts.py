@@ -1318,29 +1318,73 @@ def validate_live_tracing_session_public_contract() -> None:
             )
 
 
+RUN_SHAPED_JSON_KEYS = frozenset(
+    ("metadata", "requests", "stages", "queues", "inflight", "runtime_snapshots")
+)
+
+
+def _json_objects_with_schema_version_one(text: str) -> list[dict[str, Any]]:
+    decoder = json.JSONDecoder()
+    objects: list[dict[str, Any]] = []
+    for match in re.finditer(r'\{', text):
+        try:
+            value, _ = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("schema_version") == 1:
+            objects.append(value)
+    return objects
+
+
+def _looks_like_run_json_object(value: dict[str, Any]) -> bool:
+    if value.get("schema_version") != 1:
+        return False
+    keys = set(value)
+    return "metadata" in keys and len(keys & RUN_SHAPED_JSON_KEYS) >= 4
+
+
 def validate_run_schema_v2_public_contract(
-    *, doc_paths: tuple[Path, ...] = RUN_SCHEMA_CURRENT_CLAIM_PATHS
+    *,
+    doc_paths: tuple[Path, ...] = RUN_SCHEMA_CURRENT_CLAIM_PATHS,
+    required_current_paths: tuple[Path, ...] | None = None,
 ) -> None:
-    required_current_paths = (
-        SPEC_PATH,
-        DIAGNOSTICS_PATH,
-        REPO_ROOT / "tailtriage-cli" / "README.md",
+    if required_current_paths is None:
+        required_current_paths = (
+            SPEC_PATH,
+            DIAGNOSTICS_PATH,
+            REPO_ROOT / "tailtriage-cli" / "README.md",
+        )
+        if doc_paths != RUN_SCHEMA_CURRENT_CLAIM_PATHS:
+            required_current_paths = doc_paths
+    stale_run_patterns = (
+        r"current\s+supported\s+run\s+schema\s+version\s+(?:is\s*)?[:=]?\s*`?1`?",
+        r"current\s+run\s+json\s+schema\s+version\s+(?:is\s*)?[:=]?\s*`?1`?",
     )
-    if doc_paths != RUN_SCHEMA_CURRENT_CLAIM_PATHS:
-        required_current_paths = doc_paths
-    stale_patterns = (
+    stale_canonical_patterns = (
         r"current\s+supported\s+schema\s+version\s+is\s*`?1`?",
         r"current\s+supported\s+schema\s+version\s*:\s*`?1`?",
-        r"current\s+run\s+json\s+schema\s+version\s+is\s*`?1`?",
-        r'"schema_version"\s*:\s*1',
-        r"metadata\.finished_at_unix_ms",
     )
     for path in doc_paths:
         text = path.read_text(encoding="utf-8")
-        for pattern in stale_patterns:
+        for pattern in stale_run_patterns:
             if re.search(pattern, text, flags=re.IGNORECASE):
                 raise ValueError(
                     f"{path.relative_to(REPO_ROOT)} contains stale current Run schema claim: {pattern}"
+                )
+        if path in required_current_paths:
+            for pattern in stale_canonical_patterns:
+                if re.search(pattern, text, flags=re.IGNORECASE):
+                    raise ValueError(
+                        f"{path.relative_to(REPO_ROOT)} contains stale current Run schema claim: {pattern}"
+                    )
+        if re.search(r"metadata\.finished_at_unix_ms", text, flags=re.IGNORECASE):
+            raise ValueError(
+                f"{path.relative_to(REPO_ROOT)} contains removed current Run metadata field"
+            )
+        for value in _json_objects_with_schema_version_one(text):
+            if _looks_like_run_json_object(value):
+                raise ValueError(
+                    f"{path.relative_to(REPO_ROOT)} contains stale Run JSON schema-version 1 example"
                 )
 
     required = (

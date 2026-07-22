@@ -38,6 +38,97 @@ class ValidateDocsContractsTests(unittest.TestCase):
                     doc_paths=(path,)
                 )
 
+
+    def test_run_schema_v2_public_contract_rejects_run_shaped_v1_json(self) -> None:
+        body = """Run JSON artifact example:
+```json
+{
+  "schema_version": 1,
+  "metadata": {},
+  "requests": [],
+  "stages": [],
+  "queues": [],
+  "inflight": [],
+  "runtime_snapshots": []
+}
+```
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"stale Run JSON schema-version 1 example"),
+            ):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_rejects_removed_run_metadata_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(
+                "Current Run metadata includes metadata.finished_at_unix_ms.\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"removed current Run metadata field"),
+            ):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_rejects_missing_canonical_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text("Run JSON schema version 2.\n", encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"missing Run schema v2 wording"),
+            ):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=(path,)
+                )
+
+    def test_run_schema_v2_public_contract_accepts_validation_output_v1_json(self) -> None:
+        body = """Unrelated validation output:
+```json
+{"schema_version": 1, "generated_at": "2026-01-01T00:00:00Z", "cases": []}
+```
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "VALIDATION.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_accepts_noncanonical_without_boilerplate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "notes.md"
+            path.write_text(
+                "This page discusses capture artifacts without schema boilerplate.\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_accepts_historical_schema_v1_prose(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "CHANGELOG.md"
+            path.write_text(
+                "Historical note: schema-v1 Run JSON was supported before schema v2.\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
     def test_governance_strictness_contract_accepts_distinct_policies(self) -> None:
         spec_text = """# Spec
 

@@ -402,11 +402,11 @@ impl TracingSession {
         let sampler_disabled = self.sampler.is_none();
         #[cfg(feature = "tokio")]
         let runtime_collector = self.runtime_collector.clone();
-        let imported = self.recorder.snapshot_run()?;
         #[cfg(feature = "tokio")]
         if let Some(sampler) = self.sampler {
             sampler.shutdown().await;
         }
+        let imported = self.recorder.snapshot_run()?;
         #[cfg(feature = "tokio")]
         let imported = if let Some(runtime_collector) = runtime_collector {
             let runtime = runtime_collector.snapshot();
