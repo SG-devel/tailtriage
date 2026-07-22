@@ -1067,7 +1067,7 @@ fn import_tracing_spans_jsonl_help_shows_only_live_input_format_values() {
 }
 
 #[test]
-fn import_tracing_spans_jsonl_auto_is_rejected() {
+fn import_tracing_spans_jsonl_input_format_compatible_is_clap_unknown_argument() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let spans_path = dir.path().join("spans.jsonl");
     let run_path = dir.path().join("run.json");
@@ -1081,10 +1081,21 @@ fn import_tracing_spans_jsonl_auto_is_rejected() {
         .arg("--output")
         .arg(&run_path)
         .arg("--input-format")
-        .arg("auto")
+        .arg("compatible")
         .output()
         .expect("cli should run");
     assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("--input-format"), "{stderr}");
+    assert!(
+        stderr.contains("unexpected argument") || stderr.contains("unknown argument"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Usage:"), "{stderr}");
+    assert!(!stderr.contains("tailtriage.tracing-span.v1"), "{stderr}");
+    assert!(!stderr.contains("ExpectedTailtriageWrapper"), "{stderr}");
+    assert!(!stderr.contains("MalformedJsonLine"), "{stderr}");
+    assert!(!run_path.exists());
 }
 
 #[test]

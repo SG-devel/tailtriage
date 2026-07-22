@@ -128,18 +128,21 @@ fn parse_record(
         ));
     }
 
+    reject_forbidden_wrapper_keys(line_no, obj)?;
+
     let span_value = obj.get("span").ok_or_else(|| {
         wrapper_error(
             line_no,
             "missing field 'span' for tailtriage.tracing-span.v1 wrapper",
         )
     })?;
-    if !span_value.is_object() {
-        return Err(wrapper_error(
+    let span_obj = span_value.as_object().ok_or_else(|| {
+        wrapper_error(
             line_no,
             "invalid field 'span': expected completed span object for tailtriage.tracing-span.v1",
-        ));
-    }
+        )
+    })?;
+    reject_forbidden_span_keys(line_no, span_obj)?;
 
     match serde_json::from_value::<SpanRecord>(span_value.clone()) {
         Ok(span) => Ok(Some(span)),
@@ -153,6 +156,40 @@ fn parse_record(
             }
         }
     }
+}
+
+fn reject_forbidden_wrapper_keys(
+    line_no: usize,
+    obj: &serde_json::Map<String, Value>,
+) -> Result<(), ImportError> {
+    if obj.contains_key("fields") {
+        return Err(wrapper_error(
+            line_no,
+            "forbidden wrapper-level compatibility key 'fields'",
+        ));
+    }
+    if let Some(key) = obj.keys().find(|key| key.starts_with("tt.")) {
+        return Err(wrapper_error(
+            line_no,
+            format!("forbidden wrapper-level compatibility key '{key}'"),
+        ));
+    }
+    Ok(())
+}
+
+fn reject_forbidden_span_keys(
+    line_no: usize,
+    obj: &serde_json::Map<String, Value>,
+) -> Result<(), ImportError> {
+    for key in ["start_unix_ms", "end_unix_ms"] {
+        if obj.contains_key(key) {
+            return Err(wrapper_error(
+                line_no,
+                format!("forbidden span timestamp alias '{key}'"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn classify_missing_format(obj: &serde_json::Map<String, Value>) -> &'static str {
@@ -266,6 +303,61 @@ mod tests {
             1,
             "unversioned",
         );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_wrapper_level_fields() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","fields":{"tt.request_id":"legacy"},"span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden wrapper-level compatibility key 'fields'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_wrapper_level_tt_key() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","tt.route":"/legacy","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden wrapper-level compatibility key 'tt.route'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_mixed_compatibility_placement_deterministically() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","fields":{"tt.request_id":"legacy"},"tt.route":"/legacy","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden wrapper-level compatibility key 'fields'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_alias_only_timestamps_in_strict_and_non_strict() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","start_unix_ms":1,"end_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#;
+        assert_wrapper_rejected(input, 1, "forbidden span timestamp alias 'start_unix_ms'");
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+            .expect_err("strict mode must reject forbidden aliases structurally");
+        assert!(matches!(err, ImportError::ExpectedTailtriageWrapper { .. }));
+        assert!(err.to_string().contains("line 1"));
+        assert!(err.to_string().contains("start_unix_ms"));
+    }
+
+    #[test]
+    fn stable_wrapper_rejects_canonical_timestamps_plus_aliases() {
+        assert_wrapper_rejected(
+            r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"start_unix_ms":100,"end_unix_ms":200,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#,
+            1,
+            "forbidden span timestamp alias 'start_unix_ms'",
+        );
+    }
+
+    #[test]
+    fn stable_wrapper_accepts_unrelated_wrapper_extension_key() {
+        let input = r#"{"format":"tailtriage.tracing-span.v1","producer":"example","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#;
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.retained_sources().len(), 1);
+        assert_eq!(imported.retained_sources()[0].name(), "request");
     }
 
     #[test]

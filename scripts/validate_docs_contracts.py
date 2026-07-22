@@ -1204,6 +1204,7 @@ def validate_tracing_jsonl_no_compat_guidance_contract() -> None:
     )
     disallowed_patterns = (
         (r"jsonl" + r"parse" + r"mode", "JSONL parse mode API"),
+        (r"wrapper" + r"\s*" + r"-?" + r"\s*" + r"only" + r"\s+" + r"mode", "tracing JSONL wrapper-only mode wording"),
         (r"--" + r"\s*" + r"input-format", "CLI input format option"),
         (r"compatible\s+(?:mode|parser|tracing\s+import)", "compatible tracing import guidance"),
         (r'(?<!"format":"tailtriage\.tracing-span\.v1",)"span"\s*:\s*\{', "unversioned tracing JSONL example"),

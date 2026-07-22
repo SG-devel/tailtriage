@@ -3897,6 +3897,55 @@ mod tests {
     }
 
     #[test]
+    fn production_completed_span_jsonl_writer_output_reimports_expected_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let spans_path = dir.path().join("completed.jsonl");
+        let sources = vec![
+            SpanRecord::new("http.request", 1_700_000_000_000, 1_700_000_000_120)
+                .id("span-id")
+                .parent_id("parent-id")
+                .started_at_run_us(10)
+                .finished_at_run_us(120_010)
+                .duration_us(120_000)
+                .field(TT_KIND, "request")
+                .field("tt.request_id", "req-1")
+                .field("tt.route", "/checkout")
+                .field("custom.source", "kept"),
+        ];
+
+        write_completed_span_jsonl_from_retained_sources(&sources, &spans_path).unwrap();
+        let imported = crate::import_jsonl_path(&spans_path, ImportOptions::new("svc")).unwrap();
+
+        let retained = imported.retained_sources();
+        assert_eq!(retained.len(), 1);
+        let span = &retained[0];
+        assert_eq!(span.id_ref(), Some("span-id"));
+        assert_eq!(span.parent_id_ref(), Some("parent-id"));
+        assert_eq!(span.name(), "http.request");
+        assert_eq!(span.started_at_unix_ms(), 1_700_000_000_000);
+        assert_eq!(span.finished_at_unix_ms(), 1_700_000_000_120);
+        assert_eq!(span.started_at_run_us_ref(), Some(10));
+        assert_eq!(span.finished_at_run_us_ref(), Some(120_010));
+        assert_eq!(span.duration_us_ref(), Some(120_000));
+        assert_eq!(
+            span.fields().get(TT_KIND),
+            Some(&FieldValue::String("request".to_owned()))
+        );
+        assert_eq!(
+            span.fields().get("tt.request_id"),
+            Some(&FieldValue::String("req-1".to_owned()))
+        );
+        assert_eq!(
+            span.fields().get("tt.route"),
+            Some(&FieldValue::String("/checkout".to_owned()))
+        );
+        assert_eq!(
+            span.fields().get("custom.source"),
+            Some(&FieldValue::String("kept".to_owned()))
+        );
+    }
+
+    #[test]
     fn direct_completed_span_jsonl_writer_excludes_core_excluded_sources() {
         let dir = tempfile::tempdir().unwrap();
         let spans_path = dir.path().join("spans.jsonl");
