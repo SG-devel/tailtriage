@@ -51,8 +51,8 @@ Each suspect includes:
 
 - `request_count`: number of requests observed in the run artifact.
 - `p50_latency_us` / `p95_latency_us` / `p99_latency_us`: request latency percentiles in microseconds.
-- `p95_queue_share_permille`: p95 queue-time share per request (0..1000 scale).
-- `p95_service_share_permille`: p95 service-time share per request (0..1000 scale).
+- `p95_queue_share_permille`: p95 attributed queue-time share per request (0..1000 scale). Complete run-relative queue intervals use overlap-safe interval union. If any retained queue event for a request lacks complete run-relative precision, attribution falls back to a capped sum of authoritative queue durations and is approximate.
+- `p95_service_share_permille`: p95 non-queue service-time share per request (0..1000 scale). Service share is the request remainder after attributed queue time. Queue and service shares are individually bounded to 0..1000 permille.
 - `warnings[]`: analyzer/report warnings, especially truncation-related warnings from captured-data limits. Loader/lifecycle warnings (including unfinished-request warnings) are emitted separately by the CLI loader to stderr before the report output.
 - `evidence_quality`: structured signal coverage status, truncation counters, and overall evidence quality (`strong`/`partial`/`weak`).
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.

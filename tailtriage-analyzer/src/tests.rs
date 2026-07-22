@@ -95,6 +95,151 @@ fn sample_request(id: u64) -> RequestEvent {
     }
 }
 
+fn precise_request(id: &str, latency_us: u64) -> RequestEvent {
+    RequestEvent {
+        request_id: id.to_owned(),
+        route: "/precise".into(),
+        kind: None,
+        started_at_unix_ms: 10,
+        started_at_run_us: Some(0),
+        finished_at_unix_ms: 11,
+        finished_at_run_us: Some(latency_us),
+        latency_us,
+        outcome: "ok".into(),
+    }
+}
+
+fn precise_queue(id: &str, start: u64, end: u64, wait_us: u64) -> QueueEvent {
+    QueueEvent {
+        request_id: id.to_owned(),
+        queue: "worker".into(),
+        waited_from_unix_ms: 10,
+        waited_from_run_us: Some(start),
+        waited_until_unix_ms: 11,
+        waited_until_run_us: Some(end),
+        wait_us,
+        depth_at_start: Some(1),
+    }
+}
+
+#[test]
+fn overlapping_precise_queues_are_union_attributed() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("req-overlap", 100)];
+    run.queues = vec![
+        precise_queue("req-overlap", 0, 60, 60),
+        precise_queue("req-overlap", 40, 90, 50),
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.p95_queue_share_permille, Some(900));
+    assert_eq!(report.p95_service_share_permille, Some(100));
+}
+
+#[test]
+fn missing_run_relative_queue_endpoint_falls_back_to_capped_duration_sum() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("req-approx", 100)];
+    run.queues = vec![
+        precise_queue("req-approx", 0, 40, 40),
+        QueueEvent {
+            request_id: "req-approx".into(),
+            queue: "worker".into(),
+            waited_from_unix_ms: 10,
+            waited_from_run_us: None,
+            waited_until_unix_ms: 11,
+            waited_until_run_us: None,
+            wait_us: 90,
+            depth_at_start: Some(1),
+        },
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.p95_queue_share_permille, Some(1000));
+    assert_eq!(report.p95_service_share_permille, Some(0));
+    assert!(report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("precise_interval_validation_unavailable")));
+}
+
+#[test]
+fn out_of_parent_precise_queue_is_excluded_before_attribution_not_clipped() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("req-boundary", 100)];
+    run.queues = vec![
+        precise_queue("req-boundary", 10, 40, 30),
+        precise_queue("req-boundary", 80, 120, 40),
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.p95_queue_share_permille, Some(300));
+    assert_eq!(report.p95_service_share_permille, Some(700));
+    assert!(report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("child_interval_outside_request")
+            && warning.contains("queue")));
+}
+
+#[test]
+fn non_overlapping_queue_attribution_remains_stable() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("req-stable", 100)];
+    run.queues = vec![
+        precise_queue("req-stable", 0, 20, 20),
+        precise_queue("req-stable", 40, 70, 30),
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(report.p95_queue_share_permille, Some(500));
+    assert_eq!(report.p95_service_share_permille, Some(500));
+}
+
+#[test]
+fn repeated_analysis_is_deterministic_for_overlap_safe_queue_attribution() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("req-deterministic", 100)];
+    run.queues = vec![
+        precise_queue("req-deterministic", 40, 90, 50),
+        precise_queue("req-deterministic", 0, 60, 60),
+    ];
+
+    let first = analyze_run(&run, AnalyzeOptions::default());
+    let first_json = render_json(&first).expect("render first report");
+    for _ in 0..10 {
+        let next = analyze_run(&run, AnalyzeOptions::default());
+        let next_json = render_json(&next).expect("render next report");
+        assert_eq!(next, first);
+        assert_eq!(next_json, first_json);
+    }
+}
+
+#[test]
+fn interleaved_queue_events_group_by_request_and_preserve_request_order() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("req-a", 200), precise_request("req-b", 100)];
+    run.queues = vec![
+        precise_queue("req-a", 0, 30, 30),
+        precise_queue("req-b", 0, 20, 20),
+        precise_queue("req-a", 100, 150, 50),
+        precise_queue("req-b", 40, 80, 40),
+    ];
+
+    let shares = super::request_time_shares(&run);
+
+    assert_eq!(shares.queue, vec![400, 600]);
+    assert_eq!(shares.service, vec![600, 400]);
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(report.p95_queue_share_permille, Some(600));
+    assert_eq!(report.p95_service_share_permille, Some(600));
+}
+
 #[test]
 fn duplicate_completed_request_ids_emit_warning_without_panic() {
     let mut run = test_run();
