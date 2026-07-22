@@ -59,6 +59,9 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
 - queue share uses overlap-safe interval union when every retained queue event for a request has complete run-relative timing; if any retained queue event lacks complete run-relative precision, queue attribution falls back to a capped sum of authoritative queue durations and is approximate
 - service share is the request remainder after attributed queue time; queue and service shares are individually bounded to 0..1000 permille
+- downstream stages are attributed per `(stage name, request_id)`: complete run-relative microsecond intervals use overlap-safe union, disjoint repeated same-name events remain additive, and a request-stage group with incomplete run-relative precision falls back to a capped sum of authoritative stage durations
+- downstream stage p95, cumulative share, tail share, sample quality, and eligibility use one attributed duration per distinct completed request with retained evidence for that stage; `downstream.min_stage_samples` counts distinct requests, not raw stage events
+- different stage names are attributed independently, even when their intervals overlap within the same request; downstream suspects remain triage leads, not proof of root cause
 - default analysis is permissive: it analyzes core-normalized evidence and surfaces stable core issue-code warnings for excluded, repaired, or precision-limited completed-Run evidence; strict artifact validation APIs reject error-level generic core integrity failures
 
 ## Request ID contract

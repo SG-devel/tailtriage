@@ -109,6 +109,32 @@ fn precise_request(id: &str, latency_us: u64) -> RequestEvent {
     }
 }
 
+fn precise_stage(
+    request_id: &str,
+    stage: &str,
+    start: Option<u64>,
+    end: Option<u64>,
+    latency_us: u64,
+) -> StageEvent {
+    StageEvent {
+        request_id: request_id.to_owned(),
+        stage: stage.to_owned(),
+        started_at_unix_ms: 10,
+        started_at_run_us: start,
+        finished_at_unix_ms: 10,
+        finished_at_run_us: end,
+        latency_us,
+        success: true,
+    }
+}
+
+fn downstream_suspect(report: &Report) -> &Suspect {
+    std::iter::once(&report.primary_suspect)
+        .chain(report.secondary_suspects.iter())
+        .find(|suspect| suspect.kind == DiagnosisKind::DownstreamStageDominates)
+        .expect("downstream suspect")
+}
+
 fn precise_queue(id: &str, start: u64, end: u64, wait_us: u64) -> QueueEvent {
     QueueEvent {
         request_id: id.to_owned(),
@@ -120,6 +146,212 @@ fn precise_queue(id: &str, start: u64, end: u64, wait_us: u64) -> QueueEvent {
         wait_us,
         depth_at_start: Some(1),
     }
+}
+
+#[test]
+fn downstream_overlap_uses_request_scoped_stage_attribution_for_score() {
+    let mut run = test_run();
+    run.requests = vec![
+        precise_request("a", 100),
+        precise_request("b", 100),
+        precise_request("c", 100),
+    ];
+    run.stages = vec![
+        precise_stage("a", "db", Some(0), Some(60), 60),
+        precise_stage("a", "db", Some(40), Some(90), 50),
+        precise_stage("b", "db", Some(0), Some(20), 20),
+        precise_stage("c", "db", Some(0), Some(20), 20),
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let suspect = downstream_suspect(&report);
+
+    assert_eq!(suspect.score, 75);
+    assert_eq!(
+        suspect.evidence[0],
+        "Stage 'db' has p95 latency 90 us across 3 samples."
+    );
+    assert_eq!(
+        suspect.evidence[1],
+        "Stage 'db' cumulative latency is 130 us (433 permille of request latency)."
+    );
+    assert_eq!(
+        suspect.evidence[2],
+        "Stage 'db' contributes 433 permille of tail request latency."
+    );
+}
+
+#[test]
+fn downstream_eligibility_uses_distinct_request_samples_not_raw_events() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("only", 100)];
+    for i in 0..10 {
+        run.stages.push(precise_stage(
+            "only",
+            "db",
+            Some(i * 10),
+            Some(i * 10 + 5),
+            5,
+        ));
+    }
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_ne!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert!(report
+        .secondary_suspects
+        .iter()
+        .all(|s| s.kind != DiagnosisKind::DownstreamStageDominates));
+}
+
+#[test]
+fn downstream_approximate_stage_group_warns_only_with_canonical_precision_warning() {
+    let mut run = test_run();
+    run.requests = vec![
+        precise_request("a", 100),
+        precise_request("b", 100),
+        precise_request("c", 100),
+    ];
+    run.stages = vec![
+        precise_stage("a", "db", Some(0), Some(20), 20),
+        precise_stage("a", "db", None, None, 90),
+        precise_stage("b", "db", Some(0), Some(10), 10),
+        precise_stage("c", "db", Some(0), Some(10), 10),
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let suspect = downstream_suspect(&report);
+
+    assert_eq!(suspect.score, 71);
+    assert_eq!(
+        suspect.evidence[0],
+        "Stage 'db' has p95 latency 100 us across 3 samples."
+    );
+    assert_eq!(
+        suspect.evidence[1],
+        "Stage 'db' cumulative latency is 120 us (400 permille of request latency)."
+    );
+    assert_eq!(
+        suspect.evidence[2],
+        "Stage 'db' contributes 400 permille of tail request latency."
+    );
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.contains("precise_interval_validation_unavailable")));
+    assert!(!report.warnings.iter().any(|w| w.contains("attribution")));
+}
+
+#[test]
+fn downstream_stage_attribution_respects_normalization_boundary() {
+    let mut run = test_run();
+    run.requests = vec![
+        precise_request("a", 100),
+        precise_request("b", 100),
+        precise_request("c", 100),
+    ];
+    run.stages = vec![
+        precise_stage("a", "db", Some(10), Some(40), 30),
+        precise_stage("a", "db", Some(80), Some(120), 40),
+        precise_stage("b", "db", Some(0), Some(20), 20),
+        precise_stage("c", "db", Some(0), Some(20), 20),
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let suspect = downstream_suspect(&report);
+
+    assert_eq!(
+        suspect.evidence[0],
+        "Stage 'db' has p95 latency 30 us across 3 samples."
+    );
+    assert_eq!(
+        suspect.evidence[1],
+        "Stage 'db' cumulative latency is 70 us (233 permille of request latency)."
+    );
+    assert_eq!(
+        suspect.evidence[2],
+        "Stage 'db' contributes 233 permille of tail request latency."
+    );
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.contains("child_interval_outside_request") && w.contains("stage")));
+    assert!(!suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("90 us") || e.contains("300 permille")));
+    assert!(!report.warnings.iter().any(|w| w.contains("attribution")));
+}
+
+#[test]
+fn downstream_stage_input_order_invariance_extends_to_canonical_json() {
+    let mut first = test_run();
+    first.requests = vec![
+        precise_request("a", 100),
+        precise_request("b", 100),
+        precise_request("c", 100),
+    ];
+    first.stages = vec![
+        precise_stage("a", "db", Some(40), Some(90), 50),
+        precise_stage("c", "cache", Some(0), Some(20), 20),
+        precise_stage("a", "db", Some(0), Some(60), 60),
+        precise_stage("b", "db", Some(0), Some(20), 20),
+        precise_stage("c", "db", Some(0), Some(20), 20),
+    ];
+    let mut second = first.clone();
+    second.stages = vec![
+        first.stages[4].clone(),
+        first.stages[2].clone(),
+        first.stages[1].clone(),
+        first.stages[0].clone(),
+        first.stages[3].clone(),
+    ];
+
+    let first_report = analyze_run(&first, AnalyzeOptions::default());
+    let second_report = analyze_run(&second, AnalyzeOptions::default());
+
+    assert_eq!(first_report, second_report);
+    assert_eq!(
+        render_json(&first_report).unwrap(),
+        render_json(&second_report).unwrap()
+    );
+    assert_eq!(
+        render_json_pretty(&first_report).unwrap(),
+        render_json_pretty(&second_report).unwrap()
+    );
+}
+
+#[test]
+fn downstream_non_overlap_single_event_per_request_behavior_remains_stable() {
+    let mut run = test_run();
+    run.requests = vec![
+        precise_request("a", 100),
+        precise_request("b", 100),
+        precise_request("c", 100),
+    ];
+    run.stages = vec![
+        precise_stage("a", "db", Some(0), Some(60), 60),
+        precise_stage("b", "db", Some(0), Some(20), 20),
+        precise_stage("c", "db", Some(0), Some(20), 20),
+    ];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let suspect = downstream_suspect(&report);
+
+    assert_eq!(suspect.kind, DiagnosisKind::DownstreamStageDominates);
+    assert_eq!(suspect.score, 63);
+    assert_eq!(
+        suspect.evidence,
+        vec![
+            "Stage 'db' has p95 latency 60 us across 3 samples.".to_string(),
+            "Stage 'db' cumulative latency is 100 us (333 permille of request latency)."
+                .to_string(),
+            "Stage 'db' contributes 333 permille of tail request latency.".to_string(),
+        ]
+    );
 }
 
 #[test]

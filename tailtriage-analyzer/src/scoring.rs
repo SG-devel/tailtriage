@@ -1,9 +1,8 @@
-use std::collections::BTreeMap;
-
 use tailtriage_core::Run;
 
 use crate::{
-    percentile, runtime_metric_series, AnalyzeOptions, DiagnosisKind, InflightTrend, Suspect,
+    percentile, runtime_metric_series, stage_attribution, AnalyzeOptions, DiagnosisKind,
+    InflightTrend, Suspect,
 };
 
 const SAMPLE_QUALITY_HIGH_SAMPLE_COUNT: usize = 100;
@@ -219,56 +218,31 @@ struct StageCandidate {
 fn downstream_stage_candidates(
     run: &Run,
     p95_req: u64,
-    total_req: u64,
     options: &AnalyzeOptions,
 ) -> Vec<StageCandidate> {
-    let tail_ids: std::collections::HashMap<&str, u64> = run
-        .requests
-        .iter()
-        .filter(|r| r.latency_us >= p95_req)
-        .map(|r| (r.request_id.as_str(), r.latency_us))
-        .collect();
-    let tail_total = tail_ids.values().copied().fold(0_u64, u64::saturating_add);
-    let mut by: BTreeMap<&str, Vec<&tailtriage_core::StageEvent>> = BTreeMap::new();
-    for st in &run.stages {
-        by.entry(st.stage.as_str()).or_default().push(st);
-    }
     let mut cands = Vec::new();
-    for (name, ss) in by {
-        if ss.len() < options.downstream.min_stage_samples {
+    for summary in stage_attribution::stage_summaries(run, p95_req) {
+        let samples = summary.request_samples;
+        if samples < options.downstream.min_stage_samples {
             continue;
         }
-        let lats = ss.iter().map(|s| s.latency_us).collect::<Vec<_>>();
-        let cum = lats.iter().copied().fold(0_u64, u64::saturating_add);
-        let p95 = percentile(&lats, 95, 100).unwrap_or(0);
-        let cum_share = cum.saturating_mul(1000).checked_div(total_req).unwrap_or(0);
-        let tail_stage = ss
-            .iter()
-            .filter_map(|s| tail_ids.get(s.request_id.as_str()).map(|_| s.latency_us))
-            .fold(0_u64, u64::saturating_add);
-        let tail_share = if tail_total == 0 {
-            0
-        } else {
-            tail_stage
-                .saturating_mul(1000)
-                .checked_div(tail_total)
-                .unwrap_or(0)
-        };
-        let clean_extreme = tail_share >= 960 && cum_share >= 920 && ss.len() >= 20;
+        let clean_extreme = summary.tail_share_permille >= 960
+            && summary.cumulative_share_permille >= 920
+            && samples >= 20;
         let score = cap_unless_clean_evidence(
-            score_from_permille(24, tail_share, 11)
-                + (cum_share / 35)
-                + u64::from(score_sample_quality(ss.len())),
+            score_from_permille(24, summary.tail_share_permille, 11)
+                + (summary.cumulative_share_permille / 35)
+                + u64::from(score_sample_quality(samples)),
             clean_extreme,
             95,
         );
         cands.push(StageCandidate {
-            stage: name.to_string(),
-            samples: ss.len(),
-            p95,
-            cumulative: cum,
-            cum_share,
-            tail_share,
+            stage: summary.stage,
+            samples,
+            p95: summary.p95_attributed_latency_us,
+            cumulative: summary.cumulative_attributed_latency_us,
+            cum_share: summary.cumulative_share_permille,
+            tail_share: summary.tail_share_permille,
             score,
         });
     }
@@ -284,11 +258,6 @@ pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> O
         95,
         100,
     )?;
-    let total_req = run
-        .requests
-        .iter()
-        .map(|r| r.latency_us)
-        .fold(0_u64, u64::saturating_add);
     let blocking = blocking_signal(run, options);
     let blocking_score = blocking.map(|signal| {
         let clean_extreme =
@@ -302,7 +271,7 @@ pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> O
             94,
         )
     });
-    let best = downstream_stage_candidates(run, p95_req, total_req, options)
+    let best = downstream_stage_candidates(run, p95_req, options)
         .into_iter()
         .max_by(|a, b| {
             a.score
