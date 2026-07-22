@@ -204,6 +204,8 @@ struct ActiveGenerationRuntime {
     state: ActiveGenerationState,
     artifact_path: PathBuf,
     run: Arc<Tailtriage>,
+    admission_gate: Mutex<()>,
+    finalization_gate: Mutex<()>,
     accepting_new: AtomicBool,
     closing: AtomicBool,
     inflight_captured: AtomicU64,
@@ -479,6 +481,8 @@ impl TailtriageController {
             },
             artifact_path,
             run: Arc::clone(&run),
+            admission_gate: Mutex::new(()),
+            finalization_gate: Mutex::new(()),
             accepting_new: AtomicBool::new(true),
             closing: AtomicBool::new(false),
             inflight_captured: AtomicU64::new(0),
@@ -537,7 +541,7 @@ impl TailtriageController {
     /// Returns [`DisableError::Finalize`] when final artifact writing fails.
     ///
     pub fn disable(&self) -> Result<DisableOutcome, DisableError> {
-        let (active, next_generation, generation_id) = {
+        let (active, next_generation) = {
             let lifecycle = self
                 .inner
                 .lifecycle
@@ -555,31 +559,20 @@ impl TailtriageController {
                 return Ok(DisableOutcome::AlreadyDisabled);
             };
 
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::ManualDisarm);
-            active.accepting_new.store(false, Ordering::Relaxed);
-            active.closing.store(true, Ordering::Relaxed);
-
-            if active.inflight_captured.load(Ordering::Relaxed) == 0 {
-                (
-                    Some(Arc::clone(active)),
-                    Some(next_generation),
-                    active.state.generation_id,
-                )
-            } else {
-                return Ok(DisableOutcome::Closing {
-                    generation_id: active.state.generation_id,
-                    inflight_captured_requests: active.inflight_captured.load(Ordering::Relaxed),
-                });
-            }
+            (Arc::clone(active), next_generation)
         };
 
-        if let (Some(active), Some(next_generation)) = (active, next_generation) {
+        let inflight = Self::close_generation_admissions(&active, RunEndReason::ManualDisarm);
+        let generation_id = active.state.generation_id;
+        if inflight == 0 {
             Self::finalize_active(&self.inner, &active, next_generation)?;
+            Ok(DisableOutcome::Finalized { generation_id })
+        } else {
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: inflight,
+            })
         }
-
-        Ok(DisableOutcome::Finalized { generation_id })
     }
 
     /// Begins one request through the controller.
@@ -637,6 +630,7 @@ impl TailtriageController {
         route: impl Into<String>,
         options: RequestOptions,
     ) -> Option<ControllerStartedRequest> {
+        let route = route.into();
         let active = {
             let lifecycle = self
                 .inner
@@ -651,6 +645,11 @@ impl TailtriageController {
             }
         };
 
+        let _admission = active
+            .admission_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         if !active.accepting_new.load(Ordering::Acquire) {
             return None;
         }
@@ -658,28 +657,16 @@ impl TailtriageController {
         if active.state.activation_config.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit
             && active.run.snapshot().truncation.limits_hit
         {
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-            active.accepting_new.store(false, Ordering::Release);
-            active.closing.store(true, Ordering::Release);
-            if active.inflight_captured.load(Ordering::Acquire) == 0 {
-                let _ = self.force_finalize_generation(&active);
-            }
+            Self::close_generation_admissions_locked(&active, RunEndReason::AutoSealOnLimitsHit);
             return None;
         }
 
-        active.inflight_captured.fetch_add(1, Ordering::AcqRel);
-        if !active.accepting_new.load(Ordering::Acquire) {
-            active.inflight_captured.fetch_sub(1, Ordering::AcqRel);
-            return None;
-        }
-
-        // Admission is now committed to this concrete generation runtime.
-        // The completion token keeps a weak reference to this runtime so finish
-        // bookkeeping cannot drift into a later generation.
+        // Admission is linearized with every controller closure path by the
+        // generation admission gate. The core pair is created before the
+        // controller in-flight counter is committed, and neither is exposed to
+        // the caller until both steps complete.
         let started = active.run.begin_request_with_owned(route, options);
-        Self::apply_run_end_policy_if_limits_hit(&active);
+        active.inflight_captured.fetch_add(1, Ordering::AcqRel);
 
         Some(ControllerStartedRequest {
             handle: ControllerRequestHandle::Active(started.handle),
@@ -733,16 +720,33 @@ impl TailtriageController {
         };
 
         if let Some(active) = maybe_active {
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::Shutdown);
-            active.accepting_new.store(false, Ordering::Relaxed);
-            active.closing.store(true, Ordering::Relaxed);
+            Self::close_generation_admissions(&active, RunEndReason::Shutdown);
             self.force_finalize_generation(&active)
                 .map_err(ShutdownError::Finalize)?;
         }
 
         Ok(())
+    }
+
+    fn close_generation_admissions(
+        active: &Arc<ActiveGenerationRuntime>,
+        reason: RunEndReason,
+    ) -> u64 {
+        let _admission = active
+            .admission_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Self::close_generation_admissions_locked(active, reason)
+    }
+
+    fn close_generation_admissions_locked(
+        active: &Arc<ActiveGenerationRuntime>,
+        reason: RunEndReason,
+    ) -> u64 {
+        active.run.set_run_end_reason_if_absent(reason);
+        active.accepting_new.store(false, Ordering::Release);
+        active.closing.store(true, Ordering::Release);
+        active.inflight_captured.load(Ordering::Acquire)
     }
 
     fn force_finalize_generation(
@@ -787,20 +791,44 @@ impl TailtriageController {
         active: &Arc<ActiveGenerationRuntime>,
         next_generation: u64,
     ) -> Result<(), DisableError> {
+        let _finalization = active
+            .finalization_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        {
+            let lifecycle = inner
+                .lifecycle
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match *lifecycle {
+                ControllerLifecycle::TerminalFailed {
+                    active: ref current_active,
+                    ref message,
+                    ..
+                } if current_active.state.generation_id == active.state.generation_id => {
+                    return Err(DisableError::Finalize(Self::prior_finalize_error(message)));
+                }
+                ControllerLifecycle::Active {
+                    active: ref current_active,
+                    next_generation: ng,
+                } if current_active.state.generation_id == active.state.generation_id
+                    && ng == next_generation => {}
+                _ => return Ok(()),
+            }
+        }
+
         active.finalize_started.store(true, Ordering::Release);
         active.clear_finalize_error();
         Self::stop_runtime_sampler(active);
-        if let Err(source) = active.run.shutdown() {
-            active.finalize_started.store(false, Ordering::Release);
-            let retryable = matches!(source, tailtriage_core::SinkError::Lifecycle { .. });
-            let canonical_message = source.to_string();
-            let error = DisableError::Finalize(source);
-            active.record_finalize_error(&error);
-            if !retryable {
+        match active.run.shutdown() {
+            Ok(()) => {
+                active.finalize_started.store(false, Ordering::Release);
                 let mut lifecycle = inner
                     .lifecycle
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
+
                 if matches!(
                     *lifecycle,
                     ControllerLifecycle::Active {
@@ -808,38 +836,43 @@ impl TailtriageController {
                         next_generation: ng,
                     } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
                 ) {
-                    *lifecycle = ControllerLifecycle::TerminalFailed {
-                        active: Arc::clone(active),
-                        next_generation,
-                        message: canonical_message,
-                    };
+                    *lifecycle = ControllerLifecycle::Disabled { next_generation };
                 }
+                Ok(())
             }
-            return Err(error);
+            Err(source) => {
+                active.finalize_started.store(false, Ordering::Release);
+                let retryable = matches!(source, tailtriage_core::SinkError::Lifecycle { .. });
+                let canonical_message = source.to_string();
+                let error = DisableError::Finalize(source);
+                active.record_finalize_error(&error);
+                if !retryable {
+                    let mut lifecycle = inner
+                        .lifecycle
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if matches!(
+                        *lifecycle,
+                        ControllerLifecycle::Active {
+                            active: ref current_active,
+                            next_generation: ng,
+                        } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
+                    ) {
+                        *lifecycle = ControllerLifecycle::TerminalFailed {
+                            active: Arc::clone(active),
+                            next_generation,
+                            message: canonical_message,
+                        };
+                    }
+                }
+                Err(error)
+            }
         }
-        active.finalize_started.store(false, Ordering::Release);
-
-        let mut lifecycle = inner
-            .lifecycle
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        if matches!(
-            *lifecycle,
-            ControllerLifecycle::Active {
-                active: ref current_active,
-                next_generation: ng,
-            } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
-        ) {
-            *lifecycle = ControllerLifecycle::Disabled { next_generation };
-        }
-
-        Ok(())
     }
 
     fn prior_finalize_error(message: &str) -> tailtriage_core::SinkError {
         tailtriage_core::SinkError::Io(std::io::Error::other(format!(
-            "prior finalization failed: {message}"
+            "failed to finalize generation: {message}"
         )))
     }
 
@@ -861,33 +894,14 @@ impl TailtriageController {
         }
     }
 
-    fn apply_run_end_policy_if_limits_hit(active: &Arc<ActiveGenerationRuntime>) {
-        if active.state.activation_config.run_end_policy != RunEndPolicy::AutoSealOnLimitsHit {
-            return;
-        }
-
-        if !active.run.snapshot().truncation.limits_hit {
-            return;
-        }
-
-        active
-            .run
-            .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-        active.accepting_new.store(false, Ordering::Release);
-        active.closing.store(true, Ordering::Release);
-    }
-
     fn on_limits_hit_signal(inner: &Weak<ControllerInner>, active: &Weak<ActiveGenerationRuntime>) {
         let Some(active) = active.upgrade() else {
             return;
         };
-        active
-            .run
-            .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-        active.accepting_new.store(false, Ordering::Release);
-        active.closing.store(true, Ordering::Release);
+        let inflight =
+            Self::close_generation_admissions(&active, RunEndReason::AutoSealOnLimitsHit);
 
-        if active.inflight_captured.load(Ordering::Acquire) > 0 {
+        if inflight > 0 {
             return;
         }
 
@@ -1008,11 +1022,10 @@ impl ActiveControllerCompletion {
         if self.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit
             && active.run.snapshot().truncation.limits_hit
         {
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-            active.accepting_new.store(false, Ordering::Release);
-            active.closing.store(true, Ordering::Release);
+            TailtriageController::close_generation_admissions(
+                &active,
+                RunEndReason::AutoSealOnLimitsHit,
+            );
         }
 
         let remaining = active
@@ -1630,6 +1643,18 @@ pub enum DisableError {
 impl std::fmt::Display for DisableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Finalize(tailtriage_core::SinkError::Io(err)) => {
+                let message = err.to_string();
+                if message.starts_with("failed to finalize generation: ") {
+                    f.write_str(&message)
+                } else {
+                    write!(
+                        f,
+                        "failed to finalize generation: {}",
+                        tailtriage_core::SinkError::Io(std::io::Error::other(message))
+                    )
+                }
+            }
             Self::Finalize(err) => write!(f, "failed to finalize generation: {err}"),
         }
     }
