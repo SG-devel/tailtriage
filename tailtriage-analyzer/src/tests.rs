@@ -348,7 +348,6 @@ fn latency_percentiles_use_duration_fields_not_timestamp_subtraction() {
     let mut run = test_run();
     run.metadata.started_at_unix_ms = 10;
     run.metadata.finalized_at_unix_ms = Some(11);
-    run.metadata.finalized_at_unix_ms = Some(11);
     run.requests = vec![RequestEvent {
         request_id: "req-duration".to_owned(),
         route: "/timing".to_owned(),

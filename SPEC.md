@@ -227,7 +227,10 @@ Core Run integrity contract:
 
 
 - artifacts require top-level `schema_version`
-- current supported schema version is `1`
+- current Run JSON schema version is `2`
+- `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; event-level completion timestamps remain unchanged
+- active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization
+- schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version
 - default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
 - strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
 - tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
@@ -373,4 +376,4 @@ When behavior or public guidance changes, update relevant public docs together:
 
 ## Run JSON schema v2 finalization
 
-Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Active snapshots have no finalization timestamp and serialize `metadata.finalized_at_unix_ms` as `null`. Completed Run JSON artifacts have a numeric `metadata.finalized_at_unix_ms`. Schema-v1 Run JSON is not accepted by the current CLI and must be regenerated with a current tailtriage version. Event completion timestamps, such as request, stage, queue, and tracing-span timestamps, remain unchanged.
+Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Active snapshots have no finalization timestamp and serialize `metadata.finalized_at_unix_ms` as `null`. Completed Run JSON artifacts have a numeric `metadata.finalized_at_unix_ms`. Schema-v1 Run JSON is not accepted by the current CLI and must be regenerated with a current tailtriage version. Event-level completion timestamps, such as request, stage, queue, and tracing-span timestamps, remain unchanged.

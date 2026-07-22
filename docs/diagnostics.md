@@ -22,7 +22,7 @@ Ranking is rule-based triage guidance. Suspects are leads, not proof of root cau
 - non-integer `schema_version` is rejected
 - unsupported `schema_version` is rejected
 
-Current supported schema version: `1`.
+Run JSON schema version 2 is the current Run JSON schema version. `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp. Active in-memory snapshots may use `metadata.finalized_at_unix_ms: null`, but persisted CLI artifacts require numeric finalization. Schema-v1 Run JSON is rejected and must be regenerated with a current tailtriage version. Event-level completion timestamps remain unchanged.
 
 ## Report contents
 

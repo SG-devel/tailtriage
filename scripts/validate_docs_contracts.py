@@ -58,6 +58,24 @@ USER_FACING_TERMINOLOGY_PATHS = (
     REPO_ROOT / "tailtriage" / "Cargo.toml",
 )
 
+RUN_SCHEMA_CURRENT_CLAIM_PATHS = (
+    README_PATH,
+    SPEC_PATH,
+    REPO_ROOT / "VALIDATION.md",
+    REPO_ROOT / "IMPLEMENTATION_PLAN.md",
+    DESIGN_NOTES_PATH,
+    DOCS_INDEX_PATH,
+    USER_GUIDE_PATH,
+    DIAGNOSTICS_PATH,
+    OPERATIONS_PATH,
+    ARCHITECTURE_PATH,
+    REPO_ROOT / "tailtriage-core" / "README.md",
+    REPO_ROOT / "tailtriage-cli" / "README.md",
+    REPO_ROOT / "tailtriage-analyzer" / "README.md",
+    REPO_ROOT / "tailtriage-tracing" / "README.md",
+    REPO_ROOT / "tailtriage-controller" / "README.md",
+)
+
 STALE_CONTROLLER_POLICY_NAMES = (
     'kind = "manual"',
     'kind = "max_requests"',
@@ -1300,37 +1318,52 @@ def validate_live_tracing_session_public_contract() -> None:
             )
 
 
-def validate_run_schema_v2_public_contract() -> None:
-    public_paths = (
+def validate_run_schema_v2_public_contract(
+    *, doc_paths: tuple[Path, ...] = RUN_SCHEMA_CURRENT_CLAIM_PATHS
+) -> None:
+    required_current_paths = (
         README_PATH,
         SPEC_PATH,
         USER_GUIDE_PATH,
+        DIAGNOSTICS_PATH,
         OPERATIONS_PATH,
         REPO_ROOT / "tailtriage-core" / "README.md",
         REPO_ROOT / "tailtriage-cli" / "README.md",
     )
+    if doc_paths != RUN_SCHEMA_CURRENT_CLAIM_PATHS:
+        required_current_paths = doc_paths
+    stale_patterns = (
+        r"current\s+supported\s+schema\s+version\s+is\s*`?1`?",
+        r"current\s+supported\s+schema\s+version\s*:\s*`?1`?",
+        r"current\s+run\s+json\s+schema\s+version\s+is\s*`?1`?",
+        r'"schema_version"\s*:\s*1',
+        r"metadata\.finished_at_unix_ms",
+    )
+    for path in doc_paths:
+        text = path.read_text(encoding="utf-8")
+        for pattern in stale_patterns:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                raise ValueError(
+                    f"{path.relative_to(REPO_ROOT)} contains stale current Run schema claim: {pattern}"
+                )
+
     required = (
         "Run JSON schema version 2",
         "metadata.finalized_at_unix_ms",
         "sole run-level finalization timestamp",
-        "Schema-v1 Run JSON is not accepted",
-        "Event completion timestamps",
+        "Schema-v1 Run JSON",
+        "Event-level completion timestamps",
     )
-    for path in public_paths:
+    for path in required_current_paths:
         text = path.read_text(encoding="utf-8")
         missing = [token for token in required if token not in text]
         if missing:
             raise ValueError(f"{path.relative_to(REPO_ROOT)} missing Run schema v2 wording: {missing}")
-        if "metadata.finished_at_unix_ms" in text:
-            raise ValueError(f"{path.relative_to(REPO_ROOT)} documents removed run-level metadata.finished_at_unix_ms")
-        forbidden_claims = (
-            "schema-v1 Run JSON is accepted",
-            "supports schema_version=1",
-            "schema version 1 Run JSON is accepted",
-        )
-        found = [claim for claim in forbidden_claims if claim in text]
-        if found:
-            raise ValueError(f"{path.relative_to(REPO_ROOT)} claims current schema-v1 Run support: {found}")
+        lower = text.lower()
+        if "numeric finalization" not in lower and "numeric `metadata.finalized_at_unix_ms`" not in lower:
+            raise ValueError(f"{path.relative_to(REPO_ROOT)} must require numeric finalization for persisted Run artifacts")
+        if "null" not in lower:
+            raise ValueError(f"{path.relative_to(REPO_ROOT)} must permit null finalization for active snapshots")
 
 def main() -> int:
     _ = parse_args()

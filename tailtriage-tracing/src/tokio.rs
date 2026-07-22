@@ -54,12 +54,9 @@ pub(crate) fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> Im
 
         tracing_run.metadata.started_at_unix_ms =
             tracing_run.metadata.started_at_unix_ms.min(runtime_min);
-        let finalized = tracing_run
-            .metadata
-            .finalized_at_unix_ms
-            .unwrap_or(tracing_run.metadata.started_at_unix_ms)
-            .max(runtime_max);
-        tracing_run.metadata.finalized_at_unix_ms = Some(finalized);
+        if let Some(existing) = tracing_run.metadata.finalized_at_unix_ms {
+            tracing_run.metadata.finalized_at_unix_ms = Some(existing.max(runtime_max));
+        }
     }
     tracing_run.metadata.effective_tokio_sampler_config =
         runtime_run.metadata.effective_tokio_sampler_config;
@@ -102,4 +99,85 @@ pub(crate) fn merge_runtime_data(imported: ImportedRun, runtime_run: &Run) -> Im
         }
     }
     ImportedRun::with_retained_sources(tracing_run, warnings, retained_sources)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tailtriage_core::{
+        CaptureMode, RunMetadata, RuntimeSnapshot, TruncationSummary, UnfinishedRequests,
+        SCHEMA_VERSION,
+    };
+
+    fn base_run(started_at_unix_ms: u64, finalized_at_unix_ms: Option<u64>) -> Run {
+        Run {
+            schema_version: SCHEMA_VERSION,
+            metadata: RunMetadata {
+                run_id: "run".to_string(),
+                service_name: "svc".to_string(),
+                service_version: None,
+                started_at_unix_ms,
+                finalized_at_unix_ms,
+                mode: CaptureMode::Light,
+                effective_core_config: None,
+                effective_tokio_sampler_config: None,
+                host: None,
+                pid: None,
+                lifecycle_warnings: Vec::new(),
+                unfinished_requests: UnfinishedRequests::default(),
+                run_end_reason: None,
+            },
+            requests: Vec::new(),
+            stages: Vec::new(),
+            queues: Vec::new(),
+            inflight: Vec::new(),
+            runtime_snapshots: Vec::new(),
+            truncation: TruncationSummary::default(),
+        }
+    }
+
+    #[test]
+    fn merge_runtime_data_preserves_active_input_lifecycle() {
+        let imported = ImportedRun::new(base_run(100, None), Vec::new());
+        let mut runtime = base_run(250, Some(300));
+        runtime.runtime_snapshots.push(RuntimeSnapshot {
+            at_unix_ms: 50,
+            at_run_us: Some(1),
+            alive_tasks: Some(2),
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        });
+
+        let merged = merge_runtime_data(imported, &runtime);
+        let run = merged.run();
+
+        assert_eq!(run.metadata.started_at_unix_ms, 50);
+        assert_eq!(run.metadata.finalized_at_unix_ms, None);
+        assert_eq!(run.runtime_snapshots.len(), 1);
+        assert_eq!(run.runtime_snapshots[0].at_run_us, None);
+    }
+
+    #[test]
+    fn merge_runtime_data_widens_finalized_input_lifecycle() {
+        let imported = ImportedRun::new(base_run(100, Some(120)), Vec::new());
+        let mut runtime = base_run(250, Some(300));
+        runtime.runtime_snapshots.push(RuntimeSnapshot {
+            at_unix_ms: 150,
+            at_run_us: None,
+            alive_tasks: Some(2),
+            global_queue_depth: None,
+            local_queue_depth: None,
+            blocking_queue_depth: None,
+            remote_schedule_count: None,
+        });
+
+        let merged = merge_runtime_data(imported, &runtime);
+        let run = merged.run();
+
+        assert_eq!(run.metadata.started_at_unix_ms, 100);
+        assert_eq!(run.metadata.finalized_at_unix_ms, Some(150));
+        assert_eq!(run.runtime_snapshots.len(), 1);
+    }
 }

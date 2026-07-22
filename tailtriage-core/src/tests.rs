@@ -215,10 +215,8 @@ fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
         warning.contains("duplicate_completed_request_id")
             && warning.contains("request event(s) were excluded")
     }));
-    assert_eq!(
-        written.metadata.finalized_at_unix_ms,
-        Some(written.metadata.finalized_at_unix_ms.expect("finalized"))
-    );
+    let finalized = written.metadata.finalized_at_unix_ms.expect("finalized");
+    assert!(finalized >= written.metadata.started_at_unix_ms);
 }
 
 #[test]

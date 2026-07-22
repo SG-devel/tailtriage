@@ -18,23 +18,25 @@ import validate_docs_contracts  # noqa: E402
 
 class ValidateDocsContractsTests(unittest.TestCase):
 
-    def test_run_schema_v2_public_contract_rejects_removed_run_metadata_field(self) -> None:
+    def test_run_schema_v2_public_contract_rejects_stale_current_run_v1_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            paths = []
-            body = """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Schema-v1 Run JSON is not accepted. Event completion timestamps remain unchanged. `metadata.finished_at_unix_ms` is current."""
-            for name in ("README.md", "SPEC.md", "user-guide.md", "operations.md", "core.md", "cli.md"):
-                path = Path(tmp_dir) / name
-                path.write_text(body, encoding="utf-8")
-                paths.append(path)
+            path = Path(tmp_dir) / "README.md"
+            path.write_text("Current supported schema version: `1`.\n", encoding="utf-8")
             with (
-                mock.patch.object(validate_docs_contracts, "README_PATH", paths[0]),
-                mock.patch.object(validate_docs_contracts, "SPEC_PATH", paths[1]),
-                mock.patch.object(validate_docs_contracts, "USER_GUIDE_PATH", paths[2]),
-                mock.patch.object(validate_docs_contracts, "OPERATIONS_PATH", paths[3]),
                 mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"stale current Run schema claim"),
             ):
-                with self.assertRaisesRegex(ValueError, r"metadata.finished_at_unix_ms"):
-                    validate_docs_contracts.validate_run_schema_v2_public_contract()
+                validate_docs_contracts.validate_run_schema_v2_public_contract(doc_paths=(path,))
+
+    def test_run_schema_v2_public_contract_accepts_unrelated_v1_domains(self) -> None:
+        body = """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Active snapshots use null finalization. Persisted CLI artifacts require numeric finalization. Schema-v1 Run JSON is rejected. Event-level completion timestamps remain unchanged. The tracing wrapper is `tailtriage.tracing-span.v1`; analyzer TOML uses `schema_version = 1`; validation output schema version 1 remains independent; event-level `finished_at_unix_ms` and `SpanRecord.finished_at_unix_ms` remain unchanged."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "README.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,)
+                )
 
     def test_governance_strictness_contract_accepts_distinct_policies(self) -> None:
         spec_text = """# Spec

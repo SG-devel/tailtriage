@@ -620,15 +620,15 @@ fn strict_core_error(err: &tailtriage_core::RunValidationError) -> ImportError {
 }
 
 fn refresh_normalized_metadata_bounds(run: &mut Run, explicit_run_id: bool) {
-    if let Some((started_at_unix_ms, finished_at_unix_ms)) =
-        retained_event_time_bounds(&run.requests, &run.stages, &run.queues)
-    {
-        run.metadata.started_at_unix_ms = started_at_unix_ms;
-        run.metadata.finalized_at_unix_ms = Some(finished_at_unix_ms);
-        if !explicit_run_id {
-            run.metadata.run_id =
-                format!("tracing-import-{started_at_unix_ms}-{finished_at_unix_ms}");
-        }
+    let (started_at_unix_ms, finished_at_unix_ms) =
+        retained_event_time_bounds(&run.requests, &run.stages, &run.queues).unwrap_or_else(|| {
+            let now = tailtriage_core::unix_time_ms();
+            (now, now)
+        });
+    run.metadata.started_at_unix_ms = started_at_unix_ms;
+    run.metadata.finalized_at_unix_ms = Some(finished_at_unix_ms);
+    if !explicit_run_id {
+        run.metadata.run_id = format!("tracing-import-{started_at_unix_ms}-{finished_at_unix_ms}");
     }
 }
 
@@ -3066,16 +3066,45 @@ mod tests {
                 .expect("finalized"),
             imported.run().metadata.started_at_unix_ms
         );
+    }
+
+    #[test]
+    fn normalized_empty_import_uses_fallback_bounds_after_core_exclusions() {
+        let before = tailtriage_core::unix_time_ms();
+        let imported = run_from_span_records(
+            vec![
+                SpanRecord::new("req-a", 10, 20)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, "dup")
+                    .field(TT_ROUTE, "/a"),
+                SpanRecord::new("req-b", 30, 40)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, "dup")
+                    .field(TT_ROUTE, "/b"),
+            ],
+            ImportOptions::new("svc"),
+        )
+        .unwrap();
+        let after = tailtriage_core::unix_time_ms();
+        let run = imported.run();
+        let finalized = run.metadata.finalized_at_unix_ms.expect("finalized");
+
+        assert!(run.requests.is_empty());
+        assert!(run.stages.is_empty());
+        assert!(run.queues.is_empty());
+        assert_eq!(run.metadata.started_at_unix_ms, finalized);
+        assert!(run.metadata.started_at_unix_ms >= before);
+        assert!(run.metadata.started_at_unix_ms <= after);
+        assert_ne!(run.metadata.started_at_unix_ms, 10);
+        assert_ne!(finalized, 40);
         assert_eq!(
-            imported.run().metadata.finalized_at_unix_ms,
-            Some(
-                imported
-                    .run()
-                    .metadata
-                    .finalized_at_unix_ms
-                    .expect("finalized")
-            )
+            run.metadata.run_id,
+            format!("tracing-import-{finalized}-{finalized}")
         );
+        assert!(imported.warnings().iter().any(|warning| {
+            warning.message().contains("duplicate") || warning.message().contains("request_id")
+        }));
+        assert!(imported.retained_sources().is_empty());
     }
 
     #[test]
