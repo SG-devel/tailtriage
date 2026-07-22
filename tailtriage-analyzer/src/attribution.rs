@@ -5,19 +5,25 @@ pub(super) struct AttributionInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AttributionMode {
+    Precise,
+    Approximate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct AttributedDuration {
     pub(super) duration_us: u64,
-    pub(super) is_precise: bool,
+    pub(super) mode: AttributionMode,
 }
 
 pub(super) fn attributed_elapsed_duration(
     events: &[AttributionInput],
     cap_us: u64,
 ) -> AttributedDuration {
-    if events.is_empty() || cap_us == 0 {
+    if events.is_empty() {
         return AttributedDuration {
             duration_us: 0,
-            is_precise: true,
+            mode: AttributionMode::Precise,
         };
     }
 
@@ -28,7 +34,7 @@ pub(super) fn attributed_elapsed_duration(
             .min(cap_us);
         return AttributedDuration {
             duration_us,
-            is_precise: false,
+            mode: AttributionMode::Approximate,
         };
     }
 
@@ -59,13 +65,13 @@ pub(super) fn attributed_elapsed_duration(
 
     AttributedDuration {
         duration_us: covered.min(cap_us),
-        is_precise: true,
+        mode: AttributionMode::Precise,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{attributed_elapsed_duration, AttributionInput};
+    use super::{attributed_elapsed_duration, AttributionInput, AttributionMode};
 
     fn precise_duration(intervals: &[(u64, u64)], cap_us: u64) -> u64 {
         let events = intervals
@@ -76,15 +82,49 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let attributed = attributed_elapsed_duration(&events, cap_us);
-        assert!(attributed.is_precise);
+        assert_eq!(attributed.mode, AttributionMode::Precise);
         attributed.duration_us
     }
 
     #[test]
     fn empty_intervals_are_precise_zero() {
         let attributed = attributed_elapsed_duration(&[], 100);
-        assert!(attributed.is_precise);
+        assert_eq!(attributed.mode, AttributionMode::Precise);
         assert_eq!(attributed.duration_us, 0);
+    }
+
+    #[test]
+    fn nonempty_imprecise_input_with_zero_cap_is_approximate_zero() {
+        let attributed = attributed_elapsed_duration(
+            &[AttributionInput {
+                interval: None,
+                duration_us: 10,
+            }],
+            0,
+        );
+
+        assert_eq!(attributed.duration_us, 0);
+        assert_eq!(attributed.mode, AttributionMode::Approximate);
+    }
+
+    #[test]
+    fn approximate_fallback_sums_all_authoritative_durations_before_cap() {
+        let attributed = attributed_elapsed_duration(
+            &[
+                AttributionInput {
+                    interval: Some((0, 20)),
+                    duration_us: 20,
+                },
+                AttributionInput {
+                    interval: None,
+                    duration_us: 90,
+                },
+            ],
+            100,
+        );
+
+        assert_eq!(attributed.duration_us, 100);
+        assert_eq!(attributed.mode, AttributionMode::Approximate);
     }
 
     #[test]

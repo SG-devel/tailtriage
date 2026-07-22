@@ -3,8 +3,7 @@ use std::collections::BTreeMap;
 use tailtriage_core::Run;
 
 use crate::{
-    percentile, request_time_shares, runtime_metric_series, AnalyzeOptions, DiagnosisKind,
-    InflightTrend, Suspect,
+    percentile, runtime_metric_series, AnalyzeOptions, DiagnosisKind, InflightTrend, Suspect,
 };
 
 const SAMPLE_QUALITY_HIGH_SAMPLE_COUNT: usize = 100;
@@ -31,11 +30,11 @@ fn suspect(
 
 pub(super) fn queue_saturation_suspect(
     run: &Run,
+    queue_shares: &[u64],
     inflight_trend: Option<&InflightTrend>,
     options: &AnalyzeOptions,
 ) -> Option<Suspect> {
-    let (queue_shares, _) = request_time_shares(run);
-    let p95_queue_share_permille = percentile(&queue_shares, 95, 100)?;
+    let p95_queue_share_permille = percentile(queue_shares, 95, 100)?;
     if p95_queue_share_permille < options.queueing.trigger_permille {
         return None;
     }

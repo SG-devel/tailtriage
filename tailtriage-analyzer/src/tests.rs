@@ -220,6 +220,27 @@ fn repeated_analysis_is_deterministic_for_overlap_safe_queue_attribution() {
 }
 
 #[test]
+fn interleaved_queue_events_group_by_request_and_preserve_request_order() {
+    let mut run = test_run();
+    run.requests = vec![precise_request("req-a", 200), precise_request("req-b", 100)];
+    run.queues = vec![
+        precise_queue("req-a", 0, 30, 30),
+        precise_queue("req-b", 0, 20, 20),
+        precise_queue("req-a", 100, 150, 50),
+        precise_queue("req-b", 40, 80, 40),
+    ];
+
+    let shares = super::request_time_shares(&run);
+
+    assert_eq!(shares.queue, vec![400, 600]);
+    assert_eq!(shares.service, vec![600, 400]);
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(report.p95_queue_share_permille, Some(600));
+    assert_eq!(report.p95_service_share_permille, Some(600));
+}
+
+#[test]
 fn duplicate_completed_request_ids_emit_warning_without_panic() {
     let mut run = test_run();
     run.requests[1].request_id = "req-1".to_owned();

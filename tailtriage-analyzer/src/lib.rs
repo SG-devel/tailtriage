@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Serialize, Serializer};
 
@@ -690,16 +690,19 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     let p50_latency_us = percentile(&request_latencies, 50, 100);
     let p95_latency_us = percentile(&request_latencies, 95, 100);
     let p99_latency_us = percentile(&request_latencies, 99, 100);
-    let (queue_shares, service_shares) = request_time_shares(run);
-    let p95_queue_share_permille = percentile(&queue_shares, 95, 100);
-    let p95_service_share_permille = percentile(&service_shares, 95, 100);
+    let request_time_shares = request_time_shares(run);
+    let p95_queue_share_permille = percentile(&request_time_shares.queue, 95, 100);
+    let p95_service_share_permille = percentile(&request_time_shares.service, 95, 100);
     let inflight_trend = dominant_inflight_trend(&run.inflight);
 
     let mut suspects = Vec::new();
 
-    if let Some(queue_suspect) =
-        scoring::queue_saturation_suspect(run, inflight_trend.as_ref(), options)
-    {
+    if let Some(queue_suspect) = scoring::queue_saturation_suspect(
+        run,
+        &request_time_shares.queue,
+        inflight_trend.as_ref(),
+        options,
+    ) {
         suspects.push(queue_suspect);
     }
 
@@ -848,7 +851,21 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) 
     warnings
 }
 
-fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {
+struct RequestTimeShares {
+    queue: Vec<u64>,
+    service: Vec<u64>,
+}
+
+fn request_time_shares(run: &Run) -> RequestTimeShares {
+    let mut queue_inputs_by_request: HashMap<&str, Vec<attribution::AttributionInput>> =
+        HashMap::new();
+    for queue in &run.queues {
+        queue_inputs_by_request
+            .entry(queue.request_id.as_str())
+            .or_default()
+            .push(queue_attribution_input(queue));
+    }
+
     let mut queue_shares = Vec::new();
     let mut service_shares = Vec::new();
 
@@ -857,25 +874,21 @@ fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {
             continue;
         }
 
-        let queue_events = run
-            .queues
-            .iter()
-            .filter(|queue| queue.request_id == request.request_id)
-            .map(queue_attribution_input)
-            .collect::<Vec<_>>();
-        let attributed =
-            attribution::attributed_elapsed_duration(&queue_events, request.latency_us);
+        let queue_events = queue_inputs_by_request
+            .get(request.request_id.as_str())
+            .map_or([].as_slice(), Vec::as_slice);
+        let attributed = attribution::attributed_elapsed_duration(queue_events, request.latency_us);
         let queue_wait = attributed.duration_us.min(request.latency_us);
         let service_time = request.latency_us.saturating_sub(queue_wait);
 
-        debug_assert!(
-            attributed.is_precise || queue_events.iter().any(|event| event.interval.is_none())
-        );
         queue_shares.push((queue_wait.saturating_mul(1_000) / request.latency_us).min(1_000));
         service_shares.push((service_time.saturating_mul(1_000) / request.latency_us).min(1_000));
     }
 
-    (queue_shares, service_shares)
+    RequestTimeShares {
+        queue: queue_shares,
+        service: service_shares,
+    }
 }
 
 fn queue_attribution_input(queue: &QueueEvent) -> attribution::AttributionInput {
