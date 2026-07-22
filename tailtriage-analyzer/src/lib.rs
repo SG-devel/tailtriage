@@ -1,10 +1,11 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use serde::{Serialize, Serializer};
 
+mod attribution;
 mod confidence;
 mod evidence;
 mod options;
@@ -19,8 +20,8 @@ pub use options::{
     QueueingOptions, RouteOptions, TemporalOptions,
 };
 use tailtriage_core::{
-    normalize_run_permissive, summarize_run_validation, validate_run_strict, InFlightSnapshot, Run,
-    RunValidationIssueCode, RuntimeSnapshot,
+    normalize_run_permissive, summarize_run_validation, validate_run_strict, InFlightSnapshot,
+    QueueEvent, Run, RunValidationIssueCode, RuntimeSnapshot,
 };
 
 const ROUTE_DIVERGENCE_WARNING: &str =
@@ -848,17 +849,6 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) 
 }
 
 fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {
-    let mut total_queue_wait_by_request = HashMap::<&str, u64>::new();
-    for queue in &run.queues {
-        *total_queue_wait_by_request
-            .entry(queue.request_id.as_str())
-            .or_default() = total_queue_wait_by_request
-            .get(queue.request_id.as_str())
-            .copied()
-            .unwrap_or_default()
-            .saturating_add(queue.wait_us);
-    }
-
     let mut queue_shares = Vec::new();
     let mut service_shares = Vec::new();
 
@@ -867,18 +857,32 @@ fn request_time_shares(run: &Run) -> (Vec<u64>, Vec<u64>) {
             continue;
         }
 
-        let queue_wait = total_queue_wait_by_request
-            .get(request.request_id.as_str())
-            .copied()
-            .unwrap_or_default()
-            .min(request.latency_us);
+        let queue_events = run
+            .queues
+            .iter()
+            .filter(|queue| queue.request_id == request.request_id)
+            .map(queue_attribution_input)
+            .collect::<Vec<_>>();
+        let attributed =
+            attribution::attributed_elapsed_duration(&queue_events, request.latency_us);
+        let queue_wait = attributed.duration_us.min(request.latency_us);
         let service_time = request.latency_us.saturating_sub(queue_wait);
 
-        queue_shares.push(queue_wait.saturating_mul(1_000) / request.latency_us);
-        service_shares.push(service_time.saturating_mul(1_000) / request.latency_us);
+        debug_assert!(
+            attributed.is_precise || queue_events.iter().any(|event| event.interval.is_none())
+        );
+        queue_shares.push((queue_wait.saturating_mul(1_000) / request.latency_us).min(1_000));
+        service_shares.push((service_time.saturating_mul(1_000) / request.latency_us).min(1_000));
     }
 
     (queue_shares, service_shares)
+}
+
+fn queue_attribution_input(queue: &QueueEvent) -> attribution::AttributionInput {
+    attribution::AttributionInput {
+        interval: queue.waited_from_run_us.zip(queue.waited_until_run_us),
+        duration_us: queue.wait_us,
+    }
 }
 
 fn runtime_metric_series(

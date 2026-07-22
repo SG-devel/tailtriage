@@ -57,6 +57,8 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 - `render_json` and `render_json_pretty` are canonical Report JSON renderers
 - `analyze_run_json` and `analyze_run_json_pretty` combine analysis + canonical JSON rendering
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
+- queue share uses overlap-safe interval union when every retained queue event for a request has complete run-relative timing; if any retained queue event lacks complete run-relative precision, queue attribution falls back to a capped sum of authoritative queue durations and is approximate
+- service share is the request remainder after attributed queue time; queue and service shares are individually bounded to 0..1000 permille
 - default analysis is permissive: it analyzes core-normalized evidence and surfaces stable core issue-code warnings for excluded, repaired, or precision-limited completed-Run evidence; strict artifact validation APIs reject error-level generic core integrity failures
 
 ## Request ID contract
