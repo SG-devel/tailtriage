@@ -231,7 +231,7 @@ Core Run integrity contract:
 - default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
 - strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
 - tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
-- tracing completed-span JSONL import supports the stable wrapper format and the explicitly selected compatibility parser for supported pre-stable/internal record shapes
+- tracing completed-span JSONL import supports the stable wrapper format as the only accepted tracing JSONL file format; pre-stable/internal JSONL must be regenerated with the current writer or converted externally
 
 Artifact/report contract split:
 

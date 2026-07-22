@@ -48,11 +48,10 @@ Import completed tailtriage `tt.*` tracing span JSONL into Run JSON:
 tailtriage import tracing-spans-jsonl spans.jsonl --service checkout --output tailtriage-run.json
 ```
 
-With optional metadata flags, strict validation, and explicit format:
+With optional metadata flags and strict tracing-span validation:
 
 ```bash
-tailtriage import tracing-spans-jsonl spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict \
-  --input-format tailtriage-span-jsonl
+tailtriage import tracing-spans-jsonl spans.jsonl --service checkout --output tailtriage-run.json --service-version v1 --run-id run-42 --strict
 ```
 
 
@@ -71,16 +70,7 @@ Recommended stable input format is the tailtriage wrapper JSONL shape:
 {"format":"tailtriage.tracing-span.v1","span":{...}}
 ```
 
-`--input-format` values:
-- `tailtriage-span-jsonl`
-- `compatible`
-
-Behavior:
-- `tailtriage-span-jsonl` enforces wrapper-only parsing.
-- `tailtriage-span-jsonl` is the default library contract: non-wrapper non-empty JSON records are hard errors.
-- `compatible` is only for pre-stable/internal normalized completed-span shapes with explicit start/end timestamps; it is not auto-detection and not generic tracing JSON import.
-- Close-event/fmt-like tracing log envelopes are unsupported import input.
-- Ordinary `tracing_subscriber::fmt().json()` logs are unsupported and rejected; timing is not guessed from JSONL line receive time.
+Only `tailtriage.tracing-span.v1` wrapper records are accepted for tracing JSONL file import. Files produced by current `TracingSession` completed-span JSONL output remain supported. Pre-stable/internal JSONL must be regenerated with the current writer or converted externally into `tailtriage.tracing-span.v1` before import. Ordinary `tracing_subscriber::fmt().json()` output is unsupported.
 
 After import, run analysis separately:
 

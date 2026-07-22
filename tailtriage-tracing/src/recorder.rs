@@ -4219,12 +4219,8 @@ mod tests {
                 "{} retained source identity write/read mismatch",
                 case.name
             );
-            let replay = crate::jsonl::import_jsonl_path_with_mode(
-                &spans_path,
-                ImportOptions::new("svc"),
-                crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-            )
-            .unwrap_or_else(|err| panic!("{} permissive replay failed: {err}", case.name));
+            let replay = crate::jsonl::import_jsonl_path(&spans_path, ImportOptions::new("svc"))
+                .unwrap_or_else(|err| panic!("{} permissive replay failed: {err}", case.name));
             assert_eq!(
                 representable_evidence(replay.run()),
                 direct_projection,
@@ -4238,10 +4234,9 @@ mod tests {
                 case.name
             );
             if case.strict_replay {
-                let strict = crate::jsonl::import_jsonl_path_with_mode(
+                let strict = crate::jsonl::import_jsonl_path(
                     &spans_path,
                     ImportOptions::new("svc").strict(true),
-                    crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
                 )
                 .unwrap_or_else(|err| panic!("{} strict replay failed: {err}", case.name));
                 assert_eq!(representable_evidence(strict.run()), direct_projection);
@@ -4335,12 +4330,8 @@ mod tests {
             direct_issues
         );
 
-        let replay = crate::jsonl::import_jsonl_path_with_mode(
-            &first_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let replay =
+            crate::jsonl::import_jsonl_path(&first_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(
             representable_evidence(replay.run()),
             representable_evidence(direct.run())
@@ -4484,12 +4475,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(raw_names, vec!["raw-kept".to_owned()]);
         assert!(!raw_names.iter().any(|name| name == "raw-dropped"));
-        let replay = crate::jsonl::import_jsonl_path_with_mode(
-            &raw_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let replay = crate::jsonl::import_jsonl_path(&raw_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(
             representable_evidence(replay.run()),
             representable_evidence(raw_shutdown.run())
@@ -4576,12 +4562,8 @@ mod tests {
             source_identity(first.retained_sources())
         );
 
-        let replay = crate::jsonl::import_jsonl_path_with_mode(
-            &first_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let replay =
+            crate::jsonl::import_jsonl_path(&first_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(
             representable_evidence(replay.run()),
             representable_evidence(first.run())
@@ -4595,12 +4577,8 @@ mod tests {
         let direct = run_from_span_records(spans, ImportOptions::new("svc")).unwrap();
         write_completed_span_jsonl_from_retained_sources(direct.retained_sources(), &first_path)
             .unwrap();
-        let replay = crate::jsonl::import_jsonl_path_with_mode(
-            &first_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let replay =
+            crate::jsonl::import_jsonl_path(&first_path, ImportOptions::new("svc")).unwrap();
         write_completed_span_jsonl_from_retained_sources(replay.retained_sources(), &second_path)
             .unwrap();
         assert_eq!(
@@ -4711,12 +4689,8 @@ mod tests {
         assert_eq!(imported.run().runtime_snapshots.len(), 1);
         write_completed_span_jsonl_from_retained_sources(imported.retained_sources(), &spans_path)
             .unwrap();
-        let replay = crate::jsonl::import_jsonl_path_with_mode(
-            &spans_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let replay =
+            crate::jsonl::import_jsonl_path(&spans_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(
             representable_evidence(replay.run()),
             representable_evidence(imported.run())
@@ -4831,12 +4805,8 @@ mod tests {
         assert_eq!(value["span"]["fields"]["tt.request_id"], "r1");
         assert_eq!(value["span"]["fields"]["tt.route"], "/a");
 
-        let imported = crate::jsonl::import_jsonl_path_with_mode(
-            &spans_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let imported =
+            crate::jsonl::import_jsonl_path(&spans_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().requests[0].request_id, "r1");
         assert_eq!(imported.run().requests[0].route, "/a");
@@ -4877,12 +4847,8 @@ mod tests {
         assert_eq!(imported.run(), snapshot.run());
         assert_eq!(imported.warnings(), snapshot.warnings());
 
-        let written = crate::jsonl::import_jsonl_path_with_mode(
-            &spans_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let written =
+            crate::jsonl::import_jsonl_path(&spans_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(written.run().requests, imported.run().requests);
         assert_eq!(written.run().stages, imported.run().stages);
         assert_eq!(written.run().queues, imported.run().queues);
@@ -4931,12 +4897,8 @@ mod tests {
         assert_eq!(snapshot.run().requests.len(), 1);
         assert_eq!(snapshot.run().truncation.dropped_requests, 1);
         futures_executor::block_on(session.shutdown()).unwrap();
-        let imported = crate::jsonl::import_jsonl_path_with_mode(
-            &spans_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let imported =
+            crate::jsonl::import_jsonl_path(&spans_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
@@ -5467,12 +5429,8 @@ mod tests {
             ));
         });
         let _ = futures_executor::block_on(session.shutdown()).unwrap();
-        let imported = crate::jsonl::import_jsonl_path_with_mode(
-            &spans_path,
-            ImportOptions::new("svc"),
-            crate::jsonl::JsonlParseMode::TailtriageWrapperOnly,
-        )
-        .unwrap();
+        let imported =
+            crate::jsonl::import_jsonl_path(&spans_path, ImportOptions::new("svc")).unwrap();
         assert_eq!(imported.run().requests.len(), 1);
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);

@@ -150,7 +150,7 @@ Stable completed-span JSONL records use this wrapper:
 
 `format` is a wrapper-level field (not a `SpanRecord` field).
 The simple library import APIs (`import_jsonl_reader` / `import_jsonl_path`) default to this wrapper-only mode and return an error for any non-empty non-wrapper JSON record.
-Use `*_with_mode(..., JsonlParseMode::Compatible)` only for pre-stable/internal normalized completed-span records with explicit unix-ms start/end timestamps.
+Only `tailtriage.tracing-span.v1` wrapper records are accepted for tracing JSONL file import. Pre-stable/internal JSONL must be regenerated with the current writer or converted externally before import.
 
 Close-event/fmt-like tracing log envelopes are not supported import input.
 Ordinary tracing log JSON (for example `tracing_subscriber::fmt().json()` output) is unsupported and rejected by import.

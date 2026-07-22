@@ -5,10 +5,7 @@ use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_core::{RequestOptions, Run, Tailtriage};
 #[cfg(feature = "live")]
 use tailtriage_tracing::TracingSession;
-use tailtriage_tracing::{
-    import_jsonl_path, import_jsonl_reader, import_jsonl_reader_with_mode, ImportOptions,
-    JsonlParseMode,
-};
+use tailtriage_tracing::{import_jsonl_path, import_jsonl_reader, ImportOptions};
 #[cfg(feature = "live")]
 use tracing_subscriber::prelude::*;
 
@@ -218,12 +215,8 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
 fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
     let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1700000000000,"started_at_run_us":0,"finished_at_unix_ms":1700000000001,"finished_at_run_us":1000,"duration_us":50000,"fields":{"tt.kind":"request","tt.request_id":"req-1","tt.route":"/checkout","tt.outcome":"ok"}}}"#;
 
-    let imported = import_jsonl_reader_with_mode(
-        Cursor::new(input),
-        ImportOptions::new("svc"),
-        JsonlParseMode::TailtriageWrapperOnly,
-    )
-    .expect("non-strict import should retain mismatched duration");
+    let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc"))
+        .expect("non-strict import should retain mismatched duration");
 
     assert_eq!(imported.run().requests.len(), 1);
     assert_eq!(imported.run().requests[0].latency_us, 50_000);
@@ -232,25 +225,7 @@ fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
         .iter()
         .any(|warning| warning.message().contains("duration_mismatch")));
 
-    let err = import_jsonl_reader_with_mode(
-        Cursor::new(input),
-        ImportOptions::new("svc").strict(true),
-        JsonlParseMode::TailtriageWrapperOnly,
-    )
-    .expect_err("strict import should reject mismatched duration");
+    let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc").strict(true))
+        .expect_err("strict import should reject mismatched duration");
     assert!(err.to_string().contains("duration_mismatch"));
-}
-
-#[test]
-fn compatible_reader_api_is_reachable_from_crate_root() {
-    let input = r#"{"span":{"name":"req","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
-
-    let imported = import_jsonl_reader_with_mode(
-        std::io::Cursor::new(input),
-        ImportOptions::new("svc"),
-        JsonlParseMode::Compatible,
-    )
-    .expect("compatible import should work");
-
-    assert_eq!(imported.run().requests.len(), 1);
 }

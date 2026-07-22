@@ -58,3 +58,28 @@ async fn tracing_tokio_facade_exposes_runtime_methods_and_async_shutdown() {
         .iter()
         .any(|snapshot| snapshot.at_unix_ms == 88 && snapshot.alive_tasks == Some(12)));
 }
+
+#[cfg(feature = "tracing")]
+#[test]
+fn tracing_facade_exposes_stable_jsonl_reader_and_path_imports() {
+    let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#;
+    let from_reader = tailtriage::tracing::import_jsonl_reader(
+        std::io::Cursor::new(input),
+        tailtriage::tracing::ImportOptions::new("svc"),
+    )
+    .expect("reader import through facade");
+    assert_eq!(from_reader.run().requests.len(), 1);
+
+    let path = std::env::temp_dir().join(format!(
+        "tailtriage-facade-{}-spans.jsonl",
+        std::process::id()
+    ));
+    std::fs::write(&path, input).expect("write jsonl");
+    let from_path = tailtriage::tracing::import_jsonl_path(
+        &path,
+        tailtriage::tracing::ImportOptions::new("svc"),
+    )
+    .expect("path import through facade");
+    assert_eq!(from_path.run().requests.len(), 1);
+    let _ = std::fs::remove_file(path);
+}
