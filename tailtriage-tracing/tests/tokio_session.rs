@@ -107,37 +107,6 @@ async fn tracing_session_shutdown_output_is_finalized() {
     assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn shutdown_freezes_completed_spans_after_sampler_shutdown_boundary() {
-    let session = TracingSession::builder("svc")
-        .sampler_interval(Duration::from_secs(60))
-        .build()
-        .expect("start session");
-    let subscriber = tracing_subscriber::registry().with(session.layer());
-    let span = tracing::subscriber::with_default(subscriber, || {
-        tracing::info_span!(
-            "req",
-            tt.kind = "request",
-            tt.request_id = "completed-during-shutdown",
-            tt.route = "/shutdown"
-        )
-    });
-
-    let shutdown_task = tokio::spawn(async move { session.shutdown().await });
-    tokio::task::yield_now().await;
-    drop(span);
-
-    let imported = shutdown_task
-        .await
-        .expect("shutdown task completes")
-        .expect("shutdown session");
-    let run = imported.run();
-    assert!(run
-        .requests
-        .iter()
-        .any(|request| request.request_id == "completed-during-shutdown"));
-}
-
 #[test]
 fn start_outside_runtime_fails_clearly() {
     let err = TracingSession::builder("svc")

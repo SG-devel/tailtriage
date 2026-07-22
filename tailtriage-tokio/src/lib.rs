@@ -547,7 +547,6 @@ impl RuntimeSampler {
     pub async fn shutdown(mut self) {
         if let Some(stop_tx) = self.stop_tx.take() {
             let _ = stop_tx.send(());
-            tokio::task::yield_now().await;
         }
         if let Some(task) = self.task.take() {
             let _ = task.await;

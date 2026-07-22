@@ -129,6 +129,80 @@ class ValidateDocsContractsTests(unittest.TestCase):
                     doc_paths=(path,), required_current_paths=()
                 )
 
+
+    def test_run_schema_v2_public_contract_rejects_abbreviated_labeled_run_json(self) -> None:
+        body = 'Run JSON example:\n\n```json\n{"schema_version": 1, "metadata": {}, "requests": []}\n```\n'
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"stale Run JSON schema-version 1 example"),
+            ):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_rejects_abbreviated_labeled_run_artifact(self) -> None:
+        body = """Current Run artifact:
+
+{"schema_version": 1}
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"stale Run JSON schema-version 1 example"),
+            ):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_rejects_structurally_run_shaped_v1_json(self) -> None:
+        body = """```json
+{"schema_version": 1, "metadata": {}, "requests": [], "queues": []}
+```
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"stale Run JSON schema-version 1 example"),
+            ):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_rejects_removed_rust_model_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(
+                "Current Run metadata uses RunMetadata::finished_at_unix_ms.\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"removed current Run metadata field"),
+            ):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
+    def test_run_schema_v2_public_contract_accepts_event_level_finish_fields(self) -> None:
+        body = """RequestEvent.finished_at_unix_ms
+StageEvent.finished_at_unix_ms
+SpanRecord.finished_at_unix_ms
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "notes.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                validate_docs_contracts.validate_run_schema_v2_public_contract(
+                    doc_paths=(path,), required_current_paths=()
+                )
+
     def test_governance_strictness_contract_accepts_distinct_policies(self) -> None:
         spec_text = """# Spec
 

@@ -398,6 +398,16 @@ impl TracingSession {
     ///
     /// Returns an error when conversion fails or when configured output artifacts cannot be written.
     pub async fn shutdown(self) -> Result<ImportedRun, ImportError> {
+        self.shutdown_with_after_sampler_hook(|| {}).await
+    }
+
+    async fn shutdown_with_after_sampler_hook<F>(
+        self,
+        after_sampler_shutdown: F,
+    ) -> Result<ImportedRun, ImportError>
+    where
+        F: FnOnce(),
+    {
         #[cfg(feature = "tokio")]
         let sampler_disabled = self.sampler.is_none();
         #[cfg(feature = "tokio")]
@@ -406,6 +416,7 @@ impl TracingSession {
         if let Some(sampler) = self.sampler {
             sampler.shutdown().await;
         }
+        after_sampler_shutdown();
         let imported = self.recorder.snapshot_run()?;
         #[cfg(feature = "tokio")]
         let imported = if let Some(runtime_collector) = runtime_collector {
@@ -2795,6 +2806,49 @@ mod tests {
         assert_eq!(shutdown.run().queues, first.run().queues);
         assert_eq!(first.warnings(), shutdown.warnings());
         assert_eq!(first.retained_sources(), shutdown.retained_sources());
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn shutdown_snapshots_recorder_after_sampler_hook() {
+        let session = TracingSession::builder("svc")
+            .sampler_interval(std::time::Duration::from_millis(1))
+            .build()
+            .unwrap();
+        let subscriber = tracing_subscriber::registry().with(session.layer());
+        let _default = tracing::subscriber::set_default(subscriber);
+        let span = tracing::info_span!(
+            "request-completed-by-hook",
+            tt.kind = "request",
+            tt.request_id = "completed-by-hook",
+            tt.route = "/shutdown",
+            tt.outcome = "ok"
+        );
+
+        let imported = session
+            .shutdown_with_after_sampler_hook(|| drop(span))
+            .await
+            .unwrap();
+        let run = imported.run();
+        assert_eq!(run.schema_version, tailtriage_core::SCHEMA_VERSION);
+        assert!(run.metadata.finalized_at_unix_ms.is_some());
+        assert_eq!(
+            imported.warnings().len(),
+            0,
+            "unexpected warnings: {:?}",
+            imported.warnings()
+        );
+        let request = run
+            .requests
+            .iter()
+            .find(|request| request.request_id == "completed-by-hook")
+            .expect("request completed by hook is retained");
+        assert_eq!(request.route, "/shutdown");
+        assert!(imported.retained_sources().iter().any(|source| {
+            source.name() == "request-completed-by-hook"
+                && source.fields().get("tt.request_id")
+                    == Some(&FieldValue::String("completed-by-hook".to_owned()))
+        }));
     }
 
     #[test]

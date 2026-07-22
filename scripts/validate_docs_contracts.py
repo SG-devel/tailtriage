@@ -1318,29 +1318,39 @@ def validate_live_tracing_session_public_contract() -> None:
             )
 
 
-RUN_SHAPED_JSON_KEYS = frozenset(
-    ("metadata", "requests", "stages", "queues", "inflight", "runtime_snapshots")
+RUN_COLLECTION_JSON_KEYS = frozenset(
+    ("requests", "stages", "queues", "inflight", "runtime_snapshots")
+)
+RUN_JSON_CONTEXT_RE = re.compile(
+    r"Run\s+(?:JSON(?:\s+artifact)?|artifact|schema)", re.IGNORECASE
 )
 
 
-def _json_objects_with_schema_version_one(text: str) -> list[dict[str, Any]]:
+def _json_objects_with_schema_version_one(text: str) -> list[tuple[dict[str, Any], int]]:
     decoder = json.JSONDecoder()
-    objects: list[dict[str, Any]] = []
+    objects: list[tuple[dict[str, Any], int]] = []
     for match in re.finditer(r'\{', text):
         try:
             value, _ = decoder.raw_decode(text[match.start() :])
         except json.JSONDecodeError:
             continue
         if isinstance(value, dict) and value.get("schema_version") == 1:
-            objects.append(value)
+            objects.append((value, match.start()))
     return objects
 
 
-def _looks_like_run_json_object(value: dict[str, Any]) -> bool:
+def _has_explicit_run_json_context(text: str, offset: int) -> bool:
+    context = text[max(0, offset - 240) : offset]
+    return bool(RUN_JSON_CONTEXT_RE.search(context))
+
+
+def _looks_like_run_json_object(value: dict[str, Any], text: str, offset: int) -> bool:
     if value.get("schema_version") != 1:
         return False
+    if _has_explicit_run_json_context(text, offset):
+        return True
     keys = set(value)
-    return "metadata" in keys and len(keys & RUN_SHAPED_JSON_KEYS) >= 4
+    return "metadata" in keys and len(keys & RUN_COLLECTION_JSON_KEYS) >= 2
 
 
 def validate_run_schema_v2_public_contract(
@@ -1377,12 +1387,16 @@ def validate_run_schema_v2_public_contract(
                     raise ValueError(
                         f"{path.relative_to(REPO_ROOT)} contains stale current Run schema claim: {pattern}"
                     )
-        if re.search(r"metadata\.finished_at_unix_ms", text, flags=re.IGNORECASE):
+        if re.search(
+            r"(?:metadata\.finished_at_unix_ms|RunMetadata::finished_at_unix_ms)",
+            text,
+            flags=re.IGNORECASE,
+        ):
             raise ValueError(
                 f"{path.relative_to(REPO_ROOT)} contains removed current Run metadata field"
             )
-        for value in _json_objects_with_schema_version_one(text):
-            if _looks_like_run_json_object(value):
+        for value, offset in _json_objects_with_schema_version_one(text):
+            if _looks_like_run_json_object(value, text, offset):
                 raise ValueError(
                     f"{path.relative_to(REPO_ROOT)} contains stale Run JSON schema-version 1 example"
                 )
