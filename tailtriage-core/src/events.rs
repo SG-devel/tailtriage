@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{CaptureMode, EffectiveCoreConfig};
 
 /// Current schema version for `Run` JSON artifacts.
-pub const SCHEMA_VERSION: u64 = 1;
+pub const SCHEMA_VERSION: u64 = 2;
 
 /// Logical request outcome categories used by the public API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,16 +134,10 @@ pub struct RunMetadata {
     pub service_version: Option<String>,
     /// Timestamp (milliseconds since epoch UTC) when collection started.
     pub started_at_unix_ms: u64,
-    /// Timestamp (milliseconds since epoch UTC) when collection ended.
+    /// Finalization timestamp (milliseconds since epoch UTC) for completed artifacts.
     ///
-    /// During active capture, in-memory snapshots may still show the start-time
-    /// placeholder. `shutdown()` writes the finalized end timestamp to the
-    /// persisted artifact.
-    pub finished_at_unix_ms: u64,
-    /// Finalization timestamp (milliseconds since epoch UTC) for persisted artifacts.
-    ///
-    /// This is `None` for active in-memory snapshots and for older artifacts
-    /// written before this field existed.
+    /// This is `None` for active in-memory snapshots. Completed Run JSON
+    /// artifacts use a numeric finalization timestamp.
     #[serde(default)]
     pub finalized_at_unix_ms: Option<u64>,
     /// Capture mode, such as "light" or "investigation".

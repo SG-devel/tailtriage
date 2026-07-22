@@ -151,10 +151,8 @@ Finalization timestamps:
 
 - Active `snapshot()` output is not finalized (`metadata.finalized_at_unix_ms == None`).
 - `shutdown()` writes final artifacts with both:
-  - `metadata.finished_at_unix_ms` set to shutdown time
-  - `metadata.finalized_at_unix_ms` set to that same timestamp
-- Older artifacts may deserialize with `metadata.finalized_at_unix_ms == None`.
-- When `finalized_at_unix_ms` is present, prefer that field as the finalization signal; `finished_at_unix_ms` remains for backward compatibility.
+  - `metadata.finalized_at_unix_ms` set to shutdown time
+- Schema-v1 Run JSON is not accepted by the current CLI and must be regenerated with a current tailtriage version.
 
 ## Timing model
 
@@ -220,3 +218,4 @@ Use sibling crates for those surfaces: `tailtriage-controller`, `tailtriage-toki
 ## Run validation
 
 `tailtriage-core` exposes `inspect_run`, `validate_run_strict`, and `normalize_run_permissive` as the canonical generic completed-`Run` integrity APIs. Strict validation checks the original unnormalized candidate and rejects error-level integrity issues; warning-only missing run-relative precision remains accepted. Permissive normalization retains duration-authoritative evidence where possible, clears invalid optional run-relative offsets without rewriting durations, excludes ambiguous duplicated requests and invalid request-scoped child evidence deterministically, and provides stable issue-code summaries for analyzer, CLI, tracing, and native lifecycle surfaces.
+

@@ -225,7 +225,10 @@ Current contract:
 - missing `schema_version` is rejected
 - non-integer `schema_version` is rejected
 - unsupported `schema_version` is rejected
-- current supported schema version is `1`
+- Run JSON schema version 2 is the current Run JSON schema version
+- `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; Event-level completion timestamps remain unchanged
+- active in-memory snapshots may use `metadata.finalized_at_unix_ms: null`, but persisted CLI artifacts require numeric finalization
+- Schema-v1 Run JSON is rejected and must be regenerated with a current tailtriage version
 - `requests` must contain at least one request event
 - artifacts with an empty `requests` array are rejected by the CLI loader
 
@@ -301,3 +304,4 @@ Use capture-side crates for that:
 - `tailtriage-axum`: Axum request-boundary integration
 
 Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
+

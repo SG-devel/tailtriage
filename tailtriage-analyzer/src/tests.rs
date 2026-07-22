@@ -24,7 +24,6 @@ fn test_run() -> Run {
             service_name: "svc".to_owned(),
             service_version: None,
             started_at_unix_ms: 1,
-            finished_at_unix_ms: 2,
             finalized_at_unix_ms: Some(2),
             mode: CaptureMode::Light,
             effective_core_config: Some(EffectiveCoreConfig {
@@ -348,7 +347,6 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
 fn latency_percentiles_use_duration_fields_not_timestamp_subtraction() {
     let mut run = test_run();
     run.metadata.started_at_unix_ms = 10;
-    run.metadata.finished_at_unix_ms = 11;
     run.metadata.finalized_at_unix_ms = Some(11);
     run.requests = vec![RequestEvent {
         request_id: "req-duration".to_owned(),

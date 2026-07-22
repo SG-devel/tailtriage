@@ -86,7 +86,7 @@ impl std::fmt::Display for ArtifactLoadError {
                 supported,
             } => write!(
                 f,
-                "unsupported run artifact schema_version={found} in '{}'; supported schema_version is {supported}. Re-generate the artifact with a compatible tailtriage version.",
+                "unsupported run artifact schema_version={found}; this tailtriage version supports schema_version={supported}. Regenerate the artifact with a current tailtriage version. ('{}')",
                 path.display()
             ),
             Self::MissingSchemaVersion { path } => write!(
@@ -162,6 +162,13 @@ pub fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadEr
             "JSON shape does not match the tailtriage run schema ({err}). Check for missing required fields such as metadata.run_id and requests[]."
         ),
     })?;
+
+    if original_run.metadata.finalized_at_unix_ms.is_none() {
+        return Err(ArtifactLoadError::Validation {
+            path: path.to_path_buf(),
+            message: "active/unfinalized snapshot is not a completed Run artifact and must be finalized before CLI analysis".to_string(),
+        });
+    }
 
     let normalized = normalize_run_permissive(&original_run);
     let run = normalized.run;
@@ -254,7 +261,7 @@ mod tests {
     fn rejects_missing_required_fields() {
         let dir = tempfile::tempdir().expect("tempdir should build");
         let path = dir.path().join("missing-fields.json");
-        std::fs::write(&path, r#"{"schema_version":1,"metadata":{},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#)
+        std::fs::write(&path, r#"{"schema_version":2,"metadata":{},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#)
             .expect("fixture should write");
 
         let error = load_run_artifact(&path).expect_err("expected schema failure");
@@ -336,7 +343,7 @@ mod tests {
         let path = dir.path().join("with-warning.json");
         std::fs::write(
             &path,
-            r#"{"schema_version":1,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":["x"],"unfinished_requests":{"count":1,"sample":[{"request_id":"req1","route":"/"}]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#,
+            r#"{"schema_version":2,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finalized_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":["x"],"unfinished_requests":{"count":1,"sample":[{"request_id":"req1","route":"/"}]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[]}"#,
         )
         .expect("fixture should write");
 
@@ -347,15 +354,50 @@ mod tests {
             .any(|warning| warning.contains("unfinished request")));
     }
 
+    #[test]
+    fn cli_loads_finalized_schema_v2_artifact() {
+        let dir = tempfile::tempdir().expect("tempdir should build");
+        let path = dir.path().join("v2.json");
+        std::fs::write(&path, valid_run_json_with_requests(r#"[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}]"#)).expect("fixture should write");
+        let loaded = load_run_artifact(&path).expect("v2 finalized artifact should load");
+        assert_eq!(loaded.original_run.schema_version, 2);
+        assert_eq!(loaded.original_run.metadata.finalized_at_unix_ms, Some(2));
+    }
+
+    #[test]
+    fn cli_rejects_schema_v1_before_shape_decode() {
+        let dir = tempfile::tempdir().expect("tempdir should build");
+        let path = dir.path().join("v1.json");
+        std::fs::write(&path, r#"{"schema_version":1,"metadata":{"finished_at_unix_ms":2},"requests":"not decoded as v2"}"#).expect("fixture should write");
+        let error = load_run_artifact(&path).expect_err("v1 should fail at envelope");
+        let message = error.to_string();
+        assert!(message.contains("unsupported run artifact schema_version=1"));
+        assert!(message.contains("supports schema_version=2"));
+    }
+
+    #[test]
+    fn cli_rejects_unfinalized_schema_v2_artifact() {
+        let dir = tempfile::tempdir().expect("tempdir should build");
+        let path = dir.path().join("active.json");
+        let json = valid_run_json_with_requests(r#"[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10,"outcome":"ok"}]"#)
+            .replace(r#""finalized_at_unix_ms":2,"#, r#""finalized_at_unix_ms":null,"#);
+        std::fs::write(&path, json).expect("fixture should write");
+        let error =
+            load_run_artifact(&path).expect_err("unfinalized persisted artifact should fail");
+        let message = error.to_string();
+        assert!(message.contains("active/unfinalized snapshot is not a completed Run artifact"));
+        assert!(message.contains("finalized before CLI analysis"));
+    }
+
     fn valid_run_json_with_requests(requests_json: &str) -> String {
         format!(
-            "{{\"schema_version\":1,\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null,\"lifecycle_warnings\":[],\"unfinished_requests\":{{\"count\":0,\"sample\":[]}}}},\"requests\":{requests_json},\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
+            "{{\"schema_version\":2,\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finalized_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null,\"lifecycle_warnings\":[],\"unfinished_requests\":{{\"count\":0,\"sample\":[]}}}},\"requests\":{requests_json},\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
         )
     }
 
     fn valid_run_json_with_prefix(prefix: &str) -> String {
         format!(
-            "{{{prefix}\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null,\"lifecycle_warnings\":[],\"unfinished_requests\":{{\"count\":0,\"sample\":[]}}}},\"requests\":[{{\"request_id\":\"req1\",\"route\":\"/\",\"kind\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"latency_us\":10,\"outcome\":\"ok\"}}],\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
+            "{{{prefix}\"metadata\":{{\"run_id\":\"r1\",\"service_name\":\"svc\",\"service_version\":null,\"started_at_unix_ms\":1,\"finalized_at_unix_ms\":2,\"mode\":\"light\",\"host\":null,\"pid\":null,\"lifecycle_warnings\":[],\"unfinished_requests\":{{\"count\":0,\"sample\":[]}}}},\"requests\":[{{\"request_id\":\"req1\",\"route\":\"/\",\"kind\":null,\"started_at_unix_ms\":1,\"finished_at_unix_ms\":2,\"latency_us\":10,\"outcome\":\"ok\"}}],\"stages\":[],\"queues\":[],\"inflight\":[],\"runtime_snapshots\":[]}}"
         )
     }
 }

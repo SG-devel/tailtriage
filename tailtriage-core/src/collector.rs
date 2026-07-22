@@ -239,7 +239,6 @@ impl Tailtriage {
             service_name: config.service_name,
             service_version: config.service_version,
             started_at_unix_ms: now,
-            finished_at_unix_ms: now,
             finalized_at_unix_ms: None,
             mode: config.mode,
             effective_core_config: Some(config.effective_core),
@@ -357,7 +356,7 @@ impl Tailtriage {
     ///
     /// `snapshot()` is useful for diagnostics and tests while capture is still
     /// running. While capture is active, `metadata.finalized_at_unix_ms` remains
-    /// `None` and `metadata.finished_at_unix_ms` is still provisional.
+    /// `None`; active snapshots have no run-level end timestamp.
     #[must_use]
     pub fn snapshot(&self) -> Run {
         let mut run = lock_run(&self.run).clone();
@@ -390,7 +389,6 @@ impl Tailtriage {
 
         let mut guard = lock_run(&self.run);
         let finalized_at = unix_time_ms();
-        guard.metadata.finished_at_unix_ms = finalized_at;
         guard.metadata.finalized_at_unix_ms = Some(finalized_at);
         if pending_count > 0 {
             guard.metadata.lifecycle_warnings.push(format!(

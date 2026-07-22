@@ -479,3 +479,4 @@ Use `TracingSession` as the current live tracing entry point. Older names may ap
 A plain live session still captures request, stage, and queue evidence. Background runtime sampling is opt-in through `sampler_interval(...)`; compiling Tokio support does not automatically start runtime sampling. Manual runtime collection is opt-in through `manual_runtime_snapshots()`, and manual recording without runtime collection returns a configuration error. Manual snapshots may coexist with background sampling.
 
 Run JSON is the complete persisted artifact. Completed-span JSONL output contains retained original tracing source records and preserves the retained original source identity for replayable tracing evidence, but it omits runtime snapshots and other Run-only state. Each output file is an independent transaction, so completed-span JSONL and Run JSON are written, flushed, and renamed separately.
+

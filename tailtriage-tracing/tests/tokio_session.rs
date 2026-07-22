@@ -10,6 +10,7 @@ async fn wait_for_runtime_snapshot(session: &TracingSession) {
     let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
     loop {
         let imported = session.snapshot_run().expect("snapshot run");
+        assert!(imported.run().metadata.finalized_at_unix_ms.is_none());
         if !imported.run().runtime_snapshots.is_empty() {
             return;
         }
@@ -23,7 +24,19 @@ async fn wait_for_runtime_snapshot(session: &TracingSession) {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn session_merges_tracing_and_runtime() {
+async fn tracing_session_snapshot_is_unfinalized() {
+    let session = TracingSession::builder("svc")
+        .build()
+        .expect("start session");
+    let imported = session.snapshot_run().expect("snapshot run");
+    let run = imported.run();
+    assert_eq!(run.schema_version, tailtriage_core::SCHEMA_VERSION);
+    assert!(run.metadata.finalized_at_unix_ms.is_none());
+    session.shutdown().await.expect("shutdown session");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn tracing_session_shutdown_output_is_finalized() {
     let session = TracingSession::builder("svc")
         .sampler_interval(Duration::from_millis(1))
         .build()
@@ -58,7 +71,9 @@ async fn session_merges_tracing_and_runtime() {
     });
 
     wait_for_runtime_snapshot(&session).await;
+    let before_shutdown = unix_time_ms();
     let imported = session.shutdown().await.expect("shutdown session");
+    let after_shutdown = unix_time_ms();
     let run = imported.run();
     assert!(!run.requests.is_empty());
     assert!(!run.stages.is_empty());
@@ -66,10 +81,30 @@ async fn session_merges_tracing_and_runtime() {
     assert_eq!(run.queues[0].depth_at_start, Some(2));
     assert!(!run.runtime_snapshots.is_empty());
     assert!(run.metadata.effective_tokio_sampler_config.is_some());
-    assert_eq!(
-        run.metadata.finalized_at_unix_ms,
-        Some(run.metadata.finished_at_unix_ms)
-    );
+    assert_eq!(run.schema_version, tailtriage_core::SCHEMA_VERSION);
+    let finalized = run
+        .metadata
+        .finalized_at_unix_ms
+        .expect("shutdown output is finalized");
+    assert!(before_shutdown <= finalized);
+    assert!(finalized <= after_shutdown);
+    assert!(finalized >= run.metadata.started_at_unix_ms);
+    let max_evidence_end = run
+        .requests
+        .iter()
+        .map(|request| request.finished_at_unix_ms)
+        .chain(run.stages.iter().map(|stage| stage.finished_at_unix_ms))
+        .chain(run.queues.iter().map(|queue| queue.waited_until_unix_ms))
+        .chain(
+            run.runtime_snapshots
+                .iter()
+                .map(|snapshot| snapshot.at_unix_ms),
+        )
+        .max()
+        .expect("retained evidence end");
+    assert!(finalized >= max_evidence_end);
+    let serialized = serde_json::to_value(run).expect("serialize run");
+    assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
 }
 
 #[test]
@@ -166,9 +201,32 @@ async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
             remote_schedule_count: Some(5),
         })
         .expect("record manual snapshot");
+    let snapshot = session.snapshot_run().expect("snapshot");
+    assert_eq!(
+        snapshot.run().schema_version,
+        tailtriage_core::SCHEMA_VERSION
+    );
+    assert_eq!(snapshot.run().runtime_snapshots.len(), 1);
+    assert_eq!(snapshot.run().runtime_snapshots[0].at_unix_ms, 42);
+    assert_eq!(snapshot.run().metadata.started_at_unix_ms, 42);
+    assert!(snapshot.run().metadata.finalized_at_unix_ms.is_none());
+
+    let before_shutdown = unix_time_ms();
     let imported = session.shutdown().await.expect("shutdown");
+    let after_shutdown = unix_time_ms();
     assert_eq!(imported.run().runtime_snapshots.len(), 1);
     assert_eq!(imported.run().runtime_snapshots[0].at_unix_ms, 42);
+    let finalized = imported
+        .run()
+        .metadata
+        .finalized_at_unix_ms
+        .expect("shutdown finalizes run");
+    assert!(before_shutdown <= finalized);
+    assert!(finalized <= after_shutdown);
+    assert!(finalized >= imported.run().metadata.started_at_unix_ms);
+    assert!(finalized >= 42);
+    let serialized = serde_json::to_value(imported.run()).expect("serialize run");
+    assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
     assert!(imported
         .run()
         .metadata

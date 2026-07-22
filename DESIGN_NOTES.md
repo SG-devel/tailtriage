@@ -746,3 +746,4 @@ Core Run integrity contract:
 - Native capture owns lifecycle, retention, and artifact construction; tracing owns `tt.*` source parsing, raw retention, semantic limits, JSONL decoding, and line/source warnings; the CLI owns file reading, JSON decoding, schema-envelope errors, command-specific minimum-request requirements, output formatting, stderr, and exit behavior; the analyzer owns diagnostic scoring, evidence quality, report rendering, and non-validation analyzer warnings.
 - Strict entry points validate the original unnormalized candidate and reject error-level core findings. Warning-only missing optional precision does not reject.
 - Current tracing provenance keeps retained source spans private through normalization and writes completed-span JSONL directly from retained original sources. Prompt 05 owns public tracing API simplification; Prompt 06 owns compatibility-mode removal and stable-wrapper-only input.
+
