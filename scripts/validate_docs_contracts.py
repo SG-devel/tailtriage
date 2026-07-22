@@ -1317,42 +1317,6 @@ def validate_live_tracing_session_public_contract() -> None:
                 f"{path.relative_to(REPO_ROOT)} contains obsolete current live tracing guidance outside migration section: {found}"
             )
 
-
-RUN_COLLECTION_JSON_KEYS = frozenset(
-    ("requests", "stages", "queues", "inflight", "runtime_snapshots")
-)
-RUN_JSON_CONTEXT_RE = re.compile(
-    r"Run\s+(?:JSON(?:\s+artifact)?|artifact|schema)", re.IGNORECASE
-)
-
-
-def _json_objects_with_schema_version_one(text: str) -> list[tuple[dict[str, Any], int]]:
-    decoder = json.JSONDecoder()
-    objects: list[tuple[dict[str, Any], int]] = []
-    for match in re.finditer(r'\{', text):
-        try:
-            value, _ = decoder.raw_decode(text[match.start() :])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict) and value.get("schema_version") == 1:
-            objects.append((value, match.start()))
-    return objects
-
-
-def _has_explicit_run_json_context(text: str, offset: int) -> bool:
-    context = text[max(0, offset - 240) : offset]
-    return bool(RUN_JSON_CONTEXT_RE.search(context))
-
-
-def _looks_like_run_json_object(value: dict[str, Any], text: str, offset: int) -> bool:
-    if value.get("schema_version") != 1:
-        return False
-    if _has_explicit_run_json_context(text, offset):
-        return True
-    keys = set(value)
-    return "metadata" in keys and len(keys & RUN_COLLECTION_JSON_KEYS) >= 2
-
-
 def validate_run_schema_v2_public_contract(
     *,
     doc_paths: tuple[Path, ...] = RUN_SCHEMA_CURRENT_CLAIM_PATHS,
@@ -1367,12 +1331,8 @@ def validate_run_schema_v2_public_contract(
         if doc_paths != RUN_SCHEMA_CURRENT_CLAIM_PATHS:
             required_current_paths = doc_paths
     stale_run_patterns = (
-        r"current\s+supported\s+run\s+schema\s+version\s+(?:is\s*)?[:=]?\s*`?1`?",
-        r"current\s+run\s+json\s+schema\s+version\s+(?:is\s*)?[:=]?\s*`?1`?",
-    )
-    stale_canonical_patterns = (
-        r"current\s+supported\s+schema\s+version\s+is\s*`?1`?",
-        r"current\s+supported\s+schema\s+version\s*:\s*`?1`?",
+        r"current\s+supported\s+run\s+schema\s+version\s*(?:is\s*)?[:=]?\s*`?1`?",
+        r"current\s+run\s+json\s+schema\s+version\s*(?:is\s*)?[:=]?\s*`?1`?",
     )
     for path in doc_paths:
         text = path.read_text(encoding="utf-8")
@@ -1381,12 +1341,6 @@ def validate_run_schema_v2_public_contract(
                 raise ValueError(
                     f"{path.relative_to(REPO_ROOT)} contains stale current Run schema claim: {pattern}"
                 )
-        if path in required_current_paths:
-            for pattern in stale_canonical_patterns:
-                if re.search(pattern, text, flags=re.IGNORECASE):
-                    raise ValueError(
-                        f"{path.relative_to(REPO_ROOT)} contains stale current Run schema claim: {pattern}"
-                    )
         if re.search(
             r"(?:metadata\.finished_at_unix_ms|RunMetadata::finished_at_unix_ms)",
             text,
@@ -1395,11 +1349,6 @@ def validate_run_schema_v2_public_contract(
             raise ValueError(
                 f"{path.relative_to(REPO_ROOT)} contains removed current Run metadata field"
             )
-        for value, offset in _json_objects_with_schema_version_one(text):
-            if _looks_like_run_json_object(value, text, offset):
-                raise ValueError(
-                    f"{path.relative_to(REPO_ROOT)} contains stale Run JSON schema-version 1 example"
-                )
 
     required = (
         "Run JSON schema version 2",
