@@ -206,12 +206,14 @@ fn final_confidence_ranking_selects_primary_before_raw_score() {
     assert_eq!(finalized_literal_order(candidates.clone()), expected);
     let mut reversed = candidates;
     reversed.reverse();
+    assert_eq!(finalized_literal_order(reversed.clone()), expected);
+    reversed.rotate_left(2);
     assert_eq!(finalized_literal_order(reversed), expected);
 }
 
 #[test]
 fn final_confidence_ties_break_by_raw_score_then_kind() {
-    let order = finalized_literal_order(vec![
+    let candidates = vec![
         literal_scored(
             DiagnosisKind::DownstreamStageDominates,
             88,
@@ -228,20 +230,26 @@ fn final_confidence_ties_break_by_raw_score_then_kind() {
             88,
             Confidence::Medium,
         ),
-    ]);
+    ];
+    let expected = vec![
+        DiagnosisKind::BlockingPoolPressure,
+        DiagnosisKind::ApplicationQueueSaturation,
+        DiagnosisKind::ExecutorPressureSuspected,
+        DiagnosisKind::DownstreamStageDominates,
+    ];
+    assert_eq!(finalized_literal_order(candidates.clone()), expected);
+    let mut reversed = candidates.clone();
+    reversed.reverse();
+    assert_eq!(finalized_literal_order(reversed), expected);
     assert_eq!(
-        order,
-        vec![
-            DiagnosisKind::BlockingPoolPressure,
-            DiagnosisKind::ApplicationQueueSaturation,
-            DiagnosisKind::ExecutorPressureSuspected,
-            DiagnosisKind::DownstreamStageDominates,
-        ]
+        finalized_literal_order(vec![
+            candidates[2].clone(),
+            candidates[0].clone(),
+            candidates[3].clone(),
+            candidates[1].clone(),
+        ]),
+        expected
     );
-}
-
-fn analyze_default(run: &Run) -> Report {
-    analyze_run_internal(run, &AnalyzeOptions::default())
 }
 
 fn cap_flip_run() -> Run {
@@ -288,36 +296,110 @@ fn cap_flip_run() -> Run {
     run
 }
 
+fn test_confidence_rank(confidence: Confidence) -> u8 {
+    match confidence {
+        Confidence::High => 3,
+        Confidence::Medium => 2,
+        Confidence::Low => 1,
+    }
+}
+
+fn assert_scoped_flip(primary: &Suspect, secondary: &[Suspect], expected_primary_score: u8) {
+    assert_eq!(primary.kind, DiagnosisKind::DownstreamStageDominates);
+    assert_eq!(primary.score, expected_primary_score);
+    assert_eq!(primary.confidence, Confidence::High);
+    assert_eq!(primary.confidence_notes, Vec::<String>::new());
+    assert_eq!(
+        secondary.iter().map(|s| s.kind.clone()).collect::<Vec<_>>(),
+        vec![DiagnosisKind::ApplicationQueueSaturation]
+    );
+    assert_eq!(secondary[0].score, 95);
+    assert_eq!(secondary[0].confidence, Confidence::Medium);
+    assert_eq!(
+        secondary[0].confidence_notes,
+        vec![super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()]
+    );
+    assert!(secondary[0].score > primary.score);
+}
+
 #[test]
 fn evidence_cap_can_promote_lower_raw_score_candidate() {
-    let report = analyze_default(&cap_flip_run());
+    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default());
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
     );
     assert_eq!(report.primary_suspect.score, 88);
     assert_eq!(report.primary_suspect.confidence, Confidence::High);
-    assert!(report.primary_suspect.confidence_notes.is_empty());
+    assert_eq!(
+        report.primary_suspect.confidence_notes,
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        report.primary_suspect.evidence,
+        vec![
+            "Stage 'db' has p95 latency 500 us across 45 samples.".to_string(),
+            "Stage 'db' cumulative latency is 22500 us (500 permille of request latency)."
+                .to_string(),
+            "Stage 'db' contributes 500 permille of tail request latency.".to_string(),
+        ]
+    );
+    assert_eq!(
+        report.primary_suspect.next_checks,
+        vec![
+            "Inspect downstream dependency behind stage 'db'.".to_string(),
+            "Collect downstream service timings and retry behavior during tail windows."
+                .to_string(),
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+                .to_string(),
+        ]
+    );
     assert_eq!(
         report.secondary_suspects[0].kind,
         DiagnosisKind::ApplicationQueueSaturation
     );
     assert_eq!(report.secondary_suspects[0].score, 95);
     assert_eq!(report.secondary_suspects[0].confidence, Confidence::Medium);
-    assert!(report.secondary_suspects[0]
-        .confidence_notes
-        .iter()
-        .any(|n| n == super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE));
-    assert!(report
-        .primary_suspect
-        .evidence
-        .iter()
-        .any(|e| e.contains("Stage 'db' has p95 latency 500 us")));
-    assert!(report
-        .primary_suspect
-        .next_checks
-        .iter()
-        .any(|c| c.contains("Inspect downstream dependency")));
+    assert_eq!(
+        report.secondary_suspects[0].confidence_notes,
+        vec![super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()]
+    );
+    assert_eq!(report.secondary_suspects[0].evidence, vec![
+        "Completed-only queue wait at p95 is 0.0% of request time.".to_string(),
+        "Observed queue-wait lower bound at p95 is 92.0% of request time and includes 45 partial queue event(s).".to_string(),
+        "Observed queue depth sample up to 20.".to_string(),
+    ]);
+    assert_eq!(
+        report.secondary_suspects[0].next_checks,
+        vec![
+            "Inspect queue admission limits and producer burst patterns.".to_string(),
+            "Compare queue wait distribution before and after increasing worker parallelism."
+                .to_string(),
+        ]
+    );
+    assert_eq!(
+        report.warnings,
+        vec![super::partial_evidence::PARTIAL_WARNING.to_string()]
+    );
+    assert!(report.secondary_suspects[0].score > report.primary_suspect.score);
+    assert!(
+        test_confidence_rank(report.primary_suspect.confidence)
+            > test_confidence_rank(report.secondary_suspects[0].confidence)
+    );
+}
+
+#[test]
+fn cap_induced_primary_flip_has_exact_json() {
+    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default());
+    let expected_json = r#"{"request_count":45,"p50_latency_us":1000,"p95_latency_us":1000,"p99_latency_us":1000,"p95_queue_share_permille":0,"p95_service_share_permille":1000,"inflight_trend":null,"warnings":["Partial queue/stage observations are lower bounds; completed-duration percentiles exclude them."],"evidence_quality":{"request_count":45,"queue_event_count":45,"stage_event_count":45,"runtime_snapshot_count":0,"inflight_snapshot_count":0,"requests":"present","queues":"partial","stages":"present","runtime_snapshots":"missing","inflight_snapshots":"missing","truncated":false,"dropped_requests":0,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"quality":"partial","limitations":["Partial evidence captured: queues 0 completed/45 partial; stages 45 completed/0 partial. Partial durations are observed lower bounds.","Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."]},"primary_suspect":{"kind":"downstream_stage_dominates","score":88,"confidence":"high","evidence":["Stage 'db' has p95 latency 500 us across 45 samples.","Stage 'db' cumulative latency is 22500 us (500 permille of request latency).","Stage 'db' contributes 500 permille of tail request latency."],"next_checks":["Inspect downstream dependency behind stage 'db'.","Collect downstream service timings and retry behavior during tail windows.","Review downstream SLO/error budget and align retry budget/backoff with it."],"confidence_notes":[]},"secondary_suspects":[{"kind":"application_queue_saturation","score":95,"confidence":"medium","evidence":["Completed-only queue wait at p95 is 0.0% of request time.","Observed queue-wait lower bound at p95 is 92.0% of request time and includes 45 partial queue event(s).","Observed queue depth sample up to 20."],"next_checks":["Inspect queue admission limits and producer burst patterns.","Compare queue wait distribution before and after increasing worker parallelism."],"confidence_notes":["Partial queue evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."]}],"route_breakdowns":[],"temporal_segments":[]}"#;
+    assert_eq!(render_json(&report).unwrap(), expected_json);
+}
+
+#[test]
+fn cap_induced_primary_flip_has_exact_text() {
+    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default());
+    let expected_text = "tailtriage diagnosis\nRequests analyzed: 45\nLatency (us): p50 1000, p95 1000, p99 1000\nRequest time at p95: queue 0.0%, non-queue service 100.0%\nInflight trend: none\nPrimary suspect: downstream_stage_dominates (high confidence, score 88)\nEvidence quality: partial (Partial evidence captured: queues 0 completed/45 partial; stages 45 completed/0 partial. Partial durations are observed lower bounds.)\nWarnings:\n- Partial queue/stage observations are lower bounds; completed-duration percentiles exclude them.\nEvidence:\n- Stage 'db' has p95 latency 500 us across 45 samples.\n- Stage 'db' cumulative latency is 22500 us (500 permille of request latency).\n- Stage 'db' contributes 500 permille of tail request latency.\nNext checks:\n- Inspect downstream dependency behind stage 'db'.\n- Collect downstream service timings and retry behavior during tail windows.\n- Review downstream SLO/error budget and align retry budget/backoff with it.\nSecondary suspects:\n- application_queue_saturation (medium confidence, score 95)";
+    assert_eq!(render_text(&report), expected_text);
 }
 
 #[test]
@@ -327,20 +409,61 @@ fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
         stage.latency_us = 900;
         stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 900);
     }
-    let report = analyze_default(&run);
-    assert_eq!(report.primary_suspect.score, 95);
-    assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
-    assert!(report.warnings.iter().any(|w| w.contains("close in score")));
-    assert!(
-        std::iter::once(&report.primary_suspect)
-            .chain(report.secondary_suspects.iter())
-            .filter(|s| s
-                .confidence_notes
-                .iter()
-                .any(|n| n.contains("capped by ambiguity")))
-            .count()
-            >= 2
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let warning = "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string();
+    let note = "Top suspects are close in score; confidence is capped by ambiguity.".to_string();
+    let candidate_a = &report.primary_suspect;
+    let candidate_b = report
+        .secondary_suspects
+        .iter()
+        .find(|s| s.kind == DiagnosisKind::DownstreamStageDominates)
+        .unwrap();
+    assert_eq!(candidate_a.kind, DiagnosisKind::ApplicationQueueSaturation);
+    assert_eq!(candidate_a.score, 95);
+    assert_eq!(candidate_a.confidence, Confidence::Medium);
+    assert_eq!(
+        candidate_a.confidence_notes,
+        vec![
+            super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string(),
+            note.clone()
+        ]
     );
+    assert_eq!(candidate_b.kind, DiagnosisKind::DownstreamStageDominates);
+    assert_eq!(candidate_b.score, 95);
+    assert_eq!(candidate_b.confidence, Confidence::Medium);
+    assert_eq!(candidate_b.confidence_notes, vec![note.clone()]);
+    let raw_score_difference = candidate_a.score.abs_diff(candidate_b.score);
+    assert_eq!(raw_score_difference, 0);
+    assert_eq!(AnalyzeOptions::default().confidence.ambiguity_score_gap, 4);
+    assert!(raw_score_difference <= AnalyzeOptions::default().confidence.ambiguity_score_gap);
+    assert_ne!(candidate_a.confidence_notes, candidate_b.confidence_notes);
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(
+        report.secondary_suspects[0].kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_eq!(
+        report
+            .secondary_suspects
+            .iter()
+            .map(|s| s.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![DiagnosisKind::DownstreamStageDominates]
+    );
+    assert_eq!(
+        report.warnings,
+        vec![
+            warning,
+            super::partial_evidence::PARTIAL_WARNING.to_string()
+        ]
+    );
+    for suspect in std::iter::once(&report.primary_suspect).chain(report.secondary_suspects.iter())
+    {
+        assert!(suspect.confidence_notes.contains(&note));
+    }
 }
 
 #[test]
@@ -351,11 +474,41 @@ fn equal_final_confidence_without_raw_score_proximity_is_not_ambiguous() {
         stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 500);
     }
     let options = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 96);
-    let report = analyze_run_internal(&run, &options);
-    assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
-    assert_eq!(report.secondary_suspects[0].confidence, Confidence::Medium);
+    let report = analyze_run(&run, options.clone());
+    let primary = &report.primary_suspect;
+    let secondary = &report.secondary_suspects[0];
+    assert_eq!(primary.kind, DiagnosisKind::ApplicationQueueSaturation);
+    assert_eq!(secondary.kind, DiagnosisKind::DownstreamStageDominates);
+    assert_eq!(primary.score, 95);
+    assert_eq!(secondary.score, 88);
+    assert_eq!(primary.confidence, Confidence::Medium);
+    assert_eq!(secondary.confidence, Confidence::Medium);
+    let raw_score_difference = primary.score.abs_diff(secondary.score);
+    assert_eq!(raw_score_difference, 7);
+    assert_eq!(options.confidence.ambiguity_score_gap, 4);
+    assert!(raw_score_difference > options.confidence.ambiguity_score_gap);
+    assert_eq!(
+        report
+            .secondary_suspects
+            .iter()
+            .map(|s| s.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![DiagnosisKind::DownstreamStageDominates]
+    );
+    assert_eq!(
+        report.warnings,
+        vec![
+            "No runtime snapshots captured; executor and blocking-pressure interpretation is limited.".to_string(),
+            super::partial_evidence::PARTIAL_WARNING.to_string(),
+        ]
+    );
+    assert_eq!(
+        primary.confidence_notes,
+        vec![super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()]
+    );
+    assert!(secondary.confidence_notes.is_empty());
     assert!(!report.warnings.iter().any(|w| w.contains("close in score")));
-    assert!(!std::iter::once(&report.primary_suspect)
+    assert!(!std::iter::once(primary)
         .chain(report.secondary_suspects.iter())
         .any(|s| s
             .confidence_notes
@@ -370,33 +523,105 @@ fn candidate_order_is_stable_under_irrelevant_input_reordering() {
     reordered.queues.reverse();
     reordered.stages.reverse();
     reordered.requests.reverse();
-    let a = analyze_default(&run);
-    let b = analyze_default(&reordered);
+    let a = analyze_run(&run, AnalyzeOptions::default());
+    let b = analyze_run(&reordered, AnalyzeOptions::default());
     assert_eq!(a.primary_suspect, b.primary_suspect);
     assert_eq!(a.secondary_suspects, b.secondary_suspects);
     assert_eq!(a.warnings, b.warnings);
+    assert_eq!(a.route_breakdowns, b.route_breakdowns);
+    assert_eq!(a.temporal_segments, b.temporal_segments);
     assert_eq!(render_json(&a).unwrap(), render_json(&b).unwrap());
+    assert_eq!(render_text(&a), render_text(&b));
 }
 
 #[test]
 fn global_route_and_temporal_share_final_confidence_ordering() {
     let mut run = cap_flip_run();
     for (i, req) in run.requests.iter_mut().enumerate() {
-        req.route = if i < 23 { "/early" } else { "/late" }.into();
+        req.route = if i < 23 { "/completed" } else { "/partial" }.into();
+        if i >= 23 {
+            req.latency_us = 2_000;
+            req.finished_at_run_us = req.started_at_run_us.map(|s| s + 2_000);
+        }
     }
-    let report = analyze_default(&run);
+    for (i, queue) in run.queues.iter_mut().enumerate() {
+        if i >= 23 {
+            queue.waited_until_run_us = queue.waited_from_run_us.map(|s| s + 1_840);
+            queue.wait_us = 1_840;
+        }
+    }
+    for (i, stage) in run.stages.iter_mut().enumerate() {
+        if i >= 23 {
+            stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 1_000);
+            stage.latency_us = 1_000;
+        }
+    }
+    let options = AnalyzeOptions::default()
+        .with_route(|o| o.min_request_count = 10)
+        .with_temporal(|o| {
+            o.min_request_count = 20;
+            o.min_segment_request_count = 10;
+        });
+    let report = analyze_run(&run, options);
+    assert_eq!(report.route_breakdowns.len(), 2);
+    assert_eq!(report.temporal_segments.len(), 2);
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
     );
     assert_eq!(report.primary_suspect.score, 88);
     assert_eq!(report.primary_suspect.confidence, Confidence::High);
-    for route in &report.route_breakdowns {
-        assert_eq!(route.primary_suspect.confidence, Confidence::High);
-    }
-    for segment in &report.temporal_segments {
-        assert!(!segment.secondary_suspects.is_empty());
-    }
+    assert_eq!(
+        report
+            .secondary_suspects
+            .iter()
+            .map(|s| s.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![DiagnosisKind::ApplicationQueueSaturation]
+    );
+    assert_eq!(report.secondary_suspects[0].score, 95);
+    assert_eq!(report.secondary_suspects[0].confidence, Confidence::Medium);
+    assert!(report.secondary_suspects[0].score > report.primary_suspect.score);
+
+    let completed = report
+        .route_breakdowns
+        .iter()
+        .find(|r| r.route == "/completed")
+        .unwrap();
+    let partial = report
+        .route_breakdowns
+        .iter()
+        .find(|r| r.route == "/partial")
+        .unwrap();
+    assert_scoped_flip(
+        &completed.primary_suspect,
+        &completed.secondary_suspects,
+        86,
+    );
+    assert_scoped_flip(&partial.primary_suspect, &partial.secondary_suspects, 86);
+    assert_eq!(
+        completed.warnings,
+        vec![ROUTE_RUNTIME_ATTRIBUTION_WARNING.to_string()]
+    );
+    assert_eq!(
+        partial.warnings,
+        vec![ROUTE_RUNTIME_ATTRIBUTION_WARNING.to_string()]
+    );
+
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|s| s.name == "early")
+        .unwrap();
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|s| s.name == "late")
+        .unwrap();
+    assert_scoped_flip(&early.primary_suspect, &early.secondary_suspects, 86);
+    assert_scoped_flip(&late.primary_suspect, &late.secondary_suspects, 86);
+    assert!(early.warnings.is_empty());
+    assert!(late.warnings.is_empty());
 }
 
 #[test]
