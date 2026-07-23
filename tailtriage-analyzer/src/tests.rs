@@ -150,6 +150,255 @@ fn precise_queue(id: &str, start: u64, end: u64, wait_us: u64) -> QueueEvent {
     }
 }
 
+fn literal_scored(
+    kind: DiagnosisKind,
+    score: u8,
+    confidence: Confidence,
+) -> super::partial_evidence::ScoredSuspect {
+    let mut suspect = Suspect::new(
+        kind,
+        score,
+        vec![format!("evidence-{score}")],
+        vec![format!("check-{score}")],
+    );
+    suspect.confidence = confidence;
+    super::partial_evidence::ScoredSuspect {
+        suspect,
+        basis: super::partial_evidence::EvidenceBasis::Completed,
+    }
+}
+
+fn finalized_literal_order(
+    mut suspects: Vec<super::partial_evidence::ScoredSuspect>,
+) -> Vec<DiagnosisKind> {
+    suspects.sort_by(super::final_suspect_order);
+    suspects.into_iter().map(|s| s.suspect.kind).collect()
+}
+
+#[test]
+fn final_confidence_ranking_selects_primary_before_raw_score() {
+    let expected = vec![
+        DiagnosisKind::DownstreamStageDominates,
+        DiagnosisKind::ApplicationQueueSaturation,
+        DiagnosisKind::BlockingPoolPressure,
+        DiagnosisKind::ExecutorPressureSuspected,
+        DiagnosisKind::InsufficientEvidence,
+    ];
+    let candidates = vec![
+        literal_scored(DiagnosisKind::InsufficientEvidence, 100, Confidence::High),
+        literal_scored(
+            DiagnosisKind::ExecutorPressureSuspected,
+            70,
+            Confidence::Medium,
+        ),
+        literal_scored(
+            DiagnosisKind::ApplicationQueueSaturation,
+            90,
+            Confidence::Medium,
+        ),
+        literal_scored(
+            DiagnosisKind::DownstreamStageDominates,
+            80,
+            Confidence::High,
+        ),
+        literal_scored(DiagnosisKind::BlockingPoolPressure, 90, Confidence::Medium),
+    ];
+    assert_eq!(finalized_literal_order(candidates.clone()), expected);
+    let mut reversed = candidates;
+    reversed.reverse();
+    assert_eq!(finalized_literal_order(reversed), expected);
+}
+
+#[test]
+fn final_confidence_ties_break_by_raw_score_then_kind() {
+    let order = finalized_literal_order(vec![
+        literal_scored(
+            DiagnosisKind::DownstreamStageDominates,
+            88,
+            Confidence::Medium,
+        ),
+        literal_scored(
+            DiagnosisKind::ExecutorPressureSuspected,
+            88,
+            Confidence::Medium,
+        ),
+        literal_scored(DiagnosisKind::BlockingPoolPressure, 91, Confidence::Medium),
+        literal_scored(
+            DiagnosisKind::ApplicationQueueSaturation,
+            88,
+            Confidence::Medium,
+        ),
+    ]);
+    assert_eq!(
+        order,
+        vec![
+            DiagnosisKind::BlockingPoolPressure,
+            DiagnosisKind::ApplicationQueueSaturation,
+            DiagnosisKind::ExecutorPressureSuspected,
+            DiagnosisKind::DownstreamStageDominates,
+        ]
+    );
+}
+
+fn analyze_default(run: &Run) -> Report {
+    analyze_run_internal(run, &AnalyzeOptions::default())
+}
+
+fn cap_flip_run() -> Run {
+    let mut run = test_run();
+    run.requests = (0..45)
+        .map(|i| RequestEvent {
+            request_id: format!("req-{i}"),
+            route: "/flip".into(),
+            kind: None,
+            started_at_unix_ms: i,
+            started_at_run_us: Some(i * 2_000),
+            finished_at_unix_ms: i + 1,
+            finished_at_run_us: Some(i * 2_000 + 1_000),
+            latency_us: 1_000,
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.queues = (0..45)
+        .map(|i| QueueEvent {
+            request_id: format!("req-{i}"),
+            queue: "worker".into(),
+            waited_from_unix_ms: i,
+            waited_from_run_us: Some(i * 2_000),
+            waited_until_unix_ms: i + 1,
+            waited_until_run_us: Some(i * 2_000 + 920),
+            wait_us: 920,
+            depth_at_start: Some(20),
+            completed: false,
+        })
+        .collect();
+    run.stages = (0..45)
+        .map(|i| StageEvent {
+            request_id: format!("req-{i}"),
+            stage: "db".into(),
+            started_at_unix_ms: i,
+            started_at_run_us: Some(i * 2_000 + 100),
+            finished_at_unix_ms: i + 1,
+            finished_at_run_us: Some(i * 2_000 + 600),
+            latency_us: 500,
+            success: true,
+            completed: true,
+        })
+        .collect();
+    run
+}
+
+#[test]
+fn evidence_cap_can_promote_lower_raw_score_candidate() {
+    let report = analyze_default(&cap_flip_run());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_eq!(report.primary_suspect.score, 88);
+    assert_eq!(report.primary_suspect.confidence, Confidence::High);
+    assert!(report.primary_suspect.confidence_notes.is_empty());
+    assert_eq!(
+        report.secondary_suspects[0].kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(report.secondary_suspects[0].score, 95);
+    assert_eq!(report.secondary_suspects[0].confidence, Confidence::Medium);
+    assert!(report.secondary_suspects[0]
+        .confidence_notes
+        .iter()
+        .any(|n| n == super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE));
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("Stage 'db' has p95 latency 500 us")));
+    assert!(report
+        .primary_suspect
+        .next_checks
+        .iter()
+        .any(|c| c.contains("Inspect downstream dependency")));
+}
+
+#[test]
+fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
+    let mut run = cap_flip_run();
+    for stage in &mut run.stages {
+        stage.latency_us = 900;
+        stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 900);
+    }
+    let report = analyze_default(&run);
+    assert_eq!(report.primary_suspect.score, 95);
+    assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
+    assert!(report.warnings.iter().any(|w| w.contains("close in score")));
+    assert!(
+        std::iter::once(&report.primary_suspect)
+            .chain(report.secondary_suspects.iter())
+            .filter(|s| s
+                .confidence_notes
+                .iter()
+                .any(|n| n.contains("capped by ambiguity")))
+            .count()
+            >= 2
+    );
+}
+
+#[test]
+fn equal_final_confidence_without_raw_score_proximity_is_not_ambiguous() {
+    let mut run = cap_flip_run();
+    for stage in &mut run.stages {
+        stage.latency_us = 500;
+        stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 500);
+    }
+    let options = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 96);
+    let report = analyze_run_internal(&run, &options);
+    assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
+    assert_eq!(report.secondary_suspects[0].confidence, Confidence::Medium);
+    assert!(!report.warnings.iter().any(|w| w.contains("close in score")));
+    assert!(!std::iter::once(&report.primary_suspect)
+        .chain(report.secondary_suspects.iter())
+        .any(|s| s
+            .confidence_notes
+            .iter()
+            .any(|n| n.contains("capped by ambiguity"))));
+}
+
+#[test]
+fn candidate_order_is_stable_under_irrelevant_input_reordering() {
+    let run = cap_flip_run();
+    let mut reordered = run.clone();
+    reordered.queues.reverse();
+    reordered.stages.reverse();
+    reordered.requests.reverse();
+    let a = analyze_default(&run);
+    let b = analyze_default(&reordered);
+    assert_eq!(a.primary_suspect, b.primary_suspect);
+    assert_eq!(a.secondary_suspects, b.secondary_suspects);
+    assert_eq!(a.warnings, b.warnings);
+    assert_eq!(render_json(&a).unwrap(), render_json(&b).unwrap());
+}
+
+#[test]
+fn global_route_and_temporal_share_final_confidence_ordering() {
+    let mut run = cap_flip_run();
+    for (i, req) in run.requests.iter_mut().enumerate() {
+        req.route = if i < 23 { "/early" } else { "/late" }.into();
+    }
+    let report = analyze_default(&run);
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_eq!(report.primary_suspect.score, 88);
+    assert_eq!(report.primary_suspect.confidence, Confidence::High);
+    for route in &report.route_breakdowns {
+        assert_eq!(route.primary_suspect.confidence, Confidence::High);
+    }
+    for segment in &report.temporal_segments {
+        assert!(!segment.secondary_suspects.is_empty());
+    }
+}
+
 #[test]
 fn downstream_overlap_uses_request_scoped_stage_attribution_for_score() {
     let mut run = test_run();

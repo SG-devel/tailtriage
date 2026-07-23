@@ -53,7 +53,6 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
         let suspect = &mut scored.suspect;
         let mut cap = Confidence::High;
         let mut notes = Vec::new();
-        let is_primary = i == 0;
         let is_insufficient = suspect.kind == DiagnosisKind::InsufficientEvidence;
         if !is_insufficient && evidence_quality.quality == EvidenceQualityLevel::Weak {
             cap = cap.min(Confidence::Medium);
@@ -61,13 +60,11 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
         if !is_insufficient && run.requests.is_empty() {
             cap = Confidence::Low;
             notes.push("Low completed-request count caps confidence.".to_string());
-        } else if run.requests.len() < options.evidence.low_completed_request_threshold {
-            if !is_insufficient {
-                cap = cap.min(Confidence::Medium);
-            }
-            if is_primary {
-                notes.push("Low completed-request count caps confidence.".to_string());
-            }
+        } else if run.requests.len() < options.evidence.low_completed_request_threshold
+            && !is_insufficient
+        {
+            cap = cap.min(Confidence::Medium);
+            notes.push("Low completed-request count caps confidence.".to_string());
         }
         if run.truncation.dropped_requests > 0 && !is_insufficient {
             cap = cap.min(Confidence::Medium);
