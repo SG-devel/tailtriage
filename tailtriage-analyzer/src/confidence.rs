@@ -95,9 +95,11 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
         let original = suspect.confidence;
         suspect.confidence = original.min(cap);
         let cap_changed_bucket = suspect.confidence != original;
-        notes.sort();
-        notes.dedup();
-        if cap_changed_bucket || ambiguity_capped || !notes.is_empty() {
+        let has_material_partial_note = notes.iter().any(|note| {
+            note == PARTIAL_QUEUE_CONFIDENCE_NOTE || note == PARTIAL_STAGE_CONFIDENCE_NOTE
+        });
+        stable_dedup(&mut notes);
+        if cap_changed_bucket || ambiguity_capped || has_material_partial_note {
             suspect.confidence_notes = notes;
         } else {
             suspect.confidence_notes.clear();
@@ -204,4 +206,14 @@ fn ambiguity_cluster_indices(suspects: &[ScoredSuspect], options: &AnalyzeOption
     } else {
         Vec::new()
     }
+}
+
+fn stable_dedup(values: &mut Vec<String>) {
+    let mut deduped = Vec::with_capacity(values.len());
+    for value in values.drain(..) {
+        if !deduped.iter().any(|existing| existing == &value) {
+            deduped.push(value);
+        }
+    }
+    *values = deduped;
 }

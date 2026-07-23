@@ -1704,7 +1704,7 @@ mod prompt09_tokio_partial_tests {
 
         let fut = started.handle.timeout_stage(
             "timeout",
-            std::time::Duration::from_mins(1),
+            std::time::Duration::from_secs(60),
             std::future::pending::<()>(),
         );
         let mut fut = Box::pin(fut);

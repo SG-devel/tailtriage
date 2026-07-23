@@ -659,9 +659,7 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     let profile = PartialEvidenceProfile::from_run(analysis_run);
     let mut report = analyze_run_internal(analysis_run, options);
     if profile.has_partial() {
-        report
-            .warnings
-            .push(partial_evidence::PARTIAL_WARNING.to_string());
+        push_unique(&mut report.warnings, partial_evidence::PARTIAL_WARNING);
     }
     let validation_warnings = summarize_run_validation(&normalized);
     report.warnings.splice(0..0, validation_warnings.clone());
@@ -677,8 +675,7 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     report.route_breakdowns = route_context.breakdowns;
     report.temporal_segments =
         temporal::temporal_segments(analysis_run, &mut report.warnings, options);
-    report.warnings.sort();
-    report.warnings.dedup();
+    stable_dedup(&mut report.warnings);
     let overrides = options.non_default_overrides();
     report.analyzer_config = if overrides.is_empty() {
         None
@@ -689,6 +686,23 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
         })
     };
     report
+}
+
+fn push_unique(values: &mut Vec<String>, value: impl Into<String>) {
+    let value = value.into();
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn stable_dedup(values: &mut Vec<String>) {
+    let mut deduped = Vec::with_capacity(values.len());
+    for value in values.drain(..) {
+        if !deduped.iter().any(|existing| existing == &value) {
+            deduped.push(value);
+        }
+    }
+    *values = deduped;
 }
 
 fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {

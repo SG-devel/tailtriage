@@ -218,19 +218,7 @@ fn evidence_limitations(
                 .to_string(),
         );
     }
-    let first = limitations.first().cloned();
-    let mut rest = limitations
-        .into_iter()
-        .skip(usize::from(first.is_some()))
-        .collect::<Vec<_>>();
-    rest.sort();
-    rest.dedup();
-    let mut out = Vec::new();
-    if let Some(first) = first {
-        out.push(first);
-    }
-    out.extend(rest);
-    out
+    stable_dedup(limitations)
 }
 
 pub(super) fn truncation_warnings(run: &Run) -> Vec<String> {
@@ -254,4 +242,14 @@ pub(super) fn truncation_warnings(run: &Run) -> Vec<String> {
         warnings.push(format!("Capture truncated runtime snapshots: dropped {} entries after reaching max_runtime_snapshots. This dropped evidence can reduce diagnosis completeness and confidence.", run.truncation.dropped_runtime_snapshots));
     }
     warnings
+}
+
+fn stable_dedup(values: Vec<String>) -> Vec<String> {
+    let mut deduped = Vec::with_capacity(values.len());
+    for value in values {
+        if !deduped.iter().any(|existing| existing == &value) {
+            deduped.push(value);
+        }
+    }
+    deduped
 }

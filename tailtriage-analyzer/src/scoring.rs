@@ -35,8 +35,23 @@ pub(super) fn queue_saturation_suspect(
     inflight_trend: Option<&InflightTrend>,
     options: &AnalyzeOptions,
 ) -> Option<ScoredSuspect> {
-    let completed = queue_candidate(run, completed_queue_shares, true, inflight_trend, options);
-    let observed = queue_candidate(run, observed_queue_shares, false, inflight_trend, options);
+    let completed_p95 = percentile(completed_queue_shares, 95, 100);
+    let completed = queue_candidate(
+        run,
+        completed_queue_shares,
+        true,
+        completed_p95,
+        inflight_trend,
+        options,
+    );
+    let observed = queue_candidate(
+        run,
+        observed_queue_shares,
+        false,
+        completed_p95,
+        inflight_trend,
+        options,
+    );
     match (completed, observed) {
         (Some(c), Some(o)) if o.suspect.score > c.suspect.score => Some(o),
         (Some(c), _) => Some(c),
@@ -49,6 +64,7 @@ fn queue_candidate(
     run: &Run,
     queue_shares: &[u64],
     completed_only: bool,
+    completed_queue_p95_permille: Option<u64>,
     inflight_trend: Option<&InflightTrend>,
     options: &AnalyzeOptions,
 ) -> Option<ScoredSuspect> {
@@ -85,25 +101,20 @@ fn queue_candidate(
             p95_queue_share_permille % 10
         )]
     } else {
-        let e = vec![format!(
+        let mut e = Vec::new();
+        if let Some(completed_p95) = completed_queue_p95_permille {
+            e.push(format!(
+                "Completed-only queue wait at p95 is {}.{}% of request time.",
+                completed_p95 / 10,
+                completed_p95 % 10
+            ));
+        }
+        e.push(format!(
             "Observed queue-wait lower bound at p95 is {}.{}% of request time and includes {} partial queue event(s).",
             p95_queue_share_permille / 10,
             p95_queue_share_permille % 10,
             profile.queues.partial
-        )];
-        if let Some(completed_p95) = percentile(
-            &run.requests
-                .iter()
-                .filter(|r| r.latency_us > 0)
-                .map(|_| 0_u64)
-                .collect::<Vec<_>>(),
-            95,
-            100,
-        ) {
-            if profile.queues.completed == 0 {
-                let _ = completed_p95;
-            }
-        }
+        ));
         e
     };
     if max_depth > 0 {
@@ -357,24 +368,7 @@ pub(super) fn downstream_stage_suspect(
             best.stage
         ));
     }
-    let mut evidence = if best.basis == EvidenceBasis::ObservedLowerBound {
-        vec![format!("Stage '{}' observed lower-bound p95 latency is {} us across {} samples and includes {} partial stage event(s).", best.stage, best.p95, best.samples, best.partial_events)]
-    } else {
-        vec![format!(
-            "Stage '{}' has p95 latency {} us across {} samples.",
-            best.stage, best.p95, best.samples
-        )]
-    };
-    evidence.extend(vec![
-        format!(
-            "Stage '{}' cumulative latency is {} us ({} permille of request latency).",
-            best.stage, best.cumulative, best.cum_share
-        ),
-        format!(
-            "Stage '{}' contributes {} permille of tail request latency.",
-            best.stage, best.tail_share
-        ),
-    ]);
+    let mut evidence = downstream_stage_evidence(&best);
     if let Some(extra) = correlation_evidence {
         evidence.push(extra);
     }
@@ -397,6 +391,44 @@ pub(super) fn downstream_stage_suspect(
         ),
         basis: best.basis,
     })
+}
+
+fn downstream_stage_evidence(best: &StageCandidate) -> Vec<String> {
+    let mut evidence = if best.basis == EvidenceBasis::ObservedLowerBound {
+        vec![format!(
+            "Stage '{}' observed lower-bound p95 latency is {} us across {} samples and includes {} partial stage event(s).",
+            best.stage, best.p95, best.samples, best.partial_events
+        )]
+    } else {
+        vec![format!(
+            "Stage '{}' has p95 latency {} us across {} samples.",
+            best.stage, best.p95, best.samples
+        )]
+    };
+    if best.basis == EvidenceBasis::ObservedLowerBound {
+        evidence.extend(vec![
+            format!(
+                "Stage '{}' observed lower-bound cumulative latency is {} us ({} permille of request latency).",
+                best.stage, best.cumulative, best.cum_share
+            ),
+            format!(
+                "Stage '{}' observed lower-bound contribution is {} permille of tail request latency.",
+                best.stage, best.tail_share
+            ),
+        ]);
+    } else {
+        evidence.extend(vec![
+            format!(
+                "Stage '{}' cumulative latency is {} us ({} permille of request latency).",
+                best.stage, best.cumulative, best.cum_share
+            ),
+            format!(
+                "Stage '{}' contributes {} permille of tail request latency.",
+                best.stage, best.tail_share
+            ),
+        ]);
+    }
+    evidence
 }
 
 fn clamp_score(value: u64) -> u8 {

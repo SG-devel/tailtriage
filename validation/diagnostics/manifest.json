@@ -1304,7 +1304,7 @@
         "partial-evidence"
       ],
       "must_include_evidence": [
-        "Queue wait"
+        "Queue wait at p95 consumes"
       ],
       "must_include_confidence_notes": [],
       "expected_top_level_warnings": [],
@@ -1317,11 +1317,13 @@
       ],
       "acceptable_primary": [
         "application_queue_saturation",
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominates"
       ],
       "expected_evidence_quality": "strong",
-      "expected_signal_statuses": {},
+      "expected_signal_statuses": {
+        "queues": "present",
+        "stages": "present"
+      },
       "must_include_next_checks": [],
       "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
       "expected_warnings": []
@@ -1335,10 +1337,10 @@
         "partial-evidence"
       ],
       "must_include_evidence": [
-        "Observed"
+        "observed lower-bound p95 latency"
       ],
       "must_include_confidence_notes": [
-        "Partial"
+        "Partial stage evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
@@ -1352,12 +1354,12 @@
       ],
       "acceptable_primary": [
         "downstream_stage_dominates",
-        "downstream_stage_dominates",
         "application_queue_saturation"
       ],
       "expected_evidence_quality": "partial",
       "expected_signal_statuses": {
-        "stages": "partial"
+        "stages": "partial",
+        "queues": "partial"
       },
       "max_primary_confidence": "medium",
       "must_include_next_checks": [],
@@ -1375,10 +1377,10 @@
         "partial-evidence"
       ],
       "must_include_evidence": [
-        "Observed"
+        "Observed queue-wait lower bound at p95 is"
       ],
       "must_include_confidence_notes": [
-        "Partial"
+        "Partial queue evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
@@ -1390,8 +1392,7 @@
       ],
       "acceptable_primary": [
         "application_queue_saturation",
-        "downstream_stage_dominates",
-        "application_queue_saturation"
+        "downstream_stage_dominates"
       ],
       "expected_evidence_quality": "partial",
       "expected_signal_statuses": {
@@ -1413,10 +1414,10 @@
         "partial-evidence"
       ],
       "must_include_evidence": [
-        "Observed"
+        "observed lower-bound p95 latency"
       ],
       "must_include_confidence_notes": [
-        "Partial"
+        "Partial stage evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
@@ -1427,7 +1428,6 @@
         "downstream_stage_dominates"
       ],
       "acceptable_primary": [
-        "downstream_stage_dominates",
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
@@ -1451,10 +1451,10 @@
         "partial-evidence"
       ],
       "must_include_evidence": [
-        "Observed"
+        "observed lower-bound p95 latency"
       ],
       "must_include_confidence_notes": [
-        "Partial"
+        "Partial stage evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
@@ -1465,7 +1465,6 @@
         "downstream_stage_dominates"
       ],
       "acceptable_primary": [
-        "downstream_stage_dominates",
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
