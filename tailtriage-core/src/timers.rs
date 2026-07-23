@@ -1,4 +1,7 @@
+use std::panic::{catch_unwind, AssertUnwindSafe};
+
 use crate::collector::{lock_state, CollectorPhase};
+use crate::time::IntervalStart;
 use crate::{InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
@@ -50,6 +53,84 @@ impl Drop for InflightGuard<'_> {
     }
 }
 
+#[derive(Debug)]
+enum ArmedTimerRecord<'a> {
+    Stage {
+        tailtriage: &'a Tailtriage,
+        request_id: String,
+        stage: String,
+        interval_start: Option<IntervalStart>,
+    },
+    Queue {
+        tailtriage: &'a Tailtriage,
+        request_id: String,
+        queue: String,
+        depth_at_start: Option<u64>,
+        interval_start: Option<IntervalStart>,
+    },
+}
+
+impl ArmedTimerRecord<'_> {
+    fn disarm(&mut self) -> Option<IntervalStart> {
+        match self {
+            Self::Stage { interval_start, .. } | Self::Queue { interval_start, .. } => {
+                interval_start.take()
+            }
+        }
+    }
+}
+
+impl Drop for ArmedTimerRecord<'_> {
+    fn drop(&mut self) {
+        let _ = catch_unwind(AssertUnwindSafe(|| match self {
+            Self::Stage {
+                tailtriage,
+                request_id,
+                stage,
+                interval_start,
+            } => {
+                if let Some(start) = interval_start.take() {
+                    let finished = tailtriage.run_clock.finish_interval(start);
+                    tailtriage.record_stage_event(
+                        StageEvent::new(
+                            request_id.clone(),
+                            stage.clone(),
+                            finished.started_at_unix_ms,
+                            finished.finished_at_unix_ms,
+                            finished.duration_us,
+                            false,
+                        )
+                        .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us)
+                        .into_partial(),
+                    );
+                }
+            }
+            Self::Queue {
+                tailtriage,
+                request_id,
+                queue,
+                depth_at_start,
+                interval_start,
+            } => {
+                if let Some(start) = interval_start.take() {
+                    let finished = tailtriage.run_clock.finish_interval(start);
+                    let mut event = QueueEvent::new(
+                        request_id.clone(),
+                        queue.clone(),
+                        finished.started_at_unix_ms,
+                        finished.finished_at_unix_ms,
+                        finished.duration_us,
+                    )
+                    .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us)
+                    .into_partial();
+                    event.depth_at_start = *depth_at_start;
+                    tailtriage.record_queue_event(event);
+                }
+            }
+        }));
+    }
+}
+
 /// Thin wrapper for recording stage latency around one await point.
 #[derive(Debug)]
 pub struct StageTimer<'a> {
@@ -62,16 +143,16 @@ pub struct StageTimer<'a> {
 impl StageTimer<'_> {
     /// Awaits `fut`, records stage duration, and returns the original output.
     ///
-    /// This helper is intended for fallible stage work where success can be
-    /// derived from `Result::is_ok`.
-    ///
-    /// Prefer this method when your stage naturally returns `Result<T, E>` and
-    /// you want success/failure evidence in the resulting triage report.
+    /// Timing begins on first poll. A future dropped before first poll records
+    /// no evidence. A polled helper future dropped before normal readiness
+    /// records one bounded partial event ending at observed Drop; this does not
+    /// prove the underlying operation stopped. Partial stage events have
+    /// `completed = false` and `success = false`.
     ///
     /// # Errors
     ///
     /// Returns the same error value produced by `fut` after recording the
-    /// stage event with `success = false`.
+    /// stage event with `success = false` for completed errors.
     pub async fn await_on<Fut, T, E>(self, fut: Fut) -> Result<T, E>
     where
         Fut: std::future::Future<Output = Result<T, E>>,
@@ -80,29 +161,36 @@ impl StageTimer<'_> {
             return fut.await;
         }
 
-        let interval_start = self.tailtriage.run_clock.start_interval();
+        let mut guard = ArmedTimerRecord::Stage {
+            tailtriage: self.tailtriage,
+            request_id: self.request_id.clone(),
+            stage: self.stage.clone(),
+            interval_start: Some(self.tailtriage.run_clock.start_interval()),
+        };
         let value = fut.await;
-        let finished = self.tailtriage.run_clock.finish_interval(interval_start);
-        let success = value.is_ok();
-
-        self.tailtriage.record_stage_event(StageEvent {
-            request_id: self.request_id,
-            stage: self.stage,
-            started_at_unix_ms: finished.started_at_unix_ms,
-            started_at_run_us: finished.started_at_run_us,
-            finished_at_unix_ms: finished.finished_at_unix_ms,
-            finished_at_run_us: finished.finished_at_run_us,
-            latency_us: finished.duration_us,
-            success,
-        });
-
+        if let Some(interval_start) = guard.disarm() {
+            let finished = self.tailtriage.run_clock.finish_interval(interval_start);
+            let success = value.is_ok();
+            self.tailtriage.record_stage_event(
+                StageEvent::new(
+                    self.request_id,
+                    self.stage,
+                    finished.started_at_unix_ms,
+                    finished.finished_at_unix_ms,
+                    finished.duration_us,
+                    success,
+                )
+                .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us),
+            );
+        }
         value
     }
 
     /// Awaits an infallible stage future and records a successful stage event.
     ///
-    /// Use this method when there is no meaningful stage-level error signal
-    /// (for example, internal CPU work or a prevalidated transformation).
+    /// Timing begins on first poll. A future dropped before first poll records
+    /// no evidence. A polled helper future dropped before normal readiness
+    /// records one bounded partial event ending at observed Drop.
     pub async fn await_value<Fut, T>(self, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
@@ -111,21 +199,27 @@ impl StageTimer<'_> {
             return fut.await;
         }
 
-        let interval_start = self.tailtriage.run_clock.start_interval();
+        let mut guard = ArmedTimerRecord::Stage {
+            tailtriage: self.tailtriage,
+            request_id: self.request_id.clone(),
+            stage: self.stage.clone(),
+            interval_start: Some(self.tailtriage.run_clock.start_interval()),
+        };
         let value = fut.await;
-        let finished = self.tailtriage.run_clock.finish_interval(interval_start);
-
-        self.tailtriage.record_stage_event(StageEvent {
-            request_id: self.request_id,
-            stage: self.stage,
-            started_at_unix_ms: finished.started_at_unix_ms,
-            started_at_run_us: finished.started_at_run_us,
-            finished_at_unix_ms: finished.finished_at_unix_ms,
-            finished_at_run_us: finished.finished_at_run_us,
-            latency_us: finished.duration_us,
-            success: true,
-        });
-
+        if let Some(interval_start) = guard.disarm() {
+            let finished = self.tailtriage.run_clock.finish_interval(interval_start);
+            self.tailtriage.record_stage_event(
+                StageEvent::new(
+                    self.request_id,
+                    self.stage,
+                    finished.started_at_unix_ms,
+                    finished.finished_at_unix_ms,
+                    finished.duration_us,
+                    true,
+                )
+                .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us),
+            );
+        }
         value
     }
 }
@@ -150,9 +244,10 @@ impl QueueTimer<'_> {
 
     /// Awaits `fut`, records queue wait duration, and returns the original output.
     ///
-    /// Queue events are interpreted as application-level wait evidence (a lead,
-    /// not proof). Record these around bounded resources to help separate
-    /// queueing pressure from slow downstream stage time.
+    /// Timing begins on first poll. A future dropped before first poll records
+    /// no evidence. A polled helper future dropped before normal readiness
+    /// records one bounded partial wait event ending at observed Drop; this does
+    /// not prove the underlying operation stopped.
     pub async fn await_on<Fut, T>(self, fut: Fut) -> T
     where
         Fut: std::future::Future<Output = T>,
@@ -161,21 +256,27 @@ impl QueueTimer<'_> {
             return fut.await;
         }
 
-        let interval_start = self.tailtriage.run_clock.start_interval();
-        let value = fut.await;
-        let finished = self.tailtriage.run_clock.finish_interval(interval_start);
-
-        self.tailtriage.record_queue_event(QueueEvent {
-            request_id: self.request_id,
-            queue: self.queue,
-            waited_from_unix_ms: finished.started_at_unix_ms,
-            waited_from_run_us: finished.started_at_run_us,
-            waited_until_unix_ms: finished.finished_at_unix_ms,
-            waited_until_run_us: finished.finished_at_run_us,
-            wait_us: finished.duration_us,
+        let mut guard = ArmedTimerRecord::Queue {
+            tailtriage: self.tailtriage,
+            request_id: self.request_id.clone(),
+            queue: self.queue.clone(),
             depth_at_start: self.depth_at_start,
-        });
-
+            interval_start: Some(self.tailtriage.run_clock.start_interval()),
+        };
+        let value = fut.await;
+        if let Some(interval_start) = guard.disarm() {
+            let finished = self.tailtriage.run_clock.finish_interval(interval_start);
+            let mut event = QueueEvent::new(
+                self.request_id,
+                self.queue,
+                finished.started_at_unix_ms,
+                finished.finished_at_unix_ms,
+                finished.duration_us,
+            )
+            .with_run_interval(finished.started_at_run_us, finished.finished_at_run_us);
+            event.depth_at_start = self.depth_at_start;
+            self.tailtriage.record_queue_event(event);
+        }
         value
     }
 }

@@ -1511,6 +1511,7 @@ fn test_stage_event(request_id: &str, stage: &str) -> crate::StageEvent {
         finished_at_run_us: None,
         latency_us: 11,
         success: true,
+        completed: true,
     }
 }
 
@@ -1524,6 +1525,7 @@ fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
         waited_until_run_us: None,
         wait_us: 12,
         depth_at_start: Some(1),
+        completed: true,
     }
 }
 
@@ -2097,6 +2099,7 @@ mod run_validation_contract {
             finished_at_run_us: Some(20),
             latency_us: 10,
             success: true,
+            completed: true,
         }
     }
 
@@ -2110,6 +2113,7 @@ mod run_validation_contract {
             waited_until_run_us: Some(20),
             wait_us: 10,
             depth_at_start: Some(1),
+            completed: true,
         }
     }
 
@@ -2198,6 +2202,7 @@ mod run_validation_contract {
             finished_at_run_us: Some(20),
             latency_us: 10,
             success: true,
+            completed: true,
         });
         let normalized = normalize_run_permissive(&run);
         assert!(normalized.run.requests.is_empty());
@@ -2373,6 +2378,7 @@ mod run_validation_contract {
             finished_at_run_us: Some(20),
             latency_us: 10,
             success: true,
+            completed: true,
         });
         run.stages.push(StageEvent {
             request_id: "missing".into(),
@@ -2383,6 +2389,7 @@ mod run_validation_contract {
             finished_at_run_us: Some(20),
             latency_us: 10,
             success: true,
+            completed: true,
         });
         run.queues.push(QueueEvent {
             request_id: "ok".into(),
@@ -2393,6 +2400,7 @@ mod run_validation_contract {
             waited_until_run_us: Some(40),
             wait_us: 10,
             depth_at_start: Some(1),
+            completed: true,
         });
         run.queues.push(QueueEvent {
             request_id: "ok".into(),
@@ -2403,6 +2411,7 @@ mod run_validation_contract {
             waited_until_run_us: Some(40),
             wait_us: 10,
             depth_at_start: Some(1),
+            completed: true,
         });
         run.inflight.push(InFlightSnapshot {
             gauge: " ".into(),
@@ -2751,6 +2760,7 @@ mod run_validation_contract {
             finished_at_run_us: Some(20),
             latency_us: 10,
             success: true,
+            completed: true,
         });
         run.stages.push(StageEvent {
             request_id: "ok".into(),
@@ -2761,6 +2771,7 @@ mod run_validation_contract {
             finished_at_run_us: Some(20),
             latency_us: 20,
             success: true,
+            completed: true,
         });
         run.stages.push(StageEvent {
             request_id: "ok".into(),
@@ -2771,6 +2782,7 @@ mod run_validation_contract {
             finished_at_run_us: None,
             latency_us: 20,
             success: true,
+            completed: true,
         });
         let a = normalize_run_permissive(&run);
         let b = normalize_run_permissive(&run);
@@ -3022,4 +3034,507 @@ fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
         "req-held-unfinished"
     );
     assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+mod prompt09_partial_events {
+    use std::future::{poll_fn, ready, Future};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Waker};
+
+    use crate::{
+        MemorySink, Outcome, QueueEvent, RequestOptions, Run, StageEvent, Tailtriage,
+        TruncationSummary, SCHEMA_VERSION,
+    };
+
+    fn poll_once<F: Future>(future: &mut std::pin::Pin<Box<F>>) -> Poll<F::Output> {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        future.as_mut().poll(&mut cx)
+    }
+
+    fn capture() -> Tailtriage {
+        Tailtriage::builder("prompt09")
+            .sink(MemorySink::default())
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn legacy_stage_event_missing_completed_deserializes_true() {
+        let event: StageEvent = serde_json::from_str(r#"{"request_id":"r","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#).unwrap();
+        assert!(event.completed);
+    }
+
+    #[test]
+    fn legacy_queue_event_missing_completed_deserializes_true() {
+        let event: QueueEvent = serde_json::from_str(r#"{"request_id":"r","queue":"q","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":3,"depth_at_start":7}"#).unwrap();
+        assert!(event.completed);
+    }
+
+    #[test]
+    fn completed_stage_and_queue_json_omit_completed_and_schema_stays_two() {
+        assert_eq!(SCHEMA_VERSION, 2);
+        let stage = StageEvent::new("r", "db", 1, 2, 3, true);
+        let queue = QueueEvent::new("r", "q", 4, 5, 6).with_depth_at_start(7);
+        assert_eq!(
+            serde_json::to_string(&stage).unwrap(),
+            r#"{"request_id":"r","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&queue).unwrap(),
+            r#"{"request_id":"r","queue":"q","waited_from_unix_ms":4,"waited_until_unix_ms":5,"wait_us":6,"depth_at_start":7}"#
+        );
+    }
+
+    #[test]
+    fn partial_stage_and_queue_json_serialize_completed_false_and_round_trip() {
+        let stage = StageEvent::new("r", "db", 1, 2, 3, true).into_partial();
+        let queue = QueueEvent::new("r", "q", 4, 5, 6)
+            .with_depth_at_start(7)
+            .into_partial();
+        let stage_value = serde_json::to_value(&stage).unwrap();
+        let queue_value = serde_json::to_value(&queue).unwrap();
+        assert_eq!(stage_value["completed"], serde_json::json!(false));
+        assert_eq!(queue_value["completed"], serde_json::json!(false));
+        assert_eq!(
+            stage_value.as_object().unwrap().get("success"),
+            Some(&serde_json::json!(false))
+        );
+        assert_eq!(
+            serde_json::from_value::<StageEvent>(stage_value).unwrap(),
+            stage
+        );
+        assert_eq!(
+            serde_json::from_value::<QueueEvent>(queue_value).unwrap(),
+            queue
+        );
+        let run = Run {
+            schema_version: SCHEMA_VERSION,
+            metadata: capture().snapshot().metadata,
+            requests: vec![],
+            stages: vec![stage],
+            queues: vec![queue],
+            inflight: vec![],
+            runtime_snapshots: vec![],
+            truncation: TruncationSummary::default(),
+        };
+        assert_eq!(
+            serde_json::to_value(&run).unwrap()["schema_version"],
+            serde_json::json!(2)
+        );
+    }
+
+    #[test]
+    fn partial_stage_and_queue_validate_and_normalize_without_rewriting_completed() {
+        let mut run = capture().snapshot();
+        run.requests.push(crate::RequestEvent {
+            request_id: "req".to_string(),
+            route: "/r".to_string(),
+            kind: None,
+            started_at_unix_ms: 1,
+            started_at_run_us: Some(1),
+            finished_at_unix_ms: 3,
+            finished_at_run_us: Some(30),
+            latency_us: 29,
+            outcome: "ok".to_string(),
+        });
+        run.stages.push(
+            StageEvent::new("req", "db", 1, 2, 10, true)
+                .with_run_interval(Some(2), Some(12))
+                .into_partial(),
+        );
+        run.queues.push(
+            QueueEvent::new("req", "pool", 1, 2, 9)
+                .with_run_interval(Some(3), Some(12))
+                .with_depth_at_start(5)
+                .into_partial(),
+        );
+        crate::validate_run_strict(&run).unwrap();
+        let normalized = crate::normalize_run_permissive(&run).run;
+        assert_eq!(normalized.stages[0], run.stages[0]);
+        assert_eq!(normalized.queues[0], run.queues[0]);
+    }
+
+    #[test]
+    fn stage_await_on_immediate_ready_records_one_completed_event() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let result: Result<(), ()> =
+            futures_executor::block_on(started.handle.stage("db").await_on(ready(Ok(()))));
+        assert!(result.is_ok());
+        let run = tt.snapshot();
+        assert_eq!(run.stages.len(), 1);
+        let ev = &run.stages[0];
+        assert_eq!(ev.request_id, "req");
+        assert_eq!(ev.stage, "db");
+        assert!(ev.completed);
+        assert!(ev.success);
+    }
+
+    #[test]
+    fn stage_await_value_immediate_ready_records_successful_completed_event() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        futures_executor::block_on(started.handle.stage("cache").await_value(ready(())));
+        let ev = &tt.snapshot().stages[0];
+        assert!(ev.completed);
+        assert!(ev.success);
+    }
+
+    #[test]
+    fn queue_immediate_ready_records_one_completed_event() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        futures_executor::block_on(
+            started
+                .handle
+                .queue("permit")
+                .with_depth_at_start(9)
+                .await_on(ready(())),
+        );
+        let ev = &tt.snapshot().queues[0];
+        assert_eq!(ev.queue, "permit");
+        assert_eq!(ev.depth_at_start, Some(9));
+        assert!(ev.completed);
+    }
+
+    #[test]
+    fn stage_pending_then_drop_records_one_partial_event() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let fut = started
+            .handle
+            .stage("db")
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let run = tt.snapshot();
+        assert_eq!(run.stages.len(), 1);
+        let ev = &run.stages[0];
+        assert_eq!(ev.request_id, "req");
+        assert_eq!(ev.stage, "db");
+        assert!(!ev.completed);
+        assert!(!ev.success);
+        assert!(ev.latency_us <= ev.finished_at_run_us.unwrap_or(u64::MAX));
+    }
+
+    #[test]
+    fn queue_pending_then_drop_records_one_partial_event_with_depth() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let fut = started
+            .handle
+            .queue("permit")
+            .with_depth_at_start(11)
+            .await_on(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let run = tt.snapshot();
+        assert_eq!(run.queues.len(), 1);
+        let ev = &run.queues[0];
+        assert_eq!(ev.request_id, "req");
+        assert_eq!(ev.queue, "permit");
+        assert_eq!(ev.depth_at_start, Some(11));
+        assert!(!ev.completed);
+    }
+
+    #[test]
+    fn stage_never_polled_drop_records_no_event() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let fut = started
+            .handle
+            .stage("db")
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        drop(fut);
+        assert!(tt.snapshot().stages.is_empty());
+    }
+
+    #[test]
+    fn queue_never_polled_drop_records_no_event() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let fut = started
+            .handle
+            .queue("q")
+            .await_on(poll_fn(|_| Poll::<()>::Pending));
+        drop(fut);
+        assert!(tt.snapshot().queues.is_empty());
+    }
+
+    #[test]
+    fn repeated_pending_polls_then_ready_records_completed_without_partial() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let mut polls = 0;
+        futures_executor::block_on(started.handle.stage("db").await_value(poll_fn(|cx| {
+            polls += 1;
+            if polls < 3 {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })));
+        let run = tt.snapshot();
+        assert_eq!(run.stages.len(), 1);
+        assert!(run.stages[0].completed);
+    }
+
+    #[test]
+    fn queue_repeated_pending_polls_then_ready_records_completed_without_partial() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let mut polls = 0;
+        futures_executor::block_on(started.handle.queue("q").await_on(poll_fn(|cx| {
+            polls += 1;
+            if polls < 3 {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })));
+        let run = tt.snapshot();
+        assert_eq!(run.queues.len(), 1);
+        assert!(run.queues[0].completed);
+    }
+
+    #[test]
+    fn stage_panic_after_arming_does_not_double_panic_and_records_at_most_one_partial() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            futures_executor::block_on(
+                started
+                    .handle
+                    .stage("panic")
+                    .await_value(poll_fn(|_| -> Poll<()> { panic!("wrapped panic") })),
+            );
+        }));
+        assert!(result.is_err());
+        let run = tt.snapshot();
+        assert!(run.stages.len() <= 1);
+        if let Some(ev) = run.stages.first() {
+            assert!(!ev.completed);
+            assert!(!ev.success);
+        }
+    }
+
+    #[test]
+    fn queue_panic_after_arming_does_not_double_panic_and_records_at_most_one_partial() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            futures_executor::block_on(
+                started
+                    .handle
+                    .queue("panic")
+                    .await_on(poll_fn(|_| -> Poll<()> { panic!("wrapped panic") })),
+            );
+        }));
+        assert!(result.is_err());
+        let run = tt.snapshot();
+        assert!(run.queues.len() <= 1);
+        if let Some(ev) = run.queues.first() {
+            assert!(!ev.completed);
+        }
+    }
+
+    fn assert_one_partial_stage(run: &Run, expected_request_id: &str, expected_stage: &str) {
+        let events: Vec<_> = run
+            .stages
+            .iter()
+            .filter(|event| {
+                event.request_id == expected_request_id && event.stage == expected_stage
+            })
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id, expected_request_id);
+        assert_eq!(events[0].stage, expected_stage);
+        assert!(!events[0].completed);
+        assert!(!events[0].success);
+    }
+
+    fn assert_one_partial_queue(
+        run: &Run,
+        expected_request_id: &str,
+        expected_queue: &str,
+        expected_depth: u64,
+    ) {
+        let events: Vec<_> = run
+            .queues
+            .iter()
+            .filter(|event| {
+                event.request_id == expected_request_id && event.queue == expected_queue
+            })
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id, expected_request_id);
+        assert_eq!(events[0].queue, expected_queue);
+        assert!(!events[0].completed);
+        assert_eq!(events[0].depth_at_start, Some(expected_depth));
+    }
+
+    #[test]
+    fn partial_stage_and_queue_are_preserved_through_owned_and_borrowed_handles() {
+        let tt = Arc::new(capture());
+
+        let borrowed_stage = tt.begin_request_with(
+            "/r",
+            RequestOptions::new().request_id("borrowed-stage-request"),
+        );
+        let fut = borrowed_stage
+            .handle
+            .stage("borrowed-stage")
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+
+        let borrowed_queue = tt.begin_request_with(
+            "/r",
+            RequestOptions::new().request_id("borrowed-queue-request"),
+        );
+        let fut = borrowed_queue
+            .handle
+            .queue("borrowed-queue")
+            .with_depth_at_start(4)
+            .await_on(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+
+        let owned_stage = tt.begin_request_with_owned(
+            "/r",
+            RequestOptions::new().request_id("owned-stage-request"),
+        );
+        let fut = owned_stage
+            .handle
+            .stage("owned-stage")
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+
+        let owned_queue = tt.begin_request_with_owned(
+            "/r",
+            RequestOptions::new().request_id("owned-queue-request"),
+        );
+        let fut = owned_queue
+            .handle
+            .queue("owned-queue")
+            .with_depth_at_start(9)
+            .await_on(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+
+        let run = tt.snapshot();
+        assert_eq!(
+            run.stages
+                .iter()
+                .filter(|event| !event.completed
+                    && matches!(
+                        (event.request_id.as_str(), event.stage.as_str()),
+                        ("borrowed-stage-request", "borrowed-stage")
+                            | ("owned-stage-request", "owned-stage")
+                    ))
+                .count(),
+            2
+        );
+        assert_eq!(
+            run.queues
+                .iter()
+                .filter(|event| !event.completed
+                    && matches!(
+                        (event.request_id.as_str(), event.queue.as_str()),
+                        ("borrowed-queue-request", "borrowed-queue")
+                            | ("owned-queue-request", "owned-queue")
+                    ))
+                .count(),
+            2
+        );
+        assert!(!run.stages.iter().any(|event| event.completed
+            && matches!(
+                (event.request_id.as_str(), event.stage.as_str()),
+                ("borrowed-stage-request", "borrowed-stage")
+                    | ("owned-stage-request", "owned-stage")
+            )));
+        assert!(!run.queues.iter().any(|event| event.completed
+            && matches!(
+                (event.request_id.as_str(), event.queue.as_str()),
+                ("borrowed-queue-request", "borrowed-queue")
+                    | ("owned-queue-request", "owned-queue")
+            )));
+        assert_one_partial_stage(&run, "borrowed-stage-request", "borrowed-stage");
+        assert_one_partial_queue(&run, "borrowed-queue-request", "borrowed-queue", 4);
+        assert_one_partial_stage(&run, "owned-stage-request", "owned-stage");
+        assert_one_partial_queue(&run, "owned-queue-request", "owned-queue", 9);
+    }
+
+    #[test]
+    fn pending_helper_drop_plus_completion_token_drop_records_partial_child_and_cancelled_request()
+    {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let fut = started
+            .handle
+            .stage("db")
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        drop(started.completion);
+        let run = tt.snapshot();
+        assert_eq!(run.stages.len(), 1);
+        assert!(!run.stages[0].completed);
+        assert_eq!(run.requests.len(), 1);
+        assert_eq!(run.requests[0].outcome, Outcome::Cancelled.as_str());
+    }
+
+    #[test]
+    fn armed_stage_and_queue_drop_after_finalization_leave_persisted_run_unchanged() {
+        let sink = MemorySink::default();
+        let tt = Tailtriage::builder("prompt09")
+            .sink(sink.clone())
+            .build()
+            .unwrap();
+        let started = tt.begin_request("/r");
+        let stage = started
+            .handle
+            .stage("db")
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let queue = started
+            .handle
+            .queue("permit")
+            .with_depth_at_start(13)
+            .await_on(poll_fn(|_| Poll::<()>::Pending));
+        let mut stage = Box::pin(stage);
+        let mut queue = Box::pin(queue);
+        assert!(poll_once(&mut stage).is_pending());
+        assert!(poll_once(&mut queue).is_pending());
+
+        tt.shutdown().unwrap();
+        let before = sink.last_run().unwrap();
+        let before_stages = before.stages.clone();
+        let before_queues = before.queues.clone();
+        let before_truncation = before.truncation.clone();
+        let before_metadata = before.metadata.clone();
+
+        drop(stage);
+        drop(queue);
+
+        let after = sink.last_run().unwrap();
+        assert_eq!(before, after);
+        assert_eq!(before_stages, after.stages);
+        assert_eq!(before_queues, after.queues);
+        assert_eq!(before_truncation, after.truncation);
+        assert_eq!(before_metadata, after.metadata);
+        assert!(after.stages.is_empty());
+        assert!(after.queues.is_empty());
+    }
 }

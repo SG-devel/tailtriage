@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Added `completed: bool` to public `StageEvent` and `QueueEvent` structs with wire-compatible completed JSON; this is an intentional pre-1.0 Rust source break for exhaustive external struct literals, and constructor-based migration is recommended. Polled-then-dropped core/Tokio queue and stage helpers now record bounded partial evidence while capture remains open.
 - Completed-span JSONL now writes retained original tracing sources rather than reconstructing span-shaped records from normalized Run events, preserving source identity and fields while retaining the documented representational limits.
 - Core Run validation is now centralized in `tailtriage-core`, with strict validation and deterministic permissive normalization APIs for duplicate request IDs, request-scoped child integrity, required fields, schema version checks, and run-relative timing issues.
 - Aligned documented local validation commands with CI baseline flags in `AGENTS.md` and `scripts/validate_all.py`.

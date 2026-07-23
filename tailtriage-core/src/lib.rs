@@ -18,8 +18,9 @@
 // // queue(...), stage(...), and inflight(...) instrumentation can happen here.
 // // They do not finish the request lifecycle.
 // started.completion.finish_ok();
-// // You must finish each request exactly once via finish(...), finish_ok(), or finish_result(...).
-// // Drop only asserts on unfinished completions in debug builds; it does not auto-record completion.
+// // Explicit completion remains preferred when the outcome is known.
+// // Dropping an admitted unfinished completion token while capture remains open records one request with outcome `cancelled`.
+// // If finalization wins first, a late completion-token Drop is inert.
 //
 // tailtriage.shutdown()?;
 // # Ok(())

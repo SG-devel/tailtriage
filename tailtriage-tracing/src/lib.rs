@@ -258,6 +258,7 @@ where
                                 finished_at_run_us,
                             ),
                             success,
+                            completed: true,
                         },
                         success_defaulted: matches!(success_field, OptionalField::Missing),
                     });
@@ -291,6 +292,7 @@ where
                                 waited_until_run_us,
                             ),
                             depth_at_start,
+                            completed: true,
                         },
                     });
                 }
@@ -1184,6 +1186,7 @@ mod tests {
             finished_at_run_us: None,
             latency_us: 5_000,
             success: true,
+            completed: true,
         });
         candidate.queues.push(QueueEvent {
             request_id: "excluded".to_owned(),
@@ -1194,6 +1197,7 @@ mod tests {
             waited_until_run_us: None,
             wait_us: 1_000,
             depth_at_start: None,
+            completed: true,
         });
         candidate.requests.push(RequestEvent {
             request_id: "valid".to_owned(),
@@ -1215,6 +1219,7 @@ mod tests {
             finished_at_run_us: None,
             latency_us: 5_000,
             success: true,
+            completed: true,
         });
         let provenance = CandidateProvenance {
             inputs: vec![

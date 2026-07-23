@@ -125,6 +125,7 @@ fn precise_stage(
         finished_at_run_us: end,
         latency_us,
         success: true,
+        completed: true,
     }
 }
 
@@ -145,6 +146,7 @@ fn precise_queue(id: &str, start: u64, end: u64, wait_us: u64) -> QueueEvent {
         waited_until_run_us: Some(end),
         wait_us,
         depth_at_start: Some(1),
+        completed: true,
     }
 }
 
@@ -384,6 +386,7 @@ fn missing_run_relative_queue_endpoint_falls_back_to_capped_duration_sum() {
             waited_until_run_us: None,
             wait_us: 90,
             depth_at_start: Some(1),
+            completed: true,
         },
     ];
 
@@ -485,6 +488,7 @@ fn duplicate_completed_request_ids_emit_warning_without_panic() {
         waited_until_run_us: None,
         wait_us: 500,
         depth_at_start: Some(3),
+        completed: true,
     }];
 
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -534,6 +538,7 @@ fn strict_artifact_validation_fails_orphan_stage_and_queue_request_ids() {
         finished_at_run_us: None,
         latency_us: 100,
         success: true,
+        completed: true,
     }];
     let stage_err = validate_artifact_strict(&stage_run)
         .expect_err("orphan stage id should fail strict validation");
@@ -555,6 +560,7 @@ fn strict_artifact_validation_fails_orphan_stage_and_queue_request_ids() {
         waited_until_run_us: None,
         wait_us: 100,
         depth_at_start: Some(1),
+        completed: true,
     }];
     let queue_err = validate_artifact_strict(&queue_run)
         .expect_err("orphan queue id should fail strict validation");
@@ -579,6 +585,7 @@ fn strict_artifact_validation_simultaneous_stage_and_queue_orphans_return_core_w
         finished_at_run_us: None,
         latency_us: 100,
         success: true,
+        completed: true,
     }];
     run.queues = vec![QueueEvent {
         request_id: "missing-queue-request".to_owned(),
@@ -589,6 +596,7 @@ fn strict_artifact_validation_simultaneous_stage_and_queue_orphans_return_core_w
         waited_until_run_us: None,
         wait_us: 100,
         depth_at_start: Some(1),
+        completed: true,
     }];
 
     let err = validate_artifact_strict(&run)
@@ -622,6 +630,7 @@ fn strict_artifact_validation_orphan_plus_timing_returns_core() {
         finished_at_run_us: None,
         latency_us: 100,
         success: true,
+        completed: true,
     }];
 
     let err = validate_artifact_strict(&run).expect_err("mixed failures should use core");
@@ -646,6 +655,7 @@ fn strict_artifact_validation_compatibility_variants_have_no_source() {
         finished_at_run_us: None,
         latency_us: 100,
         success: true,
+        completed: true,
     }];
     let err = validate_artifact_strict(&orphan_run).expect_err("orphan should fail");
     assert!(std::error::Error::source(&err).is_none());
@@ -663,6 +673,7 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
         finished_at_run_us: None,
         latency_us: 100,
         success: true,
+        completed: true,
     }];
     run.queues = vec![QueueEvent {
         request_id: "missing-queue-request".to_owned(),
@@ -673,6 +684,7 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
         waited_until_run_us: None,
         wait_us: 100,
         depth_at_start: Some(1),
+        completed: true,
     }];
 
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -698,6 +710,7 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
         finished_at_run_us: None,
         latency_us: 100,
         success: true,
+        completed: true,
     }];
     run.queues = vec![QueueEvent {
         request_id: "req-2".to_owned(),
@@ -708,6 +721,7 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
         waited_until_run_us: None,
         wait_us: 100,
         depth_at_start: Some(1),
+        completed: true,
     }];
 
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -773,6 +787,7 @@ fn downstream_stage_tie_break_is_deterministic() {
             finished_at_run_us: None,
             latency_us: 300,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "req-2".to_owned(),
@@ -783,6 +798,7 @@ fn downstream_stage_tie_break_is_deterministic() {
             finished_at_run_us: None,
             latency_us: 300,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "req-3".to_owned(),
@@ -793,6 +809,7 @@ fn downstream_stage_tie_break_is_deterministic() {
             finished_at_run_us: None,
             latency_us: 300,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "req-1".to_owned(),
@@ -803,6 +820,7 @@ fn downstream_stage_tie_break_is_deterministic() {
             finished_at_run_us: None,
             latency_us: 300,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "req-2".to_owned(),
@@ -813,6 +831,7 @@ fn downstream_stage_tie_break_is_deterministic() {
             finished_at_run_us: None,
             latency_us: 300,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "req-3".to_owned(),
@@ -823,6 +842,7 @@ fn downstream_stage_tie_break_is_deterministic() {
             finished_at_run_us: None,
             latency_us: 300,
             success: true,
+            completed: true,
         },
     ];
 
@@ -1052,6 +1072,7 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             waited_until_unix_ms: 1,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         },
         QueueEvent {
             request_id: "req-2".into(),
@@ -1062,6 +1083,7 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         },
         QueueEvent {
             request_id: "req-3".into(),
@@ -1072,6 +1094,7 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             waited_until_unix_ms: 3,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         },
     ];
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -1098,6 +1121,7 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
             waited_until_unix_ms: 1,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         },
         QueueEvent {
             request_id: "req-2".into(),
@@ -1108,6 +1132,7 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         },
     ];
 
@@ -1155,6 +1180,7 @@ fn downstream_beats_weak_blocking() {
             finished_at_run_us: None,
             latency_us: 900,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "req-2".into(),
@@ -1165,6 +1191,7 @@ fn downstream_beats_weak_blocking() {
             finished_at_run_us: None,
             latency_us: 900,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "req-3".into(),
@@ -1175,6 +1202,7 @@ fn downstream_beats_weak_blocking() {
             finished_at_run_us: None,
             latency_us: 900,
             success: true,
+            completed: true,
         },
     ];
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
@@ -1213,6 +1241,7 @@ fn score_100_is_reserved_for_overwhelming_queue_evidence() {
             waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(20),
+            completed: true,
         })
         .collect();
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -1270,6 +1299,7 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
             finished_at_run_us: None,
             latency_us: 3_900_000,
             success: true,
+            completed: true,
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
@@ -1328,6 +1358,7 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
             finished_at_run_us: None,
             latency_us: 3_900_000,
             success: true,
+            completed: true,
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
@@ -1439,6 +1470,7 @@ fn evidence_quality_partial_for_runtime_partial_fields() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(2),
+            completed: true,
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), None, Some(1)); 10];
@@ -1481,6 +1513,7 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(2),
+            completed: true,
         })
         .collect();
     run.stages = run
@@ -1495,6 +1528,7 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
             finished_at_run_us: None,
             latency_us: 400,
             success: true,
+            completed: true,
         })
         .collect();
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -1532,6 +1566,7 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(2),
+            completed: true,
         })
         .collect();
     run.stages = run
@@ -1546,6 +1581,7 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
             finished_at_run_us: None,
             latency_us: 400,
             success: true,
+            completed: true,
         })
         .collect();
     run.truncation.dropped_queues = 2;
@@ -1589,6 +1625,7 @@ fn confidence_caps_do_not_change_score_ordering() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(8),
+            completed: true,
         })
         .collect();
     run.stages = run
@@ -1603,6 +1640,7 @@ fn confidence_caps_do_not_change_score_ordering() {
             finished_at_run_us: None,
             latency_us: 800,
             success: true,
+            completed: true,
         })
         .collect();
     run.truncation.dropped_requests = 1;
@@ -1640,6 +1678,7 @@ fn low_request_count_caps_primary_confidence_and_adds_note() {
             waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(18),
+            completed: true,
         })
         .collect();
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -1679,6 +1718,7 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
             waited_until_run_us: None,
             wait_us: 985,
             depth_at_start: Some(15),
+            completed: true,
         })
         .collect();
     run.inflight = vec![
@@ -1732,6 +1772,7 @@ fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
             waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(15),
+            completed: true,
         })
         .collect();
     run.truncation.dropped_queues = 1;
@@ -1801,6 +1842,7 @@ fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
             finished_at_run_us: None,
             latency_us: 4_800,
             success: true,
+            completed: true,
         })
         .collect();
     run.truncation.dropped_stages = 1;
@@ -1998,6 +2040,7 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
             waited_until_run_us: None,
             wait_us: 990,
             depth_at_start: Some(15),
+            completed: true,
         })
         .collect();
     let mut suspects = vec![
@@ -2076,6 +2119,7 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
             waited_until_unix_ms: 1,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         });
     }
     for req_id in ["req-5", "req-6", "req-7"] {
@@ -2088,6 +2132,7 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
             finished_at_run_us: None,
             latency_us: 1_900,
             success: true,
+            completed: true,
         });
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
@@ -2156,6 +2201,7 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
             waited_until_unix_ms: 1,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         });
     }
     for req_id in ["req-5", "req-6", "req-7"] {
@@ -2168,6 +2214,7 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
             finished_at_run_us: None,
             latency_us: 1_900,
             success: true,
+            completed: true,
         });
     }
 
@@ -2216,6 +2263,7 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
             waited_until_unix_ms: 1,
             waited_until_run_us: None,
             depth_at_start: Some(7),
+            completed: true,
         });
     }
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -2268,6 +2316,7 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         });
     }
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -2308,6 +2357,7 @@ fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
             waited_until_unix_ms: 101,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         });
     }
     for id in 1..=10 {
@@ -2320,6 +2370,7 @@ fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
             finished_at_run_us: None,
             latency_us: 5_000,
             success: true,
+            completed: true,
         });
     }
 
@@ -2677,6 +2728,7 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
             waited_until_unix_ms: i + 1,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         });
     }
     for i in 11..=20 {
@@ -2689,6 +2741,7 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
             finished_at_run_us: None,
             latency_us: 5_000,
             success: true,
+            completed: true,
         });
     }
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -2754,6 +2807,7 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
             waited_until_unix_ms: i + 1,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         });
     }
     let global = analyze_run_internal(&run, &AnalyzeOptions::default());
@@ -2784,6 +2838,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
             waited_until_unix_ms: i + 1,
             waited_until_run_us: Some(i * 10_000 + 2_000),
             depth_at_start: Some(12),
+            completed: true,
         });
     }
     for i in 11usize..=20usize {
@@ -2801,6 +2856,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
             finished_at_run_us: Some(i_u64 * 10_000 + 7_000),
             latency_us: 7_000,
             success: true,
+            completed: true,
         });
     }
     run.runtime_snapshots = vec![
@@ -2906,6 +2962,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
             waited_until_unix_ms: i + 1,
             waited_until_run_us: None,
             depth_at_start: Some(12),
+            completed: true,
         });
     }
     for i in 11..=20 {
@@ -2918,6 +2975,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
             finished_at_run_us: None,
             latency_us: 9_000,
             success: true,
+            completed: true,
         });
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(1))];
@@ -2958,6 +3016,7 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
             waited_until_unix_ms: i + 1,
             waited_until_run_us: None,
             depth_at_start: Some(12),
+            completed: true,
         });
     }
     for i in 11usize..=20usize {
@@ -2974,6 +3033,7 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
             finished_at_run_us: None,
             latency_us: 9_000,
             success: true,
+            completed: true,
         });
     }
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -3517,6 +3577,7 @@ fn default_options_compat_queue_saturation_case() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         })
         .collect();
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -3543,6 +3604,7 @@ fn default_options_compat_blocking_pool_pressure_case() {
             finished_at_run_us: None,
             latency_us: 3_900_000,
             success: true,
+            completed: true,
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
@@ -3584,6 +3646,7 @@ fn default_options_compat_downstream_stage_dominates_case() {
             finished_at_run_us: None,
             latency_us: 900,
             success: true,
+            completed: true,
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
@@ -3654,6 +3717,7 @@ fn default_options_compat_route_breakdowns_case() {
             waited_until_unix_ms: 1,
             waited_until_run_us: None,
             depth_at_start: Some(9),
+            completed: true,
         });
     }
     for req_id in ["req-5", "req-6", "req-7"] {
@@ -3666,6 +3730,7 @@ fn default_options_compat_route_breakdowns_case() {
             finished_at_run_us: None,
             latency_us: 1_900,
             success: true,
+            completed: true,
         });
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
@@ -3707,6 +3772,7 @@ fn default_options_compat_temporal_segments_case() {
             waited_until_unix_ms: 2,
             waited_until_run_us: None,
             depth_at_start: Some(3),
+            completed: true,
         })
         .collect();
     run.stages = run
@@ -3722,6 +3788,7 @@ fn default_options_compat_temporal_segments_case() {
             finished_at_run_us: None,
             latency_us: if i < 20 { 200 } else { 4_400 },
             success: true,
+            completed: true,
         })
         .collect();
     let report = analyze_run(&run, AnalyzeOptions::default());
@@ -3835,6 +3902,7 @@ fn option_queueing_trigger_permille_changes_queue_suspect() {
             waited_until_unix_ms: i + 1,
             waited_until_run_us: None,
             depth_at_start: Some(3),
+            completed: true,
         });
     }
     let default_report = analyze_run(&run, AnalyzeOptions::default());
@@ -3898,6 +3966,7 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
             waited_until_unix_ms: i + 1,
             waited_until_run_us: None,
             depth_at_start: Some(12),
+            completed: true,
         });
     }
 
@@ -4071,4 +4140,27 @@ fn analyzer_toml_empty_pattern_fails_validation() {
             ..
         }
     ));
+}
+
+#[test]
+fn prompt09_partial_stage_and_queue_events_do_not_change_analyzer_output() {
+    let mut completed = test_run();
+    completed.stages = vec![StageEvent::new("req-1", "db", 1, 2, 900, true)];
+    completed.queues = vec![QueueEvent::new("req-1", "pool", 1, 2, 800).with_depth_at_start(5)];
+
+    let mut partial = completed.clone();
+    partial.stages[0] = partial.stages[0].clone().into_partial();
+    partial.queues[0] = partial.queues[0].clone().into_partial();
+
+    let completed_report = analyze_run(&completed, AnalyzeOptions::default());
+    let partial_report = analyze_run(&partial, AnalyzeOptions::default());
+
+    assert!(
+        !completed_report.primary_suspect.evidence.is_empty()
+            || !completed_report.secondary_suspects.is_empty()
+    );
+    assert_eq!(
+        serde_json::to_value(&completed_report).unwrap(),
+        serde_json::to_value(&partial_report).unwrap()
+    );
 }
