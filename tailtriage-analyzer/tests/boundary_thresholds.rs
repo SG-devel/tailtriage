@@ -89,6 +89,7 @@ fn queue_share_threshold_uses_300_permille_boundary() {
         waited_until_run_us: None,
         wait_us: 299,
         depth_at_start: Some(2),
+        completed: true,
     }];
 
     let below_report = analyze_run(&below, AnalyzeOptions::default());
@@ -109,6 +110,7 @@ fn queue_share_threshold_uses_300_permille_boundary() {
         waited_until_run_us: None,
         wait_us: 300,
         depth_at_start: Some(2),
+        completed: true,
     }];
 
     let above_report = analyze_run(&above, AnalyzeOptions::default());
@@ -205,6 +207,7 @@ fn downstream_stage_requires_at_least_three_samples() {
             finished_at_run_us: None,
             latency_us: 350,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "r2".to_string(),
@@ -215,6 +218,7 @@ fn downstream_stage_requires_at_least_three_samples() {
             finished_at_run_us: None,
             latency_us: 360,
             success: true,
+            completed: true,
         },
     ];
 
@@ -236,6 +240,7 @@ fn downstream_stage_requires_at_least_three_samples() {
             finished_at_run_us: None,
             latency_us: 350,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "r2".to_string(),
@@ -246,6 +251,7 @@ fn downstream_stage_requires_at_least_three_samples() {
             finished_at_run_us: None,
             latency_us: 360,
             success: true,
+            completed: true,
         },
         StageEvent {
             request_id: "r3".to_string(),
@@ -256,6 +262,7 @@ fn downstream_stage_requires_at_least_three_samples() {
             finished_at_run_us: None,
             latency_us: 340,
             success: true,
+            completed: true,
         },
     ];
 

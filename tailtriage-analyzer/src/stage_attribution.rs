@@ -179,6 +179,7 @@ mod tests {
             finished_at_run_us: end,
             latency_us: dur,
             success: true,
+            completed: true,
         }
     }
 

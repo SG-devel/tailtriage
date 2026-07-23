@@ -151,7 +151,7 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 - only one successful sampler start is allowed per `Tailtriage` run
 - `CaptureMode` does **not** auto-start runtime sampling
 - runtime snapshot retention is bounded by the resolved core capture limits
-- queue/stage helper events are completion-based: dropping/canceling a pending helper future records no queue/stage event
+- queue/stage helper timing begins on first poll: dropping a never-polled helper records no event, while dropping a polled pending helper records one bounded partial event if capture remains open
 
 ## Runtime sampler details
 
@@ -286,7 +286,7 @@ Helpers map common Tokio primitives to explicit queue/stage/in-flight signals wh
 
 ### Semantics notes
 
-- Queue/stage helper events are completion-based: dropping/canceling a pending helper future records no queue/stage event.
+- Queue/stage helper timing begins on first poll: dropping a never-polled helper records no event, while dropping a polled pending helper records one bounded partial event if capture remains open. Partial duration ends at observed helper Drop and does not prove the underlying operation stopped.
 - The helper API intentionally does not include a generic mpsc receive wait helper. Receiver-side recv wait cannot distinguish idle workers from queued work residence time. For worker intake, start request/work-item capture after receiving the item unless you have explicit enqueue timestamps.
 - `join_task(...)` records await time for the supplied `JoinHandle`, not necessarily the full task runtime.
 - `join_task(...)`, `timeout_stage(...)`, and `blocking_stage(...)` preserve nested `Result`s; recorded stage success/failure comes from the outer Tokio wrapper result, so `Ok(Err(_))` is preserved and records as successful.
@@ -355,3 +355,32 @@ When used alongside `tailtriage-tracing`, runtime-pressure evidence still depend
 - `tailtriage-tracing`: optional tracing intake bridge that converts tracing-shaped evidence into standard `tailtriage_core::Run` values
 - `tailtriage-analyzer`: in-process analysis/report generation for completed runs
 - `tailtriage-cli`: command-line analysis of saved run artifacts
+
+
+### Partial queue and stage events
+
+Completed queue and stage JSON remains wire-compatible: schema version stays `2`, older schema-v2 JSON without `completed` reads as completed evidence, and completed events omit `completed` when serialized. The Rust structs now include `completed: bool`, which is an intentional pre-1.0 source break for external exhaustive `StageEvent` and `QueueEvent` struct literals. Prefer `StageEvent::new(...)` and `QueueEvent::new(...)`; constructors default to completed evidence and `into_partial()` should be used only when intentionally constructing partial evidence.
+
+Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only, and analyzer interpretation is unchanged in this release.
+
+Migration example:
+
+```rust
+# use tailtriage_core::StageEvent;
+// Old exhaustive struct literal (now must include `completed`).
+let _old = StageEvent {
+    request_id: "req".into(),
+    stage: "db".into(),
+    started_at_unix_ms: 1,
+    started_at_run_us: None,
+    finished_at_unix_ms: 2,
+    finished_at_run_us: None,
+    latency_us: 10,
+    success: true,
+    completed: true,
+};
+
+// Recommended: constructors default to completed evidence.
+let completed = StageEvent::new("req", "db", 1, 2, 10, true);
+let partial = completed.clone().into_partial();
+```

@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+const fn default_completed() -> bool {
+    true
+}
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_completed(value: &bool) -> bool {
+    *value
+}
+
 use crate::{CaptureMode, EffectiveCoreConfig};
 
 /// Current schema version for `Run` JSON artifacts.
@@ -280,7 +288,65 @@ pub struct StageEvent {
     pub latency_us: u64,
     /// Whether the stage completed successfully (`Result::is_ok()` for
     /// `StageTimer::await_on`, always `true` for `StageTimer::await_value`).
+    ///
+    /// For partial events (`completed == false`), this is forced to `false` and
+    /// is not an operation result. Consumers that need completion-aware
+    /// interpretation must inspect [`StageEvent::completed`].
     pub success: bool,
+    /// Whether the instrumented stage future completed normally.
+    ///
+    /// Older schema-v2 JSON without this field deserializes as completed.
+    /// Completed events omit the field when serialized; partial events serialize
+    /// `completed: false`.
+    #[serde(default = "default_completed", skip_serializing_if = "is_completed")]
+    pub completed: bool,
+}
+
+impl StageEvent {
+    /// Creates a completed stage event with required identity, wall-clock
+    /// interval, duration, and success fields.
+    #[must_use]
+    pub fn new(
+        request_id: impl Into<String>,
+        stage: impl Into<String>,
+        started_at_unix_ms: u64,
+        finished_at_unix_ms: u64,
+        latency_us: u64,
+        success: bool,
+    ) -> Self {
+        Self {
+            request_id: request_id.into(),
+            stage: stage.into(),
+            started_at_unix_ms,
+            started_at_run_us: None,
+            finished_at_unix_ms,
+            finished_at_run_us: None,
+            latency_us,
+            success,
+            completed: true,
+        }
+    }
+
+    /// Adds monotonic run-relative start and finish offsets.
+    #[must_use]
+    pub const fn with_run_interval(
+        mut self,
+        started_at_run_us: Option<u64>,
+        finished_at_run_us: Option<u64>,
+    ) -> Self {
+        self.started_at_run_us = started_at_run_us;
+        self.finished_at_run_us = finished_at_run_us;
+        self
+    }
+
+    /// Marks this stage event as a partial observation and forces `success` to
+    /// `false` because no completed operation result was observed.
+    #[must_use]
+    pub const fn into_partial(mut self) -> Self {
+        self.completed = false;
+        self.success = false;
+        self
+    }
 }
 
 /// Queue wait measurement for a request waiting on a queue/permit.
@@ -311,6 +377,64 @@ pub struct QueueEvent {
     pub wait_us: u64,
     /// Queue depth sample captured at wait start, if known.
     pub depth_at_start: Option<u64>,
+    /// Whether the instrumented queue future completed normally.
+    ///
+    /// Older schema-v2 JSON without this field deserializes as completed.
+    /// Completed events omit the field when serialized; partial events serialize
+    /// `completed: false`.
+    #[serde(default = "default_completed", skip_serializing_if = "is_completed")]
+    pub completed: bool,
+}
+
+impl QueueEvent {
+    /// Creates a completed queue event with required identity, wall-clock
+    /// interval, and duration fields.
+    #[must_use]
+    pub fn new(
+        request_id: impl Into<String>,
+        queue: impl Into<String>,
+        waited_from_unix_ms: u64,
+        waited_until_unix_ms: u64,
+        wait_us: u64,
+    ) -> Self {
+        Self {
+            request_id: request_id.into(),
+            queue: queue.into(),
+            waited_from_unix_ms,
+            waited_from_run_us: None,
+            waited_until_unix_ms,
+            waited_until_run_us: None,
+            wait_us,
+            depth_at_start: None,
+            completed: true,
+        }
+    }
+
+    /// Adds monotonic run-relative wait start and finish offsets.
+    #[must_use]
+    pub const fn with_run_interval(
+        mut self,
+        waited_from_run_us: Option<u64>,
+        waited_until_run_us: Option<u64>,
+    ) -> Self {
+        self.waited_from_run_us = waited_from_run_us;
+        self.waited_until_run_us = waited_until_run_us;
+        self
+    }
+
+    /// Adds the queue depth sample captured at wait start.
+    #[must_use]
+    pub const fn with_depth_at_start(mut self, depth_at_start: u64) -> Self {
+        self.depth_at_start = Some(depth_at_start);
+        self
+    }
+
+    /// Marks this queue event as a partial observation.
+    #[must_use]
+    pub const fn into_partial(mut self) -> Self {
+        self.completed = false;
+        self
+    }
 }
 
 /// Point-in-time in-flight gauge reading.

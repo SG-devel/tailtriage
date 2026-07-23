@@ -34,7 +34,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire())` via [`InstrumentedSemaphore::acquire`].
     ///
     /// Records only acquisition wait time, not the protected work after the permit is acquired.
-    /// Queue events are recorded only when `acquire()` completes; dropping before completion records no queue event.
+    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
     /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
     fn semaphore<'req, 'sem>(
         &'req self,
@@ -46,7 +46,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(semaphore.acquire_owned())` via [`InstrumentedOwnedSemaphore::acquire_owned`].
     ///
     /// Records only acquisition wait time, not work after permit acquisition.
-    /// Queue events are recorded only when `acquire_owned()` completes; dropping before completion records no queue event.
+    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
     /// Returns Tokio's permit/error types unchanged. Request completion remains explicit.
     fn owned_semaphore(
         &self,
@@ -58,7 +58,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(sender.send(value))`.
     ///
     /// Measures bounded-channel send/backpressure wait, not receiver-side processing.
-    /// Queue events are recorded only when send completes; dropping before completion records no queue event.
+    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
     /// Preserves `Result<(), SendError<T>>` unchanged. Request completion remains explicit.
     fn mpsc_send<'a, T>(
         &'a self,
@@ -71,7 +71,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(mutex.lock())`.
     ///
     /// Measures lock acquisition only, not work while holding the guard.
-    /// Queue events are recorded only when lock acquisition completes; dropping before completion records no queue event.
+    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
     /// Request completion remains explicit.
     fn mutex_lock<'req, 'lock, T>(
         &'req self,
@@ -85,7 +85,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(lock.read())`.
     ///
     /// Measures acquisition only, not work while holding the guard.
-    /// Queue events are recorded only when lock acquisition completes; dropping before completion records no queue event.
+    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
     /// Request completion remains explicit.
     fn rwlock_read<'req, 'lock, T>(
         &'req self,
@@ -99,7 +99,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Equivalent low-level form: `req.queue(label).await_on(lock.write())`.
     ///
     /// Measures acquisition only, not work while holding the guard.
-    /// Queue events are recorded only when lock acquisition completes; dropping before completion records no queue event.
+    /// Timing starts on first poll; dropping before first poll records no event, and dropping after a pending poll records one bounded partial queue event if capture remains open.
     /// Request completion remains explicit.
     fn rwlock_write<'req, 'lock, T>(
         &'req self,
@@ -116,7 +116,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Stage success/failure is derived from the outer `Result<T, JoinError>`.
     /// If `T` is itself a `Result`, inner `Err` values are preserved and do not mark the recorded stage as failed.
     /// Preserves `Result<T, JoinError>` unchanged, including panic/cancel join errors.
-    /// Dropping before completion records no stage event. Request completion remains explicit.
+    /// Dropping before first poll records no stage event; dropping after a pending poll records one bounded partial stage event if capture remains open. Request completion remains explicit.
     fn join_task<T>(
         &self,
         stage: impl Into<String>,
@@ -130,7 +130,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Timeout elapsed is represented by outer `Err(Elapsed)` and records a failed stage.
     /// Preserves the outer timeout `Result` and any nested inner `Result` exactly (no flattening/remapping).
     /// Because stage success/failure is derived from the outer timeout `Result`, `Ok(Err(_))` is preserved and records a successful stage.
-    /// Dropping before completion records no stage event. Request completion remains explicit.
+    /// Dropping before first poll records no stage event; dropping after a pending poll records one bounded partial stage event if capture remains open. Request completion remains explicit.
     fn timeout_stage<'a, Fut: Future + 'a>(
         &'a self,
         stage: impl Into<String>,
@@ -149,7 +149,7 @@ pub trait TokioRequestHandleExt: sealed::Sealed {
     /// Stage success/failure is derived from the outer `Result<R, tokio::task::JoinError>`.
     /// If `R` is itself a `Result`, inner `Err` values are preserved and do not mark the recorded stage as failed.
     /// Preserves `Result<R, tokio::task::JoinError>` unchanged.
-    /// Dropping before completion records no stage event. Request completion remains explicit.
+    /// Dropping before first poll records no stage event; dropping after a pending poll records one bounded partial stage event if capture remains open. Request completion remains explicit.
     /// If you need eager/overlapped spawning, call `tokio::task::spawn_blocking` directly and instrument
     /// the returned handle with `join_task(...)` (which records await time for an already-started task).
     fn blocking_stage<F, R>(
@@ -1443,7 +1443,7 @@ mod helper_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn dropping_pending_queue_and_stage_helpers_records_no_events() {
+    async fn dropping_pending_queue_and_stage_helpers_records_partial_events() {
         let run = run();
         let started = run.begin_request("/drop-pending");
         let req = started.handle.clone();
@@ -1474,8 +1474,19 @@ mod helper_tests {
         }
 
         let snap = run.snapshot();
-        assert!(snap.queues.iter().all(|q| q.queue != "drop_send_wait"));
-        assert!(snap.stages.iter().all(|s| s.stage != "drop_stage_wait"));
+        let queue = snap
+            .queues
+            .iter()
+            .find(|q| q.queue == "drop_send_wait")
+            .expect("partial queue event");
+        assert!(!queue.completed);
+        let stage = snap
+            .stages
+            .iter()
+            .find(|s| s.stage == "drop_stage_wait")
+            .expect("partial stage event");
+        assert!(!stage.completed);
+        assert!(!stage.success);
 
         started.completion.finish_ok();
     }
@@ -1559,5 +1570,191 @@ mod helper_tests {
 
         assert_eq!(*mutex.lock().await, 42);
         assert_eq!(*rw.read().await, 9);
+    }
+}
+
+#[cfg(test)]
+mod prompt09_tokio_partial_tests {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{mpsc as std_mpsc, Arc};
+    use std::task::{Context, Poll, Waker};
+
+    use tailtriage_core::{MemorySink, RequestOptions, Tailtriage};
+
+    use super::TokioRequestHandleExt;
+
+    fn poll_once<F: Future>(future: &mut Pin<Box<F>>) -> Poll<F::Output> {
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        future.as_mut().poll(&mut cx)
+    }
+
+    fn capture() -> Tailtriage {
+        Tailtriage::builder("tokio-prompt09")
+            .sink(MemorySink::default())
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn borrowed_semaphore_pending_then_drop_records_partial_queue() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let sem = tokio::sync::Semaphore::new(1);
+        let permit = sem.acquire().await.unwrap();
+        let fut = started.handle.semaphore("sem", &sem).acquire();
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        drop(permit);
+        let ev = &tt.snapshot().queues[0];
+        assert_eq!(ev.request_id, "req");
+        assert_eq!(ev.queue, "sem");
+        assert!(!ev.completed);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn owned_semaphore_pending_then_drop_records_partial_queue() {
+        let tt = capture();
+        let started = tt.begin_request_with("/r", RequestOptions::new().request_id("req"));
+        let sem = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = sem.acquire().await.unwrap();
+        let fut = started
+            .handle
+            .owned_semaphore("owned_sem", Arc::clone(&sem))
+            .acquire_owned();
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        drop(permit);
+        let ev = &tt.snapshot().queues[0];
+        assert_eq!(ev.queue, "owned_sem");
+        assert!(!ev.completed);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn mpsc_send_pending_then_drop_records_partial_queue() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        tx.send(1).await.unwrap();
+        let fut = started.handle.mpsc_send("chan", &tx, 2);
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let _ = rx.recv().await;
+        let ev = &tt.snapshot().queues[0];
+        assert_eq!(ev.queue, "chan");
+        assert!(!ev.completed);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn mutex_and_rwlock_pending_then_drop_record_partial_queues() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let mutex = tokio::sync::Mutex::new(());
+        let guard = mutex.lock().await;
+        let fut = started.handle.mutex_lock("mutex", &mutex);
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        drop(guard);
+
+        let rw = tokio::sync::RwLock::new(());
+        let write_guard = rw.write().await;
+        let fut = started.handle.rwlock_read("rw_read", &rw);
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        drop(write_guard);
+
+        let read_guard = rw.read().await;
+        let fut = started.handle.rwlock_write("rw_write", &rw);
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        drop(read_guard);
+
+        let run = tt.snapshot();
+        let labels: Vec<_> = run
+            .queues
+            .iter()
+            .map(|q| (q.queue.as_str(), q.completed))
+            .collect();
+        assert_eq!(
+            labels,
+            vec![("mutex", false), ("rw_read", false), ("rw_write", false)]
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn join_timeout_and_blocking_pending_then_drop_record_partial_stages() {
+        let tt = capture();
+        let started = tt.begin_request("/r");
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            let _ = rx.await;
+        });
+        let fut = started.handle.join_task("join", handle);
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let _ = tx.send(());
+
+        let fut = started.handle.timeout_stage(
+            "timeout",
+            std::time::Duration::from_secs(60),
+            std::future::pending::<()>(),
+        );
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+
+        let (entered_tx, entered_rx) = std_mpsc::channel();
+        let (release_tx, release_rx) = std_mpsc::channel();
+        let fut = started.handle.blocking_stage("blocking", move || {
+            let _ = entered_tx.send(());
+            let _ = release_rx.recv();
+        });
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        entered_rx.recv().unwrap();
+        drop(fut);
+        let _ = release_tx.send(());
+
+        let run = tt.snapshot();
+        let labels: Vec<_> = run
+            .stages
+            .iter()
+            .map(|s| (s.stage.as_str(), s.completed, s.success))
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                ("join", false, false),
+                ("timeout", false, false),
+                ("blocking", false, false)
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn owned_handle_stage_helper_pending_then_drop_records_partial_stage() {
+        let tt = Arc::new(capture());
+        let started = tt.begin_request_owned("/r");
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            let _ = rx.await;
+        });
+        let fut = started.handle.join_task("owned_join", handle);
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+        let _ = tx.send(());
+        let ev = &tt.snapshot().stages[0];
+        assert_eq!(ev.stage, "owned_join");
+        assert!(!ev.completed);
+        assert!(!ev.success);
     }
 }

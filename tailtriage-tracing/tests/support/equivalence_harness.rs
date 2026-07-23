@@ -145,6 +145,7 @@ fn deterministic_native_run() -> Run {
             waited_until_run_us: None,
             wait_us: queue_us,
             depth_at_start: Some(3),
+            completed: true,
         });
         run.stages.push(StageEvent {
             request_id: id.to_owned(),
@@ -155,6 +156,7 @@ fn deterministic_native_run() -> Run {
             finished_at_run_us: None,
             latency_us: db_us,
             success: true,
+            completed: true,
         });
         run.stages.push(StageEvent {
             request_id: id.to_owned(),
@@ -165,6 +167,7 @@ fn deterministic_native_run() -> Run {
             finished_at_run_us: None,
             latency_us: cache_us,
             success: true,
+            completed: true,
         });
     }
     run
