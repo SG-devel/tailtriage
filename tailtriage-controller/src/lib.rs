@@ -213,6 +213,15 @@ struct ActiveGenerationRuntime {
     finalize_started: AtomicBool,
     last_finalize_error: Mutex<Option<String>>,
     runtime_sampler: Mutex<Option<RuntimeSampler>>,
+    #[cfg(test)]
+    finalization_test_hooks: Mutex<FinalizationTestHooks>,
+}
+
+#[cfg(test)]
+#[derive(Default, Clone)]
+struct FinalizationTestHooks {
+    before_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    after_terminal_publication: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -221,6 +230,19 @@ enum GenerationFinalizationResult {
     Pending,
     Success,
     TerminalFailure(String),
+}
+
+#[cfg(test)]
+impl std::fmt::Debug for FinalizationTestHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FinalizationTestHooks")
+            .field("before_gate", &self.before_gate.is_some())
+            .field(
+                "after_terminal_publication",
+                &self.after_terminal_publication.is_some(),
+            )
+            .finish()
+    }
 }
 
 impl ActiveGenerationRuntime {
@@ -499,6 +521,8 @@ impl TailtriageController {
             finalize_started: AtomicBool::new(false),
             last_finalize_error: Mutex::new(None),
             runtime_sampler: Mutex::new(None),
+            #[cfg(test)]
+            finalization_test_hooks: Mutex::new(FinalizationTestHooks::default()),
         });
         if template.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit {
             let active = Arc::downgrade(&runtime);
@@ -784,6 +808,19 @@ impl TailtriageController {
         inner: &Arc<ControllerInner>,
         active: &Arc<ActiveGenerationRuntime>,
     ) -> Result<(), DisableError> {
+        #[cfg(test)]
+        {
+            let hook = active
+                .finalization_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .before_gate
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+
         let _finalization = active
             .finalization_gate
             .lock()
@@ -853,30 +890,65 @@ impl TailtriageController {
                 let error = DisableError::Finalize(source);
                 active.record_finalize_error(&error);
                 if !retryable {
-                    Self::set_generation_result(
+                    Self::publish_terminal_failure(
+                        inner,
                         active,
-                        GenerationFinalizationResult::TerminalFailure(canonical_message.clone()),
+                        next_generation,
+                        canonical_message,
                     );
-                    let mut lifecycle = inner
-                        .lifecycle
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if matches!(
-                        *lifecycle,
-                        ControllerLifecycle::Active {
-                            active: ref current_active,
-                            next_generation: ng,
-                        } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
-                    ) {
-                        *lifecycle = ControllerLifecycle::TerminalFailed {
-                            active: Arc::clone(active),
-                            next_generation,
-                            message: canonical_message,
-                        };
-                    }
                 }
                 Err(error)
             }
+        }
+    }
+
+    fn publish_terminal_failure(
+        inner: &Arc<ControllerInner>,
+        active: &Arc<ActiveGenerationRuntime>,
+        next_generation: u64,
+        canonical_message: String,
+    ) {
+        Self::set_generation_result(
+            active,
+            GenerationFinalizationResult::TerminalFailure(canonical_message.clone()),
+        );
+        let mut lifecycle = inner
+            .lifecycle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(
+            *lifecycle,
+            ControllerLifecycle::Active {
+                active: ref current_active,
+                next_generation: ng,
+            } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
+        ) {
+            *lifecycle = ControllerLifecycle::TerminalFailed {
+                active: Arc::clone(active),
+                next_generation,
+                message: canonical_message,
+            };
+        }
+        drop(lifecycle);
+        Self::run_after_terminal_publication_hook(active);
+    }
+
+    fn run_after_terminal_publication_hook(active: &Arc<ActiveGenerationRuntime>) {
+        #[cfg(test)]
+        {
+            let hook = active
+                .finalization_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .after_terminal_publication
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        #[cfg(not(test))]
+        {
+            let _ = active;
         }
     }
 
@@ -909,9 +981,10 @@ impl TailtriageController {
     }
 
     fn prior_finalize_error(message: &str) -> tailtriage_core::SinkError {
-        tailtriage_core::SinkError::Io(std::io::Error::other(format!(
-            "failed to finalize generation: {message}"
-        )))
+        let controller_display = format!("failed to finalize generation: {message}");
+        tailtriage_core::SinkError::Io(std::io::Error::other(ReplayedGenerationFinalization {
+            controller_display,
+        }))
     }
 
     fn stop_runtime_sampler(active: &Arc<ActiveGenerationRuntime>) {
@@ -1671,6 +1744,19 @@ impl std::fmt::Display for EnableError {
 
 impl std::error::Error for EnableError {}
 
+#[derive(Debug)]
+struct ReplayedGenerationFinalization {
+    controller_display: String,
+}
+
+impl std::fmt::Display for ReplayedGenerationFinalization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.controller_display)
+    }
+}
+
+impl std::error::Error for ReplayedGenerationFinalization {}
+
 /// Errors emitted while disarming and finalizing generation artifacts.
 #[derive(Debug)]
 pub enum DisableError {
@@ -1682,16 +1768,17 @@ impl std::fmt::Display for DisableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Finalize(tailtriage_core::SinkError::Io(err)) => {
-                let message = err.to_string();
-                if message.starts_with("failed to finalize generation: ") {
-                    f.write_str(&message)
-                } else {
-                    write!(
-                        f,
-                        "failed to finalize generation: {}",
-                        tailtriage_core::SinkError::Io(std::io::Error::other(message))
-                    )
+                if let Some(replay) = err
+                    .get_ref()
+                    .and_then(|source| source.downcast_ref::<ReplayedGenerationFinalization>())
+                {
+                    return f.write_str(&replay.controller_display);
                 }
+
+                write!(
+                    f,
+                    "failed to finalize generation: I/O error while writing run output: {err}"
+                )
             }
             Self::Finalize(err) => write!(f, "failed to finalize generation: {err}"),
         }
@@ -1761,7 +1848,8 @@ fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
     use std::time::Duration;
 
     use super::{
@@ -1771,7 +1859,8 @@ mod tests {
     };
     use serde::Serialize;
     use tailtriage_core::{
-        CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RuntimeSnapshot,
+        CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RunEndReason, RunSink,
+        RuntimeSnapshot, SinkError, Tailtriage,
     };
 
     #[derive(Serialize)]
@@ -1858,6 +1947,91 @@ mod tests {
             panic!("expected active generation");
         };
         Arc::clone(active)
+    }
+
+    fn test_controller_with_run(
+        base: &str,
+        run: Arc<Tailtriage>,
+    ) -> (TailtriageController, Arc<super::ActiveGenerationRuntime>) {
+        let artifact_path = test_output(base);
+        let activation_config = super::ControllerActivationTemplate {
+            sink_template: ControllerSinkTemplate::LocalJson {
+                output_path: artifact_path.clone(),
+            },
+            selected_mode: CaptureMode::Light,
+            capture_limits_override: CaptureLimitsOverride::default(),
+            strict_lifecycle: false,
+            runtime_sampler: RuntimeSamplerTemplate::default(),
+            run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
+        };
+        let runtime = Arc::new(super::ActiveGenerationRuntime {
+            state: super::ActiveGenerationState {
+                generation_id: 1,
+                started_at_unix_ms: run.snapshot().metadata.started_at_unix_ms,
+                artifact_path: artifact_path.clone(),
+                accepting_new_admissions: true,
+                closing: false,
+                inflight_captured_requests: 0,
+                finalization_in_progress: false,
+                last_finalize_error: None,
+                activation_config: activation_config.clone(),
+            },
+            artifact_path,
+            run,
+            admission_gate: Mutex::new(()),
+            finalization_gate: Mutex::new(()),
+            finalization_result: Mutex::default(),
+            accepting_new: std::sync::atomic::AtomicBool::new(true),
+            closing: std::sync::atomic::AtomicBool::new(false),
+            inflight_captured: AtomicU64::new(0),
+            finalize_started: std::sync::atomic::AtomicBool::new(false),
+            last_finalize_error: Mutex::new(None),
+            runtime_sampler: Mutex::new(None),
+            finalization_test_hooks: Mutex::new(super::FinalizationTestHooks::default()),
+        });
+        let inner = Arc::new(super::ControllerInner {
+            template: Mutex::new(super::TailtriageControllerTemplate {
+                service_name: "checkout-service".to_string(),
+                config_path: None,
+                sink_template: ControllerSinkTemplate::LocalJson {
+                    output_path: test_output(&format!("{base}-gen2")),
+                },
+                selected_mode: CaptureMode::Light,
+                capture_limits_override: CaptureLimitsOverride::default(),
+                strict_lifecycle: false,
+                runtime_sampler: RuntimeSamplerTemplate::default(),
+                run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
+            }),
+            lifecycle: Mutex::new(super::ControllerLifecycle::Active {
+                active: Arc::clone(&runtime),
+                next_generation: 2,
+            }),
+            inert_request_seq: AtomicU64::new(1),
+        });
+        (TailtriageController { inner }, runtime)
+    }
+
+    struct BlockingPrefixCollisionSink {
+        calls: Arc<AtomicU64>,
+        entered_tx: Mutex<Option<mpsc::Sender<()>>>,
+        release_rx: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl RunSink for BlockingPrefixCollisionSink {
+        fn write(&self, _run: &Run) -> Result<(), SinkError> {
+            self.calls.fetch_add(1, Ordering::AcqRel);
+            if let Some(tx) = self.entered_tx.lock().expect("entered lock").take() {
+                tx.send(()).expect("sink entry receiver should exist");
+            }
+            self.release_rx
+                .lock()
+                .expect("release lock")
+                .recv()
+                .expect("release signal should arrive");
+            Err(SinkError::Io(std::io::Error::other(
+                "failed to finalize generation: sentinel",
+            )))
+        }
     }
 
     fn test_config_path(base: &str) -> std::path::PathBuf {
@@ -2838,6 +3012,156 @@ mod tests {
             Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
         ));
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn disable_error_prefix_collision_formats_original_and_typed_replay_identically() {
+        const EXPECTED_DISABLE: &str = "failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
+
+        let original = super::DisableError::Finalize(SinkError::Io(std::io::Error::other(
+            "failed to finalize generation: sentinel",
+        )));
+        assert_eq!(original.to_string(), EXPECTED_DISABLE);
+
+        let replay = super::DisableError::Finalize(TailtriageController::prior_finalize_error(
+            "I/O error while writing run output: failed to finalize generation: sentinel",
+        ));
+        assert_eq!(replay.to_string(), EXPECTED_DISABLE);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn blocked_generation_waiter_replays_exact_failure_after_rollover() {
+        const EXPECTED_DISABLE: &str = "failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
+        const EXPECTED_SHUTDOWN: &str = "shutdown finalization failed: failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
+        const EXPECTED_RAW: &str =
+            "I/O error while writing run output: failed to finalize generation: sentinel";
+
+        let calls = Arc::new(AtomicU64::new(0));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let sink = BlockingPrefixCollisionSink {
+            calls: Arc::clone(&calls),
+            entered_tx: Mutex::new(Some(entered_tx)),
+            release_rx: Mutex::new(release_rx),
+        };
+        let run = Arc::new(
+            Tailtriage::builder("checkout-service")
+                .sink(sink)
+                .build()
+                .expect("run should build"),
+        );
+        let (controller, gen1_runtime) = test_controller_with_run("blocked-waiter-rollover", run);
+        let gate_attempts = Arc::new(AtomicU64::new(0));
+        let (b_gate_tx, b_gate_rx) = mpsc::channel();
+        let (published_tx, published_rx) = mpsc::channel();
+        let (return_tx, return_rx) = mpsc::channel();
+        {
+            let mut hooks = gen1_runtime
+                .finalization_test_hooks
+                .lock()
+                .expect("hooks lock");
+            hooks.before_gate = Some({
+                let gate_attempts = Arc::clone(&gate_attempts);
+                let b_gate_tx = Mutex::new(Some(b_gate_tx));
+                Arc::new(move || {
+                    let attempt = gate_attempts.fetch_add(1, Ordering::AcqRel) + 1;
+                    if attempt == 2 {
+                        if let Some(tx) = b_gate_tx.lock().expect("b gate lock").take() {
+                            tx.send(()).expect("b gate receiver should exist");
+                        }
+                    }
+                })
+            });
+            hooks.after_terminal_publication = Some({
+                let published_tx = Mutex::new(Some(published_tx));
+                let return_rx = Mutex::new(return_rx);
+                Arc::new(move || {
+                    if let Some(tx) = published_tx.lock().expect("published lock").take() {
+                        tx.send(()).expect("published receiver should exist");
+                    }
+                    return_rx
+                        .lock()
+                        .expect("return lock")
+                        .recv()
+                        .expect("return release should arrive");
+                })
+            });
+        }
+
+        TailtriageController::close_generation_admissions(
+            &gen1_runtime,
+            RunEndReason::ManualDisarm,
+        );
+        let controller_a = controller.clone();
+        let gen1_a = Arc::clone(&gen1_runtime);
+        let finalizer_a =
+            std::thread::spawn(move || controller_a.force_finalize_generation(&gen1_a));
+        entered_rx.recv().expect("sink should be entered");
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+
+        let controller_b = controller.clone();
+        let gen1_b = Arc::clone(&gen1_runtime);
+        let finalizer_b =
+            std::thread::spawn(move || controller_b.force_finalize_generation(&gen1_b));
+        b_gate_rx
+            .recv()
+            .expect("waiter should reach generation-1 finalization gate");
+
+        release_tx.send(()).expect("sink should release");
+        published_rx
+            .recv()
+            .expect("terminal result should be published while gate is held");
+
+        let disable_replay = controller
+            .disable()
+            .expect_err("terminal failure should replay through disable");
+        assert_eq!(disable_replay.to_string(), EXPECTED_DISABLE);
+        let shutdown_replay = controller
+            .shutdown()
+            .expect_err("terminal failure should replay through shutdown");
+        assert_eq!(shutdown_replay.to_string(), EXPECTED_SHUTDOWN);
+
+        let gen2 = controller
+            .enable()
+            .expect("terminal failure should allow generation 2");
+        assert_eq!(gen2.generation_id, 2);
+        let GenerationState::Active(gen2_status) = controller.status().generation else {
+            panic!("generation 2 should be active");
+        };
+        assert_eq!(gen2_status.generation_id, 2);
+        assert_eq!(gen2_status.last_finalize_error, None);
+        assert!(gen2_status.accepting_new_admissions);
+        assert!(!gen2_status.closing);
+
+        return_tx.send(()).expect("owner should return");
+        let a_result = finalizer_a.join().expect("finalizer A should join");
+        let b_result = finalizer_b.join().expect("finalizer B should join");
+        let a_error = a_result.expect_err("A should observe terminal failure");
+        let b_error = b_result.expect_err("B should observe terminal failure");
+        assert_eq!(a_error.to_string(), EXPECTED_DISABLE);
+        assert_eq!(b_error.to_string(), EXPECTED_DISABLE);
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        assert!(matches!(
+            *gen1_runtime
+                .finalization_result
+                .lock()
+                .expect("generation result lock"),
+            super::GenerationFinalizationResult::TerminalFailure(ref message) if message == EXPECTED_RAW
+        ));
+        assert!(!gen1_runtime.finalize_started.load(Ordering::Acquire));
+
+        let gen2_req = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-generation-2-rollover"),
+        );
+        gen2_req.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 2 })
+        ));
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        fs::remove_file(gen2.artifact_path).expect("cleanup gen2 artifact should succeed");
     }
 
     #[test]
