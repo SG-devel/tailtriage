@@ -1,7 +1,7 @@
 use serde::Serialize;
 use tailtriage_core::Run;
 
-use super::AnalyzeOptions;
+use super::{partial_evidence::PartialEvidenceProfile, AnalyzeOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -72,11 +72,21 @@ pub struct EvidenceQuality {
 
 pub(super) fn evidence_quality(run: &Run, options: &AnalyzeOptions) -> EvidenceQuality {
     let requests = request_status(run, options);
-    let queues = family_status(run.queues.is_empty(), run.truncation.dropped_queues);
-    let stages = family_status(run.stages.is_empty(), run.truncation.dropped_stages);
+    let profile = PartialEvidenceProfile::from_run(run);
+    let queues = family_status(
+        profile.queues.total(),
+        profile.queues.partial,
+        run.truncation.dropped_queues,
+    );
+    let stages = family_status(
+        profile.stages.total(),
+        profile.stages.partial,
+        run.truncation.dropped_stages,
+    );
     let runtime_snapshots = runtime_status(run);
     let inflight_snapshots = family_status(
-        run.inflight.is_empty(),
+        run.inflight.len(),
+        0,
         run.truncation.dropped_inflight_snapshots,
     );
     let limitations = evidence_limitations(run, queues, stages, runtime_snapshots, options);
@@ -95,6 +105,7 @@ pub(super) fn evidence_quality(run: &Run, options: &AnalyzeOptions) -> EvidenceQ
     } else if non_request_truncated
         || (run.queues.is_empty() && run.stages.is_empty())
         || runtime_snapshots == SignalCoverageStatus::Partial
+        || profile.has_partial()
     {
         EvidenceQualityLevel::Partial
     } else {
@@ -135,11 +146,13 @@ fn request_status(run: &Run, options: &AnalyzeOptions) -> SignalCoverageStatus {
     }
 }
 
-fn family_status(is_empty: bool, dropped: u64) -> SignalCoverageStatus {
+fn family_status(total: usize, partial: usize, dropped: u64) -> SignalCoverageStatus {
     if dropped > 0 {
         SignalCoverageStatus::Truncated
-    } else if is_empty {
+    } else if total == 0 {
         SignalCoverageStatus::Missing
+    } else if partial > 0 {
+        SignalCoverageStatus::Partial
     } else {
         SignalCoverageStatus::Present
     }
@@ -176,7 +189,11 @@ fn evidence_limitations(
     runtime_snapshots: SignalCoverageStatus,
     options: &AnalyzeOptions,
 ) -> Vec<String> {
+    let profile = PartialEvidenceProfile::from_run(run);
     let mut limitations = Vec::new();
+    if let Some(limitation) = profile.limitation() {
+        limitations.push(limitation);
+    }
     if run.requests.len() < options.evidence.low_completed_request_threshold {
         limitations
             .push("Low completed-request count can make suspect ranking unstable.".to_string());
@@ -201,7 +218,19 @@ fn evidence_limitations(
                 .to_string(),
         );
     }
-    limitations
+    let first = limitations.first().cloned();
+    let mut rest = limitations
+        .into_iter()
+        .skip(usize::from(first.is_some()))
+        .collect::<Vec<_>>();
+    rest.sort();
+    rest.dedup();
+    let mut out = Vec::new();
+    if let Some(first) = first {
+        out.push(first);
+    }
+    out.extend(rest);
+    out
 }
 
 pub(super) fn truncation_warnings(run: &Run) -> Vec<String> {

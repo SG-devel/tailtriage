@@ -1,11 +1,35 @@
 use tailtriage_core::Run;
 
 use super::{
-    AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel, Suspect,
+    partial_evidence::{
+        EvidenceBasis, ScoredSuspect, PARTIAL_QUEUE_CONFIDENCE_NOTE, PARTIAL_STAGE_CONFIDENCE_NOTE,
+    },
+    AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
 };
 
+#[allow(dead_code)]
 pub(super) fn apply_evidence_aware_confidence_caps(
-    suspects: &mut [Suspect],
+    suspects: &mut [crate::Suspect],
+    run: &Run,
+    evidence_quality: &EvidenceQuality,
+    options: &AnalyzeOptions,
+) {
+    let mut scored = suspects
+        .iter()
+        .cloned()
+        .map(|suspect| ScoredSuspect {
+            suspect,
+            basis: EvidenceBasis::Completed,
+        })
+        .collect::<Vec<_>>();
+    apply_evidence_aware_confidence_caps_scored(&mut scored, run, evidence_quality, options);
+    for (target, source) in suspects.iter_mut().zip(scored) {
+        *target = source.suspect;
+    }
+}
+
+pub(super) fn apply_evidence_aware_confidence_caps_scored(
+    suspects: &mut [ScoredSuspect],
     run: &Run,
     evidence_quality: &EvidenceQuality,
     options: &AnalyzeOptions,
@@ -25,7 +49,8 @@ pub(super) fn apply_evidence_aware_confidence_caps(
                 .iter()
                 .all(|snapshot| snapshot.global_queue_depth.is_none()));
     let ambiguous_cluster = ambiguity_cluster_indices(suspects, options);
-    for (i, suspect) in suspects.iter_mut().enumerate() {
+    for (i, scored) in suspects.iter_mut().enumerate() {
+        let suspect = &mut scored.suspect;
         let mut cap = Confidence::High;
         let mut notes = Vec::new();
         let is_primary = i == 0;
@@ -53,6 +78,7 @@ pub(super) fn apply_evidence_aware_confidence_caps(
         }
         apply_family_evidence_caps(
             &suspect.kind,
+            scored.basis,
             run,
             runtime_snapshots_missing,
             runtime_partial_key_fields,
@@ -69,9 +95,9 @@ pub(super) fn apply_evidence_aware_confidence_caps(
         let original = suspect.confidence;
         suspect.confidence = original.min(cap);
         let cap_changed_bucket = suspect.confidence != original;
-        if cap_changed_bucket || ambiguity_capped {
-            notes.sort();
-            notes.dedup();
+        notes.sort();
+        notes.dedup();
+        if cap_changed_bucket || ambiguity_capped || !notes.is_empty() {
             suspect.confidence_notes = notes;
         } else {
             suspect.confidence_notes.clear();
@@ -81,6 +107,7 @@ pub(super) fn apply_evidence_aware_confidence_caps(
 
 fn apply_family_evidence_caps(
     kind: &DiagnosisKind,
+    basis: EvidenceBasis,
     run: &Run,
     runtime_snapshots_missing: bool,
     runtime_partial_key_fields: bool,
@@ -89,6 +116,10 @@ fn apply_family_evidence_caps(
 ) {
     match kind {
         DiagnosisKind::ApplicationQueueSaturation => {
+            if basis == EvidenceBasis::ObservedLowerBound {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string());
+            }
             if run.truncation.dropped_queues > 0 {
                 *cap = (*cap).min(Confidence::Medium);
                 notes.push(
@@ -104,6 +135,10 @@ fn apply_family_evidence_caps(
             }
         }
         DiagnosisKind::DownstreamStageDominates => {
+            if basis == EvidenceBasis::ObservedLowerBound {
+                *cap = (*cap).min(Confidence::Medium);
+                notes.push(PARTIAL_STAGE_CONFIDENCE_NOTE.to_string());
+            }
             if run.truncation.dropped_stages > 0 {
                 *cap = (*cap).min(Confidence::Medium);
                 notes.push(
@@ -142,24 +177,25 @@ fn apply_family_evidence_caps(
     }
 }
 
-fn ambiguity_cluster_indices(suspects: &[Suspect], options: &AnalyzeOptions) -> Vec<usize> {
+fn ambiguity_cluster_indices(suspects: &[ScoredSuspect], options: &AnalyzeOptions) -> Vec<usize> {
     let mut ranked = suspects
         .iter()
         .enumerate()
-        .filter(|(_, s)| s.kind != DiagnosisKind::InsufficientEvidence)
+        .filter(|(_, s)| s.suspect.kind != DiagnosisKind::InsufficientEvidence)
         .collect::<Vec<_>>();
-    ranked.sort_by_key(|(_, s)| std::cmp::Reverse(s.score));
+    ranked.sort_by_key(|(_, s)| std::cmp::Reverse(s.suspect.score));
     let Some((_, top)) = ranked.first() else {
         return Vec::new();
     };
-    if top.score < options.confidence.ambiguity_min_score {
+    if top.suspect.score < options.confidence.ambiguity_min_score {
         return Vec::new();
     }
     let cluster = ranked
         .iter()
         .take_while(|(_, s)| {
-            s.score >= options.confidence.ambiguity_min_score
-                && top.score.abs_diff(s.score) <= options.confidence.ambiguity_score_gap
+            s.suspect.score >= options.confidence.ambiguity_min_score
+                && top.suspect.score.abs_diff(s.suspect.score)
+                    <= options.confidence.ambiguity_score_gap
         })
         .map(|(idx, _)| *idx)
         .collect::<Vec<_>>();

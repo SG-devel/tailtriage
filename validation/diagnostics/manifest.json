@@ -1294,6 +1294,191 @@
       "top1_required": true,
       "notes": "Raw run fixture with truncation validates warning propagation and conservative confidence.",
       "max_primary_confidence": "medium"
+    },
+    {
+      "id": "partial-evidence-completed-only",
+      "artifact": "corpus/partial-evidence-completed-only.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "partial-evidence"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_confidence_notes": [],
+      "expected_top_level_warnings": [],
+      "top1_required": false,
+      "allowed_warnings": [
+        "Top suspects are close in score"
+      ],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "expected_evidence_quality": "strong",
+      "expected_signal_statuses": {},
+      "must_include_next_checks": [],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_warnings": []
+    },
+    {
+      "id": "partial-evidence-mixed",
+      "artifact": "corpus/partial-evidence-mixed.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "partial-evidence"
+      ],
+      "must_include_evidence": [
+        "Observed"
+      ],
+      "must_include_confidence_notes": [
+        "Partial"
+      ],
+      "expected_top_level_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [
+        "Top suspects are close in score"
+      ],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "expected_evidence_quality": "partial",
+      "expected_signal_statuses": {
+        "stages": "partial"
+      },
+      "max_primary_confidence": "medium",
+      "must_include_next_checks": [],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ]
+    },
+    {
+      "id": "partial-evidence-queue-only",
+      "artifact": "corpus/partial-evidence-queue-only.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "application_queue_saturation",
+      "tags": [
+        "partial-evidence"
+      ],
+      "must_include_evidence": [
+        "Observed"
+      ],
+      "must_include_confidence_notes": [
+        "Partial"
+      ],
+      "expected_top_level_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "application_queue_saturation"
+      ],
+      "acceptable_primary": [
+        "application_queue_saturation",
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "expected_evidence_quality": "partial",
+      "expected_signal_statuses": {
+        "queues": "partial"
+      },
+      "max_primary_confidence": "medium",
+      "must_include_next_checks": [],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ]
+    },
+    {
+      "id": "partial-evidence-stage-only",
+      "artifact": "corpus/partial-evidence-stage-only.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "partial-evidence"
+      ],
+      "must_include_evidence": [
+        "Observed"
+      ],
+      "must_include_confidence_notes": [
+        "Partial"
+      ],
+      "expected_top_level_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "expected_evidence_quality": "partial",
+      "expected_signal_statuses": {
+        "stages": "partial"
+      },
+      "max_primary_confidence": "medium",
+      "must_include_next_checks": [],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ]
+    },
+    {
+      "id": "cancelled-request-with-partial-child",
+      "artifact": "corpus/cancelled-request-with-partial-child.json",
+      "artifact_type": "run_artifact",
+      "ground_truth": "downstream_stage_dominates",
+      "tags": [
+        "partial-evidence"
+      ],
+      "must_include_evidence": [
+        "Observed"
+      ],
+      "must_include_confidence_notes": [
+        "Partial"
+      ],
+      "expected_top_level_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "top1_required": false,
+      "allowed_warnings": [],
+      "required_top2": [
+        "downstream_stage_dominates"
+      ],
+      "acceptable_primary": [
+        "downstream_stage_dominates",
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "expected_evidence_quality": "partial",
+      "expected_signal_statuses": {
+        "stages": "partial"
+      },
+      "max_primary_confidence": "medium",
+      "must_include_next_checks": [],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ]
     }
   ]
 }
