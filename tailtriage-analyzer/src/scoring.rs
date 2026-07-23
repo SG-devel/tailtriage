@@ -146,6 +146,24 @@ fn queue_candidate(
     })
 }
 
+#[cfg(test)]
+pub(super) fn queue_candidate_for_test(
+    run: &Run,
+    queue_shares: &[u64],
+    completed_only: bool,
+    completed_queue_p95_permille: Option<u64>,
+    options: &AnalyzeOptions,
+) -> Option<ScoredSuspect> {
+    queue_candidate(
+        run,
+        queue_shares,
+        completed_only,
+        completed_queue_p95_permille,
+        None,
+        options,
+    )
+}
+
 #[derive(Clone, Copy)]
 struct BlockingSignal {
     p95: u64,
@@ -313,6 +331,33 @@ fn downstream_stage_candidates(
         });
     }
     cands
+}
+
+#[cfg(test)]
+pub(super) type StageCandidateProjectionForTest =
+    (EvidenceBasis, String, usize, u64, u64, u64, u64, u8);
+
+#[cfg(test)]
+pub(super) fn downstream_stage_candidates_for_test(
+    run: &Run,
+    p95_req: u64,
+    options: &AnalyzeOptions,
+) -> Vec<StageCandidateProjectionForTest> {
+    downstream_stage_candidates(run, p95_req, options)
+        .into_iter()
+        .map(|c| {
+            (
+                c.basis,
+                c.stage,
+                c.samples,
+                c.p95,
+                c.cumulative,
+                c.cum_share,
+                c.tail_share,
+                c.score,
+            )
+        })
+        .collect()
 }
 
 pub(super) fn downstream_stage_suspect(

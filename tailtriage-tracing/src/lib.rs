@@ -3113,6 +3113,57 @@ mod tests {
     }
 
     #[test]
+    fn tracing_import_remains_completed_only_under_partial_aware_analysis() {
+        let imported = run_from_span_records(
+            vec![
+                req("r1", 10, 1_010),
+                stage("r1", "db", 110, 710),
+                queue("r1", "worker", 10, 110),
+            ],
+            opts(),
+        )
+        .expect("tracing import succeeds");
+        let run = imported.run();
+
+        assert_eq!(run.requests.len(), 1);
+        assert!(!run.queues.is_empty());
+        assert!(!run.stages.is_empty());
+        assert!(run.queues.iter().all(|queue| queue.completed));
+        assert!(run.stages.iter().all(|stage| stage.completed));
+        assert!(run.stages.iter().all(|stage| stage.success));
+        assert!(run
+            .queues
+            .iter()
+            .all(|queue| queue.depth_at_start.is_none()));
+        assert!(imported
+            .warnings()
+            .iter()
+            .all(|warning| !warning.message().contains("tt.completed")));
+
+        let report =
+            tailtriage_analyzer::analyze_run(run, tailtriage_analyzer::AnalyzeOptions::default());
+        assert_eq!(
+            report.evidence_quality.queues,
+            tailtriage_analyzer::SignalCoverageStatus::Present
+        );
+        assert_eq!(
+            report.evidence_quality.stages,
+            tailtriage_analyzer::SignalCoverageStatus::Present
+        );
+        assert!(report
+            .warnings
+            .iter()
+            .all(|warning| !warning.contains("Partial queue/stage observations are lower bounds")));
+        assert!(std::iter::once(&report.primary_suspect)
+            .chain(report.secondary_suspects.iter())
+            .all(|suspect| suspect
+                .confidence_notes
+                .iter()
+                .all(|note| !note.contains("Partial queue evidence")
+                    && !note.contains("Partial stage evidence"))));
+    }
+
+    #[test]
     fn tracing_import_uses_min_start_and_max_finish_as_run_bounds() {
         let spans = vec![SpanRecord::new("req", 10, 20)
             .field(TT_KIND, "request")
