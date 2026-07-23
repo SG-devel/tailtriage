@@ -3344,32 +3344,136 @@ mod prompt09_partial_events {
         }
     }
 
+    fn assert_one_partial_stage(run: &Run, expected_request_id: &str, expected_stage: &str) {
+        let events: Vec<_> = run
+            .stages
+            .iter()
+            .filter(|event| {
+                event.request_id == expected_request_id && event.stage == expected_stage
+            })
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id, expected_request_id);
+        assert_eq!(events[0].stage, expected_stage);
+        assert!(!events[0].completed);
+        assert!(!events[0].success);
+    }
+
+    fn assert_one_partial_queue(
+        run: &Run,
+        expected_request_id: &str,
+        expected_queue: &str,
+        expected_depth: u64,
+    ) {
+        let events: Vec<_> = run
+            .queues
+            .iter()
+            .filter(|event| {
+                event.request_id == expected_request_id && event.queue == expected_queue
+            })
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id, expected_request_id);
+        assert_eq!(events[0].queue, expected_queue);
+        assert!(!events[0].completed);
+        assert_eq!(events[0].depth_at_start, Some(expected_depth));
+    }
+
     #[test]
     fn partial_stage_and_queue_are_preserved_through_owned_and_borrowed_handles() {
         let tt = Arc::new(capture());
-        let borrowed = tt.begin_request_with("/r", RequestOptions::new().request_id("borrowed"));
-        let fut = borrowed
+
+        let borrowed_stage = tt.begin_request_with(
+            "/r",
+            RequestOptions::new().request_id("borrowed-stage-request"),
+        );
+        let fut = borrowed_stage
             .handle
-            .stage("stage")
+            .stage("borrowed-stage")
             .await_value(poll_fn(|_| Poll::<()>::Pending));
         let mut fut = Box::pin(fut);
         assert!(poll_once(&mut fut).is_pending());
         drop(fut);
-        let owned = tt.begin_request_with_owned("/r", RequestOptions::new().request_id("owned"));
-        let fut = owned
+
+        let borrowed_queue = tt.begin_request_with(
+            "/r",
+            RequestOptions::new().request_id("borrowed-queue-request"),
+        );
+        let fut = borrowed_queue
             .handle
-            .queue("queue")
+            .queue("borrowed-queue")
             .with_depth_at_start(4)
             .await_on(poll_fn(|_| Poll::<()>::Pending));
         let mut fut = Box::pin(fut);
         assert!(poll_once(&mut fut).is_pending());
         drop(fut);
+
+        let owned_stage = tt.begin_request_with_owned(
+            "/r",
+            RequestOptions::new().request_id("owned-stage-request"),
+        );
+        let fut = owned_stage
+            .handle
+            .stage("owned-stage")
+            .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+
+        let owned_queue = tt.begin_request_with_owned(
+            "/r",
+            RequestOptions::new().request_id("owned-queue-request"),
+        );
+        let fut = owned_queue
+            .handle
+            .queue("owned-queue")
+            .with_depth_at_start(9)
+            .await_on(poll_fn(|_| Poll::<()>::Pending));
+        let mut fut = Box::pin(fut);
+        assert!(poll_once(&mut fut).is_pending());
+        drop(fut);
+
         let run = tt.snapshot();
-        assert_eq!(run.stages[0].request_id, "borrowed");
-        assert!(!run.stages[0].completed);
-        assert_eq!(run.queues[0].request_id, "owned");
-        assert_eq!(run.queues[0].depth_at_start, Some(4));
-        assert!(!run.queues[0].completed);
+        assert_eq!(
+            run.stages
+                .iter()
+                .filter(|event| !event.completed
+                    && matches!(
+                        (event.request_id.as_str(), event.stage.as_str()),
+                        ("borrowed-stage-request", "borrowed-stage")
+                            | ("owned-stage-request", "owned-stage")
+                    ))
+                .count(),
+            2
+        );
+        assert_eq!(
+            run.queues
+                .iter()
+                .filter(|event| !event.completed
+                    && matches!(
+                        (event.request_id.as_str(), event.queue.as_str()),
+                        ("borrowed-queue-request", "borrowed-queue")
+                            | ("owned-queue-request", "owned-queue")
+                    ))
+                .count(),
+            2
+        );
+        assert!(!run.stages.iter().any(|event| event.completed
+            && matches!(
+                (event.request_id.as_str(), event.stage.as_str()),
+                ("borrowed-stage-request", "borrowed-stage")
+                    | ("owned-stage-request", "owned-stage")
+            )));
+        assert!(!run.queues.iter().any(|event| event.completed
+            && matches!(
+                (event.request_id.as_str(), event.queue.as_str()),
+                ("borrowed-queue-request", "borrowed-queue")
+                    | ("owned-queue-request", "owned-queue")
+            )));
+        assert_one_partial_stage(&run, "borrowed-stage-request", "borrowed-stage");
+        assert_one_partial_queue(&run, "borrowed-queue-request", "borrowed-queue", 4);
+        assert_one_partial_stage(&run, "owned-stage-request", "owned-stage");
+        assert_one_partial_queue(&run, "owned-queue-request", "owned-queue", 9);
     }
 
     #[test]
@@ -3393,7 +3497,7 @@ mod prompt09_partial_events {
     }
 
     #[test]
-    fn stage_and_queue_late_drop_after_finalization_does_not_mutate_finalized_run() {
+    fn armed_stage_and_queue_drop_after_finalization_leave_persisted_run_unchanged() {
         let sink = MemorySink::default();
         let tt = Tailtriage::builder("prompt09")
             .sink(sink.clone())
@@ -3404,12 +3508,33 @@ mod prompt09_partial_events {
             .handle
             .stage("db")
             .await_value(poll_fn(|_| Poll::<()>::Pending));
+        let queue = started
+            .handle
+            .queue("permit")
+            .with_depth_at_start(13)
+            .await_on(poll_fn(|_| Poll::<()>::Pending));
         let mut stage = Box::pin(stage);
+        let mut queue = Box::pin(queue);
         assert!(poll_once(&mut stage).is_pending());
+        assert!(poll_once(&mut queue).is_pending());
+
         tt.shutdown().unwrap();
         let before = sink.last_run().unwrap();
+        let before_stages = before.stages.clone();
+        let before_queues = before.queues.clone();
+        let before_truncation = before.truncation.clone();
+        let before_metadata = before.metadata.clone();
+
         drop(stage);
+        drop(queue);
+
         let after = sink.last_run().unwrap();
         assert_eq!(before, after);
+        assert_eq!(before_stages, after.stages);
+        assert_eq!(before_queues, after.queues);
+        assert_eq!(before_truncation, after.truncation);
+        assert_eq!(before_metadata, after.metadata);
+        assert!(after.stages.is_empty());
+        assert!(after.queues.is_empty());
     }
 }

@@ -1575,6 +1575,7 @@ mod helper_tests {
 
 #[cfg(test)]
 mod prompt09_tokio_partial_tests {
+    const ONE_MINUTE_SECS: u64 = 60;
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::{mpsc as std_mpsc, Arc};
@@ -1704,7 +1705,7 @@ mod prompt09_tokio_partial_tests {
 
         let fut = started.handle.timeout_stage(
             "timeout",
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(ONE_MINUTE_SECS),
             std::future::pending::<()>(),
         );
         let mut fut = Box::pin(fut);
