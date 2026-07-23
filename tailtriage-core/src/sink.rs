@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Run;
 
-/// A sink that persists the final run artifact produced at shutdown.
+/// A sink that persists the final run artifact produced by the single-shot
+/// shutdown finalization attempt.
 ///
 /// Implement this trait to plug in custom persistence backends.
 ///

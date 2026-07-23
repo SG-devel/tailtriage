@@ -204,12 +204,45 @@ struct ActiveGenerationRuntime {
     state: ActiveGenerationState,
     artifact_path: PathBuf,
     run: Arc<Tailtriage>,
+    admission_gate: Mutex<()>,
+    finalization_gate: Mutex<()>,
+    finalization_result: Mutex<GenerationFinalizationResult>,
     accepting_new: AtomicBool,
     closing: AtomicBool,
     inflight_captured: AtomicU64,
     finalize_started: AtomicBool,
     last_finalize_error: Mutex<Option<String>>,
     runtime_sampler: Mutex<Option<RuntimeSampler>>,
+    #[cfg(test)]
+    finalization_test_hooks: Mutex<FinalizationTestHooks>,
+}
+
+#[cfg(test)]
+#[derive(Default, Clone)]
+struct FinalizationTestHooks {
+    before_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    after_terminal_publication: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+enum GenerationFinalizationResult {
+    #[default]
+    Pending,
+    Success,
+    TerminalFailure(String),
+}
+
+#[cfg(test)]
+impl std::fmt::Debug for FinalizationTestHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FinalizationTestHooks")
+            .field("before_gate", &self.before_gate.is_some())
+            .field(
+                "after_terminal_publication",
+                &self.after_terminal_publication.is_some(),
+            )
+            .finish()
+    }
 }
 
 impl ActiveGenerationRuntime {
@@ -431,7 +464,10 @@ impl TailtriageController {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let next_generation = match *lifecycle {
-            ControllerLifecycle::Disabled { next_generation } => next_generation,
+            ControllerLifecycle::Disabled { next_generation }
+            | ControllerLifecycle::TerminalFailed {
+                next_generation, ..
+            } => next_generation,
             ControllerLifecycle::Active { ref active, .. } => {
                 return Err(EnableError::AlreadyActive {
                     generation_id: active.state.generation_id,
@@ -476,12 +512,17 @@ impl TailtriageController {
             },
             artifact_path,
             run: Arc::clone(&run),
+            admission_gate: Mutex::new(()),
+            finalization_gate: Mutex::new(()),
+            finalization_result: Mutex::default(),
             accepting_new: AtomicBool::new(true),
             closing: AtomicBool::new(false),
             inflight_captured: AtomicU64::new(0),
             finalize_started: AtomicBool::new(false),
             last_finalize_error: Mutex::new(None),
             runtime_sampler: Mutex::new(None),
+            #[cfg(test)]
+            finalization_test_hooks: Mutex::new(FinalizationTestHooks::default()),
         });
         if template.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit {
             let active = Arc::downgrade(&runtime);
@@ -492,28 +533,7 @@ impl TailtriageController {
             runtime.run.set_limits_hit_listener(Some(listener));
         }
 
-        if template.runtime_sampler.enabled_for_armed_runs {
-            let _ = tokio::runtime::Handle::try_current()
-                .map_err(|_| EnableError::MissingTokioRuntimeForSampler)?;
-            let mut sampler_builder = RuntimeSampler::builder(Arc::clone(&run));
-            if let Some(mode_override) = template.runtime_sampler.mode_override {
-                sampler_builder = sampler_builder.mode(mode_override);
-            }
-            if let Some(interval_ms) = template.runtime_sampler.interval_ms {
-                sampler_builder = sampler_builder.interval(Duration::from_millis(interval_ms));
-            }
-            if let Some(max_runtime_snapshots) = template.runtime_sampler.max_runtime_snapshots {
-                sampler_builder = sampler_builder.max_runtime_snapshots(max_runtime_snapshots);
-            }
-            let runtime_sampler = sampler_builder
-                .start()
-                .map_err(EnableError::StartRuntimeSampler)?;
-            let mut sampler_slot = runtime
-                .runtime_sampler
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *sampler_slot = Some(runtime_sampler);
-        }
+        Self::start_runtime_sampler_if_enabled(&template, &runtime, &run)?;
 
         *lifecycle = ControllerLifecycle::Active {
             active: Arc::clone(&runtime),
@@ -521,6 +541,38 @@ impl TailtriageController {
         };
 
         Ok(runtime.snapshot())
+    }
+
+    fn start_runtime_sampler_if_enabled(
+        template: &TailtriageControllerTemplate,
+        runtime: &Arc<ActiveGenerationRuntime>,
+        run: &Arc<Tailtriage>,
+    ) -> Result<(), EnableError> {
+        if !template.runtime_sampler.enabled_for_armed_runs {
+            return Ok(());
+        }
+
+        let _ = tokio::runtime::Handle::try_current()
+            .map_err(|_| EnableError::MissingTokioRuntimeForSampler)?;
+        let mut sampler_builder = RuntimeSampler::builder(Arc::clone(run));
+        if let Some(mode_override) = template.runtime_sampler.mode_override {
+            sampler_builder = sampler_builder.mode(mode_override);
+        }
+        if let Some(interval_ms) = template.runtime_sampler.interval_ms {
+            sampler_builder = sampler_builder.interval(Duration::from_millis(interval_ms));
+        }
+        if let Some(max_runtime_snapshots) = template.runtime_sampler.max_runtime_snapshots {
+            sampler_builder = sampler_builder.max_runtime_snapshots(max_runtime_snapshots);
+        }
+        let runtime_sampler = sampler_builder
+            .start()
+            .map_err(EnableError::StartRuntimeSampler)?;
+        let mut sampler_slot = runtime
+            .runtime_sampler
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *sampler_slot = Some(runtime_sampler);
+        Ok(())
     }
 
     /// Disarms capture for the active generation.
@@ -534,46 +586,34 @@ impl TailtriageController {
     /// Returns [`DisableError::Finalize`] when final artifact writing fails.
     ///
     pub fn disable(&self) -> Result<DisableOutcome, DisableError> {
-        let (active, next_generation, generation_id) = {
+        let active = {
             let lifecycle = self
                 .inner
                 .lifecycle
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            let ControllerLifecycle::Active {
-                ref active,
-                next_generation,
-            } = *lifecycle
-            else {
+            let ControllerLifecycle::Active { ref active, .. } = *lifecycle else {
+                if let ControllerLifecycle::TerminalFailed { ref message, .. } = *lifecycle {
+                    return Err(DisableError::Finalize(Self::prior_finalize_error(message)));
+                }
                 return Ok(DisableOutcome::AlreadyDisabled);
             };
 
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::ManualDisarm);
-            active.accepting_new.store(false, Ordering::Relaxed);
-            active.closing.store(true, Ordering::Relaxed);
-
-            if active.inflight_captured.load(Ordering::Relaxed) == 0 {
-                (
-                    Some(Arc::clone(active)),
-                    Some(next_generation),
-                    active.state.generation_id,
-                )
-            } else {
-                return Ok(DisableOutcome::Closing {
-                    generation_id: active.state.generation_id,
-                    inflight_captured_requests: active.inflight_captured.load(Ordering::Relaxed),
-                });
-            }
+            Arc::clone(active)
         };
 
-        if let (Some(active), Some(next_generation)) = (active, next_generation) {
-            Self::finalize_active(&self.inner, &active, next_generation)?;
+        let inflight = Self::close_generation_admissions(&active, RunEndReason::ManualDisarm);
+        let generation_id = active.state.generation_id;
+        if inflight == 0 {
+            Self::finalize_active(&self.inner, &active)?;
+            Ok(DisableOutcome::Finalized { generation_id })
+        } else {
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: inflight,
+            })
         }
-
-        Ok(DisableOutcome::Finalized { generation_id })
     }
 
     /// Begins one request through the controller.
@@ -631,6 +671,7 @@ impl TailtriageController {
         route: impl Into<String>,
         options: RequestOptions,
     ) -> Option<ControllerStartedRequest> {
+        let route = route.into();
         let active = {
             let lifecycle = self
                 .inner
@@ -640,9 +681,15 @@ impl TailtriageController {
 
             match *lifecycle {
                 ControllerLifecycle::Active { ref active, .. } => Arc::clone(active),
-                ControllerLifecycle::Disabled { .. } => return None,
+                ControllerLifecycle::Disabled { .. }
+                | ControllerLifecycle::TerminalFailed { .. } => return None,
             }
         };
+
+        let _admission = active
+            .admission_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if !active.accepting_new.load(Ordering::Acquire) {
             return None;
@@ -651,28 +698,16 @@ impl TailtriageController {
         if active.state.activation_config.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit
             && active.run.snapshot().truncation.limits_hit
         {
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-            active.accepting_new.store(false, Ordering::Release);
-            active.closing.store(true, Ordering::Release);
-            if active.inflight_captured.load(Ordering::Acquire) == 0 {
-                let _ = self.force_finalize_generation(&active);
-            }
+            Self::close_generation_admissions_locked(&active, RunEndReason::AutoSealOnLimitsHit);
             return None;
         }
 
-        active.inflight_captured.fetch_add(1, Ordering::AcqRel);
-        if !active.accepting_new.load(Ordering::Acquire) {
-            active.inflight_captured.fetch_sub(1, Ordering::AcqRel);
-            return None;
-        }
-
-        // Admission is now committed to this concrete generation runtime.
-        // The completion token keeps a weak reference to this runtime so finish
-        // bookkeeping cannot drift into a later generation.
+        // Admission is linearized with every controller closure path by the
+        // generation admission gate. The core pair is created before the
+        // controller in-flight counter is committed, and neither is exposed to
+        // the caller until both steps complete.
         let started = active.run.begin_request_with_owned(route, options);
-        Self::apply_run_end_policy_if_limits_hit(&active);
+        active.inflight_captured.fetch_add(1, Ordering::AcqRel);
 
         Some(ControllerStartedRequest {
             handle: ControllerRequestHandle::Active(started.handle),
@@ -717,20 +752,42 @@ impl TailtriageController {
             match *lifecycle {
                 ControllerLifecycle::Active { ref active, .. } => Some(Arc::clone(active)),
                 ControllerLifecycle::Disabled { .. } => None,
+                ControllerLifecycle::TerminalFailed { ref message, .. } => {
+                    return Err(ShutdownError::Finalize(DisableError::Finalize(
+                        Self::prior_finalize_error(message),
+                    )));
+                }
             }
         };
 
         if let Some(active) = maybe_active {
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::Shutdown);
-            active.accepting_new.store(false, Ordering::Relaxed);
-            active.closing.store(true, Ordering::Relaxed);
+            Self::close_generation_admissions(&active, RunEndReason::Shutdown);
             self.force_finalize_generation(&active)
                 .map_err(ShutdownError::Finalize)?;
         }
 
         Ok(())
+    }
+
+    fn close_generation_admissions(
+        active: &Arc<ActiveGenerationRuntime>,
+        reason: RunEndReason,
+    ) -> u64 {
+        let _admission = active
+            .admission_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Self::close_generation_admissions_locked(active, reason)
+    }
+
+    fn close_generation_admissions_locked(
+        active: &Arc<ActiveGenerationRuntime>,
+        reason: RunEndReason,
+    ) -> u64 {
+        active.run.set_run_end_reason_if_absent(reason);
+        active.accepting_new.store(false, Ordering::Release);
+        active.closing.store(true, Ordering::Release);
+        active.inflight_captured.load(Ordering::Acquire)
     }
 
     fn force_finalize_generation(
@@ -744,6 +801,35 @@ impl TailtriageController {
         inner: &Arc<ControllerInner>,
         active: &Arc<ActiveGenerationRuntime>,
     ) -> Result<(), DisableError> {
+        Self::finalize_active(inner, active)
+    }
+
+    fn finalize_active(
+        inner: &Arc<ControllerInner>,
+        active: &Arc<ActiveGenerationRuntime>,
+    ) -> Result<(), DisableError> {
+        #[cfg(test)]
+        {
+            let hook = active
+                .finalization_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .before_gate
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+
+        let _finalization = active
+            .finalization_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        if let Some(result) = Self::replay_generation_result(active) {
+            return result;
+        }
+
         let next_generation = {
             let lifecycle = inner
                 .lifecycle
@@ -756,40 +842,80 @@ impl TailtriageController {
                 } if current_active.state.generation_id == active.state.generation_id => {
                     next_generation
                 }
+                ControllerLifecycle::TerminalFailed {
+                    active: ref current_active,
+                    ref message,
+                    ..
+                } if current_active.state.generation_id == active.state.generation_id => {
+                    let mut result = active
+                        .finalization_result
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if matches!(*result, GenerationFinalizationResult::Pending) {
+                        *result = GenerationFinalizationResult::TerminalFailure(message.clone());
+                    }
+                    return Err(DisableError::Finalize(Self::prior_finalize_error(message)));
+                }
                 _ => return Ok(()),
             }
         };
 
-        Self::finalize_active(inner, active, next_generation)
+        active.finalize_started.store(true, Ordering::Release);
+        active.clear_finalize_error();
+        Self::stop_runtime_sampler(active);
+        match active.run.shutdown() {
+            Ok(()) => {
+                active.finalize_started.store(false, Ordering::Release);
+                Self::set_generation_result(active, GenerationFinalizationResult::Success);
+                let mut lifecycle = inner
+                    .lifecycle
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+                if matches!(
+                    *lifecycle,
+                    ControllerLifecycle::Active {
+                        active: ref current_active,
+                        next_generation: ng,
+                    } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
+                ) {
+                    *lifecycle = ControllerLifecycle::Disabled { next_generation };
+                }
+                Ok(())
+            }
+            Err(source) => {
+                active.finalize_started.store(false, Ordering::Release);
+                let retryable = matches!(source, tailtriage_core::SinkError::Lifecycle { .. });
+                let canonical_message = source.to_string();
+                let error = DisableError::Finalize(source);
+                active.record_finalize_error(&error);
+                if !retryable {
+                    Self::publish_terminal_failure(
+                        inner,
+                        active,
+                        next_generation,
+                        canonical_message,
+                    );
+                }
+                Err(error)
+            }
+        }
     }
 
-    fn finalize_active(
+    fn publish_terminal_failure(
         inner: &Arc<ControllerInner>,
         active: &Arc<ActiveGenerationRuntime>,
         next_generation: u64,
-    ) -> Result<(), DisableError> {
-        if active
-            .finalize_started
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Ok(());
-        }
-
-        active.clear_finalize_error();
-        Self::stop_runtime_sampler(active);
-        if let Err(source) = active.run.shutdown() {
-            let error = DisableError::Finalize(source);
-            active.record_finalize_error(&error);
-            active.finalize_started.store(false, Ordering::Release);
-            return Err(error);
-        }
-
+        canonical_message: String,
+    ) {
+        Self::set_generation_result(
+            active,
+            GenerationFinalizationResult::TerminalFailure(canonical_message.clone()),
+        );
         let mut lifecycle = inner
             .lifecycle
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-
         if matches!(
             *lifecycle,
             ControllerLifecycle::Active {
@@ -797,10 +923,68 @@ impl TailtriageController {
                 next_generation: ng,
             } if current_active.state.generation_id == active.state.generation_id && ng == next_generation
         ) {
-            *lifecycle = ControllerLifecycle::Disabled { next_generation };
+            *lifecycle = ControllerLifecycle::TerminalFailed {
+                active: Arc::clone(active),
+                next_generation,
+                message: canonical_message,
+            };
         }
+        drop(lifecycle);
+        Self::run_after_terminal_publication_hook(active);
+    }
 
-        Ok(())
+    fn run_after_terminal_publication_hook(active: &Arc<ActiveGenerationRuntime>) {
+        #[cfg(test)]
+        {
+            let hook = active
+                .finalization_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .after_terminal_publication
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        #[cfg(not(test))]
+        {
+            let _ = active;
+        }
+    }
+
+    fn set_generation_result(
+        active: &Arc<ActiveGenerationRuntime>,
+        next_result: GenerationFinalizationResult,
+    ) {
+        let mut result = active
+            .finalization_result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *result = next_result;
+    }
+
+    fn replay_generation_result(
+        active: &Arc<ActiveGenerationRuntime>,
+    ) -> Option<Result<(), DisableError>> {
+        match active
+            .finalization_result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            GenerationFinalizationResult::Success => Some(Ok(())),
+            GenerationFinalizationResult::TerminalFailure(message) => Some(Err(
+                DisableError::Finalize(Self::prior_finalize_error(&message)),
+            )),
+            GenerationFinalizationResult::Pending => None,
+        }
+    }
+
+    fn prior_finalize_error(message: &str) -> tailtriage_core::SinkError {
+        let controller_display = format!("failed to finalize generation: {message}");
+        tailtriage_core::SinkError::Io(std::io::Error::other(ReplayedGenerationFinalization {
+            controller_display,
+        }))
     }
 
     fn stop_runtime_sampler(active: &Arc<ActiveGenerationRuntime>) {
@@ -821,33 +1005,14 @@ impl TailtriageController {
         }
     }
 
-    fn apply_run_end_policy_if_limits_hit(active: &Arc<ActiveGenerationRuntime>) {
-        if active.state.activation_config.run_end_policy != RunEndPolicy::AutoSealOnLimitsHit {
-            return;
-        }
-
-        if !active.run.snapshot().truncation.limits_hit {
-            return;
-        }
-
-        active
-            .run
-            .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-        active.accepting_new.store(false, Ordering::Release);
-        active.closing.store(true, Ordering::Release);
-    }
-
     fn on_limits_hit_signal(inner: &Weak<ControllerInner>, active: &Weak<ActiveGenerationRuntime>) {
         let Some(active) = active.upgrade() else {
             return;
         };
-        active
-            .run
-            .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-        active.accepting_new.store(false, Ordering::Release);
-        active.closing.store(true, Ordering::Release);
+        let inflight =
+            Self::close_generation_admissions(&active, RunEndReason::AutoSealOnLimitsHit);
 
-        if active.inflight_captured.load(Ordering::Acquire) > 0 {
+        if inflight > 0 {
             return;
         }
 
@@ -912,6 +1077,16 @@ impl ControllerRequestCompletion {
     }
 }
 
+impl Drop for ControllerRequestCompletion {
+    fn drop(&mut self) {
+        if let ControllerCompletionKind::Active(active) = &mut self.kind {
+            let completion = active.completion.take();
+            drop(completion);
+            active.mark_finished();
+        }
+    }
+}
+
 #[derive(Debug)]
 enum ControllerCompletionKind {
     Active(ActiveControllerCompletion),
@@ -958,11 +1133,10 @@ impl ActiveControllerCompletion {
         if self.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit
             && active.run.snapshot().truncation.limits_hit
         {
-            active
-                .run
-                .set_run_end_reason_if_absent(RunEndReason::AutoSealOnLimitsHit);
-            active.accepting_new.store(false, Ordering::Release);
-            active.closing.store(true, Ordering::Release);
+            TailtriageController::close_generation_admissions(
+                &active,
+                RunEndReason::AutoSealOnLimitsHit,
+            );
         }
 
         let remaining = active
@@ -1248,9 +1422,9 @@ pub struct ActiveGenerationState {
     pub finalization_in_progress: bool,
     /// Last finalization error observed for this generation, if any.
     ///
-    /// When present, generation remains active-but-closing and callers can retry
-    /// finalization via [`TailtriageController::disable`] or
-    /// [`TailtriageController::shutdown`].
+    /// Strict lifecycle errors are retryable because no sink attempt occurred.
+    /// Sink-attempted failures are terminal for that core generation and are
+    /// reported here without scheduling another sink write.
     pub last_finalize_error: Option<String>,
     /// Effective activation settings fixed for this generation.
     pub activation_config: ControllerActivationTemplate,
@@ -1282,6 +1456,11 @@ enum ControllerLifecycle {
         active: Arc<ActiveGenerationRuntime>,
         next_generation: u64,
     },
+    TerminalFailed {
+        active: Arc<ActiveGenerationRuntime>,
+        next_generation: u64,
+        message: String,
+    },
 }
 
 impl ControllerLifecycle {
@@ -1291,6 +1470,9 @@ impl ControllerLifecycle {
                 next_generation: *next_generation,
             },
             Self::Active { active, .. } => GenerationState::Active(Box::new(active.snapshot())),
+            Self::TerminalFailed { active, .. } => {
+                GenerationState::Active(Box::new(active.snapshot()))
+            }
         }
     }
 }
@@ -1562,6 +1744,19 @@ impl std::fmt::Display for EnableError {
 
 impl std::error::Error for EnableError {}
 
+#[derive(Debug)]
+struct ReplayedGenerationFinalization {
+    controller_display: String,
+}
+
+impl std::fmt::Display for ReplayedGenerationFinalization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.controller_display)
+    }
+}
+
+impl std::error::Error for ReplayedGenerationFinalization {}
+
 /// Errors emitted while disarming and finalizing generation artifacts.
 #[derive(Debug)]
 pub enum DisableError {
@@ -1572,6 +1767,19 @@ pub enum DisableError {
 impl std::fmt::Display for DisableError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Finalize(tailtriage_core::SinkError::Io(err)) => {
+                if let Some(replay) = err
+                    .get_ref()
+                    .and_then(|source| source.downcast_ref::<ReplayedGenerationFinalization>())
+                {
+                    return f.write_str(&replay.controller_display);
+                }
+
+                write!(
+                    f,
+                    "failed to finalize generation: I/O error while writing run output: {err}"
+                )
+            }
             Self::Finalize(err) => write!(f, "failed to finalize generation: {err}"),
         }
     }
@@ -1640,7 +1848,8 @@ fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
     use std::time::Duration;
 
     use super::{
@@ -1650,7 +1859,8 @@ mod tests {
     };
     use serde::Serialize;
     use tailtriage_core::{
-        CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RuntimeSnapshot,
+        CaptureLimitsOverride, CaptureMode, RequestOptions, Run, RunEndReason, RunSink,
+        RuntimeSnapshot, SinkError, Tailtriage,
     };
 
     #[derive(Serialize)]
@@ -1737,6 +1947,91 @@ mod tests {
             panic!("expected active generation");
         };
         Arc::clone(active)
+    }
+
+    fn test_controller_with_run(
+        base: &str,
+        run: Arc<Tailtriage>,
+    ) -> (TailtriageController, Arc<super::ActiveGenerationRuntime>) {
+        let artifact_path = test_output(base);
+        let activation_config = super::ControllerActivationTemplate {
+            sink_template: ControllerSinkTemplate::LocalJson {
+                output_path: artifact_path.clone(),
+            },
+            selected_mode: CaptureMode::Light,
+            capture_limits_override: CaptureLimitsOverride::default(),
+            strict_lifecycle: false,
+            runtime_sampler: RuntimeSamplerTemplate::default(),
+            run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
+        };
+        let runtime = Arc::new(super::ActiveGenerationRuntime {
+            state: super::ActiveGenerationState {
+                generation_id: 1,
+                started_at_unix_ms: run.snapshot().metadata.started_at_unix_ms,
+                artifact_path: artifact_path.clone(),
+                accepting_new_admissions: true,
+                closing: false,
+                inflight_captured_requests: 0,
+                finalization_in_progress: false,
+                last_finalize_error: None,
+                activation_config: activation_config.clone(),
+            },
+            artifact_path,
+            run,
+            admission_gate: Mutex::new(()),
+            finalization_gate: Mutex::new(()),
+            finalization_result: Mutex::default(),
+            accepting_new: std::sync::atomic::AtomicBool::new(true),
+            closing: std::sync::atomic::AtomicBool::new(false),
+            inflight_captured: AtomicU64::new(0),
+            finalize_started: std::sync::atomic::AtomicBool::new(false),
+            last_finalize_error: Mutex::new(None),
+            runtime_sampler: Mutex::new(None),
+            finalization_test_hooks: Mutex::new(super::FinalizationTestHooks::default()),
+        });
+        let inner = Arc::new(super::ControllerInner {
+            template: Mutex::new(super::TailtriageControllerTemplate {
+                service_name: "checkout-service".to_string(),
+                config_path: None,
+                sink_template: ControllerSinkTemplate::LocalJson {
+                    output_path: test_output(&format!("{base}-gen2")),
+                },
+                selected_mode: CaptureMode::Light,
+                capture_limits_override: CaptureLimitsOverride::default(),
+                strict_lifecycle: false,
+                runtime_sampler: RuntimeSamplerTemplate::default(),
+                run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
+            }),
+            lifecycle: Mutex::new(super::ControllerLifecycle::Active {
+                active: Arc::clone(&runtime),
+                next_generation: 2,
+            }),
+            inert_request_seq: AtomicU64::new(1),
+        });
+        (TailtriageController { inner }, runtime)
+    }
+
+    struct BlockingPrefixCollisionSink {
+        calls: Arc<AtomicU64>,
+        entered_tx: Mutex<Option<mpsc::Sender<()>>>,
+        release_rx: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl RunSink for BlockingPrefixCollisionSink {
+        fn write(&self, _run: &Run) -> Result<(), SinkError> {
+            self.calls.fetch_add(1, Ordering::AcqRel);
+            if let Some(tx) = self.entered_tx.lock().expect("entered lock").take() {
+                tx.send(()).expect("sink entry receiver should exist");
+            }
+            self.release_rx
+                .lock()
+                .expect("release lock")
+                .recv()
+                .expect("release signal should arrive");
+            Err(SinkError::Io(std::io::Error::other(
+                "failed to finalize generation: sentinel",
+            )))
+        }
     }
 
     fn test_config_path(base: &str) -> std::path::PathBuf {
@@ -2523,6 +2818,40 @@ mod tests {
     }
 
     #[test]
+    fn dropped_controller_completion_drains_closing_generation_as_cancelled() {
+        let output = test_output("drop-drain-cancelled");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let started = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-drop-drain"),
+        );
+
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == active.generation_id
+        ));
+
+        drop(started.completion);
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let run = read_artifact(&active.artifact_path);
+        assert!(run.contains("req-drop-drain"));
+        assert!(run.contains("cancelled"));
+        assert!(!run.contains("unfinished request(s) remained at shutdown"));
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
     fn controller_output_is_finalized_schema_v2() {
         let output = test_output("shutdown-active");
         let controller = TailtriageController::builder("checkout-service")
@@ -2574,7 +2903,7 @@ mod tests {
     }
 
     #[test]
-    fn drain_finalization_sink_failure_is_observable_and_retriable() {
+    fn drain_finalization_sink_failure_is_observable_and_terminal() {
         let output = std::env::temp_dir().join(format!(
             "tailtriage-controller-missing-dir-{}-{}",
             std::process::id(),
@@ -2616,7 +2945,7 @@ mod tests {
         let disable_retry = controller.disable();
         assert!(
             matches!(disable_retry, Err(super::DisableError::Finalize(_))),
-            "disable should return finalization failure after prior failed drain finalization"
+            "disable should return prior terminal finalization failure"
         );
 
         let shutdown_retry = controller.shutdown();
@@ -2627,7 +2956,7 @@ mod tests {
                     super::DisableError::Finalize(_)
                 ))
             ),
-            "shutdown should return finalization failure after prior failed drain finalization"
+            "shutdown should return prior terminal finalization failure"
         );
     }
 
@@ -2686,7 +3015,274 @@ mod tests {
     }
 
     #[test]
-    fn drain_finalization_failure_allows_recovery_after_environment_fix() {
+    fn disable_error_prefix_collision_formats_original_and_typed_replay_identically() {
+        const EXPECTED_DISABLE: &str = "failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
+
+        let original = super::DisableError::Finalize(SinkError::Io(std::io::Error::other(
+            "failed to finalize generation: sentinel",
+        )));
+        assert_eq!(original.to_string(), EXPECTED_DISABLE);
+
+        let replay = super::DisableError::Finalize(TailtriageController::prior_finalize_error(
+            "I/O error while writing run output: failed to finalize generation: sentinel",
+        ));
+        assert_eq!(replay.to_string(), EXPECTED_DISABLE);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn blocked_generation_waiter_replays_exact_failure_after_rollover() {
+        const EXPECTED_DISABLE: &str = "failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
+        const EXPECTED_SHUTDOWN: &str = "shutdown finalization failed: failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
+        const EXPECTED_RAW: &str =
+            "I/O error while writing run output: failed to finalize generation: sentinel";
+
+        let calls = Arc::new(AtomicU64::new(0));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let sink = BlockingPrefixCollisionSink {
+            calls: Arc::clone(&calls),
+            entered_tx: Mutex::new(Some(entered_tx)),
+            release_rx: Mutex::new(release_rx),
+        };
+        let run = Arc::new(
+            Tailtriage::builder("checkout-service")
+                .sink(sink)
+                .build()
+                .expect("run should build"),
+        );
+        let (controller, gen1_runtime) = test_controller_with_run("blocked-waiter-rollover", run);
+        let gate_attempts = Arc::new(AtomicU64::new(0));
+        let (b_gate_tx, b_gate_rx) = mpsc::channel();
+        let (published_tx, published_rx) = mpsc::channel();
+        let (return_tx, return_rx) = mpsc::channel();
+        {
+            let mut hooks = gen1_runtime
+                .finalization_test_hooks
+                .lock()
+                .expect("hooks lock");
+            hooks.before_gate = Some({
+                let gate_attempts = Arc::clone(&gate_attempts);
+                let b_gate_tx = Mutex::new(Some(b_gate_tx));
+                Arc::new(move || {
+                    let attempt = gate_attempts.fetch_add(1, Ordering::AcqRel) + 1;
+                    if attempt == 2 {
+                        if let Some(tx) = b_gate_tx.lock().expect("b gate lock").take() {
+                            tx.send(()).expect("b gate receiver should exist");
+                        }
+                    }
+                })
+            });
+            hooks.after_terminal_publication = Some({
+                let published_tx = Mutex::new(Some(published_tx));
+                let return_rx = Mutex::new(return_rx);
+                Arc::new(move || {
+                    if let Some(tx) = published_tx.lock().expect("published lock").take() {
+                        tx.send(()).expect("published receiver should exist");
+                    }
+                    return_rx
+                        .lock()
+                        .expect("return lock")
+                        .recv()
+                        .expect("return release should arrive");
+                })
+            });
+        }
+
+        TailtriageController::close_generation_admissions(
+            &gen1_runtime,
+            RunEndReason::ManualDisarm,
+        );
+        let controller_a = controller.clone();
+        let gen1_a = Arc::clone(&gen1_runtime);
+        let finalizer_a =
+            std::thread::spawn(move || controller_a.force_finalize_generation(&gen1_a));
+        entered_rx.recv().expect("sink should be entered");
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+
+        let controller_b = controller.clone();
+        let gen1_b = Arc::clone(&gen1_runtime);
+        let finalizer_b =
+            std::thread::spawn(move || controller_b.force_finalize_generation(&gen1_b));
+        b_gate_rx
+            .recv()
+            .expect("waiter should reach generation-1 finalization gate");
+
+        release_tx.send(()).expect("sink should release");
+        published_rx
+            .recv()
+            .expect("terminal result should be published while gate is held");
+
+        let disable_replay = controller
+            .disable()
+            .expect_err("terminal failure should replay through disable");
+        assert_eq!(disable_replay.to_string(), EXPECTED_DISABLE);
+        let shutdown_replay = controller
+            .shutdown()
+            .expect_err("terminal failure should replay through shutdown");
+        assert_eq!(shutdown_replay.to_string(), EXPECTED_SHUTDOWN);
+
+        let gen2 = controller
+            .enable()
+            .expect("terminal failure should allow generation 2");
+        assert_eq!(gen2.generation_id, 2);
+        let GenerationState::Active(gen2_status) = controller.status().generation else {
+            panic!("generation 2 should be active");
+        };
+        assert_eq!(gen2_status.generation_id, 2);
+        assert_eq!(gen2_status.last_finalize_error, None);
+        assert!(gen2_status.accepting_new_admissions);
+        assert!(!gen2_status.closing);
+
+        return_tx.send(()).expect("owner should return");
+        let a_result = finalizer_a.join().expect("finalizer A should join");
+        let b_result = finalizer_b.join().expect("finalizer B should join");
+        let a_error = a_result.expect_err("A should observe terminal failure");
+        let b_error = b_result.expect_err("B should observe terminal failure");
+        assert_eq!(a_error.to_string(), EXPECTED_DISABLE);
+        assert_eq!(b_error.to_string(), EXPECTED_DISABLE);
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        assert!(matches!(
+            *gen1_runtime
+                .finalization_result
+                .lock()
+                .expect("generation result lock"),
+            super::GenerationFinalizationResult::TerminalFailure(ref message) if message == EXPECTED_RAW
+        ));
+        assert!(!gen1_runtime.finalize_started.load(Ordering::Acquire));
+
+        let gen2_req = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-generation-2-rollover"),
+        );
+        gen2_req.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 2 })
+        ));
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        fs::remove_file(gen2.artifact_path).expect("cleanup gen2 artifact should succeed");
+    }
+
+    #[test]
+    fn generation_bound_terminal_failure_replays_after_rollover() {
+        let output_dir = std::env::temp_dir().join(format!(
+            "tailtriage-controller-generation-local-failure-{}-{}",
+            std::process::id(),
+            tailtriage_core::unix_time_ms()
+        ));
+        let output = output_dir.join("artifact.json");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("build should succeed");
+
+        let gen1 = controller.enable().expect("enable should succeed");
+        let gen1_runtime = active_runtime(&controller);
+        let started = controller.begin_request("/checkout");
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Closing {
+                generation_id,
+                inflight_captured_requests: 1
+            }) if generation_id == gen1.generation_id
+        ));
+        started.completion.finish_ok();
+
+        let original = controller
+            .disable()
+            .expect_err("terminal failure should replay");
+        let original_display = original.to_string();
+        assert!(matches!(
+            *gen1_runtime
+                .finalization_result
+                .lock()
+                .expect("generation result lock"),
+            super::GenerationFinalizationResult::TerminalFailure(_)
+        ));
+
+        fs::create_dir_all(&output_dir).expect("create output directory should succeed");
+        let gen2 = controller
+            .enable()
+            .expect("terminal failure should allow generation rollover");
+        assert_eq!(gen2.generation_id, 2);
+
+        let replay = controller
+            .force_finalize_generation(&gen1_runtime)
+            .expect_err("old generation should replay its terminal failure");
+        assert_eq!(replay.to_string(), original_display);
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Active(ref active) if active.generation_id == 2 && active.last_finalize_error.is_none()
+        ));
+
+        let gen2_req = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("req-generation-2"),
+        );
+        gen2_req.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 2 })
+        ));
+        let gen2_artifact = read_artifact(&gen2.artifact_path);
+        assert!(gen2_artifact.contains("req-generation-2"));
+        assert!(!gen2_artifact.contains("generation-local-failure"));
+        fs::remove_dir_all(output_dir).expect("cleanup output dir should succeed");
+    }
+
+    #[test]
+    fn strict_lifecycle_failure_leaves_generation_result_pending_until_retry() {
+        let output = test_output("strict-generation-result-pending");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .strict_lifecycle(true)
+            .build()
+            .expect("build should succeed");
+        let active = controller.enable().expect("enable should succeed");
+        let runtime = active_runtime(&controller);
+        let leaked = runtime.run.begin_request("/leaked");
+
+        assert!(matches!(
+            controller.disable(),
+            Err(super::DisableError::Finalize(
+                tailtriage_core::SinkError::Lifecycle {
+                    unfinished_count: 1
+                }
+            ))
+        ));
+        assert!(matches!(
+            *runtime
+                .finalization_result
+                .lock()
+                .expect("generation result lock"),
+            super::GenerationFinalizationResult::Pending
+        ));
+        assert!(!runtime
+            .finalize_started
+            .load(std::sync::atomic::Ordering::Acquire));
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Active(_)
+        ));
+
+        leaked.completion.finish_ok();
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+        assert!(matches!(
+            *runtime
+                .finalization_result
+                .lock()
+                .expect("generation result lock"),
+            super::GenerationFinalizationResult::Success
+        ));
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn drain_finalization_sink_failure_is_not_retried_after_environment_fix() {
         let output_dir = std::env::temp_dir().join(format!(
             "tailtriage-controller-recovery-dir-{}-{}",
             std::process::id(),
@@ -2713,18 +3309,25 @@ mod tests {
         let GenerationState::Active(active_before_retry) = status_before_retry.generation else {
             panic!("failed drain finalization should keep generation active");
         };
+        assert!(!active_before_retry.finalization_in_progress);
         assert!(active_before_retry.last_finalize_error.is_some());
 
         fs::create_dir_all(&output_dir).expect("create output directory for retry should succeed");
 
         assert!(matches!(
             controller.disable(),
-            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+            Err(super::DisableError::Finalize(_))
         ));
-        assert!(output_dir.join("artifact-generation-1.json").exists());
-        fs::remove_file(output_dir.join("artifact-generation-1.json"))
-            .expect("cleanup artifact should succeed");
-        fs::remove_dir(output_dir).expect("cleanup output dir should succeed");
+        assert!(!output_dir.join("artifact-generation-1.json").exists());
+
+        let next = controller
+            .enable()
+            .expect("terminal failure should allow next generation");
+        assert_eq!(next.generation_id, 2);
+        controller
+            .disable()
+            .expect("second generation should finalize");
+        fs::remove_dir_all(output_dir).expect("cleanup output dir should succeed");
     }
 
     #[test]

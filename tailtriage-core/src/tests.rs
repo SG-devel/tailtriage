@@ -1,5 +1,4 @@
 use std::future::ready;
-#[cfg(debug_assertions)]
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
 
@@ -1248,17 +1247,19 @@ fn custom_sink_receives_shutdown_run() {
     assert_eq!(stored.requests.len(), 1);
 }
 
-#[cfg(debug_assertions)]
 #[test]
-fn dropping_unfinished_completion_panics_in_debug() {
+fn dropping_unfinished_completion_records_cancelled_without_panic() {
     let tailtriage = build_for_test("payments", "tailtriage-core-drop-unfinished.json");
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let _started = tailtriage.begin_request("/unfinished");
     }));
     assert!(
-        result.is_err(),
-        "unfinished completion should panic in debug"
+        result.is_ok(),
+        "unfinished completion drop should not panic"
     );
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.requests[0].outcome, "cancelled");
 }
 
 #[test]
@@ -2793,4 +2794,232 @@ mod run_validation_contract {
             .any(|i| i.severity == RunValidationSeverity::Warning
                 && i.code == RunValidationIssueCode::PreciseIntervalValidationUnavailable));
     }
+}
+
+#[test]
+fn borrowed_completion_drop_records_cancelled_request() {
+    let sink = MemorySink::new();
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(sink.clone())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_requests: Some(10),
+            ..Default::default()
+        })
+        .build()
+        .expect("build should succeed");
+    {
+        let started = tailtriage.begin_request_with(
+            "/cancel",
+            RequestOptions::new().request_id("req-cancel").kind("http"),
+        );
+        assert_eq!(started.handle.request_id(), "req-cancel");
+    }
+    tailtriage.shutdown().expect("shutdown should succeed");
+    let run = sink.last_run().expect("run should be written");
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.requests[0].request_id, "req-cancel");
+    assert_eq!(run.requests[0].route, "/cancel");
+    assert_eq!(run.requests[0].kind.as_deref(), Some("http"));
+    assert_eq!(run.requests[0].outcome, "cancelled");
+    assert!(run.requests[0].finished_at_run_us >= run.requests[0].started_at_run_us);
+    assert_eq!(run.metadata.unfinished_requests.count, 0);
+}
+
+#[test]
+fn owned_completion_drop_records_cancelled_request() {
+    let sink = MemorySink::new();
+    let tailtriage = Arc::new(
+        Tailtriage::builder("payments")
+            .sink(sink.clone())
+            .build()
+            .expect("build"),
+    );
+    {
+        let started = tailtriage.begin_request_with_owned(
+            "/owned-cancel",
+            RequestOptions::new().request_id("req-owned").kind("job"),
+        );
+        assert_eq!(started.handle.request_id(), "req-owned");
+    }
+    tailtriage.shutdown().expect("shutdown should succeed");
+    let run = sink.last_run().expect("run should be written");
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(run.requests[0].request_id, "req-owned");
+    assert_eq!(run.requests[0].route, "/owned-cancel");
+    assert_eq!(run.requests[0].kind.as_deref(), Some("job"));
+    assert_eq!(run.requests[0].outcome, "cancelled");
+    assert_eq!(run.metadata.unfinished_requests.count, 0);
+}
+
+#[test]
+fn explicit_finish_disarms_drop_without_duplicate_cancelled_event() {
+    let tailtriage = build_for_test("payments", "tailtriage-core-explicit-disarms.json");
+    tailtriage
+        .begin_request_with("/ok", RequestOptions::new().request_id("req-ok"))
+        .completion
+        .finish(Outcome::Error);
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.requests[0].outcome, "error");
+}
+
+#[test]
+fn completion_drop_during_unwind_is_non_panicking_and_cancelled() {
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(MemorySink::new())
+        .build()
+        .expect("build");
+    let caught = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let _started =
+            tailtriage.begin_request_with("/panic", RequestOptions::new().request_id("req-panic"));
+        panic!("intentional panic");
+    }));
+    assert!(caught.is_err());
+    let snapshot = tailtriage.snapshot();
+    assert_eq!(snapshot.requests.len(), 1);
+    assert_eq!(snapshot.requests[0].outcome, "cancelled");
+    assert_eq!(snapshot.requests[0].request_id, "req-panic");
+    tailtriage.shutdown().expect("shutdown should succeed");
+    assert_eq!(tailtriage.snapshot().metadata.unfinished_requests.count, 0);
+}
+
+#[derive(Debug, Default)]
+struct CountingFailSink {
+    calls: std::sync::atomic::AtomicU64,
+}
+
+impl crate::RunSink for Arc<CountingFailSink> {
+    fn write(&self, _run: &crate::Run) -> Result<(), crate::SinkError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(crate::SinkError::Io(std::io::Error::other(
+            "deterministic sink failure",
+        )))
+    }
+}
+
+#[test]
+fn sink_failure_is_terminal_and_late_mutations_are_inert() {
+    let sink = Arc::new(CountingFailSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(Arc::clone(&sink))
+        .build()
+        .expect("build");
+    let held = tailtriage.begin_request_with("/held", RequestOptions::new().request_id("req-held"));
+    let first = tailtriage.shutdown().expect_err("sink should fail");
+    assert!(first.to_string().contains("deterministic sink failure"));
+    assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let before = tailtriage.snapshot();
+    held.completion.finish_ok();
+    let late = tailtriage.begin_request("/late");
+    late.completion.finish_ok();
+    tailtriage.record_runtime_snapshot(crate::RuntimeSnapshot {
+        at_unix_ms: 1,
+        at_run_us: None,
+        alive_tasks: Some(1),
+        global_queue_depth: None,
+        local_queue_depth: None,
+        blocking_queue_depth: None,
+        remote_schedule_count: None,
+    });
+    let second = tailtriage
+        .shutdown()
+        .expect_err("prior failure should be replayed");
+    assert!(second.to_string().contains("deterministic sink failure"));
+    assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(tailtriage.snapshot(), before);
+}
+
+#[test]
+fn strict_shutdown_with_pending_is_side_effect_free_and_retryable_after_drop() {
+    let sink = Arc::new(RecordingSink::default());
+    let tailtriage = Tailtriage::builder("payments")
+        .sink(Arc::clone(&sink))
+        .strict_lifecycle(true)
+        .build()
+        .expect("build");
+    let started =
+        tailtriage.begin_request_with("/strict", RequestOptions::new().request_id("req-strict"));
+    let before = tailtriage.snapshot();
+    let err = tailtriage
+        .shutdown()
+        .expect_err("strict pending should fail");
+    assert!(matches!(
+        err,
+        SinkError::Lifecycle {
+            unfinished_count: 1
+        }
+    ));
+    assert!(sink.run.lock().expect("lock").is_none());
+    assert_eq!(tailtriage.snapshot(), before);
+    drop(started.completion);
+    assert_eq!(tailtriage.snapshot().requests[0].outcome, "cancelled");
+    tailtriage.shutdown().expect("retry succeeds");
+    assert!(sink.run.lock().expect("lock").is_some());
+}
+
+#[derive(Debug)]
+struct BlockingSink {
+    calls: std::sync::atomic::AtomicU64,
+    entered_tx: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    release_rx: Mutex<std::sync::mpsc::Receiver<()>>,
+    run: Mutex<Option<crate::Run>>,
+}
+
+impl crate::RunSink for Arc<BlockingSink> {
+    fn write(&self, run: &crate::Run) -> Result<(), crate::SinkError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *self.run.lock().expect("run lock") = Some(run.clone());
+        if let Some(tx) = self.entered_tx.lock().expect("entered lock").take() {
+            let _ = tx.send(());
+        }
+        let _ = self.release_rx.lock().expect("release lock").recv();
+        Ok(())
+    }
+}
+
+#[test]
+fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let sink = Arc::new(BlockingSink {
+        calls: std::sync::atomic::AtomicU64::new(0),
+        entered_tx: Mutex::new(Some(entered_tx)),
+        release_rx: Mutex::new(release_rx),
+        run: Mutex::new(None),
+    });
+    let tailtriage = Arc::new(
+        Tailtriage::builder("payments")
+            .sink(Arc::clone(&sink))
+            .build()
+            .expect("build"),
+    );
+    let started = tailtriage.begin_request_with_owned(
+        "/held",
+        RequestOptions::new().request_id("req-held-unfinished"),
+    );
+    let shutdown_run = Arc::clone(&tailtriage);
+    let shutdown = std::thread::spawn(move || shutdown_run.shutdown());
+    entered_rx.recv().expect("sink entered");
+    drop(started.completion);
+    let during = tailtriage.snapshot();
+    assert!(during.requests.is_empty());
+    assert_eq!(during.metadata.unfinished_requests.count, 1);
+    release_tx.send(()).expect("release sink");
+    shutdown
+        .join()
+        .expect("shutdown join")
+        .expect("shutdown ok");
+    let persisted = sink
+        .run
+        .lock()
+        .expect("run lock")
+        .clone()
+        .expect("persisted run");
+    assert!(persisted.requests.is_empty());
+    assert_eq!(persisted.metadata.unfinished_requests.count, 1);
+    assert_eq!(
+        persisted.metadata.unfinished_requests.sample[0].request_id,
+        "req-held-unfinished"
+    );
+    assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }

@@ -1,4 +1,4 @@
-use crate::collector::lock_map;
+use crate::collector::{lock_state, CollectorPhase};
 use crate::{InFlightSnapshot, QueueEvent, StageEvent, Tailtriage};
 
 /// RAII guard tracking one in-flight unit for a named gauge.
@@ -15,22 +15,38 @@ impl Drop for InflightGuard<'_> {
             return;
         }
 
-        let count = {
-            let mut counts = lock_map(&self.tailtriage.inflight_counts);
-            let entry = counts.entry(self.gauge.clone()).or_insert(0);
+        let sample = self.tailtriage.run_clock.sample();
+        let notify_limits_hit = {
+            let mut state = lock_state(&self.tailtriage.state.mutex);
+            if !matches!(state.phase, CollectorPhase::Open) {
+                return;
+            }
+            let entry = state.inflight_counts.entry(self.gauge.clone()).or_insert(0);
             if *entry > 0 {
                 *entry -= 1;
             }
-            *entry
+            let count = *entry;
+            if crate::retention::push_inflight_snapshot_bounded(
+                &mut state.run,
+                self.tailtriage.limits,
+                InFlightSnapshot {
+                    gauge: self.gauge.clone(),
+                    at_unix_ms: sample.unix_ms,
+                    at_run_us: Some(sample.run_elapsed_us),
+                    count,
+                },
+            ) {
+                self.tailtriage.truncation_state.inflight.mark_saturated();
+                self.tailtriage
+                    .truncation_state
+                    .mark_run_limits_hit(&mut state.run)
+            } else {
+                false
+            }
         };
-
-        let sample = self.tailtriage.run_clock.sample();
-        self.tailtriage.record_inflight_snapshot(InFlightSnapshot {
-            gauge: self.gauge.clone(),
-            at_unix_ms: sample.unix_ms,
-            at_run_us: Some(sample.run_elapsed_us),
-            count,
-        });
+        if notify_limits_hit {
+            self.tailtriage.notify_limits_hit_listener();
+        }
     }
 }
 
