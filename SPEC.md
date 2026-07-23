@@ -213,6 +213,8 @@ Analyzer output includes:
 - canonical core validation warnings in permissive analysis when generic completed-Run evidence is excluded, repaired, or precision-limited
 - primary and secondary suspects with evidence and next checks
 
+Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence, then unchanged raw score, then a stable suspect-kind rank; raw-score proximity still drives ambiguity warnings, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
+
 Schema contract:
 
 Core Run integrity contract:
