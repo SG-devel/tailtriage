@@ -9,6 +9,7 @@ mod attribution;
 mod confidence;
 mod evidence;
 mod options;
+mod partial_evidence;
 mod route;
 mod scoring;
 mod stage_attribution;
@@ -20,6 +21,7 @@ pub use options::{
     BlockingOptions, ConfidenceOptions, DownstreamOptions, EvidenceOptions, ExecutorOptions,
     QueueingOptions, RouteOptions, TemporalOptions,
 };
+use partial_evidence::{EvidenceBasis, PartialEvidenceProfile, ScoredSuspect};
 use tailtriage_core::{
     normalize_run_permissive, summarize_run_validation, validate_run_strict, InFlightSnapshot,
     QueueEvent, Run, RunValidationIssueCode, RuntimeSnapshot,
@@ -654,7 +656,11 @@ impl Analyzer {
 fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     let normalized = normalize_run_permissive(run);
     let analysis_run = &normalized.run;
+    let profile = PartialEvidenceProfile::from_run(analysis_run);
     let mut report = analyze_run_internal(analysis_run, options);
+    if profile.has_partial() {
+        push_unique(&mut report.warnings, partial_evidence::PARTIAL_WARNING);
+    }
     let validation_warnings = summarize_run_validation(&normalized);
     report.warnings.splice(0..0, validation_warnings.clone());
     report.evidence_quality.limitations.extend(
@@ -669,6 +675,7 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     report.route_breakdowns = route_context.breakdowns;
     report.temporal_segments =
         temporal::temporal_segments(analysis_run, &mut report.warnings, options);
+    stable_dedup(&mut report.warnings);
     let overrides = options.non_default_overrides();
     report.analyzer_config = if overrides.is_empty() {
         None
@@ -679,6 +686,23 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
         })
     };
     report
+}
+
+fn push_unique(values: &mut Vec<String>, value: impl Into<String>) {
+    let value = value.into();
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn stable_dedup(values: &mut Vec<String>) {
+    let mut deduped = Vec::with_capacity(values.len());
+    for value in values.drain(..) {
+        if !deduped.iter().any(|existing| existing == &value) {
+            deduped.push(value);
+        }
+    }
+    *values = deduped;
 }
 
 fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
@@ -692,15 +716,16 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     let p95_latency_us = percentile(&request_latencies, 95, 100);
     let p99_latency_us = percentile(&request_latencies, 99, 100);
     let request_time_shares = request_time_shares(run);
-    let p95_queue_share_permille = percentile(&request_time_shares.queue, 95, 100);
-    let p95_service_share_permille = percentile(&request_time_shares.service, 95, 100);
+    let p95_queue_share_permille = percentile(&request_time_shares.completed_queue, 95, 100);
+    let p95_service_share_permille = percentile(&request_time_shares.completed_service, 95, 100);
     let inflight_trend = dominant_inflight_trend(&run.inflight);
 
     let mut suspects = Vec::new();
 
     if let Some(queue_suspect) = scoring::queue_saturation_suspect(
         run,
-        &request_time_shares.queue,
+        &request_time_shares.completed_queue,
+        &request_time_shares.observed_queue,
         inflight_trend.as_ref(),
         options,
     ) {
@@ -708,13 +733,19 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     }
 
     if let Some(blocking_suspect) = scoring::blocking_pressure_suspect(run, options) {
-        suspects.push(blocking_suspect);
+        suspects.push(ScoredSuspect {
+            suspect: blocking_suspect,
+            basis: EvidenceBasis::Completed,
+        });
     }
 
     if let Some(executor_suspect) =
         scoring::executor_pressure_suspect(run, inflight_trend.as_ref(), options)
     {
-        suspects.push(executor_suspect);
+        suspects.push(ScoredSuspect {
+            suspect: executor_suspect,
+            basis: EvidenceBasis::Completed,
+        });
     }
 
     if let Some(stage_suspect) = scoring::downstream_stage_suspect(run, options) {
@@ -722,7 +753,7 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     }
 
     if suspects.is_empty() {
-        suspects.push(Suspect::new(
+        suspects.push(ScoredSuspect { suspect: Suspect::new(
             DiagnosisKind::InsufficientEvidence,
             50,
             vec![
@@ -734,25 +765,30 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
                 "Enable RuntimeSampler during the run to capture runtime pressure signals."
                     .to_string(),
             ],
-        ));
+        ), basis: EvidenceBasis::Completed });
     }
 
-    suspects.sort_by_key(|suspect| std::cmp::Reverse(suspect.score));
+    suspects.sort_by_key(|scored| std::cmp::Reverse(scored.suspect.score));
 
-    let warnings = analysis_warnings(run, &suspects, options);
+    let plain_for_warnings = suspects
+        .iter()
+        .map(|s| s.suspect.clone())
+        .collect::<Vec<_>>();
+    let warnings = analysis_warnings(run, &plain_for_warnings, options);
     let evidence_quality = evidence::evidence_quality(run, options);
 
-    for suspect in &mut suspects {
-        suspect.confidence = Confidence::from_score_with_options(suspect.score, options);
+    for scored in &mut suspects {
+        scored.suspect.confidence =
+            Confidence::from_score_with_options(scored.suspect.score, options);
     }
-    confidence::apply_evidence_aware_confidence_caps(
+    confidence::apply_evidence_aware_confidence_caps_scored(
         &mut suspects,
         run,
         &evidence_quality,
         options,
     );
 
-    let mut ranked = suspects.into_iter();
+    let mut ranked = suspects.into_iter().map(|s| s.suspect);
     let primary_suspect = ranked.next().unwrap_or_else(|| {
         Suspect::new(
             DiagnosisKind::InsufficientEvidence,
@@ -852,43 +888,72 @@ fn analysis_warnings(run: &Run, suspects: &[Suspect], options: &AnalyzeOptions) 
     warnings
 }
 
+#[allow(dead_code)]
 struct RequestTimeShares {
     queue: Vec<u64>,
     service: Vec<u64>,
+    completed_queue: Vec<u64>,
+    completed_service: Vec<u64>,
+    observed_queue: Vec<u64>,
 }
 
 fn request_time_shares(run: &Run) -> RequestTimeShares {
-    let mut queue_inputs_by_request: HashMap<&str, Vec<attribution::AttributionInput>> =
+    let mut completed_inputs_by_request: HashMap<&str, Vec<attribution::AttributionInput>> =
+        HashMap::new();
+    let mut observed_inputs_by_request: HashMap<&str, Vec<attribution::AttributionInput>> =
         HashMap::new();
     for queue in &run.queues {
-        queue_inputs_by_request
+        observed_inputs_by_request
             .entry(queue.request_id.as_str())
             .or_default()
             .push(queue_attribution_input(queue));
+        if queue.completed {
+            completed_inputs_by_request
+                .entry(queue.request_id.as_str())
+                .or_default()
+                .push(queue_attribution_input(queue));
+        }
     }
 
-    let mut queue_shares = Vec::new();
-    let mut service_shares = Vec::new();
+    let mut completed_queue_shares = Vec::new();
+    let mut completed_service_shares = Vec::new();
+    let mut observed_queue_shares = Vec::new();
 
     for request in &run.requests {
         if request.latency_us == 0 {
             continue;
         }
 
-        let queue_events = queue_inputs_by_request
+        let completed_events = completed_inputs_by_request
             .get(request.request_id.as_str())
             .map_or([].as_slice(), Vec::as_slice);
-        let attributed = attribution::attributed_elapsed_duration(queue_events, request.latency_us);
-        let queue_wait = attributed.duration_us.min(request.latency_us);
-        let service_time = request.latency_us.saturating_sub(queue_wait);
+        let observed_events = observed_inputs_by_request
+            .get(request.request_id.as_str())
+            .map_or([].as_slice(), Vec::as_slice);
+        let completed_wait =
+            attribution::attributed_elapsed_duration(completed_events, request.latency_us)
+                .duration_us
+                .min(request.latency_us);
+        let observed_wait =
+            attribution::attributed_elapsed_duration(observed_events, request.latency_us)
+                .duration_us
+                .min(request.latency_us);
+        let service_time = request.latency_us.saturating_sub(completed_wait);
 
-        queue_shares.push((queue_wait.saturating_mul(1_000) / request.latency_us).min(1_000));
-        service_shares.push((service_time.saturating_mul(1_000) / request.latency_us).min(1_000));
+        completed_queue_shares
+            .push((completed_wait.saturating_mul(1_000) / request.latency_us).min(1_000));
+        observed_queue_shares
+            .push((observed_wait.saturating_mul(1_000) / request.latency_us).min(1_000));
+        completed_service_shares
+            .push((service_time.saturating_mul(1_000) / request.latency_us).min(1_000));
     }
 
     RequestTimeShares {
-        queue: queue_shares,
-        service: service_shares,
+        queue: completed_queue_shares.clone(),
+        service: completed_service_shares.clone(),
+        completed_queue: completed_queue_shares,
+        completed_service: completed_service_shares,
+        observed_queue: observed_queue_shares,
     }
 }
 

@@ -4,6 +4,7 @@ use tailtriage_core::Run;
 
 use crate::{
     attribution::{attributed_elapsed_duration, AttributionInput},
+    partial_evidence::EvidenceBasis,
     percentile,
 };
 
@@ -15,6 +16,7 @@ pub(super) struct RequestContext {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct StageSummary {
+    pub(super) basis: EvidenceBasis,
     pub(super) stage: String,
     pub(super) request_samples: usize,
     pub(super) p95_attributed_latency_us: u64,
@@ -22,6 +24,7 @@ pub(super) struct StageSummary {
     pub(super) cumulative_share_permille: u64,
     pub(super) tail_attributed_latency_us: u64,
     pub(super) tail_share_permille: u64,
+    pub(super) partial_event_count: usize,
 }
 
 pub(super) fn request_contexts(
@@ -50,22 +53,51 @@ pub(super) fn request_contexts(
     (contexts, total_request_latency_us, tail_request_latency_us)
 }
 
+#[allow(dead_code)]
 pub(super) fn stage_summaries(run: &Run, p95_request_latency_us: u64) -> Vec<StageSummary> {
+    dual_stage_summaries(run, p95_request_latency_us)
+        .into_iter()
+        .filter(|s| s.basis == EvidenceBasis::Completed)
+        .collect()
+}
+
+type StageGroups<'a> = BTreeMap<
+    &'a str,
+    (
+        HashMap<&'a str, Vec<AttributionInput>>,
+        HashMap<&'a str, Vec<AttributionInput>>,
+        usize,
+    ),
+>;
+
+pub(super) fn dual_stage_summaries(run: &Run, p95_request_latency_us: u64) -> Vec<StageSummary> {
     let (requests, total_request_latency_us, tail_request_latency_us) =
         request_contexts(run, p95_request_latency_us);
-    let mut groups: BTreeMap<&str, HashMap<&str, Vec<AttributionInput>>> = BTreeMap::new();
+    let mut groups: StageGroups<'_> = BTreeMap::new();
 
     for stage in &run.stages {
         if requests.contains_key(stage.request_id.as_str()) {
-            groups
-                .entry(stage.stage.as_str())
-                .or_default()
+            let entry = groups.entry(stage.stage.as_str()).or_default();
+            entry
+                .1
                 .entry(stage.request_id.as_str())
                 .or_default()
                 .push(AttributionInput {
                     interval: stage.started_at_run_us.zip(stage.finished_at_run_us),
                     duration_us: stage.latency_us,
                 });
+            if stage.completed {
+                entry
+                    .0
+                    .entry(stage.request_id.as_str())
+                    .or_default()
+                    .push(AttributionInput {
+                        interval: stage.started_at_run_us.zip(stage.finished_at_run_us),
+                        duration_us: stage.latency_us,
+                    });
+            } else {
+                entry.2 += 1;
+            }
         } else {
             debug_assert!(
                 false,
@@ -74,43 +106,54 @@ pub(super) fn stage_summaries(run: &Run, p95_request_latency_us: u64) -> Vec<Sta
         }
     }
 
-    let mut summaries = Vec::with_capacity(groups.len());
-    for (stage_name, by_request) in groups {
-        let mut per_request = Vec::with_capacity(by_request.len());
-        let mut cumulative = 0_u64;
-        let mut tail_attributed = 0_u64;
+    let mut summaries = Vec::with_capacity(groups.len() * 2);
+    for (stage_name, (completed_by_request, observed_by_request, partial_count)) in groups {
+        for (basis, by_request) in [
+            (EvidenceBasis::Completed, completed_by_request),
+            (EvidenceBasis::ObservedLowerBound, observed_by_request),
+        ] {
+            let mut per_request = Vec::with_capacity(by_request.len());
+            let mut cumulative = 0_u64;
+            let mut tail_attributed = 0_u64;
 
-        for (request_id, inputs) in by_request {
-            let Some(context) = requests.get(request_id) else {
-                debug_assert!(false, "stage group request must have context");
-                continue;
-            };
-            let attributed = attributed_elapsed_duration(&inputs, context.latency_us);
-            per_request.push(attributed.duration_us);
-            cumulative = cumulative.saturating_add(attributed.duration_us);
-            if context.is_tail {
-                tail_attributed = tail_attributed.saturating_add(attributed.duration_us);
+            for (request_id, inputs) in by_request {
+                let Some(context) = requests.get(request_id) else {
+                    debug_assert!(false, "stage group request must have context");
+                    continue;
+                };
+                let attributed = attributed_elapsed_duration(&inputs, context.latency_us);
+                per_request.push(attributed.duration_us);
+                cumulative = cumulative.saturating_add(attributed.duration_us);
+                if context.is_tail {
+                    tail_attributed = tail_attributed.saturating_add(attributed.duration_us);
+                }
             }
+
+            let cumulative_share = cumulative
+                .saturating_mul(1000)
+                .checked_div(total_request_latency_us)
+                .unwrap_or(0);
+            let tail_share = tail_attributed
+                .saturating_mul(1000)
+                .checked_div(tail_request_latency_us)
+                .unwrap_or(0);
+
+            summaries.push(StageSummary {
+                basis,
+                stage: stage_name.to_string(),
+                request_samples: per_request.len(),
+                p95_attributed_latency_us: percentile(&per_request, 95, 100).unwrap_or(0),
+                cumulative_attributed_latency_us: cumulative,
+                cumulative_share_permille: cumulative_share,
+                tail_attributed_latency_us: tail_attributed,
+                tail_share_permille: tail_share,
+                partial_event_count: if basis == EvidenceBasis::ObservedLowerBound {
+                    partial_count
+                } else {
+                    0
+                },
+            });
         }
-
-        let cumulative_share = cumulative
-            .saturating_mul(1000)
-            .checked_div(total_request_latency_us)
-            .unwrap_or(0);
-        let tail_share = tail_attributed
-            .saturating_mul(1000)
-            .checked_div(tail_request_latency_us)
-            .unwrap_or(0);
-
-        summaries.push(StageSummary {
-            stage: stage_name.to_string(),
-            request_samples: per_request.len(),
-            p95_attributed_latency_us: percentile(&per_request, 95, 100).unwrap_or(0),
-            cumulative_attributed_latency_us: cumulative,
-            cumulative_share_permille: cumulative_share,
-            tail_attributed_latency_us: tail_attributed,
-            tail_share_permille: tail_share,
-        });
     }
 
     summaries

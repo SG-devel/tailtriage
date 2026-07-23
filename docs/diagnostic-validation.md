@@ -112,3 +112,12 @@ Optional manifest fields can validate expanded analyzer report surface on select
 
 
 Runtime-sensitive tracing contract parity uses deterministic manually injected runtime snapshots and must not rely on ambient background sampler noise or sampler metadata. When tracing contract parity scenarios need deterministic/manual runtime-pressure evidence, they call `manual_runtime_snapshots()` in `TracingSession` and inject snapshots with `record_runtime_snapshot(...)`. Runtime-sensitive tracing contract parity requires non-empty runtime snapshots, the scenario-specific runtime field evidence, and the explicit manual-runtime lifecycle warning. Output remains a Run artifact for later `tailtriage analyze`, and findings are evidence-ranked suspects, not proof.
+
+
+## Partial queue/stage evidence
+
+Completed queue and stage distributions exclude partial observations. Partial durations are observed lower bounds: tailtriage observed the helper from first poll until Drop, not proof that the underlying operation completed, failed, or stopped. Partial evidence remains visible in event totals, evidence-quality limitations, top-level warnings, and suspect evidence.
+
+Queue/service public p95 fields remain completed-only. A queue or downstream-stage suspect materially relying on an observed-lower-bound path cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
+
+Global, route, and temporal projections share this policy. Tracing imports remain completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.

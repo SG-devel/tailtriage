@@ -1,6 +1,7 @@
 use tailtriage_core::Run;
 
 use crate::{
+    partial_evidence::{EvidenceBasis, PartialEvidenceProfile, ScoredSuspect},
     percentile, runtime_metric_series, stage_attribution, AnalyzeOptions, DiagnosisKind,
     InflightTrend, Suspect,
 };
@@ -29,10 +30,44 @@ fn suspect(
 
 pub(super) fn queue_saturation_suspect(
     run: &Run,
-    queue_shares: &[u64],
+    completed_queue_shares: &[u64],
+    observed_queue_shares: &[u64],
     inflight_trend: Option<&InflightTrend>,
     options: &AnalyzeOptions,
-) -> Option<Suspect> {
+) -> Option<ScoredSuspect> {
+    let completed_p95 = percentile(completed_queue_shares, 95, 100);
+    let completed = queue_candidate(
+        run,
+        completed_queue_shares,
+        true,
+        completed_p95,
+        inflight_trend,
+        options,
+    );
+    let observed = queue_candidate(
+        run,
+        observed_queue_shares,
+        false,
+        completed_p95,
+        inflight_trend,
+        options,
+    );
+    match (completed, observed) {
+        (Some(c), Some(o)) if o.suspect.score > c.suspect.score => Some(o),
+        (Some(c), _) => Some(c),
+        (None, Some(o)) => Some(o),
+        (None, None) => None,
+    }
+}
+
+fn queue_candidate(
+    run: &Run,
+    queue_shares: &[u64],
+    completed_only: bool,
+    completed_queue_p95_permille: Option<u64>,
+    inflight_trend: Option<&InflightTrend>,
+    options: &AnalyzeOptions,
+) -> Option<ScoredSuspect> {
     let p95_queue_share_permille = percentile(queue_shares, 95, 100)?;
     if p95_queue_share_permille < options.queueing.trigger_permille {
         return None;
@@ -40,6 +75,7 @@ pub(super) fn queue_saturation_suspect(
     let queue_depths = run
         .queues
         .iter()
+        .filter(|q| !completed_only || q.completed)
         .filter_map(|q| q.depth_at_start)
         .collect::<Vec<_>>();
     let max_depth = max_or_zero(&queue_depths);
@@ -57,11 +93,30 @@ pub(super) fn queue_saturation_suspect(
         clean_extreme,
         95,
     );
-    let mut evidence = vec![format!(
-        "Queue wait at p95 consumes {}.{}% of request time.",
-        p95_queue_share_permille / 10,
-        p95_queue_share_permille % 10
-    )];
+    let profile = PartialEvidenceProfile::from_run(run);
+    let mut evidence = if completed_only {
+        vec![format!(
+            "Queue wait at p95 consumes {}.{}% of request time.",
+            p95_queue_share_permille / 10,
+            p95_queue_share_permille % 10
+        )]
+    } else {
+        let mut e = Vec::new();
+        if let Some(completed_p95) = completed_queue_p95_permille {
+            e.push(format!(
+                "Completed-only queue wait at p95 is {}.{}% of request time.",
+                completed_p95 / 10,
+                completed_p95 % 10
+            ));
+        }
+        e.push(format!(
+            "Observed queue-wait lower bound at p95 is {}.{}% of request time and includes {} partial queue event(s).",
+            p95_queue_share_permille / 10,
+            p95_queue_share_permille % 10,
+            profile.queues.partial
+        ));
+        e
+    };
     if max_depth > 0 {
         evidence.push(format!("Observed queue depth sample up to {max_depth}."));
     }
@@ -71,17 +126,42 @@ pub(super) fn queue_saturation_suspect(
             trend.gauge, trend.growth_delta, trend.p95_count, trend.peak_count
         ));
     }
-    Some(suspect(
-        DiagnosisKind::ApplicationQueueSaturation,
-        score,
-        evidence,
-        vec![
-            "Inspect queue admission limits and producer burst patterns.".to_string(),
-            "Compare queue wait distribution before and after increasing worker parallelism."
-                .to_string(),
-        ],
+    Some(ScoredSuspect {
+        suspect: suspect(
+            DiagnosisKind::ApplicationQueueSaturation,
+            score,
+            evidence,
+            vec![
+                "Inspect queue admission limits and producer burst patterns.".to_string(),
+                "Compare queue wait distribution before and after increasing worker parallelism."
+                    .to_string(),
+            ],
+            options,
+        ),
+        basis: if completed_only {
+            EvidenceBasis::Completed
+        } else {
+            EvidenceBasis::ObservedLowerBound
+        },
+    })
+}
+
+#[cfg(test)]
+pub(super) fn queue_candidate_for_test(
+    run: &Run,
+    queue_shares: &[u64],
+    completed_only: bool,
+    completed_queue_p95_permille: Option<u64>,
+    options: &AnalyzeOptions,
+) -> Option<ScoredSuspect> {
+    queue_candidate(
+        run,
+        queue_shares,
+        completed_only,
+        completed_queue_p95_permille,
+        None,
         options,
-    ))
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -206,12 +286,14 @@ pub(super) fn executor_pressure_suspect(
 
 #[derive(Clone)]
 struct StageCandidate {
+    basis: EvidenceBasis,
     stage: String,
     samples: usize,
     p95: u64,
     cumulative: u64,
     cum_share: u64,
     tail_share: u64,
+    partial_events: usize,
     score: u8,
 }
 
@@ -221,7 +303,7 @@ fn downstream_stage_candidates(
     options: &AnalyzeOptions,
 ) -> Vec<StageCandidate> {
     let mut cands = Vec::new();
-    for summary in stage_attribution::stage_summaries(run, p95_req) {
+    for summary in stage_attribution::dual_stage_summaries(run, p95_req) {
         let samples = summary.request_samples;
         if samples < options.downstream.min_stage_samples {
             continue;
@@ -237,19 +319,51 @@ fn downstream_stage_candidates(
             95,
         );
         cands.push(StageCandidate {
+            basis: summary.basis,
             stage: summary.stage,
             samples,
             p95: summary.p95_attributed_latency_us,
             cumulative: summary.cumulative_attributed_latency_us,
             cum_share: summary.cumulative_share_permille,
             tail_share: summary.tail_share_permille,
+            partial_events: summary.partial_event_count,
             score,
         });
     }
     cands
 }
 
-pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> Option<Suspect> {
+#[cfg(test)]
+pub(super) type StageCandidateProjectionForTest =
+    (EvidenceBasis, String, usize, u64, u64, u64, u64, u8);
+
+#[cfg(test)]
+pub(super) fn downstream_stage_candidates_for_test(
+    run: &Run,
+    p95_req: u64,
+    options: &AnalyzeOptions,
+) -> Vec<StageCandidateProjectionForTest> {
+    downstream_stage_candidates(run, p95_req, options)
+        .into_iter()
+        .map(|c| {
+            (
+                c.basis,
+                c.stage,
+                c.samples,
+                c.p95,
+                c.cumulative,
+                c.cum_share,
+                c.tail_share,
+                c.score,
+            )
+        })
+        .collect()
+}
+
+pub(super) fn downstream_stage_suspect(
+    run: &Run,
+    options: &AnalyzeOptions,
+) -> Option<ScoredSuspect> {
     let p95_req = percentile(
         &run.requests
             .iter()
@@ -278,6 +392,10 @@ pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> O
                 .cmp(&b.score)
                 .then_with(|| a.tail_share.cmp(&b.tail_share))
                 .then_with(|| a.cum_share.cmp(&b.cum_share))
+                .then_with(|| {
+                    (b.basis == EvidenceBasis::ObservedLowerBound)
+                        .cmp(&(a.basis == EvidenceBasis::ObservedLowerBound))
+                })
                 .then_with(|| b.stage.cmp(&a.stage))
         })?;
     let mut downstream_score = best.score;
@@ -295,39 +413,67 @@ pub(super) fn downstream_stage_suspect(run: &Run, options: &AnalyzeOptions) -> O
             best.stage
         ));
     }
-    let mut evidence = vec![
-        format!(
-            "Stage '{}' has p95 latency {} us across {} samples.",
-            best.stage, best.p95, best.samples
-        ),
-        format!(
-            "Stage '{}' cumulative latency is {} us ({} permille of request latency).",
-            best.stage, best.cumulative, best.cum_share
-        ),
-        format!(
-            "Stage '{}' contributes {} permille of tail request latency.",
-            best.stage, best.tail_share
-        ),
-    ];
+    let mut evidence = downstream_stage_evidence(&best);
     if let Some(extra) = correlation_evidence {
         evidence.push(extra);
     }
-    Some(suspect(
-        DiagnosisKind::DownstreamStageDominates,
-        downstream_score,
-        evidence,
-        vec![
+    Some(ScoredSuspect {
+        suspect: suspect(
+            DiagnosisKind::DownstreamStageDominates,
+            downstream_score,
+            evidence,
+            vec![
+                format!(
+                    "Inspect downstream dependency behind stage '{}'.",
+                    best.stage
+                ),
+                "Collect downstream service timings and retry behavior during tail windows."
+                    .to_string(),
+                "Review downstream SLO/error budget and align retry budget/backoff with it."
+                    .to_string(),
+            ],
+            options,
+        ),
+        basis: best.basis,
+    })
+}
+
+fn downstream_stage_evidence(best: &StageCandidate) -> Vec<String> {
+    let mut evidence = if best.basis == EvidenceBasis::ObservedLowerBound {
+        vec![format!(
+            "Stage '{}' observed lower-bound p95 latency is {} us across {} samples and includes {} partial stage event(s).",
+            best.stage, best.p95, best.samples, best.partial_events
+        )]
+    } else {
+        vec![format!(
+            "Stage '{}' has p95 latency {} us across {} samples.",
+            best.stage, best.p95, best.samples
+        )]
+    };
+    if best.basis == EvidenceBasis::ObservedLowerBound {
+        evidence.extend(vec![
             format!(
-                "Inspect downstream dependency behind stage '{}'.",
-                best.stage
+                "Stage '{}' observed lower-bound cumulative latency is {} us ({} permille of request latency).",
+                best.stage, best.cumulative, best.cum_share
             ),
-            "Collect downstream service timings and retry behavior during tail windows."
-                .to_string(),
-            "Review downstream SLO/error budget and align retry budget/backoff with it."
-                .to_string(),
-        ],
-        options,
-    ))
+            format!(
+                "Stage '{}' observed lower-bound contribution is {} permille of tail request latency.",
+                best.stage, best.tail_share
+            ),
+        ]);
+    } else {
+        evidence.extend(vec![
+            format!(
+                "Stage '{}' cumulative latency is {} us ({} permille of request latency).",
+                best.stage, best.cumulative, best.cum_share
+            ),
+            format!(
+                "Stage '{}' contributes {} permille of tail request latency.",
+                best.stage, best.tail_share
+            ),
+        ]);
+    }
+    evidence
 }
 
 fn clamp_score(value: u64) -> u8 {

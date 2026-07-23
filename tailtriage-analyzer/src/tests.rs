@@ -4143,24 +4143,963 @@ fn analyzer_toml_empty_pattern_fails_validation() {
 }
 
 #[test]
-fn prompt09_partial_stage_and_queue_events_do_not_change_analyzer_output() {
-    let mut completed = test_run();
-    completed.stages = vec![StageEvent::new("req-1", "db", 1, 2, 900, true)];
-    completed.queues = vec![QueueEvent::new("req-1", "pool", 1, 2, 800).with_depth_at_start(5)];
-
+fn prompt09_partial_events_are_now_visible_without_contaminating_completed_percentiles() {
+    let completed = partial_policy_run(false, false);
     let mut partial = completed.clone();
-    partial.stages[0] = partial.stages[0].clone().into_partial();
-    partial.queues[0] = partial.queues[0].clone().into_partial();
-
+    partial.queues[0].completed = false;
+    partial.stages[0].completed = false;
+    partial.stages[0].success = false;
     let completed_report = analyze_run(&completed, AnalyzeOptions::default());
     let partial_report = analyze_run(&partial, AnalyzeOptions::default());
+    assert_eq!(
+        completed_report.p95_queue_share_permille,
+        partial_report.p95_queue_share_permille
+    );
+    assert!(partial_report.evidence_quality.limitations[0].contains("Partial evidence captured"));
+    assert!(partial_report
+        .warnings
+        .iter()
+        .any(|w| w == super::partial_evidence::PARTIAL_WARNING));
+}
 
-    assert!(
-        !completed_report.primary_suspect.evidence.is_empty()
-            || !completed_report.secondary_suspects.is_empty()
+#[test]
+fn partial_queue_events_do_not_enter_completed_queue_percentiles() {
+    let completed = partial_policy_run(false, false);
+    let mut partial = completed.clone();
+    let mut q = precise_queue("r0", 0, 1_000, 1_000);
+    q.completed = false;
+    q.depth_at_start = Some(99);
+    partial.queues.push(q);
+    let a = analyze_run(&completed, AnalyzeOptions::default());
+    let b = analyze_run(&partial, AnalyzeOptions::default());
+    assert_eq!(a.p95_queue_share_permille, Some(900));
+    assert_eq!(b.p95_queue_share_permille, Some(900));
+    assert_eq!(a.p95_service_share_permille, Some(100));
+    assert_eq!(b.p95_service_share_permille, Some(100));
+    assert_eq!(b.evidence_quality.queue_event_count, 46);
+    assert_eq!(b.evidence_quality.queues, SignalCoverageStatus::Partial);
+    assert_eq!(
+        b.warnings
+            .iter()
+            .filter(|w| w.as_str() == super::partial_evidence::PARTIAL_WARNING)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn partial_only_queue_evidence_can_rank_queue_suspect_but_caps_confidence() {
+    let mut run = partial_policy_run(true, false);
+    run.stages.clear();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(report.p95_queue_share_permille, Some(0));
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(report.primary_suspect.score, 95);
+    assert_ne!(report.primary_suspect.confidence, Confidence::High);
+    assert!(report.primary_suspect.evidence.iter().any(|e| e
+        .contains("Observed queue-wait lower bound at p95 is 90.0%")
+        && e.contains("45 partial queue event(s)")));
+    assert!(report
+        .primary_suspect
+        .confidence_notes
+        .contains(&super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()));
+}
+
+#[test]
+fn partial_stage_events_do_not_enter_completed_stage_percentiles() {
+    let completed = partial_policy_run(false, false);
+    let mut partial = completed.clone();
+    let mut s = precise_stage("r0", "db", Some(0), Some(1_000), 1_000);
+    s.completed = false;
+    s.success = false;
+    partial.stages.push(s);
+    let a = analyze_run(&completed, AnalyzeOptions::default());
+    let b = analyze_run(&partial, AnalyzeOptions::default());
+    let asus = downstream_suspect(&a);
+    assert_eq!(asus.score, 95);
+    assert_eq!(
+        asus.evidence[0],
+        "Stage 'db' has p95 latency 900 us across 45 samples."
+    );
+    let bsus = downstream_suspect(&b);
+    assert!(bsus.evidence[0].contains("observed lower-bound"));
+}
+
+#[test]
+fn partial_only_stage_evidence_can_rank_downstream_suspect_but_caps_confidence() {
+    let mut run = partial_policy_run(false, true);
+    run.queues.clear();
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_ne!(report.primary_suspect.confidence, Confidence::High);
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .all(|e| !e.contains("failure")));
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("observed lower-bound") && e.contains("45 partial stage event(s)")));
+    assert!(report
+        .primary_suspect
+        .confidence_notes
+        .contains(&super::partial_evidence::PARTIAL_STAGE_CONFIDENCE_NOTE.to_string()));
+}
+
+#[test]
+fn completed_only_report_json_text_scores_and_rankings_remain_exact() {
+    let run = partial_policy_run(false, false);
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let expected_json = r#"{"request_count":45,"p50_latency_us":1000,"p95_latency_us":1000,"p99_latency_us":1000,"p95_queue_share_permille":900,"p95_service_share_permille":100,"inflight_trend":null,"warnings":["Top suspects are close in score; treat ranking as ambiguous and validate both with next checks."],"evidence_quality":{"request_count":45,"queue_event_count":45,"stage_event_count":45,"runtime_snapshot_count":0,"inflight_snapshot_count":0,"requests":"present","queues":"present","stages":"present","runtime_snapshots":"missing","inflight_snapshots":"missing","truncated":false,"dropped_requests":0,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"quality":"strong","limitations":["Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."]},"primary_suspect":{"kind":"application_queue_saturation","score":95,"confidence":"medium","evidence":["Queue wait at p95 consumes 90.0% of request time.","Observed queue depth sample up to 20."],"next_checks":["Inspect queue admission limits and producer burst patterns.","Compare queue wait distribution before and after increasing worker parallelism."],"confidence_notes":["Top suspects are close in score; confidence is capped by ambiguity."]},"secondary_suspects":[{"kind":"downstream_stage_dominates","score":95,"confidence":"medium","evidence":["Stage 'db' has p95 latency 900 us across 45 samples.","Stage 'db' cumulative latency is 40500 us (900 permille of request latency).","Stage 'db' contributes 900 permille of tail request latency."],"next_checks":["Inspect downstream dependency behind stage 'db'.","Collect downstream service timings and retry behavior during tail windows.","Review downstream SLO/error budget and align retry budget/backoff with it."],"confidence_notes":["Top suspects are close in score; confidence is capped by ambiguity."]}],"route_breakdowns":[],"temporal_segments":[]}"#;
+    assert_eq!(render_json(&report).unwrap(), expected_json);
+    let text = render_text(&report);
+    let expected_text = "tailtriage diagnosis\nRequests analyzed: 45\nLatency (us): p50 1000, p95 1000, p99 1000\nRequest time at p95: queue 90.0%, non-queue service 10.0%\nInflight trend: none\nPrimary suspect: application_queue_saturation (medium confidence, score 95)\nEvidence quality: strong (Runtime snapshots are missing, limiting executor and blocking-pressure interpretation.)\nWarnings:\n- Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.\nEvidence:\n- Queue wait at p95 consumes 90.0% of request time.\n- Observed queue depth sample up to 20.\nNext checks:\n- Inspect queue admission limits and producer burst patterns.\n- Compare queue wait distribution before and after increasing worker parallelism.\nSecondary suspects:\n- downstream_stage_dominates (medium confidence, score 95)";
+    assert_eq!(text, expected_text);
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(report.primary_suspect.score, 95);
+    assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
+    assert_eq!(
+        report.primary_suspect.evidence,
+        vec![
+            "Queue wait at p95 consumes 90.0% of request time.".to_string(),
+            "Observed queue depth sample up to 20.".to_string()
+        ]
     );
     assert_eq!(
-        serde_json::to_value(&completed_report).unwrap(),
-        serde_json::to_value(&partial_report).unwrap()
+        report.primary_suspect.confidence_notes,
+        vec!["Top suspects are close in score; confidence is capped by ambiguity.".to_string()]
     );
+    assert_eq!(
+        report
+            .secondary_suspects
+            .iter()
+            .map(|s| s.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![DiagnosisKind::DownstreamStageDominates]
+    );
+    assert_eq!(report.warnings, vec!["Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string()]);
+    assert_eq!(report.evidence_quality.limitations, vec!["Runtime snapshots are missing, limiting executor and blocking-pressure interpretation.".to_string()]);
+    assert_eq!(report.p95_queue_share_permille, Some(900));
+    assert_eq!(report.p95_service_share_permille, Some(100));
+}
+
+#[test]
+fn completed_only_warning_and_limitation_order_remains_stable() {
+    let mut run = partial_policy_run(false, false);
+    run.truncation.dropped_requests = 1;
+    run.truncation.dropped_queues = 1;
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(report.warnings, vec![
+        "Capture limits were hit during this run; dropped evidence can reduce diagnosis completeness and confidence.".to_string(),
+        "Capture truncated requests: dropped 1 request events after reaching the configured max_requests limit. This dropped evidence can reduce diagnosis completeness and confidence.".to_string(),
+        "Capture truncated queues: dropped 1 queue events after reaching the configured max_queues limit. This dropped evidence can reduce diagnosis completeness and confidence.".to_string(),
+        "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string(),
+    ]);
+    assert_eq!(
+        report.evidence_quality.limitations,
+        vec![
+            "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation.".to_string(),
+            "Capture truncation dropped evidence and can reduce diagnosis completeness.".to_string(),
+        ]
+    );
+}
+#[test]
+fn mixed_queue_evidence_uses_higher_basis_and_labels_material_partial_reliance() {
+    let mut run = partial_policy_run(false, false);
+    for i in 20..45 {
+        let q = &mut run.queues[i];
+        q.completed = false;
+        q.wait_us = 900;
+        q.waited_from_run_us = Some(0);
+        q.waited_until_run_us = Some(900);
+    }
+    for i in 0..20 {
+        let q = &mut run.queues[i];
+        q.wait_us = 300;
+        q.waited_from_run_us = Some(0);
+        q.waited_until_run_us = Some(300);
+    }
+
+    let profile = super::partial_evidence::PartialEvidenceProfile::from_run(&run);
+    assert_eq!(profile.queues.completed, 20);
+    assert_eq!(profile.queues.partial, 25);
+
+    let shares = super::request_time_shares(&run);
+    let completed_p95 = super::percentile(&shares.completed_queue, 95, 100).unwrap();
+    let observed_p95 = super::percentile(&shares.observed_queue, 95, 100).unwrap();
+    assert_eq!(completed_p95, 300);
+    assert_eq!(observed_p95, 900);
+
+    let completed = super::scoring::queue_candidate_for_test(
+        &run,
+        &shares.completed_queue,
+        true,
+        Some(completed_p95),
+        &AnalyzeOptions::default(),
+    )
+    .expect("completed queue candidate");
+    let observed = super::scoring::queue_candidate_for_test(
+        &run,
+        &shares.observed_queue,
+        false,
+        Some(completed_p95),
+        &AnalyzeOptions::default(),
+    )
+    .expect("observed queue candidate");
+    assert_eq!(completed.suspect.score, 61);
+    assert_eq!(observed.suspect.score, 95);
+    assert!(observed.suspect.score > completed.suspect.score);
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(report.primary_suspect.score, observed.suspect.score);
+    assert_eq!(report.p95_queue_share_permille, Some(300));
+    assert_eq!(report.p95_service_share_permille, Some(1000));
+    assert_eq!(
+        report.primary_suspect.evidence,
+        vec![
+            "Completed-only queue wait at p95 is 30.0% of request time.".to_string(),
+            "Observed queue-wait lower bound at p95 is 90.0% of request time and includes 25 partial queue event(s).".to_string(),
+            "Observed queue depth sample up to 20.".to_string(),
+        ]
+    );
+    assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
+    assert_eq!(
+        report.primary_suspect.confidence_notes,
+        vec![
+            super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string(),
+            "Top suspects are close in score; confidence is capped by ambiguity.".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn fully_overlapped_partial_queue_does_not_cap_completed_candidate() {
+    let mut run = partial_policy_run(false, false);
+    let mut q = precise_queue("r0", 0, 900, 900);
+    q.completed = false;
+    q.depth_at_start = Some(20);
+    run.queues.push(q);
+    let profile = super::partial_evidence::PartialEvidenceProfile::from_run(&run);
+    assert_eq!(profile.queues.completed, 45);
+    assert_eq!(profile.queues.partial, 1);
+    let shares = super::request_time_shares(&run);
+    let completed_p95 = super::percentile(&shares.completed_queue, 95, 100).unwrap();
+    let completed = super::scoring::queue_candidate_for_test(
+        &run,
+        &shares.completed_queue,
+        true,
+        Some(completed_p95),
+        &AnalyzeOptions::default(),
+    )
+    .expect("completed queue candidate");
+    let observed = super::scoring::queue_candidate_for_test(
+        &run,
+        &shares.observed_queue,
+        false,
+        Some(completed_p95),
+        &AnalyzeOptions::default(),
+    )
+    .expect("observed queue candidate");
+    assert_eq!(completed.suspect.score, observed.suspect.score);
+
+    let r = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(
+        r.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(r.primary_suspect.score, completed.suspect.score);
+    assert_eq!(r.primary_suspect.evidence, completed.suspect.evidence);
+    assert!(r
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|e| e.starts_with("Queue wait at p95 consumes")));
+    assert!(r
+        .primary_suspect
+        .evidence
+        .iter()
+        .all(|e| !e.contains("Observed queue-wait lower bound")));
+    assert!(!r
+        .primary_suspect
+        .confidence_notes
+        .contains(&super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()));
+    let completed_only_confidence =
+        analyze_run(&partial_policy_run(false, false), AnalyzeOptions::default())
+            .primary_suspect
+            .confidence;
+    assert_eq!(r.primary_suspect.confidence, completed_only_confidence);
+    assert_eq!(r.evidence_quality.queues, SignalCoverageStatus::Partial);
+    assert_eq!(r.evidence_quality.queue_event_count, 46);
+    assert_eq!(r.evidence_quality.limitations[0], "Partial evidence captured: queues 45 completed/1 partial; stages 45 completed/0 partial. Partial durations are observed lower bounds.");
+}
+
+#[test]
+fn mixed_stage_evidence_uses_higher_basis_and_labels_material_partial_reliance() {
+    let mut run = partial_policy_run(false, false);
+    for i in 0..20 {
+        let s = &mut run.stages[i];
+        s.latency_us = 300;
+        s.started_at_run_us = Some(0);
+        s.finished_at_run_us = Some(300);
+    }
+    for i in 20..45 {
+        let s = &mut run.stages[i];
+        s.completed = false;
+        s.success = false;
+        s.latency_us = 900;
+        s.started_at_run_us = Some(0);
+        s.finished_at_run_us = Some(900);
+    }
+    let profile = super::partial_evidence::PartialEvidenceProfile::from_run(&run);
+    assert_eq!(profile.stages.completed, 20);
+    assert_eq!(profile.stages.partial, 25);
+    let candidates = super::scoring::downstream_stage_candidates_for_test(
+        &run,
+        1_000,
+        &AnalyzeOptions::default(),
+    );
+    let completed = candidates
+        .iter()
+        .find(|c| c.0 == super::partial_evidence::EvidenceBasis::Completed)
+        .expect("completed stage candidate");
+    let observed = candidates
+        .iter()
+        .find(|c| c.0 == super::partial_evidence::EvidenceBasis::ObservedLowerBound)
+        .expect("observed stage candidate");
+    assert_eq!(completed.2, 20);
+    assert_eq!(observed.2, 45);
+    assert_eq!(completed.3, 300);
+    assert_eq!(observed.3, 900);
+    assert_eq!(completed.4, 6_000);
+    assert_eq!(observed.4, 28_500);
+    assert_eq!(completed.5, 133);
+    assert_eq!(observed.5, 633);
+    assert_eq!(completed.6, 133);
+    assert_eq!(observed.6, 633);
+    assert_eq!(completed.7, 42);
+    assert_eq!(observed.7, 95);
+    assert!(observed.7 > completed.7);
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let suspect = downstream_suspect(&report);
+    assert_eq!(suspect.score, observed.7);
+    assert_eq!(suspect.evidence, vec![
+        "Stage 'db' observed lower-bound p95 latency is 900 us across 45 samples and includes 25 partial stage event(s).".to_string(),
+        "Stage 'db' observed lower-bound cumulative latency is 28500 us (633 permille of request latency).".to_string(),
+        "Stage 'db' observed lower-bound contribution is 633 permille of tail request latency.".to_string(),
+    ]);
+    assert_eq!(suspect.confidence, Confidence::Medium);
+    assert_eq!(
+        suspect.confidence_notes,
+        vec![
+            super::partial_evidence::PARTIAL_STAGE_CONFIDENCE_NOTE.to_string(),
+            "Top suspects are close in score; confidence is capped by ambiguity.".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn fully_overlapped_partial_stage_does_not_cap_completed_candidate() {
+    let mut run = partial_policy_run(false, false);
+    let mut s = precise_stage("r0", "db", Some(0), Some(900), 900);
+    s.completed = false;
+    s.success = false;
+    run.stages.push(s);
+    let profile = super::partial_evidence::PartialEvidenceProfile::from_run(&run);
+    assert_eq!(profile.stages.completed, 45);
+    assert_eq!(profile.stages.partial, 1);
+    let candidates = super::scoring::downstream_stage_candidates_for_test(
+        &run,
+        1_000,
+        &AnalyzeOptions::default(),
+    );
+    let completed = candidates
+        .iter()
+        .find(|c| c.0 == super::partial_evidence::EvidenceBasis::Completed)
+        .expect("completed stage candidate");
+    let observed = candidates
+        .iter()
+        .find(|c| c.0 == super::partial_evidence::EvidenceBasis::ObservedLowerBound)
+        .expect("observed stage candidate");
+    assert_eq!(completed.7, observed.7);
+
+    let r = analyze_run(&run, AnalyzeOptions::default());
+    let d = downstream_suspect(&r);
+    assert_eq!(d.score, completed.7);
+    assert!(d
+        .evidence
+        .iter()
+        .any(|e| e == "Stage 'db' has p95 latency 900 us across 45 samples."));
+    assert!(d
+        .evidence
+        .iter()
+        .all(|e| !e.contains("observed lower-bound")));
+    assert!(!d
+        .confidence_notes
+        .contains(&super::partial_evidence::PARTIAL_STAGE_CONFIDENCE_NOTE.to_string()));
+    let completed_only_confidence = downstream_suspect(&analyze_run(
+        &partial_policy_run(false, false),
+        AnalyzeOptions::default(),
+    ))
+    .confidence;
+    assert_eq!(d.confidence, completed_only_confidence);
+    assert_eq!(r.evidence_quality.stages, SignalCoverageStatus::Partial);
+    assert_eq!(r.evidence_quality.stage_event_count, 46);
+    assert_eq!(r.evidence_quality.limitations[0], "Partial evidence captured: queues 45 completed/0 partial; stages 45 completed/1 partial. Partial durations are observed lower bounds.");
+}
+#[test]
+fn partial_counts_and_signal_statuses_are_deterministic() {
+    let run = partial_policy_run(true, true);
+    let r = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(r.evidence_quality.queue_event_count, 45);
+    assert_eq!(r.evidence_quality.stage_event_count, 45);
+    assert_eq!(r.evidence_quality.queues, SignalCoverageStatus::Partial);
+    assert_eq!(r.evidence_quality.stages, SignalCoverageStatus::Partial);
+    assert_eq!(r.evidence_quality.quality, EvidenceQualityLevel::Partial);
+    assert_eq!(r.evidence_quality.limitations[0],"Partial evidence captured: queues 0 completed/45 partial; stages 0 completed/45 partial. Partial durations are observed lower bounds.");
+}
+#[test]
+fn partial_and_truncated_family_reports_truncated_status() {
+    let mut run = partial_policy_run(true, true);
+    run.truncation.dropped_queues = 1;
+    let r = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(r.evidence_quality.queues, SignalCoverageStatus::Truncated);
+}
+fn scoped_partial_acceptance_run() -> Run {
+    let mut run = test_run();
+    run.requests.clear();
+    run.queues.clear();
+    run.stages.clear();
+    for i in 0_u64..40 {
+        let partial = i >= 20;
+        let route = if partial { "/partial" } else { "/completed" };
+        let id = format!("r{i}");
+        let start = i * 2_000;
+        let mut req = precise_request(&id, 1_000);
+        req.route = route.into();
+        req.started_at_unix_ms = 10 + i;
+        req.finished_at_unix_ms = 11 + i;
+        req.started_at_run_us = Some(start);
+        req.finished_at_run_us = Some(start + 1_000);
+        run.requests.push(req);
+        let mut q = precise_queue(
+            &id,
+            start,
+            start + if partial { 900 } else { 300 },
+            if partial { 900 } else { 300 },
+        );
+        q.waited_from_unix_ms = 10 + i;
+        q.waited_until_unix_ms = 10 + i;
+        q.depth_at_start = Some(20);
+        q.completed = !partial;
+        run.queues.push(q);
+        let mut st = precise_stage(
+            &id,
+            "db",
+            Some(start),
+            Some(start + if partial { 900 } else { 300 }),
+            if partial { 900 } else { 300 },
+        );
+        st.started_at_unix_ms = 10 + i;
+        st.finished_at_unix_ms = 10 + i;
+        st.completed = !partial;
+        st.success = !partial;
+        run.stages.push(st);
+    }
+    run
+}
+
+fn assert_no_duplicate_warnings(values: &[String]) {
+    let set: std::collections::BTreeSet<_> = values.iter().collect();
+    assert_eq!(values.len(), set.len(), "duplicate warnings: {values:?}");
+}
+
+#[test]
+fn global_partial_warning_is_emitted_once_and_not_copied_to_nested_warnings() {
+    let run = scoped_partial_acceptance_run();
+    let r = analyze_run(
+        &run,
+        AnalyzeOptions::default()
+            .with_route(|o| o.min_request_count = 10)
+            .with_temporal(|o| {
+                o.min_request_count = 20;
+                o.min_segment_request_count = 10;
+            }),
+    );
+    assert_eq!(r.route_breakdowns.len(), 2);
+    assert_eq!(r.temporal_segments.len(), 2);
+    assert_eq!(r.warnings, vec![
+        "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string(),
+        super::partial_evidence::PARTIAL_WARNING.to_string(),
+        "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.".to_string(),
+        "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.".to_string(),
+    ]);
+    assert_eq!(
+        r.warnings
+            .iter()
+            .filter(|w| w.as_str() == super::partial_evidence::PARTIAL_WARNING)
+            .count(),
+        1
+    );
+    assert_no_duplicate_warnings(&r.warnings);
+    for rb in &r.route_breakdowns {
+        assert_no_duplicate_warnings(&rb.warnings);
+        assert_eq!(
+            rb.warnings
+                .iter()
+                .filter(|w| w.as_str() == super::partial_evidence::PARTIAL_WARNING)
+                .count(),
+            0
+        );
+    }
+    for ts in &r.temporal_segments {
+        assert_no_duplicate_warnings(&ts.warnings);
+        assert_eq!(
+            ts.warnings
+                .iter()
+                .filter(|w| w.as_str() == super::partial_evidence::PARTIAL_WARNING)
+                .count(),
+            0
+        );
+    }
+}
+
+fn assert_completed_scoped_projection(report: &Report, name: &str, route_warning: bool) {
+    assert_eq!(report.request_count, 20, "{name}");
+    assert_eq!(report.evidence_quality.queue_event_count, 20);
+    assert_eq!(report.evidence_quality.stage_event_count, 20);
+    assert_eq!(
+        report.evidence_quality.queues,
+        SignalCoverageStatus::Present
+    );
+    assert_eq!(
+        report.evidence_quality.stages,
+        SignalCoverageStatus::Present
+    );
+    assert_eq!(
+        report.evidence_quality.quality,
+        EvidenceQualityLevel::Strong
+    );
+    assert_eq!(report.evidence_quality.limitations, vec!["Runtime snapshots are missing, limiting executor and blocking-pressure interpretation.".to_string()]);
+    assert_eq!(report.p95_queue_share_permille, Some(300));
+    assert_eq!(report.p95_service_share_permille, Some(700));
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_eq!(report.primary_suspect.score, 62);
+    assert_eq!(report.primary_suspect.confidence, Confidence::Low);
+    assert_eq!(
+        report.primary_suspect.evidence,
+        vec![
+            "Stage 'db' has p95 latency 300 us across 20 samples.".to_string(),
+            "Stage 'db' cumulative latency is 6000 us (300 permille of request latency)."
+                .to_string(),
+            "Stage 'db' contributes 300 permille of tail request latency.".to_string(),
+        ]
+    );
+    assert!(report.primary_suspect.confidence_notes.is_empty());
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .all(|e| !e.contains("Observed queue-wait lower bound")
+            && !e.contains("observed lower-bound")));
+    assert!(report
+        .primary_suspect
+        .confidence_notes
+        .iter()
+        .all(|n| !n.contains("Partial queue evidence") && !n.contains("Partial stage evidence")));
+    let mut expected = vec![
+        "No runtime snapshots captured; executor and blocking-pressure interpretation is limited."
+            .to_string(),
+    ];
+    if route_warning {
+        expected.push(
+            "Runtime and in-flight signals are global and are not attributed to this route."
+                .to_string(),
+        );
+    }
+    assert_eq!(report.warnings, expected);
+    assert!(report
+        .warnings
+        .iter()
+        .all(|w| w != super::partial_evidence::PARTIAL_WARNING));
+}
+
+fn assert_partial_scoped_projection(report: &Report, name: &str, route_warning: bool) {
+    assert_eq!(report.request_count, 20, "{name}");
+    assert_eq!(report.evidence_quality.queue_event_count, 20);
+    assert_eq!(report.evidence_quality.stage_event_count, 20);
+    let profile =
+        super::partial_evidence::PartialEvidenceProfile::from_run(&scoped_partial_acceptance_run());
+    assert_eq!(profile.queues.completed, 20);
+    assert_eq!(profile.queues.partial, 20);
+    assert_eq!(
+        report.evidence_quality.queues,
+        SignalCoverageStatus::Partial
+    );
+    assert_eq!(
+        report.evidence_quality.stages,
+        SignalCoverageStatus::Partial
+    );
+    assert_eq!(
+        report.evidence_quality.quality,
+        EvidenceQualityLevel::Partial
+    );
+    assert_eq!(report.evidence_quality.limitations[0], "Partial evidence captured: queues 0 completed/20 partial; stages 0 completed/20 partial. Partial durations are observed lower bounds.");
+    assert_eq!(report.p95_queue_share_permille, Some(0));
+    assert_eq!(report.p95_service_share_permille, Some(1000));
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(report.primary_suspect.score, 95);
+    assert_ne!(report.primary_suspect.confidence, Confidence::High);
+    assert_eq!(report.primary_suspect.evidence, vec![
+        "Completed-only queue wait at p95 is 0.0% of request time.".to_string(),
+        "Observed queue-wait lower bound at p95 is 90.0% of request time and includes 20 partial queue event(s).".to_string(),
+        "Observed queue depth sample up to 20.".to_string(),
+    ]);
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("Observed queue-wait lower bound")));
+    assert_eq!(
+        report.primary_suspect.confidence_notes,
+        vec![
+            super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string(),
+            "Top suspects are close in score; confidence is capped by ambiguity.".to_string(),
+        ]
+    );
+    let mut expected = vec!["Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string()];
+    if route_warning {
+        expected.push(
+            "Runtime and in-flight signals are global and are not attributed to this route."
+                .to_string(),
+        );
+    }
+    assert_eq!(report.warnings, expected);
+    assert!(report
+        .warnings
+        .iter()
+        .all(|w| w != super::partial_evidence::PARTIAL_WARNING));
+}
+
+#[test]
+fn route_breakdowns_apply_completed_distribution_and_partial_confidence_policy() {
+    let run = scoped_partial_acceptance_run();
+    assert_eq!(
+        run.requests
+            .iter()
+            .filter(|r| r.route == "/completed")
+            .count(),
+        20
+    );
+    assert_eq!(
+        run.requests
+            .iter()
+            .filter(|r| r.route == "/partial")
+            .count(),
+        20
+    );
+    assert!(run
+        .stages
+        .iter()
+        .filter(|s| s.request_id == "r0")
+        .all(|s| s.completed && s.success));
+    assert!(run
+        .stages
+        .iter()
+        .filter(|s| s.request_id == "r20")
+        .all(|s| !s.completed && !s.success));
+    let report = analyze_run(
+        &run,
+        AnalyzeOptions::default().with_route(|o| o.min_request_count = 10),
+    );
+    assert_eq!(report.route_breakdowns.len(), 2);
+    let completed = report
+        .route_breakdowns
+        .iter()
+        .find(|r| r.route == "/completed")
+        .unwrap();
+    assert_completed_scoped_projection(
+        &Report {
+            request_count: completed.request_count,
+            p50_latency_us: completed.p50_latency_us,
+            p95_latency_us: completed.p95_latency_us,
+            p99_latency_us: completed.p99_latency_us,
+            p95_queue_share_permille: completed.p95_queue_share_permille,
+            p95_service_share_permille: completed.p95_service_share_permille,
+            inflight_trend: None,
+            warnings: completed.warnings.clone(),
+            evidence_quality: completed.evidence_quality.clone(),
+            primary_suspect: completed.primary_suspect.clone(),
+            secondary_suspects: completed.secondary_suspects.clone(),
+            route_breakdowns: vec![],
+            temporal_segments: vec![],
+            analyzer_config: None,
+        },
+        "/completed",
+        true,
+    );
+    assert_eq!(completed.route, "/completed");
+    assert_eq!(
+        completed.secondary_suspects[0].kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    let partial = report
+        .route_breakdowns
+        .iter()
+        .find(|r| r.route == "/partial")
+        .unwrap();
+    assert_eq!(partial.route, "/partial");
+    assert_partial_scoped_projection(
+        &Report {
+            request_count: partial.request_count,
+            p50_latency_us: partial.p50_latency_us,
+            p95_latency_us: partial.p95_latency_us,
+            p99_latency_us: partial.p99_latency_us,
+            p95_queue_share_permille: partial.p95_queue_share_permille,
+            p95_service_share_permille: partial.p95_service_share_permille,
+            inflight_trend: None,
+            warnings: partial.warnings.clone(),
+            evidence_quality: partial.evidence_quality.clone(),
+            primary_suspect: partial.primary_suspect.clone(),
+            secondary_suspects: partial.secondary_suspects.clone(),
+            route_breakdowns: vec![],
+            temporal_segments: vec![],
+            analyzer_config: None,
+        },
+        "/partial",
+        true,
+    );
+}
+
+#[test]
+fn temporal_segments_apply_completed_distribution_and_partial_confidence_policy() {
+    let run = scoped_partial_acceptance_run();
+    let report = analyze_run(
+        &run,
+        AnalyzeOptions::default().with_temporal(|o| {
+            o.min_request_count = 20;
+            o.min_segment_request_count = 10;
+        }),
+    );
+    assert_eq!(report.temporal_segments.len(), 2);
+    assert!(report.warnings.iter().any(|w| w == "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect."));
+    let early = report
+        .temporal_segments
+        .iter()
+        .find(|s| s.name == "early")
+        .unwrap();
+    assert_eq!(early.name, "early");
+    assert_completed_scoped_projection(
+        &Report {
+            request_count: early.request_count,
+            p50_latency_us: early.p50_latency_us,
+            p95_latency_us: early.p95_latency_us,
+            p99_latency_us: early.p99_latency_us,
+            p95_queue_share_permille: early.p95_queue_share_permille,
+            p95_service_share_permille: early.p95_service_share_permille,
+            inflight_trend: None,
+            warnings: early.warnings.clone(),
+            evidence_quality: early.evidence_quality.clone(),
+            primary_suspect: early.primary_suspect.clone(),
+            secondary_suspects: early.secondary_suspects.clone(),
+            route_breakdowns: vec![],
+            temporal_segments: vec![],
+            analyzer_config: None,
+        },
+        "early",
+        false,
+    );
+    let late = report
+        .temporal_segments
+        .iter()
+        .find(|s| s.name == "late")
+        .unwrap();
+    assert_eq!(late.name, "late");
+    assert_partial_scoped_projection(
+        &Report {
+            request_count: late.request_count,
+            p50_latency_us: late.p50_latency_us,
+            p95_latency_us: late.p95_latency_us,
+            p99_latency_us: late.p99_latency_us,
+            p95_queue_share_permille: late.p95_queue_share_permille,
+            p95_service_share_permille: late.p95_service_share_permille,
+            inflight_trend: None,
+            warnings: late.warnings.clone(),
+            evidence_quality: late.evidence_quality.clone(),
+            primary_suspect: late.primary_suspect.clone(),
+            secondary_suspects: late.secondary_suspects.clone(),
+            route_breakdowns: vec![],
+            temporal_segments: vec![],
+            analyzer_config: None,
+        },
+        "late",
+        false,
+    );
+}
+
+#[test]
+fn cancelled_requests_with_partial_children_are_qualified_without_fabricated_failure() {
+    let mut run = partial_policy_run(false, true);
+    run.queues.clear();
+    run.requests[7].outcome = "cancelled".into();
+    let r7: Vec<_> = run
+        .requests
+        .iter()
+        .filter(|r| r.request_id == "r7")
+        .collect();
+    assert_eq!(r7.len(), 1);
+    assert_eq!(r7[0].outcome, "cancelled");
+    let child = run.stages.iter().find(|s| s.request_id == "r7").unwrap();
+    assert_eq!(child.request_id, "r7");
+    assert!(!child.completed);
+    assert!(!child.success);
+    let r = analyze_run(&run, AnalyzeOptions::default());
+    assert_eq!(r.request_count, 45);
+    assert_eq!(
+        run.requests
+            .iter()
+            .filter(|req| req.request_id == "r7" && req.outcome == "cancelled")
+            .count(),
+        1
+    );
+    assert_eq!(r.evidence_quality.stage_event_count, 45);
+    assert_eq!(r.evidence_quality.stages, SignalCoverageStatus::Partial);
+    assert_eq!(r.evidence_quality.quality, EvidenceQualityLevel::Partial);
+    assert_eq!(r.evidence_quality.limitations[0], "Partial evidence captured: queues 0 completed/0 partial; stages 0 completed/45 partial. Partial durations are observed lower bounds.");
+    assert_eq!(
+        r.warnings
+            .iter()
+            .filter(|w| w.as_str() == super::partial_evidence::PARTIAL_WARNING)
+            .count(),
+        1
+    );
+    assert_eq!(
+        r.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_eq!(r.primary_suspect.score, 95);
+    assert_ne!(r.primary_suspect.confidence, Confidence::High);
+    assert_eq!(
+        r.primary_suspect.confidence_notes,
+        vec![super::partial_evidence::PARTIAL_STAGE_CONFIDENCE_NOTE.to_string()]
+    );
+    assert_eq!(r.primary_suspect.evidence, vec![
+        "Stage 'db' observed lower-bound p95 latency is 900 us across 45 samples and includes 45 partial stage event(s).".to_string(),
+        "Stage 'db' observed lower-bound cumulative latency is 40500 us (900 permille of request latency).".to_string(),
+        "Stage 'db' observed lower-bound contribution is 900 permille of tail request latency.".to_string(),
+    ]);
+    let text = r
+        .primary_suspect
+        .evidence
+        .iter()
+        .chain(r.primary_suspect.confidence_notes.iter())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_lowercase();
+    for forbidden in [
+        "failed stage",
+        "stage failure",
+        "operation failed",
+        "downstream failure",
+        "completed failure",
+        "error result",
+    ] {
+        assert!(
+            !text.contains(forbidden),
+            "fabricated failure wording {forbidden}: {text}"
+        );
+    }
+}
+
+#[test]
+fn validation_corpus_completed_defaults_and_partial_flags_deserialize() {
+    let paths = [
+        "validation/diagnostics/corpus/partial-evidence-completed-only.json",
+        "validation/diagnostics/corpus/partial-evidence-mixed.json",
+        "validation/diagnostics/corpus/partial-evidence-queue-only.json",
+        "validation/diagnostics/corpus/partial-evidence-stage-only.json",
+        "validation/diagnostics/corpus/cancelled-request-with-partial-child.json",
+    ];
+    let mut saw_omitted_completed_default = false;
+    let mut saw_explicit_partial = false;
+    for path in paths {
+        let raw = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .join(path),
+        )
+        .unwrap();
+        let run: Run = serde_json::from_str(&raw).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        if let Some(raw_events) = value.get("queues").and_then(|v| v.as_array()) {
+            for (idx, raw_event) in raw_events.iter().enumerate() {
+                if raw_event.get("completed").is_none() {
+                    assert!(run.queues[idx].completed);
+                    saw_omitted_completed_default = true;
+                } else if raw_event.get("completed") == Some(&serde_json::Value::Bool(false)) {
+                    assert!(!run.queues[idx].completed);
+                    saw_explicit_partial = true;
+                }
+            }
+        }
+        if let Some(raw_events) = value.get("stages").and_then(|v| v.as_array()) {
+            for (idx, raw_event) in raw_events.iter().enumerate() {
+                if raw_event.get("completed").is_none() {
+                    assert!(run.stages[idx].completed);
+                    saw_omitted_completed_default = true;
+                } else if raw_event.get("completed") == Some(&serde_json::Value::Bool(false)) {
+                    assert!(!run.stages[idx].completed);
+                    saw_explicit_partial = true;
+                }
+            }
+        }
+        let report = analyze_run(&run, AnalyzeOptions::default());
+        assert_eq!(report.request_count, run.requests.len());
+    }
+    assert!(saw_omitted_completed_default);
+    assert!(saw_explicit_partial);
+}
+
+fn partial_policy_run(queue_partial: bool, stage_partial: bool) -> Run {
+    let mut run = test_run();
+    run.requests = (0..45)
+        .map(|i| precise_request(&format!("r{i}"), 1_000))
+        .collect();
+    for i in 0..45 {
+        let id = format!("r{i}");
+        let mut q = precise_queue(&id, 0, 900, 900);
+        q.depth_at_start = Some(20);
+        q.completed = !queue_partial;
+        run.queues.push(q);
+        let mut s = precise_stage(&id, "db", Some(0), Some(900), 900);
+        s.completed = !stage_partial;
+        if stage_partial {
+            s.success = false;
+        }
+        run.stages.push(s);
+    }
+    run
 }

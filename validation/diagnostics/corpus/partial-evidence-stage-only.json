@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "metadata": {"run_id":"partial-evidence-stage-only","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finalized_at_unix_ms":2,"mode":"light","effective_core_config":{"mode":"light","capture_limits":{"max_requests":10000,"max_stages":20000,"max_queues":20000,"max_inflight_snapshots":20000,"max_runtime_snapshots":20000},"strict_lifecycle":false},"effective_tokio_sampler_config":null,"host":null,"pid":1,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]},"run_end_reason":null},
+  "requests": [
+    {"request_id":"r0","route":"/fixture","kind":null,"started_at_unix_ms":10,"started_at_run_us":0,"finished_at_unix_ms":11,"finished_at_run_us":1000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r1","route":"/fixture","kind":null,"started_at_unix_ms":11,"started_at_run_us":2000,"finished_at_unix_ms":12,"finished_at_run_us":3000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r2","route":"/fixture","kind":null,"started_at_unix_ms":12,"started_at_run_us":4000,"finished_at_unix_ms":13,"finished_at_run_us":5000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r3","route":"/fixture","kind":null,"started_at_unix_ms":13,"started_at_run_us":6000,"finished_at_unix_ms":14,"finished_at_run_us":7000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r4","route":"/fixture","kind":null,"started_at_unix_ms":14,"started_at_run_us":8000,"finished_at_unix_ms":15,"finished_at_run_us":9000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r5","route":"/fixture","kind":null,"started_at_unix_ms":15,"started_at_run_us":10000,"finished_at_unix_ms":16,"finished_at_run_us":11000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r6","route":"/fixture","kind":null,"started_at_unix_ms":16,"started_at_run_us":12000,"finished_at_unix_ms":17,"finished_at_run_us":13000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r7","route":"/fixture","kind":null,"started_at_unix_ms":17,"started_at_run_us":14000,"finished_at_unix_ms":18,"finished_at_run_us":15000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r8","route":"/fixture","kind":null,"started_at_unix_ms":18,"started_at_run_us":16000,"finished_at_unix_ms":19,"finished_at_run_us":17000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r9","route":"/fixture","kind":null,"started_at_unix_ms":19,"started_at_run_us":18000,"finished_at_unix_ms":20,"finished_at_run_us":19000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r10","route":"/fixture","kind":null,"started_at_unix_ms":20,"started_at_run_us":20000,"finished_at_unix_ms":21,"finished_at_run_us":21000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r11","route":"/fixture","kind":null,"started_at_unix_ms":21,"started_at_run_us":22000,"finished_at_unix_ms":22,"finished_at_run_us":23000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r12","route":"/fixture","kind":null,"started_at_unix_ms":22,"started_at_run_us":24000,"finished_at_unix_ms":23,"finished_at_run_us":25000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r13","route":"/fixture","kind":null,"started_at_unix_ms":23,"started_at_run_us":26000,"finished_at_unix_ms":24,"finished_at_run_us":27000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r14","route":"/fixture","kind":null,"started_at_unix_ms":24,"started_at_run_us":28000,"finished_at_unix_ms":25,"finished_at_run_us":29000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r15","route":"/fixture","kind":null,"started_at_unix_ms":25,"started_at_run_us":30000,"finished_at_unix_ms":26,"finished_at_run_us":31000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r16","route":"/fixture","kind":null,"started_at_unix_ms":26,"started_at_run_us":32000,"finished_at_unix_ms":27,"finished_at_run_us":33000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r17","route":"/fixture","kind":null,"started_at_unix_ms":27,"started_at_run_us":34000,"finished_at_unix_ms":28,"finished_at_run_us":35000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r18","route":"/fixture","kind":null,"started_at_unix_ms":28,"started_at_run_us":36000,"finished_at_unix_ms":29,"finished_at_run_us":37000,"latency_us":1000,"outcome":"ok"},
+    {"request_id":"r19","route":"/fixture","kind":null,"started_at_unix_ms":29,"started_at_run_us":38000,"finished_at_unix_ms":30,"finished_at_run_us":39000,"latency_us":1000,"outcome":"ok"}
+  ],
+  "stages": [
+    {"request_id":"r0","stage":"db","started_at_unix_ms":10,"started_at_run_us":0,"finished_at_unix_ms":10,"finished_at_run_us":900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r1","stage":"db","started_at_unix_ms":11,"started_at_run_us":2000,"finished_at_unix_ms":11,"finished_at_run_us":2900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r2","stage":"db","started_at_unix_ms":12,"started_at_run_us":4000,"finished_at_unix_ms":12,"finished_at_run_us":4900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r3","stage":"db","started_at_unix_ms":13,"started_at_run_us":6000,"finished_at_unix_ms":13,"finished_at_run_us":6900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r4","stage":"db","started_at_unix_ms":14,"started_at_run_us":8000,"finished_at_unix_ms":14,"finished_at_run_us":8900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r5","stage":"db","started_at_unix_ms":15,"started_at_run_us":10000,"finished_at_unix_ms":15,"finished_at_run_us":10900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r6","stage":"db","started_at_unix_ms":16,"started_at_run_us":12000,"finished_at_unix_ms":16,"finished_at_run_us":12900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r7","stage":"db","started_at_unix_ms":17,"started_at_run_us":14000,"finished_at_unix_ms":17,"finished_at_run_us":14900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r8","stage":"db","started_at_unix_ms":18,"started_at_run_us":16000,"finished_at_unix_ms":18,"finished_at_run_us":16900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r9","stage":"db","started_at_unix_ms":19,"started_at_run_us":18000,"finished_at_unix_ms":19,"finished_at_run_us":18900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r10","stage":"db","started_at_unix_ms":20,"started_at_run_us":20000,"finished_at_unix_ms":20,"finished_at_run_us":20900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r11","stage":"db","started_at_unix_ms":21,"started_at_run_us":22000,"finished_at_unix_ms":21,"finished_at_run_us":22900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r12","stage":"db","started_at_unix_ms":22,"started_at_run_us":24000,"finished_at_unix_ms":22,"finished_at_run_us":24900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r13","stage":"db","started_at_unix_ms":23,"started_at_run_us":26000,"finished_at_unix_ms":23,"finished_at_run_us":26900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r14","stage":"db","started_at_unix_ms":24,"started_at_run_us":28000,"finished_at_unix_ms":24,"finished_at_run_us":28900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r15","stage":"db","started_at_unix_ms":25,"started_at_run_us":30000,"finished_at_unix_ms":25,"finished_at_run_us":30900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r16","stage":"db","started_at_unix_ms":26,"started_at_run_us":32000,"finished_at_unix_ms":26,"finished_at_run_us":32900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r17","stage":"db","started_at_unix_ms":27,"started_at_run_us":34000,"finished_at_unix_ms":27,"finished_at_run_us":34900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r18","stage":"db","started_at_unix_ms":28,"started_at_run_us":36000,"finished_at_unix_ms":28,"finished_at_run_us":36900,"latency_us":900,"success":false,"completed":false},
+    {"request_id":"r19","stage":"db","started_at_unix_ms":29,"started_at_run_us":38000,"finished_at_unix_ms":29,"finished_at_run_us":38900,"latency_us":900,"success":false,"completed":false}
+  ],
+  "queues": [
+  ],
+  "inflight": [
+  ],
+  "runtime_snapshots": [
+  ],
+  "truncation": {"limits_hit":false,"dropped_requests":0,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0}
+}
