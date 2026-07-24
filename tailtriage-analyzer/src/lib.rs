@@ -493,7 +493,6 @@ pub struct RouteBreakdown {
 ///         service_name: "svc".to_string(),
 ///         service_version: None,
 ///         started_at_unix_ms: 1,
-///         finished_at_unix_ms: 2,
 ///         finalized_at_unix_ms: Some(2),
 ///         mode: CaptureMode::Light,
 ///         effective_core_config: Some(EffectiveCoreConfig {

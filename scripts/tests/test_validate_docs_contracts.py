@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1281,6 +1282,229 @@ Duplicate.
             with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
                 with self.assertRaisesRegex(ValueError, r"exactly one"):
                     validate_docs_contracts.validate_tracing_readme_migration_section_contract()
+
+class CheckpointDocumentationContractTests(unittest.TestCase):
+
+    @staticmethod
+    def canonical_checkpoint_body() -> str:
+        return """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged.
+Dropping an admitted request-completion token while capture is open records one request outcome `cancelled`; that Drop does not itself fabricate child evidence; an independently polled-and-dropped queue/stage helper records one bounded partial child event; a queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
+Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap.
+Completed queue/stage distributions exclude partial observations.
+Partial durations are an observed lower bound.
+Materially partial-reliant queue/stage candidates cannot exceed medium confidence.
+Tracing intake remains completed-only.
+The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last.
+Raw-score proximity controls ambiguity membership, and ambiguity-cluster members are capped uniformly.
+"""
+
+    def assert_only_checkpoint_concept_missing(self, message: str, expected: str) -> None:
+        self.assertIn(expected, message)
+        for concept in (
+            "schema v2 finalization",
+            "request cancellation versus partial child Drop",
+            "overlap-safe attribution",
+            "partial lower-bound interpretation",
+            "completed-only tracing",
+            "confidence-first ordering",
+            "ambiguity cluster cap",
+        ):
+            missing = f"missing checkpoint contract tokens for {concept}"
+            if missing not in expected:
+                self.assertNotIn(missing, message)
+
+    def test_checkpoint_contract_accepts_current_canonical_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "canonical.md"
+            path.write_text(self.canonical_checkpoint_body(), encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=(path,)
+                )
+
+    def test_checkpoint_contract_rejects_obsolete_analyzer_phrase_with_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "README.md"
+            path.write_text("Analyzer interpretation is unchanged in this release.\n", encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"README\.md contains obsolete checkpoint phrase"),
+            ):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=()
+                )
+
+    def test_checkpoint_contract_rejects_misleading_cancellation_case_insensitively(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "docs" / "operations.md"
+            path.parent.mkdir()
+            path.write_text("cAnCeLlAtIoN does not add partial queue or stage evidence.\n", encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"docs/operations\.md contains misleading cancellation wording"),
+            ):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=()
+                )
+
+    def test_checkpoint_contract_rejects_missing_schema_token(self) -> None:
+        body = self.canonical_checkpoint_body().replace(
+            "Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged.\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        markdown_paths=(path,), canonical_paths=(path,)
+                    )
+            self.assert_only_checkpoint_concept_missing(
+                str(ctx.exception),
+                "SPEC.md missing checkpoint contract tokens for schema v2 finalization",
+            )
+
+    def test_checkpoint_contract_rejects_missing_request_cancellation_distinction(self) -> None:
+        body = self.canonical_checkpoint_body().replace(
+            "Dropping an admitted request-completion token while capture is open records one request outcome `cancelled`; that Drop does not itself fabricate child evidence; an independently polled-and-dropped queue/stage helper records one bounded partial child event; a queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        markdown_paths=(path,), canonical_paths=(path,)
+                    )
+            self.assert_only_checkpoint_concept_missing(
+                str(ctx.exception),
+                "SPEC.md missing checkpoint contract tokens for request cancellation versus partial child Drop",
+            )
+
+    def test_checkpoint_contract_rejects_missing_overlap_safe_attribution(self) -> None:
+        body = self.canonical_checkpoint_body().replace(
+            "Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap.\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "docs" / "operations.md"
+            path.parent.mkdir()
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        markdown_paths=(path,), canonical_paths=(path,)
+                    )
+            self.assert_only_checkpoint_concept_missing(
+                str(ctx.exception),
+                "docs/operations.md missing checkpoint contract tokens for overlap-safe attribution",
+            )
+
+    def test_checkpoint_contract_rejects_missing_partial_lower_bound_token(self) -> None:
+        body = self.canonical_checkpoint_body().replace(
+            "Completed queue/stage distributions exclude partial observations.\nPartial durations are an observed lower bound.\nMaterially partial-reliant queue/stage candidates cannot exceed medium confidence.\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "docs" / "operations.md"
+            path.parent.mkdir()
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        markdown_paths=(path,), canonical_paths=(path,)
+                    )
+            self.assert_only_checkpoint_concept_missing(
+                str(ctx.exception),
+                "docs/operations.md missing checkpoint contract tokens for partial lower-bound interpretation",
+            )
+
+    def test_checkpoint_contract_rejects_missing_completed_only_tracing(self) -> None:
+        body = self.canonical_checkpoint_body().replace(
+            "Tracing intake remains completed-only.\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        markdown_paths=(path,), canonical_paths=(path,)
+                    )
+            self.assert_only_checkpoint_concept_missing(
+                str(ctx.exception),
+                "SPEC.md missing checkpoint contract tokens for completed-only tracing",
+            )
+
+    def test_checkpoint_contract_rejects_missing_confidence_first_ordering_token(self) -> None:
+        body = self.canonical_checkpoint_body().replace(
+            "The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last.\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        markdown_paths=(path,), canonical_paths=(path,)
+                    )
+            self.assert_only_checkpoint_concept_missing(
+                str(ctx.exception),
+                "SPEC.md missing checkpoint contract tokens for confidence-first ordering",
+            )
+
+    def test_checkpoint_contract_rejects_missing_ambiguity_cluster_cap(self) -> None:
+        body = self.canonical_checkpoint_body().replace(
+            "Raw-score proximity controls ambiguity membership, and ambiguity-cluster members are capped uniformly.\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "docs" / "operations.md"
+            path.parent.mkdir()
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        markdown_paths=(path,), canonical_paths=(path,)
+                    )
+            self.assert_only_checkpoint_concept_missing(
+                str(ctx.exception),
+                "docs/operations.md missing checkpoint contract tokens for ambiguity cluster cap",
+            )
+
+    def test_checkpoint_contract_scans_tracked_markdown_repository_wide(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+            tracked = repo_root / "nested" / "tracked-contract.md"
+            untracked = repo_root / "untracked-contract.md"
+            tracked.parent.mkdir()
+            stale = "Analyzer interpretation is unchanged in this release.\n"
+            tracked.write_text(stale, encoding="utf-8")
+            untracked.write_text(stale, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "nested/tracked-contract.md"],
+                cwd=repo_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_docs_contracts.validate_checkpoint_documentation_contract(
+                        canonical_paths=(),
+                    )
+            message = str(ctx.exception)
+            self.assertIn(
+                "nested/tracked-contract.md contains obsolete checkpoint phrase",
+                message,
+            )
+            self.assertNotIn("untracked-contract.md", message)
+
 
 if __name__ == "__main__":
     unittest.main()

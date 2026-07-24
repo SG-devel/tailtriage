@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -142,6 +143,21 @@ STALE_VALIDATION_DOC_PHRASES = (
     "no in normal pr ci",
 )
 
+
+
+OBSOLETE_CHECKPOINT_PHRASES = (
+    "analyzer interpretation is unchanged in this release",
+    "Cancellation does not add partial queue or stage evidence",
+)
+
+MISLEADING_CANCELLATION_PATTERNS = (
+    r"cancellation\s+does\s+not\s+add\s+partial\s+queue\s+or\s+stage\s+evidence",
+)
+
+CANONICAL_CHECKPOINT_CONTRACT_PATHS = (
+    SPEC_PATH,
+    OPERATIONS_PATH,
+)
 
 RUSTDOC_INCLUDE_CRATE_LIBS = (
     REPO_ROOT / "tailtriage" / "src" / "lib.rs",
@@ -1317,6 +1333,118 @@ def validate_live_tracing_session_public_contract() -> None:
                 f"{path.relative_to(REPO_ROOT)} contains obsolete current live tracing guidance outside migration section: {found}"
             )
 
+def tracked_markdown_paths() -> list[Path]:
+    result = subprocess.run(
+        ["git", "ls-files", "*.md"],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return [REPO_ROOT / line for line in result.stdout.splitlines() if line]
+
+
+def validate_checkpoint_documentation_contract(
+    *,
+    markdown_paths: tuple[Path, ...] | None = None,
+    canonical_paths: tuple[Path, ...] = CANONICAL_CHECKPOINT_CONTRACT_PATHS,
+) -> None:
+    if markdown_paths is None:
+        markdown_paths = tuple(tracked_markdown_paths())
+
+    errors: list[str] = []
+    for path in markdown_paths:
+        text = path.read_text(encoding="utf-8")
+        lower_text = text.lower()
+        for phrase in OBSOLETE_CHECKPOINT_PHRASES:
+            if phrase.lower() in lower_text:
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)} contains obsolete checkpoint phrase: {phrase}"
+                )
+        for pattern in MISLEADING_CANCELLATION_PATTERNS:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)} contains misleading cancellation wording: {pattern}"
+                )
+
+    required_concepts = (
+        (
+            "schema v2 finalization",
+            (
+                "Run JSON schema version 2",
+                "RunMetadata::finalized_at_unix_ms",
+                "sole run-level finalization timestamp",
+                "Active snapshots",
+                "None",
+                "finalized Runs",
+                "Some(timestamp)",
+            ),
+        ),
+        (
+            "request cancellation versus partial child Drop",
+            (
+                "dropping an admitted request-completion token while capture is open records one request outcome `cancelled`",
+                "does not itself fabricate child evidence",
+                "queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event",
+                "tracing spans remain completed-only",
+                "late Drop after finalization is inert",
+            ),
+        ),
+        (
+            "overlap-safe attribution",
+            (
+                "request-scoped bounded attribution",
+                "same-name stage",
+                "overlap",
+                "do not double-count",
+            ),
+        ),
+        (
+            "partial lower-bound interpretation",
+            (
+                "completed queue/stage distributions exclude partial observations",
+                "observed lower bound",
+                "materially partial-reliant queue/stage candidates cannot exceed medium confidence",
+            ),
+        ),
+        (
+            "completed-only tracing",
+            (
+                "tracing intake remains completed-only",
+            ),
+        ),
+        (
+            "confidence-first ordering",
+            (
+                "final confidence descending",
+                "raw score descending",
+                "stable suspect-kind rank",
+                "InsufficientEvidence last",
+            ),
+        ),
+        (
+            "ambiguity cluster cap",
+            (
+                "raw-score proximity",
+                "ambiguity",
+                "capped uniformly",
+            ),
+        ),
+    )
+    for path in canonical_paths:
+        text = path.read_text(encoding="utf-8")
+        lower_text = text.lower()
+        for concept, tokens in required_concepts:
+            missing = [token for token in tokens if token.lower() not in lower_text]
+            if missing:
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)} missing checkpoint contract tokens for {concept}: {missing}"
+                )
+
+    if errors:
+        raise ValueError("checkpoint documentation contract failed:\n" + "\n".join(errors))
+
+
 def validate_run_schema_v2_public_contract(
     *,
     doc_paths: tuple[Path, ...] = RUN_SCHEMA_CURRENT_CLAIM_PATHS,
@@ -1399,6 +1527,7 @@ def main() -> int:
     validate_tracing_jsonl_no_compat_guidance_contract()
     validate_live_tracing_session_public_contract()
     validate_run_schema_v2_public_contract()
+    validate_checkpoint_documentation_contract()
     print("docs contracts validated successfully")
     return 0
 
