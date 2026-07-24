@@ -174,6 +174,12 @@ Important limits for production interpretation:
 
 Treat tracing-based reports the same way as other reports: evidence-ranked suspects and next checks are triage leads, not proof.
 
+## Current artifact and analyzer contracts
+
+Run JSON schema version 2 is the current Run JSON schema version. `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged. Active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization. Schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version.
+
+Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, and all ambiguity-cluster members are capped uniformly. These rankings remain triage leads, not proof of root cause.
+
 ## Artifact sizing and retention expectations
 
 Artifact size depends on:
@@ -504,14 +510,17 @@ For tracing import and tracing-session operations guidance, see the canonical se
 
 Explicit completion remains preferred whenever the application knows the request outcome. Dropping an admitted unfinished completion token while capture is still open records one completed request with outcome `cancelled`; Drop is non-panicking, including during panic unwinding. If shutdown wins before a held token finishes or drops, that request is recorded only as unfinished metadata and a late finish or Drop is inert. A finalized Run is immutable to late request admission, completion, stage, queue, in-flight, runtime-snapshot, sampler-metadata, and end-reason mutations.
 
-Strict lifecycle shutdown with pending requests returns a retryable lifecycle error, performs no sink attempt, leaves pending requests open, and does not add finalization timestamps, unfinished metadata, or lifecycle warnings. Once an eligible shutdown attempts the sink, that finalization is terminal and single-shot on both success and failure; repeated or concurrent shutdown callers observe the same terminal attempt rather than writing again. Controller completion Drop participates in admitted-generation drain accounting exactly once, so a closing generation can finalize after the last admitted token is dropped. Completion-token Drop records the cancelled request and does not itself fabricate child evidence. Independently, any queue or stage helper that was polled and then dropped while capture was open records one partial child event.
+Strict lifecycle shutdown with pending requests returns a retryable lifecycle error, performs no sink attempt, leaves pending requests open, and does not add finalization timestamps, unfinished metadata, or lifecycle warnings. Once an eligible shutdown attempts the sink, that finalization is terminal and single-shot on both success and failure; repeated or concurrent shutdown callers observe the same terminal attempt rather than writing again. Controller completion Drop participates in admitted-generation drain accounting exactly once, so a closing generation can finalize after the last admitted token is dropped. Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
 
+
+
+Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap. Complete run-relative intervals are unioned within the request scope; duration-only fallback remains capped by the parent request duration.
 
 ### Partial queue and stage events
 
 Completed queue and stage JSON remains wire-compatible: schema version stays `2`, older schema-v2 JSON without `completed` reads as completed evidence, and completed events omit `completed` when serialized. The Rust structs now include `completed: bool`, which is an intentional pre-1.0 source break for external exhaustive `StageEvent` and `QueueEvent` struct literals. Prefer `StageEvent::new(...)` and `QueueEvent::new(...)`; constructors default to completed evidence and `into_partial()` should be used only when intentionally constructing partial evidence.
 
-Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only, and analyzer interpretation is unchanged in this release.
+Timing starts on first poll. Dropping a never-polled helper records no event. Dropping a polled pending helper while capture is open records one bounded partial event whose duration ends at observed helper Drop; late Drop after collector finalization is inert. Partial evidence is a lower-bound observation and does not prove that the underlying operation stopped. For partial stages, `success` is forced to `false`; it is not a completed operation result, so completion-aware consumers must inspect `completed`. Tracing spans remain completed-only. Analyzer reports keep completed queue/stage distributions completed-only, surface partial helper durations as observed lower-bound evidence, and apply evidence-aware confidence before final ranking.
 
 Migration example:
 
@@ -538,8 +547,8 @@ let partial = completed.clone().into_partial();
 
 ## Partial queue/stage evidence
 
-Completed queue and stage distributions exclude partial observations. Partial durations are observed lower bounds: tailtriage observed the helper from first poll until Drop, not proof that the underlying operation completed, failed, or stopped. Partial evidence remains visible in event totals, evidence-quality limitations, top-level warnings, and suspect evidence.
+Completed queue/stage distributions exclude partial observations. Partial durations are an observed lower bound: tailtriage observed the helper from first poll until Drop, not proof that the underlying operation completed, failed, or stopped. Partial evidence remains visible in event totals, evidence-quality limitations, top-level warnings, and suspect evidence.
 
-Queue/service public p95 fields remain completed-only. A queue or downstream-stage suspect materially relying on an observed-lower-bound path cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
+Queue/service public p95 fields remain completed-only. Materially partial-reliant queue/stage candidates cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
 
-Global, route, and temporal projections share this policy. Tracing imports remain completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+Global, route, and temporal projections share this policy. Tracing intake remains completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.

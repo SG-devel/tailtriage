@@ -1282,5 +1282,106 @@ Duplicate.
                 with self.assertRaisesRegex(ValueError, r"exactly one"):
                     validate_docs_contracts.validate_tracing_readme_migration_section_contract()
 
+class CheckpointDocumentationContractTests(unittest.TestCase):
+
+    def test_checkpoint_contract_accepts_current_canonical_wording(self) -> None:
+        body = """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged.
+Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
+Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap.
+Completed queue/stage distributions exclude partial observations. Partial durations are an observed lower bound. Materially partial-reliant queue/stage candidates cannot exceed medium confidence.
+Tracing intake remains completed-only.
+The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, and all ambiguity-cluster members are capped uniformly.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "canonical.md"
+            path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=(path,)
+                )
+
+    def test_checkpoint_contract_rejects_obsolete_analyzer_phrase_with_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "README.md"
+            path.write_text("Analyzer interpretation is unchanged in this release.\n", encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"README\.md contains obsolete checkpoint phrase"),
+            ):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=()
+                )
+
+    def test_checkpoint_contract_rejects_misleading_cancellation_case_insensitively(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "docs" / "operations.md"
+            path.parent.mkdir()
+            path.write_text("cAnCeLlAtIoN does not add partial queue or stage evidence.\n", encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"docs/operations\.md contains misleading cancellation wording"),
+            ):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=()
+                )
+
+    def test_checkpoint_contract_rejects_missing_schema_token(self) -> None:
+        body = """Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
+Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap.
+Completed queue/stage distributions exclude partial observations. Partial durations are an observed lower bound. Materially partial-reliant queue/stage candidates cannot exceed medium confidence.
+Tracing intake remains completed-only.
+The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, and all ambiguity-cluster members are capped uniformly.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"SPEC\.md missing checkpoint contract tokens for schema v2 finalization"),
+            ):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=(path,)
+                )
+
+    def test_checkpoint_contract_rejects_missing_partial_lower_bound_token(self) -> None:
+        body = """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged.
+Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
+Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap.
+Completed queue/stage distributions exclude partial observations.
+Tracing intake remains completed-only.
+The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last; raw-score proximity still controls ambiguity membership, and all ambiguity-cluster members are capped uniformly.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "docs" / "operations.md"
+            path.parent.mkdir()
+            path.write_text(body, encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"docs/operations\.md missing checkpoint contract tokens for partial lower-bound interpretation"),
+            ):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=(path,)
+                )
+
+    def test_checkpoint_contract_rejects_missing_confidence_first_ordering_token(self) -> None:
+        body = """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged.
+Dropping an admitted request-completion token while capture is open records one request outcome `cancelled` and does not itself fabricate child evidence. Independently, any queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.
+Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap.
+Completed queue/stage distributions exclude partial observations. Partial durations are an observed lower bound. Materially partial-reliant queue/stage candidates cannot exceed medium confidence.
+Tracing intake remains completed-only.
+Raw-score proximity still controls ambiguity membership, and all ambiguity-cluster members are capped uniformly.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "SPEC.md"
+            path.write_text(body, encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, r"SPEC\.md missing checkpoint contract tokens for confidence-first ordering"),
+            ):
+                validate_docs_contracts.validate_checkpoint_documentation_contract(
+                    markdown_paths=(path,), canonical_paths=(path,)
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
