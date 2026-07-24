@@ -124,6 +124,7 @@ In short:
 
 ### How to read results
 
+Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence, then unchanged raw score, then a stable suspect-kind rank; raw-score proximity still drives ambiguity warnings, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
 - Treat `primary_suspect` as the best lead, not proof.
 - Use `evidence[]` to choose one targeted experiment.
 - Re-run and compare p95 shares plus suspect evidence.

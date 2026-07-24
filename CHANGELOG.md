@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Suspect ranking now selects the primary after final evidence-aware confidence adjustment, ordering by final confidence, unchanged raw score, then stable suspect-kind rank while keeping raw-score ambiguity semantics.
 - Analyzer completed queue/stage distributions exclude partial events; partial durations are treated as observed lower bounds, materially partial-dependent queue/stage suspects are capped at medium confidence, partial evidence remains visible through existing evidence-quality, warning, evidence, and confidence-note fields, and tracing intake remains completed-only.
 - Added `completed: bool` to public `StageEvent` and `QueueEvent` structs with wire-compatible completed JSON; this is an intentional pre-1.0 Rust source break for exhaustive external struct literals, and constructor-based migration is recommended. Polled-then-dropped core/Tokio queue and stage helpers now record bounded partial evidence while capture remains open.
 - Completed-span JSONL now writes retained original tracing sources rather than reconstructing span-shaped records from normalized Run events, preserving source identity and fields while retaining the documented representational limits.

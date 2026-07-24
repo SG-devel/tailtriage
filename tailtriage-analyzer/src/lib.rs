@@ -768,27 +768,11 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
         ), basis: EvidenceBasis::Completed });
     }
 
-    suspects.sort_by_key(|scored| std::cmp::Reverse(scored.suspect.score));
-
-    let plain_for_warnings = suspects
-        .iter()
-        .map(|s| s.suspect.clone())
-        .collect::<Vec<_>>();
-    let warnings = analysis_warnings(run, &plain_for_warnings, options);
     let evidence_quality = evidence::evidence_quality(run, options);
+    let ranked_suspects = finalize_scored_suspects(suspects, run, &evidence_quality, options);
+    let warnings = analysis_warnings(run, &ranked_suspects, options);
 
-    for scored in &mut suspects {
-        scored.suspect.confidence =
-            Confidence::from_score_with_options(scored.suspect.score, options);
-    }
-    confidence::apply_evidence_aware_confidence_caps_scored(
-        &mut suspects,
-        run,
-        &evidence_quality,
-        options,
-    );
-
-    let mut ranked = suspects.into_iter().map(|s| s.suspect);
+    let mut ranked = ranked_suspects.into_iter();
     let primary_suspect = ranked.next().unwrap_or_else(|| {
         Suspect::new(
             DiagnosisKind::InsufficientEvidence,
@@ -813,6 +797,58 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
         route_breakdowns: Vec::new(),
         temporal_segments: Vec::new(),
         analyzer_config: None,
+    }
+}
+
+fn finalize_scored_suspects(
+    mut suspects: Vec<ScoredSuspect>,
+    run: &Run,
+    evidence_quality: &EvidenceQuality,
+    options: &AnalyzeOptions,
+) -> Vec<Suspect> {
+    for scored in &mut suspects {
+        scored.suspect.confidence =
+            Confidence::from_score_with_options(scored.suspect.score, options);
+    }
+    confidence::apply_evidence_aware_confidence_caps_scored(
+        &mut suspects,
+        run,
+        evidence_quality,
+        options,
+    );
+    suspects.sort_by(final_suspect_order);
+    suspects.into_iter().map(|s| s.suspect).collect()
+}
+
+fn final_suspect_order(a: &ScoredSuspect, b: &ScoredSuspect) -> std::cmp::Ordering {
+    let a_insufficient = a.suspect.kind == DiagnosisKind::InsufficientEvidence;
+    let b_insufficient = b.suspect.kind == DiagnosisKind::InsufficientEvidence;
+    a_insufficient
+        .cmp(&b_insufficient)
+        .then_with(|| {
+            confidence_rank(b.suspect.confidence).cmp(&confidence_rank(a.suspect.confidence))
+        })
+        .then_with(|| b.suspect.score.cmp(&a.suspect.score))
+        .then_with(|| {
+            diagnosis_kind_rank(&a.suspect.kind).cmp(&diagnosis_kind_rank(&b.suspect.kind))
+        })
+}
+
+const fn confidence_rank(confidence: Confidence) -> u8 {
+    match confidence {
+        Confidence::High => 3,
+        Confidence::Medium => 2,
+        Confidence::Low => 1,
+    }
+}
+
+const fn diagnosis_kind_rank(kind: &DiagnosisKind) -> u8 {
+    match kind {
+        DiagnosisKind::ApplicationQueueSaturation => 0,
+        DiagnosisKind::BlockingPoolPressure => 1,
+        DiagnosisKind::ExecutorPressureSuspected => 2,
+        DiagnosisKind::DownstreamStageDominates => 3,
+        DiagnosisKind::InsufficientEvidence => 255,
     }
 }
 

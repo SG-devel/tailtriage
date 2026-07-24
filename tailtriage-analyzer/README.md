@@ -134,6 +134,7 @@ Report transparency behavior:
 
 ## How to interpret a report
 
+Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence, then unchanged raw score, then a stable suspect-kind rank; raw-score proximity still drives ambiguity warnings, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
 - `primary_suspect` is the strongest triage lead for the analyzed run, not proof of root cause.
 - `secondary_suspects` are lower-ranked leads worth checking when evidence is close or the primary lead does not explain the incident.
 - `evidence[]` explains why a suspect was ranked.
