@@ -369,6 +369,50 @@ fn scoped_evidence(
 }
 
 #[test]
+fn ambiguity_cluster_membership_uses_raw_scores_only() {
+    let options = AnalyzeOptions::default().with_confidence(|o| {
+        o.ambiguity_min_score = 90;
+        o.ambiguity_score_gap = 4;
+    });
+    let candidates = vec![
+        literal_scored(
+            DiagnosisKind::ApplicationQueueSaturation,
+            95,
+            Confidence::Low,
+        ),
+        literal_scored(
+            DiagnosisKind::DownstreamStageDominates,
+            92,
+            Confidence::High,
+        ),
+        literal_scored(DiagnosisKind::BlockingPoolPressure, 70, Confidence::High),
+        literal_scored(DiagnosisKind::InsufficientEvidence, 100, Confidence::High),
+    ];
+    let expected = vec![
+        DiagnosisKind::ApplicationQueueSaturation,
+        DiagnosisKind::DownstreamStageDominates,
+    ];
+    let permutations = vec![
+        candidates.clone(),
+        candidates.iter().cloned().rev().collect::<Vec<_>>(),
+        vec![
+            candidates[2].clone(),
+            candidates[0].clone(),
+            candidates[3].clone(),
+            candidates[1].clone(),
+        ],
+    ];
+
+    for permutation in permutations {
+        let cluster = super::confidence::ambiguity_cluster_indices(&permutation, &options)
+            .into_iter()
+            .map(|idx| permutation[idx].suspect.kind.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(cluster, expected);
+    }
+}
+
+#[test]
 fn evidence_cap_can_promote_lower_raw_score_candidate() {
     let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default());
     assert_eq!(
@@ -449,41 +493,31 @@ fn cap_induced_primary_flip_has_exact_text() {
 }
 
 #[test]
-fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
+fn raw_score_ambiguity_caps_all_cluster_members_uniformly() {
     let mut run = cap_flip_run();
     for stage in &mut run.stages {
-        stage.latency_us = 500;
-        stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 500);
+        stage.latency_us = 900;
+        stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 900);
     }
-    let options = AnalyzeOptions::default().with_confidence(|o| {
-        o.ambiguity_score_gap = 7;
-        o.ambiguity_min_score = 88;
-    });
-    let report = analyze_run(&run, options.clone());
+    let report = analyze_run(&run, AnalyzeOptions::default());
     let warning = "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string();
     let ambiguity_note =
         "Top suspects are close in score; confidence is capped by ambiguity.".to_string();
     let partial_queue_note = super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string();
 
-    let candidate_a = report
-        .secondary_suspects
-        .iter()
-        .find(|s| s.kind == DiagnosisKind::ApplicationQueueSaturation)
-        .unwrap();
-    let candidate_b = &report.primary_suspect;
-
-    assert_eq!(options.confidence.ambiguity_score_gap, 7);
-    assert_eq!(options.confidence.ambiguity_min_score, 88);
-    assert_eq!(candidate_a.kind, DiagnosisKind::ApplicationQueueSaturation);
-    assert_eq!(candidate_a.score, 95);
-    assert_eq!(candidate_a.confidence, Confidence::Medium);
-    assert_eq!(candidate_a.evidence, vec![
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ApplicationQueueSaturation
+    );
+    assert_eq!(report.primary_suspect.score, 95);
+    assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
+    assert_eq!(report.primary_suspect.evidence, vec![
         "Completed-only queue wait at p95 is 0.0% of request time.".to_string(),
         "Observed queue-wait lower bound at p95 is 92.0% of request time and includes 45 partial queue event(s).".to_string(),
         "Observed queue depth sample up to 20.".to_string(),
     ]);
     assert_eq!(
-        candidate_a.next_checks,
+        report.primary_suspect.next_checks,
         vec![
             "Inspect queue admission limits and producer burst patterns.".to_string(),
             "Compare queue wait distribution before and after increasing worker parallelism."
@@ -491,24 +525,25 @@ fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
         ]
     );
     assert_eq!(
-        candidate_a.confidence_notes,
+        report.primary_suspect.confidence_notes,
         vec![partial_queue_note.clone(), ambiguity_note.clone()]
     );
 
-    assert_eq!(candidate_b.kind, DiagnosisKind::DownstreamStageDominates);
-    assert_eq!(candidate_b.score, 88);
-    assert_eq!(candidate_b.confidence, Confidence::High);
+    let secondary = &report.secondary_suspects[0];
+    assert_eq!(secondary.kind, DiagnosisKind::DownstreamStageDominates);
+    assert_eq!(secondary.score, 95);
+    assert_eq!(secondary.confidence, Confidence::Medium);
     assert_eq!(
-        candidate_b.evidence,
+        secondary.evidence,
         vec![
-            "Stage 'db' has p95 latency 500 us across 45 samples.".to_string(),
-            "Stage 'db' cumulative latency is 22500 us (500 permille of request latency)."
+            "Stage 'db' has p95 latency 900 us across 45 samples.".to_string(),
+            "Stage 'db' cumulative latency is 40500 us (900 permille of request latency)."
                 .to_string(),
-            "Stage 'db' contributes 500 permille of tail request latency.".to_string(),
+            "Stage 'db' contributes 900 permille of tail request latency.".to_string(),
         ]
     );
     assert_eq!(
-        candidate_b.next_checks,
+        secondary.next_checks,
         vec![
             "Inspect downstream dependency behind stage 'db'.".to_string(),
             "Collect downstream service timings and retry behavior during tail windows."
@@ -517,32 +552,14 @@ fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
                 .to_string(),
         ]
     );
-    assert_eq!(candidate_b.confidence_notes, vec![ambiguity_note.clone()]);
-
-    let raw_score_difference = candidate_a.score.abs_diff(candidate_b.score);
-    assert_eq!(raw_score_difference, 7);
-    assert!(candidate_a.score > candidate_b.score);
-    assert!(candidate_a.score.abs_diff(candidate_b.score) > 0);
-    assert!(
-        candidate_a.score.abs_diff(candidate_b.score) <= options.confidence.ambiguity_score_gap
-    );
-    assert!(
-        test_confidence_rank(candidate_b.confidence)
-            >= test_confidence_rank(candidate_a.confidence)
-    );
-    assert_eq!(
-        report.primary_suspect.kind,
-        DiagnosisKind::DownstreamStageDominates
-    );
-    assert_eq!(report.primary_suspect.score, 88);
-    assert_eq!(report.primary_suspect.confidence, Confidence::High);
+    assert_eq!(secondary.confidence_notes, vec![ambiguity_note.clone()]);
     assert_eq!(
         report
             .secondary_suspects
             .iter()
             .map(|s| s.kind.clone())
             .collect::<Vec<_>>(),
-        vec![DiagnosisKind::ApplicationQueueSaturation]
+        vec![DiagnosisKind::DownstreamStageDominates]
     );
     assert_eq!(
         report.warnings,
@@ -551,6 +568,16 @@ fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
             super::partial_evidence::PARTIAL_WARNING.to_string()
         ]
     );
+
+    for suspect in std::iter::once(&report.primary_suspect).chain(report.secondary_suspects.iter())
+    {
+        assert_eq!(suspect.confidence, Confidence::Medium);
+        assert!(suspect.confidence_notes.contains(&ambiguity_note));
+        assert!(
+            !(suspect.confidence == Confidence::High
+                && suspect.confidence_notes.contains(&ambiguity_note))
+        );
+    }
 }
 
 #[test]

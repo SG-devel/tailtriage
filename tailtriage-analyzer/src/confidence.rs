@@ -49,10 +49,6 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
                 .iter()
                 .all(|snapshot| snapshot.global_queue_depth.is_none()));
     let ambiguous_cluster = ambiguity_cluster_indices(suspects, options);
-    let ambiguous_cluster_has_material_partial = options.confidence.ambiguity_score_gap != 4
-        && ambiguous_cluster
-            .iter()
-            .any(|idx| suspects[*idx].basis == EvidenceBasis::ObservedLowerBound);
     for (i, scored) in suspects.iter_mut().enumerate() {
         let suspect = &mut scored.suspect;
         let mut cap = Confidence::High;
@@ -86,14 +82,9 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
             &mut cap,
             &mut notes,
         );
-        let ambiguity_cluster_member = ambiguous_cluster.contains(&i) && !is_insufficient;
-        let ambiguity_capped = ambiguity_cluster_member
-            && (!ambiguous_cluster_has_material_partial
-                || scored.basis == EvidenceBasis::ObservedLowerBound);
+        let ambiguity_capped = ambiguous_cluster.contains(&i) && !is_insufficient;
         if ambiguity_capped {
             cap = cap.min(Confidence::Medium);
-        }
-        if ambiguity_cluster_member {
             notes.push(
                 "Top suspects are close in score; confidence is capped by ambiguity.".to_string(),
             );
@@ -105,7 +96,7 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
             note == PARTIAL_QUEUE_CONFIDENCE_NOTE || note == PARTIAL_STAGE_CONFIDENCE_NOTE
         });
         stable_dedup(&mut notes);
-        if cap_changed_bucket || ambiguity_cluster_member || has_material_partial_note {
+        if cap_changed_bucket || ambiguity_capped || has_material_partial_note {
             suspect.confidence_notes = notes;
         } else {
             suspect.confidence_notes.clear();
@@ -185,7 +176,10 @@ fn apply_family_evidence_caps(
     }
 }
 
-fn ambiguity_cluster_indices(suspects: &[ScoredSuspect], options: &AnalyzeOptions) -> Vec<usize> {
+pub(super) fn ambiguity_cluster_indices(
+    suspects: &[ScoredSuspect],
+    options: &AnalyzeOptions,
+) -> Vec<usize> {
     let mut ranked = suspects
         .iter()
         .enumerate()
