@@ -304,11 +304,28 @@ fn test_confidence_rank(confidence: Confidence) -> u8 {
     }
 }
 
-fn assert_scoped_flip(primary: &Suspect, secondary: &[Suspect], expected_primary_score: u8) {
+fn assert_scoped_flip(
+    primary: &Suspect,
+    secondary: &[Suspect],
+    expected_primary_score: u8,
+    expected_primary_evidence: &[String],
+    expected_secondary_evidence: &[String],
+) {
     assert_eq!(primary.kind, DiagnosisKind::DownstreamStageDominates);
     assert_eq!(primary.score, expected_primary_score);
     assert_eq!(primary.confidence, Confidence::High);
     assert_eq!(primary.confidence_notes, Vec::<String>::new());
+    assert_eq!(primary.evidence, expected_primary_evidence);
+    assert_eq!(
+        primary.next_checks,
+        vec![
+            "Inspect downstream dependency behind stage 'db'.".to_string(),
+            "Collect downstream service timings and retry behavior during tail windows."
+                .to_string(),
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+                .to_string(),
+        ]
+    );
     assert_eq!(
         secondary.iter().map(|s| s.kind.clone()).collect::<Vec<_>>(),
         vec![DiagnosisKind::ApplicationQueueSaturation]
@@ -319,7 +336,36 @@ fn assert_scoped_flip(primary: &Suspect, secondary: &[Suspect], expected_primary
         secondary[0].confidence_notes,
         vec![super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()]
     );
+    assert_eq!(secondary[0].evidence, expected_secondary_evidence);
+    assert_eq!(
+        secondary[0].next_checks,
+        vec![
+            "Inspect queue admission limits and producer burst patterns.".to_string(),
+            "Compare queue wait distribution before and after increasing worker parallelism."
+                .to_string(),
+        ]
+    );
     assert!(secondary[0].score > primary.score);
+}
+
+fn scoped_evidence(
+    stage_us: u64,
+    samples: usize,
+    cumulative_us: u64,
+    queue_us: u64,
+) -> (Vec<String>, Vec<String>) {
+    (
+        vec![
+            format!("Stage 'db' has p95 latency {stage_us} us across {samples} samples."),
+            format!("Stage 'db' cumulative latency is {cumulative_us} us (500 permille of request latency)."),
+            "Stage 'db' contributes 500 permille of tail request latency.".to_string(),
+        ],
+        vec![
+            "Completed-only queue wait at p95 is 0.0% of request time.".to_string(),
+            format!("Observed queue-wait lower bound at p95 is {queue_us}.0% of request time and includes {samples} partial queue event(s)."),
+            "Observed queue depth sample up to 20.".to_string(),
+        ],
+    )
 }
 
 #[test]
@@ -406,52 +452,97 @@ fn cap_induced_primary_flip_has_exact_text() {
 fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
     let mut run = cap_flip_run();
     for stage in &mut run.stages {
-        stage.latency_us = 900;
-        stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 900);
+        stage.latency_us = 500;
+        stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 500);
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let options = AnalyzeOptions::default().with_confidence(|o| {
+        o.ambiguity_score_gap = 7;
+        o.ambiguity_min_score = 88;
+    });
+    let report = analyze_run(&run, options.clone());
     let warning = "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string();
-    let note = "Top suspects are close in score; confidence is capped by ambiguity.".to_string();
-    let candidate_a = &report.primary_suspect;
-    let candidate_b = report
+    let ambiguity_note =
+        "Top suspects are close in score; confidence is capped by ambiguity.".to_string();
+    let partial_queue_note = super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string();
+
+    let candidate_a = report
         .secondary_suspects
         .iter()
-        .find(|s| s.kind == DiagnosisKind::DownstreamStageDominates)
+        .find(|s| s.kind == DiagnosisKind::ApplicationQueueSaturation)
         .unwrap();
+    let candidate_b = &report.primary_suspect;
+
+    assert_eq!(options.confidence.ambiguity_score_gap, 7);
+    assert_eq!(options.confidence.ambiguity_min_score, 88);
     assert_eq!(candidate_a.kind, DiagnosisKind::ApplicationQueueSaturation);
     assert_eq!(candidate_a.score, 95);
     assert_eq!(candidate_a.confidence, Confidence::Medium);
+    assert_eq!(candidate_a.evidence, vec![
+        "Completed-only queue wait at p95 is 0.0% of request time.".to_string(),
+        "Observed queue-wait lower bound at p95 is 92.0% of request time and includes 45 partial queue event(s).".to_string(),
+        "Observed queue depth sample up to 20.".to_string(),
+    ]);
     assert_eq!(
-        candidate_a.confidence_notes,
+        candidate_a.next_checks,
         vec![
-            super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string(),
-            note.clone()
+            "Inspect queue admission limits and producer burst patterns.".to_string(),
+            "Compare queue wait distribution before and after increasing worker parallelism."
+                .to_string(),
         ]
     );
+    assert_eq!(
+        candidate_a.confidence_notes,
+        vec![partial_queue_note.clone(), ambiguity_note.clone()]
+    );
+
     assert_eq!(candidate_b.kind, DiagnosisKind::DownstreamStageDominates);
-    assert_eq!(candidate_b.score, 95);
-    assert_eq!(candidate_b.confidence, Confidence::Medium);
-    assert_eq!(candidate_b.confidence_notes, vec![note.clone()]);
+    assert_eq!(candidate_b.score, 88);
+    assert_eq!(candidate_b.confidence, Confidence::High);
+    assert_eq!(
+        candidate_b.evidence,
+        vec![
+            "Stage 'db' has p95 latency 500 us across 45 samples.".to_string(),
+            "Stage 'db' cumulative latency is 22500 us (500 permille of request latency)."
+                .to_string(),
+            "Stage 'db' contributes 500 permille of tail request latency.".to_string(),
+        ]
+    );
+    assert_eq!(
+        candidate_b.next_checks,
+        vec![
+            "Inspect downstream dependency behind stage 'db'.".to_string(),
+            "Collect downstream service timings and retry behavior during tail windows."
+                .to_string(),
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+                .to_string(),
+        ]
+    );
+    assert_eq!(candidate_b.confidence_notes, vec![ambiguity_note.clone()]);
+
     let raw_score_difference = candidate_a.score.abs_diff(candidate_b.score);
-    assert_eq!(raw_score_difference, 0);
-    assert_eq!(AnalyzeOptions::default().confidence.ambiguity_score_gap, 4);
-    assert!(raw_score_difference <= AnalyzeOptions::default().confidence.ambiguity_score_gap);
-    assert_ne!(candidate_a.confidence_notes, candidate_b.confidence_notes);
+    assert_eq!(raw_score_difference, 7);
+    assert!(candidate_a.score > candidate_b.score);
+    assert!(candidate_a.score.abs_diff(candidate_b.score) > 0);
+    assert!(
+        candidate_a.score.abs_diff(candidate_b.score) <= options.confidence.ambiguity_score_gap
+    );
+    assert!(
+        test_confidence_rank(candidate_b.confidence)
+            >= test_confidence_rank(candidate_a.confidence)
+    );
     assert_eq!(
         report.primary_suspect.kind,
-        DiagnosisKind::ApplicationQueueSaturation
-    );
-    assert_eq!(
-        report.secondary_suspects[0].kind,
         DiagnosisKind::DownstreamStageDominates
     );
+    assert_eq!(report.primary_suspect.score, 88);
+    assert_eq!(report.primary_suspect.confidence, Confidence::High);
     assert_eq!(
         report
             .secondary_suspects
             .iter()
             .map(|s| s.kind.clone())
             .collect::<Vec<_>>(),
-        vec![DiagnosisKind::DownstreamStageDominates]
+        vec![DiagnosisKind::ApplicationQueueSaturation]
     );
     assert_eq!(
         report.warnings,
@@ -460,10 +551,6 @@ fn ambiguity_remains_raw_score_based_after_confidence_reordering() {
             super::partial_evidence::PARTIAL_WARNING.to_string()
         ]
     );
-    for suspect in std::iter::once(&report.primary_suspect).chain(report.secondary_suspects.iter())
-    {
-        assert!(suspect.confidence_notes.contains(&note));
-    }
 }
 
 #[test]
@@ -534,8 +621,7 @@ fn candidate_order_is_stable_under_irrelevant_input_reordering() {
     assert_eq!(render_text(&a), render_text(&b));
 }
 
-#[test]
-fn global_route_and_temporal_share_final_confidence_ordering() {
+fn scoped_flip_report() -> Report {
     let mut run = cap_flip_run();
     for (i, req) in run.requests.iter_mut().enumerate() {
         req.route = if i < 23 { "/completed" } else { "/partial" }.into();
@@ -562,7 +648,12 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
             o.min_request_count = 20;
             o.min_segment_request_count = 10;
         });
-    let report = analyze_run(&run, options);
+    analyze_run(&run, options)
+}
+
+#[test]
+fn global_route_and_temporal_share_final_confidence_ordering() {
+    let report = scoped_flip_report();
     assert_eq!(report.route_breakdowns.len(), 2);
     assert_eq!(report.temporal_segments.len(), 2);
     assert_eq!(
@@ -593,12 +684,22 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
         .iter()
         .find(|r| r.route == "/partial")
         .unwrap();
+    let completed_evidence = scoped_evidence(500, 23, 11500, 92);
     assert_scoped_flip(
         &completed.primary_suspect,
         &completed.secondary_suspects,
         86,
+        &completed_evidence.0,
+        &completed_evidence.1,
     );
-    assert_scoped_flip(&partial.primary_suspect, &partial.secondary_suspects, 86);
+    let partial_evidence = scoped_evidence(1000, 22, 22000, 92);
+    assert_scoped_flip(
+        &partial.primary_suspect,
+        &partial.secondary_suspects,
+        86,
+        &partial_evidence.0,
+        &partial_evidence.1,
+    );
     assert_eq!(
         completed.warnings,
         vec![ROUTE_RUNTIME_ATTRIBUTION_WARNING.to_string()]
@@ -618,8 +719,22 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
         .iter()
         .find(|s| s.name == "late")
         .unwrap();
-    assert_scoped_flip(&early.primary_suspect, &early.secondary_suspects, 86);
-    assert_scoped_flip(&late.primary_suspect, &late.secondary_suspects, 86);
+    let early_evidence = scoped_evidence(500, 22, 11000, 92);
+    assert_scoped_flip(
+        &early.primary_suspect,
+        &early.secondary_suspects,
+        86,
+        &early_evidence.0,
+        &early_evidence.1,
+    );
+    let late_evidence = scoped_evidence(1000, 23, 22500, 92);
+    assert_scoped_flip(
+        &late.primary_suspect,
+        &late.secondary_suspects,
+        86,
+        &late_evidence.0,
+        &late_evidence.1,
+    );
     assert!(early.warnings.is_empty());
     assert!(late.warnings.is_empty());
 }
