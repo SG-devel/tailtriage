@@ -190,11 +190,16 @@ fn analyze_allow_ambiguous_artifact_warns_then_rejects_empty_normalized_run() {
         .expect("cli should run");
 
     assert!(!output.status.success(), "cli unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    assert!(output.stdout.is_empty());
+
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("duplicate_completed_request_id"));
+    assert!(stderr.contains("request[0]"));
+    assert!(stderr.contains("request[1]"));
     assert!(stderr.contains("requests section is empty"));
+    assert!(!stderr.contains("strict artifact validation failed"));
     assert!(!stderr.contains("failed to parse"));
-    assert!(!stderr.contains("strict run validation"));
+    assert!(!stderr.contains("unsupported run artifact"));
 }
 
 #[test]
@@ -227,13 +232,25 @@ fn analyze_default_accepts_warning_only_precision_findings() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--allow-ambiguous-artifact")
         .arg("--format")
         .arg("json")
         .output()
         .expect("cli should run");
 
     assert!(output.status.success(), "cli failed: {output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("strict artifact validation failed"));
+    assert!(stderr.trim().is_empty());
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid Report JSON");
+    assert_eq!(report["request_count"].as_u64(), Some(1));
+    assert!(warnings(&report)
+        .iter()
+        .any(|warning| warning.contains("precise_interval_validation_unavailable")));
+    assert!(evidence_quality_limitations(&report)
+        .iter()
+        .any(|limitation| limitation.contains("precise_interval_validation_unavailable")));
 }
 
 #[test]
