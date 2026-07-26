@@ -3036,6 +3036,198 @@ fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
     assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+fn inflight_counts(run: &crate::Run) -> Vec<u64> {
+    run.inflight.iter().map(|snapshot| snapshot.count).collect()
+}
+
+#[test]
+fn inflight_drop_records_zero_then_removes_live_entry() {
+    let tailtriage = Tailtriage::builder("inflight-zero")
+        .sink(MemorySink::new())
+        .build()
+        .unwrap();
+    drop(tailtriage.inflight("active"));
+    assert_eq!(inflight_counts(&tailtriage.snapshot()), vec![1, 0]);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_label_reuse_records_one_zero_one_zero() {
+    let tailtriage = Tailtriage::builder("inflight-reuse")
+        .sink(MemorySink::new())
+        .build()
+        .unwrap();
+    drop(tailtriage.inflight("active"));
+    drop(tailtriage.inflight("active"));
+    assert_eq!(inflight_counts(&tailtriage.snapshot()), vec![1, 0, 1, 0]);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_many_distinct_labels_leave_no_live_entries() {
+    const LABELS: usize = 32;
+    const CYCLES: usize = 3;
+    const CAPACITY: usize = LABELS * CYCLES * 2;
+    let tailtriage = Tailtriage::builder("inflight-many")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_inflight_snapshots: Some(CAPACITY),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    for cycle in 0..CYCLES {
+        for label in 0..LABELS {
+            drop(tailtriage.inflight(format!("gauge-{cycle}-{label}")));
+        }
+    }
+    let expected: Vec<_> = (0..LABELS * CYCLES).flat_map(|_| [1, 0]).collect();
+    assert_eq!(inflight_counts(&tailtriage.snapshot()), expected);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_concurrent_same_label_records_exact_balanced_sequence() {
+    const N: usize = 8;
+    let tailtriage = Tailtriage::builder("inflight-concurrent")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_inflight_snapshots: Some(N * 2),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let created = std::sync::Barrier::new(N + 1);
+    std::thread::scope(|scope| {
+        for _ in 0..N {
+            scope.spawn(|| {
+                let guard = tailtriage.inflight("active");
+                created.wait();
+                drop(guard);
+            });
+        }
+        created.wait();
+    });
+    let expected: Vec<_> = (1..=N as u64).chain((0..N as u64).rev()).collect();
+    assert_eq!(inflight_counts(&tailtriage.snapshot()), expected);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_zero_cleanup_survives_snapshot_retention_saturation() {
+    let tailtriage = Tailtriage::builder("inflight-saturated")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_inflight_snapshots: Some(1),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    drop(tailtriage.inflight("active"));
+    let run = tailtriage.snapshot();
+    assert_eq!(inflight_counts(&run), vec![1]);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 1);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_drop_before_shutdown_persists_zero() {
+    let sink = MemorySink::new();
+    let tailtriage = Tailtriage::builder("inflight-drop-wins")
+        .sink(sink.clone())
+        .build()
+        .unwrap();
+    drop(tailtriage.inflight("active"));
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+    tailtriage.shutdown().unwrap();
+    assert_eq!(inflight_counts(&sink.last_run().unwrap()), vec![1, 0]);
+}
+
+#[test]
+fn shutdown_before_inflight_drop_keeps_late_drop_inert() {
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let sink = Arc::new(BlockingSink {
+        calls: std::sync::atomic::AtomicU64::new(0),
+        entered_tx: Mutex::new(Some(entered_tx)),
+        release_rx: Mutex::new(release_rx),
+        run: Mutex::new(None),
+    });
+    let tailtriage = Arc::new(
+        Tailtriage::builder("inflight-shutdown-wins")
+            .sink(Arc::clone(&sink))
+            .build()
+            .unwrap(),
+    );
+    let guard = tailtriage.inflight("active");
+    let shutdown_run = Arc::clone(&tailtriage);
+    let shutdown = std::thread::spawn(move || shutdown_run.shutdown());
+    entered_rx.recv().unwrap();
+    let before = tailtriage.snapshot();
+    assert_eq!(inflight_counts(&before), vec![1]);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 1);
+    drop(guard);
+    assert_eq!(tailtriage.snapshot(), before);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 1);
+    release_tx.send(()).unwrap();
+    shutdown.join().unwrap().unwrap();
+    let persisted = sink.run.lock().unwrap().clone().unwrap();
+    assert_eq!(inflight_counts(&persisted), vec![1]);
+    assert_eq!(tailtriage.snapshot(), before);
+    assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn inflight_drop_during_unwind_is_non_panicking() {
+    let tailtriage = Tailtriage::builder("inflight-unwind")
+        .sink(MemorySink::new())
+        .build()
+        .unwrap();
+    let caught = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let _guard = tailtriage.inflight("active");
+        panic!("intentional unwind");
+    }));
+    assert!(caught.is_err());
+    assert_eq!(inflight_counts(&tailtriage.snapshot()), vec![1, 0]);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_drop_contains_panicking_limits_listener() {
+    let tailtriage = Tailtriage::builder("inflight-listener-panic")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_inflight_snapshots: Some(1),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    tailtriage.set_limits_hit_listener(Some(Arc::new(|| panic!("listener panic"))));
+    let guard = tailtriage.inflight("active");
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| drop(guard)));
+    assert!(result.is_ok());
+    let run = tailtriage.snapshot();
+    assert_eq!(inflight_counts(&run), vec![1]);
+    assert!(run.truncation.limits_hit);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 1);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_snapshot_serialization_contract_and_schema_stay_unchanged() {
+    assert_eq!(crate::SCHEMA_VERSION, 2);
+    let snapshot = crate::InFlightSnapshot {
+        gauge: "active".into(),
+        at_unix_ms: 10,
+        at_run_us: Some(20),
+        count: 1,
+    };
+    assert_eq!(
+        serde_json::to_value(snapshot).unwrap(),
+        serde_json::json!({"gauge":"active","at_unix_ms":10,"at_run_us":20,"count":1})
+    );
+}
+
 mod prompt09_partial_events {
     use std::future::{poll_fn, ready, Future};
     use std::panic::{catch_unwind, AssertUnwindSafe};

@@ -225,6 +225,8 @@ Explicit completion remains preferred whenever the application knows the request
 
 Strict lifecycle shutdown with pending requests returns a retryable lifecycle error, performs no sink attempt, leaves pending requests open, and does not add finalization timestamps, unfinished metadata, or lifecycle warnings. Once an eligible shutdown attempts the sink, that finalization is terminal and single-shot on both success and failure; repeated or concurrent shutdown callers observe the same terminal attempt rather than writing again. Controller completion Drop participates in admitted-generation drain accounting exactly once, so a closing generation can finalize after the last admitted token is dropped. Completion-token Drop records the cancelled request and does not itself fabricate child evidence. Independently, any queue or stage helper that was polled and then dropped while capture was open records one partial child event.
 
+Accepted in-flight count transitions remain in the bounded Run artifact, including a final zero when retention permits. While capture is open, live collector state retains only gauges with positive counts: a one-to-zero Drop first attempts the snapshot through normal bounded retention and then removes the live label. Thus a saturated artifact can drop that snapshot and update truncation accounting while live-state cleanup still completes. In-flight Drop after finalization is inert.
+
 
 ### Partial queue and stage events
 
