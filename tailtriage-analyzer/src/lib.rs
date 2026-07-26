@@ -333,20 +333,21 @@ impl Suspect {
     }
 }
 
-/// Summary of one dominant in-flight gauge trend over the run window.
+/// Summary of the selected gauge's latest retained in-flight activity episode.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct InflightTrend {
     /// Gauge name chosen as the dominant trend candidate.
     pub gauge: String,
-    /// Number of snapshots seen for this gauge.
+    /// Number of retained snapshots in the episode, including a terminal zero.
     pub sample_count: usize,
-    /// Peak in-flight count observed for this gauge.
+    /// Peak in-flight count observed in the episode.
     pub peak_count: u64,
-    /// p95 in-flight count for this gauge.
+    /// p95 in-flight count for the episode.
     pub p95_count: u64,
-    /// Net growth (`last - first`) across the sampled run window.
+    /// Episode-local net growth (`last - first`). With fewer than two samples,
+    /// zero represents unknown direction rather than observed flatness.
     pub growth_delta: i64,
-    /// Growth rate in milli-counts/sec, if timestamps permit calculation.
+    /// Growth rate in milli-counts/sec when valid run-relative microsecond timing permits it.
     pub growth_per_sec_milli: Option<i64>,
 }
 
@@ -717,7 +718,10 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     let request_time_shares = request_time_shares(run);
     let p95_queue_share_permille = percentile(&request_time_shares.completed_queue, 95, 100);
     let p95_service_share_permille = percentile(&request_time_shares.completed_service, 95, 100);
-    let inflight_trend = dominant_inflight_trend(&run.inflight);
+    let inflight_candidate = dominant_inflight_candidate(&run.inflight);
+    let inflight_trend = inflight_candidate
+        .as_ref()
+        .map(|candidate| candidate.trend.clone());
 
     let mut suspects = Vec::new();
 
@@ -725,7 +729,7 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
         run,
         &request_time_shares.completed_queue,
         &request_time_shares.observed_queue,
-        inflight_trend.as_ref(),
+        inflight_candidate.as_ref(),
         options,
     ) {
         suspects.push(queue_suspect);
@@ -739,7 +743,7 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
     }
 
     if let Some(executor_suspect) =
-        scoring::executor_pressure_suspect(run, inflight_trend.as_ref(), options)
+        scoring::executor_pressure_suspect(run, inflight_candidate.as_ref(), options)
     {
         suspects.push(ScoredSuspect {
             suspect: executor_suspect,
@@ -1006,64 +1010,150 @@ fn runtime_metric_series(
     snapshots.iter().filter_map(selector).collect::<Vec<_>>()
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InflightOrdering {
+    RunRelative,
+    UnixFallback,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct InflightCandidate {
+    pub(crate) trend: InflightTrend,
+    active: bool,
+    pub(crate) ordering: InflightOrdering,
+}
+
+impl InflightCandidate {
+    pub(crate) fn known_positive_growth(&self) -> bool {
+        self.trend.sample_count >= 2 && self.trend.growth_delta > 0
+    }
+}
+
+#[cfg(test)]
 fn dominant_inflight_trend(snapshots: &[InFlightSnapshot]) -> Option<InflightTrend> {
-    let mut by_gauge: BTreeMap<&str, Vec<&InFlightSnapshot>> = BTreeMap::new();
-    for snapshot in snapshots {
+    dominant_inflight_candidate(snapshots).map(|candidate| candidate.trend)
+}
+
+fn dominant_inflight_candidate(snapshots: &[InFlightSnapshot]) -> Option<InflightCandidate> {
+    let mut by_gauge: BTreeMap<&str, Vec<(usize, &InFlightSnapshot)>> = BTreeMap::new();
+    for (index, snapshot) in snapshots.iter().enumerate() {
         by_gauge
             .entry(snapshot.gauge.as_str())
             .or_default()
-            .push(snapshot);
+            .push((index, snapshot));
     }
 
     by_gauge
         .into_iter()
         .filter_map(|(gauge, samples)| inflight_trend_for_gauge(gauge, samples))
-        .max_by(|left, right| {
-            left.peak_count
-                .cmp(&right.peak_count)
-                .then_with(|| left.p95_count.cmp(&right.p95_count))
-                .then_with(|| left.gauge.cmp(&right.gauge).reverse())
-        })
+        .max_by(compare_inflight_candidates)
 }
 
 fn inflight_trend_for_gauge(
     gauge: &str,
-    mut samples: Vec<&InFlightSnapshot>,
-) -> Option<InflightTrend> {
+    mut samples: Vec<(usize, &InFlightSnapshot)>,
+) -> Option<InflightCandidate> {
     if samples.is_empty() {
         return None;
     }
 
-    samples.sort_unstable_by(|left, right| {
-        left.at_unix_ms
-            .cmp(&right.at_unix_ms)
-            .then_with(|| left.count.cmp(&right.count))
-    });
-
-    let counts = samples
-        .iter()
-        .map(|sample| sample.count)
-        .collect::<Vec<_>>();
-    let first = samples.first()?;
-    let last = samples.last()?;
-    let growth_delta = signed_u64_delta(first.count, last.count);
-    let window_ms = last.at_unix_ms.saturating_sub(first.at_unix_ms);
-    let growth_per_sec_milli = if window_ms == 0 {
-        None
+    let ordering = if samples.iter().all(|(_, sample)| sample.at_run_us.is_some()) {
+        samples.sort_by_key(|(index, sample)| (sample.at_run_us.unwrap_or(0), *index));
+        InflightOrdering::RunRelative
     } else {
-        i64::try_from(window_ms)
-            .ok()
-            .map(|window_ms_i64| growth_delta.saturating_mul(1_000_000) / window_ms_i64)
+        samples.sort_by_key(|(index, sample)| (sample.at_unix_ms, *index));
+        InflightOrdering::UnixFallback
     };
 
-    Some(InflightTrend {
-        gauge: gauge.to_owned(),
-        sample_count: counts.len(),
-        peak_count: counts.iter().copied().max().unwrap_or(0),
-        p95_count: percentile(&counts, 95, 100).unwrap_or(0),
-        growth_delta,
-        growth_per_sec_milli,
+    let mut latest = Vec::new();
+    let mut open = false;
+    for sample in samples {
+        if sample.1.count > 0 {
+            if !open {
+                latest.clear();
+                open = true;
+            }
+            latest.push(sample);
+        } else if open {
+            latest.push(sample);
+            open = false;
+        }
+    }
+    if latest.is_empty() {
+        return None;
+    }
+
+    let counts = latest
+        .iter()
+        .map(|(_, sample)| sample.count)
+        .collect::<Vec<_>>();
+    let first = latest.first()?.1;
+    let last = latest.last()?.1;
+    let growth_delta = signed_u64_delta(first.count, last.count);
+    let growth_per_sec_milli = (latest.len() >= 2 && ordering == InflightOrdering::RunRelative)
+        .then(|| {
+            let times = latest
+                .iter()
+                .map(|(_, sample)| sample.at_run_us.unwrap_or(0))
+                .collect::<Vec<_>>();
+            let elapsed = times.last()?.checked_sub(*times.first()?)?;
+            if elapsed == 0 || !times.windows(2).all(|pair| pair[0] <= pair[1]) {
+                return None;
+            }
+            let rate = i128::from(growth_delta) * 1_000_000_000i128 / i128::from(elapsed);
+            Some(
+                i64::try_from(rate.clamp(i128::from(i64::MIN), i128::from(i64::MAX)))
+                    .expect("clamped growth rate fits i64"),
+            )
+        })
+        .flatten();
+
+    Some(InflightCandidate {
+        active: last.count > 0,
+        ordering,
+        trend: InflightTrend {
+            gauge: gauge.to_owned(),
+            sample_count: counts.len(),
+            peak_count: counts.iter().copied().max().unwrap_or(0),
+            p95_count: percentile(&counts, 95, 100).unwrap_or(0),
+            growth_delta,
+            growth_per_sec_milli,
+        },
     })
+}
+
+fn compare_inflight_candidates(
+    left: &InflightCandidate,
+    right: &InflightCandidate,
+) -> std::cmp::Ordering {
+    let left_positive = left.known_positive_growth();
+    let right_positive = right.known_positive_growth();
+    left.active
+        .cmp(&right.active)
+        .then_with(|| left_positive.cmp(&right_positive))
+        .then_with(|| {
+            if left_positive && right_positive {
+                left.trend.growth_delta.cmp(&right.trend.growth_delta)
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .then_with(|| {
+            if left_positive
+                && right_positive
+                && left.trend.growth_delta == right.trend.growth_delta
+            {
+                left.trend
+                    .growth_per_sec_milli
+                    .filter(|rate| *rate > 0)
+                    .cmp(&right.trend.growth_per_sec_milli.filter(|rate| *rate > 0))
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .then_with(|| left.trend.p95_count.cmp(&right.trend.p95_count))
+        .then_with(|| left.trend.peak_count.cmp(&right.trend.peak_count))
+        .then_with(|| left.trend.gauge.cmp(&right.trend.gauge).reverse())
 }
 
 fn signed_u64_delta(start: u64, end: u64) -> i64 {

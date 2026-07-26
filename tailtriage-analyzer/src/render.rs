@@ -44,16 +44,7 @@ pub fn render_text(report: &Report) -> String {
     ];
 
     match &report.inflight_trend {
-        Some(trend) => {
-            lines.push(format!(
-                "Inflight trend: gauge '{}', samples {}, peak {}, p95 {}, net growth {:+}",
-                trend.gauge,
-                trend.sample_count,
-                trend.peak_count,
-                trend.p95_count,
-                trend.growth_delta,
-            ));
-        }
+        Some(trend) => lines.push(render_inflight_trend(trend)),
         None => lines.push("Inflight trend: none".to_string()),
     }
 
@@ -128,6 +119,22 @@ pub fn render_text(report: &Report) -> String {
     }
     append_temporal_segment_text(&mut lines, &report.temporal_segments);
     lines.join("\n")
+}
+
+fn render_inflight_trend(trend: &crate::InflightTrend) -> String {
+    let direction = if trend.sample_count < 2 {
+        "direction unknown".to_string()
+    } else {
+        format!("net growth {:+}", trend.growth_delta)
+    };
+    let rate = trend.growth_per_sec_milli.map_or_else(
+        || "precise rate unavailable".to_string(),
+        |rate| format!("run-relative rate {rate} milli-counts/sec"),
+    );
+    format!(
+        "Inflight latest activity episode: gauge '{}', samples {}, peak {}, p95 {}, {}, {}",
+        trend.gauge, trend.sample_count, trend.peak_count, trend.p95_count, direction, rate,
+    )
 }
 
 fn append_temporal_segment_text(lines: &mut Vec<String>, segments: &[TemporalSegment]) {
