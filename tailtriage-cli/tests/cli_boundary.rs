@@ -146,7 +146,7 @@ fn cli_analyzer_set_beats_toml_and_repeated_overrides_are_last_wins() {
 }
 
 #[test]
-fn analyze_strict_artifact_rejects_duplicate_completed_request_ids() {
+fn analyze_rejects_duplicate_completed_request_ids_by_default() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("duplicate-ids.json");
     let artifact = valid_cli_artifact_with_requests().replace(
@@ -158,7 +158,6 @@ fn analyze_strict_artifact_rejects_duplicate_completed_request_ids() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--strict-artifact")
         .output()
         .expect("cli should run");
 
@@ -172,7 +171,7 @@ fn analyze_strict_artifact_rejects_duplicate_completed_request_ids() {
 }
 
 #[test]
-fn analyze_permissive_artifact_reports_empty_after_duplicate_exclusion_as_command_policy() {
+fn analyze_allow_ambiguous_artifact_warns_then_rejects_empty_normalized_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("duplicate-ids.json");
     let artifact = valid_cli_artifact_with_requests().replace(
@@ -184,6 +183,7 @@ fn analyze_permissive_artifact_reports_empty_after_duplicate_exclusion_as_comman
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
+        .arg("--allow-ambiguous-artifact")
         .arg("--format")
         .arg("json")
         .output()
@@ -198,7 +198,7 @@ fn analyze_permissive_artifact_reports_empty_after_duplicate_exclusion_as_comman
 }
 
 #[test]
-fn analyze_strict_artifact_rejects_orphan_stage_request_ids() {
+fn analyze_rejects_orphan_stage_by_default() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("orphan-stage.json");
     let artifact = valid_cli_artifact_with_requests().replace(
@@ -210,7 +210,6 @@ fn analyze_strict_artifact_rejects_orphan_stage_request_ids() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--strict-artifact")
         .output()
         .expect("cli should run");
 
@@ -221,14 +220,14 @@ fn analyze_strict_artifact_rejects_orphan_stage_request_ids() {
 }
 
 #[test]
-fn analyze_strict_artifact_allows_missing_optional_precision_only() {
+fn analyze_default_accepts_warning_only_precision_findings() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = write_valid_artifact(&dir);
 
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--strict-artifact")
+        .arg("--allow-ambiguous-artifact")
         .arg("--format")
         .arg("json")
         .output()
@@ -238,7 +237,7 @@ fn analyze_strict_artifact_allows_missing_optional_precision_only() {
 }
 
 #[test]
-fn analyze_strict_artifact_required_field_location_includes_index_and_field() {
+fn analyze_default_required_field_location_includes_index_and_field() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("missing-route.json");
     let artifact = valid_cli_artifact_with_requests().replace(r#""route":"/""#, r#""route":" ""#);
@@ -247,7 +246,6 @@ fn analyze_strict_artifact_required_field_location_includes_index_and_field() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--strict-artifact")
         .output()
         .expect("cli should run");
 
@@ -259,7 +257,7 @@ fn analyze_strict_artifact_required_field_location_includes_index_and_field() {
 }
 
 #[test]
-fn analyze_strict_artifact_duplicate_plus_orphan_displays_unique_error_codes_only() {
+fn analyze_default_duplicate_plus_orphan_displays_unique_error_codes_only() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("duplicate-plus-orphan.json");
     let artifact = valid_cli_artifact_with_requests()
@@ -276,7 +274,6 @@ fn analyze_strict_artifact_duplicate_plus_orphan_displays_unique_error_codes_onl
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--strict-artifact")
         .output()
         .expect("cli should run");
 
@@ -297,7 +294,6 @@ fn analyze_malformed_json_fails_before_core_validation() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--strict-artifact")
         .output()
         .expect("cli should run");
 
@@ -309,7 +305,7 @@ fn analyze_malformed_json_fails_before_core_validation() {
 }
 
 #[test]
-fn analyze_strict_artifact_discloses_truncated_error_details() {
+fn analyze_default_discloses_truncated_error_details() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("many-errors.json");
     let requests = (0..10)
@@ -329,7 +325,6 @@ fn analyze_strict_artifact_discloses_truncated_error_details() {
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
-        .arg("--strict-artifact")
         .output()
         .expect("cli should run");
 
@@ -341,7 +336,7 @@ fn analyze_strict_artifact_discloses_truncated_error_details() {
 }
 
 #[test]
-fn analyze_permissive_artifact_preserves_orphan_stage_core_warning_without_lifecycle_mutation() {
+fn analyze_allow_ambiguous_artifact_excludes_orphan_and_warns() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("orphan-stage.json");
     let artifact = valid_cli_artifact_with_requests().replace(
@@ -353,12 +348,15 @@ fn analyze_permissive_artifact_preserves_orphan_stage_core_warning_without_lifec
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
+        .arg("--allow-ambiguous-artifact")
         .arg("--format")
         .arg("json")
         .output()
         .expect("cli should run");
 
-    let report = parse_report_json(output);
+    let (report, stderr) = parse_report_json_with_warnings(output);
+    assert!(stderr.contains("permissive Run normalization orphan_request_scoped_event"));
+    assert!(stderr.contains("stage[0]"));
     assert_eq!(report["request_count"].as_u64(), Some(1));
     assert!(warnings(&report)
         .iter()
@@ -370,7 +368,7 @@ fn analyze_permissive_artifact_preserves_orphan_stage_core_warning_without_lifec
 }
 
 #[test]
-fn analyze_permissive_artifact_preserves_invalid_optional_precision_warning_and_duration() {
+fn analyze_allow_ambiguous_artifact_retains_duration_and_clears_partial_precision() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("partial-precision.json");
     let artifact = valid_cli_artifact_with_requests().replace(
@@ -382,12 +380,15 @@ fn analyze_permissive_artifact_preserves_invalid_optional_precision_warning_and_
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
+        .arg("--allow-ambiguous-artifact")
         .arg("--format")
         .arg("json")
         .output()
         .expect("cli should run");
 
-    let report = parse_report_json(output);
+    let (report, stderr) = parse_report_json_with_warnings(output);
+    assert!(stderr.contains("permissive Run normalization partial_run_relative_interval"));
+    assert!(stderr.contains("request[0]"));
     assert_eq!(report["request_count"].as_u64(), Some(1));
     assert!(warnings(&report)
         .iter()
@@ -415,17 +416,114 @@ fn analyze_permissive_artifact_excludes_precise_child_outside_parent_but_retains
     let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
         .arg("analyze")
         .arg(&artifact_path)
+        .arg("--allow-ambiguous-artifact")
         .arg("--format")
         .arg("json")
         .output()
         .expect("cli should run");
 
-    let report = parse_report_json(output);
+    let (report, stderr) = parse_report_json_with_warnings(output);
+    assert!(stderr.contains("permissive Run normalization child_interval_outside_request"));
+    assert!(stderr.contains("stage[0]"));
     assert_eq!(report["request_count"].as_u64(), Some(1));
     assert!(warnings(&report)
         .iter()
         .any(|warning| warning.contains("child_interval_outside_request")));
     assert!(!report.to_string().contains(r#""db""#));
+}
+
+#[test]
+fn analyze_rejects_inverted_interval_by_default() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("inverted-request.json");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10"#,
+        r#""started_at_unix_ms":2,"finished_at_unix_ms":1,"latency_us":10"#,
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    for format in ["text", "json"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+            .arg("analyze")
+            .arg(&artifact_path)
+            .arg("--format")
+            .arg(format)
+            .output()
+            .expect("cli should run");
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("inverted_interval"));
+        assert!(stderr.contains("request[0].finished_at_unix_ms"));
+    }
+}
+
+#[test]
+fn allow_ambiguous_artifact_is_noop_for_valid_artifact() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("fully-valid.json");
+    let artifact = valid_cli_artifact_with_requests().replace(
+        r#""started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":10"#,
+        r#""started_at_unix_ms":1,"started_at_run_us":0,"finished_at_unix_ms":2,"finished_at_run_us":10,"latency_us":10"#,
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+    let run = |allow| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_tailtriage"));
+        command
+            .arg("analyze")
+            .arg(&artifact_path)
+            .arg("--format")
+            .arg("json");
+        if allow {
+            command.arg("--allow-ambiguous-artifact");
+        }
+        command.output().expect("cli should run")
+    };
+    let strict = run(false);
+    let permissive = run(true);
+    assert!(strict.status.success() && permissive.status.success());
+    assert_eq!(strict.stdout, permissive.stdout);
+    assert!(strict.stderr.is_empty() && permissive.stderr.is_empty());
+}
+
+#[test]
+fn analyze_help_documents_strict_default_and_permissive_escape_hatch() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .args(["analyze", "--help"])
+        .output()
+        .expect("help should run");
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).expect("help should be UTF-8");
+    assert!(help.contains("--allow-ambiguous-artifact"));
+    assert!(help.contains("strict by default"));
+    assert!(!help.contains("--strict-artifact"));
+    assert!(!help.contains("malformed/incomplete tailtriage spans"));
+}
+
+#[test]
+fn analyze_rejects_removed_strict_artifact_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .args(["analyze", "--strict-artifact"])
+        .output()
+        .expect("cli should run");
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unexpected argument '--strict-artifact'")
+    );
+}
+
+#[test]
+fn tracing_import_help_keeps_distinct_strict_input_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .args(["import", "tracing-spans-jsonl", "--help"])
+        .output()
+        .expect("help should run");
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).expect("help should be UTF-8");
+    assert!(help.contains("--strict"));
+    assert!(help.contains("malformed/incomplete tailtriage spans"));
+    assert!(!help.contains("--allow-ambiguous-artifact"));
 }
 
 #[test]
@@ -1678,6 +1776,16 @@ fn parse_report_json(output: std::process::Output) -> serde_json::Value {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     serde_json::from_str(&stdout).expect("stdout should be valid json")
+}
+
+fn parse_report_json_with_warnings(output: std::process::Output) -> (serde_json::Value, String) {
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    (
+        serde_json::from_str(&stdout).expect("stdout should be valid json"),
+        stderr,
+    )
 }
 
 fn warnings(report: &serde_json::Value) -> Vec<&str> {

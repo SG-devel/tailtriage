@@ -242,8 +242,9 @@ Core Run integrity contract:
 - `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged
 - active in-memory snapshots serialize `metadata.finalized_at_unix_ms` as `null`, while persisted CLI artifacts require numeric finalization
 - Schema-v1 Run JSON is rejected by the CLI and must be regenerated with a current tailtriage version
-- default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
-- strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
+- default CLI Run artifact analysis strictly validates the original candidate and stops report generation on error-level core findings; warning-only findings remain accepted
+- `tailtriage analyze --allow-ambiguous-artifact` is the explicit permissive escape hatch: it emits every original core issue and analyzes only canonically normalized evidence
+- analyzer library defaults remain permissive, while `tailtriage-core` exposes explicit inspection, strict-validation, and permissive-normalization APIs
 - tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
 - tracing completed-span JSONL import supports the stable wrapper format as the only accepted tracing JSONL file format; pre-stable/internal JSONL must be regenerated with the current writer or converted externally
 

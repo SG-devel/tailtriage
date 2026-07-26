@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::future::ready;
 use std::future::Future;
 use std::pin::pin;
@@ -54,7 +55,7 @@ fn cli_json_matches_analyzer_renderer_output() {
 }
 
 #[test]
-fn permissive_cli_reports_preserve_core_warning_equivalence_for_boundary_artifacts() {
+fn allow_ambiguous_artifact_reports_preserve_core_warning_equivalence_for_boundary_artifacts() {
     for candidate in [
         Candidate {
             name: "orphan-stage",
@@ -89,6 +90,7 @@ fn permissive_cli_reports_preserve_core_warning_equivalence_for_boundary_artifac
         let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
             .arg("analyze")
             .arg(&artifact_path)
+            .arg("--allow-ambiguous-artifact")
             .arg("--format")
             .arg("json")
             .output()
@@ -147,6 +149,62 @@ fn permissive_cli_reports_preserve_core_warning_equivalence_for_boundary_artifac
             candidate.name
         );
     }
+}
+
+#[test]
+fn allow_ambiguous_artifact_emits_every_core_issue_in_order() {
+    let mut original: Run =
+        serde_json::from_str(valid_request_plus_orphan_stage()).expect("candidate should decode");
+    original.requests[0].finished_at_run_us = None;
+    let normalized = normalize_run_permissive(&original);
+    assert!(normalized.report.issues.len() >= 2);
+
+    let tempdir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = tempdir.path().join("multiple-findings.json");
+    std::fs::write(
+        &artifact_path,
+        serde_json::to_vec(&original).expect("artifact should encode"),
+    )
+    .expect("artifact should write");
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--allow-ambiguous-artifact")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+
+    let warning_lines = String::from_utf8(output.stderr)
+        .expect("stderr should be UTF-8")
+        .lines()
+        .filter(|line| line.starts_with("warning: permissive Run normalization "))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let expected = normalized
+        .report
+        .issues
+        .iter()
+        .map(|issue| {
+            assert!(!issue.code.as_str().is_empty());
+            let mut location = issue.location.section.as_str().to_owned();
+            if let Some(index) = issue.location.index {
+                write!(location, "[{index}]").expect("writing to String should not fail");
+            }
+            if let Some(field) = issue.location.field {
+                location.push('.');
+                location.push_str(field);
+            }
+            assert!(!location.is_empty());
+            format!(
+                "warning: permissive Run normalization {} at {location}: {}",
+                issue.code.as_str(),
+                issue.message
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(warning_lines, expected);
 }
 
 struct Candidate {
@@ -307,6 +365,7 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
         let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
             .arg("analyze")
             .arg(&artifact_path)
+            .arg("--allow-ambiguous-artifact")
             .arg("--format")
             .arg("json")
             .output()
@@ -361,7 +420,6 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
         let strict_output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
             .arg("analyze")
             .arg(&artifact_path)
-            .arg("--strict-artifact")
             .output()
             .expect("strict cli should run");
         assert_eq!(

@@ -107,7 +107,18 @@ Import behavior checklist:
 - Fails when zero request events would be written, such as unrelated-only input or all-skipped malformed `tt.*` input, because `tailtriage analyze` requires at least one request in CLI-loaded run artifacts.
 - Applies the same non-empty-request rule before persisting completed-span JSONL artifacts in tracing intake sessions.
 
-`tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`. Run JSON decoding and schema-envelope errors are CLI-owned; generic completed-Run integrity is delegated to `tailtriage-core`. Default analysis uses permissively normalized evidence and canonical core issue-code warnings. Add `--strict-artifact` when you want strict validation of the original unnormalized artifact before analysis; warning-only missing run-relative precision remains accepted.
+`tailtriage analyze <run.json> --format json` emits the same pretty Report JSON as `tailtriage_analyzer::render_json_pretty`. Run JSON decoding and schema-envelope errors are CLI-owned; generic completed-Run integrity is delegated to `tailtriage-core`. CLI analysis strictly validates the original artifact by default: any error-level core finding stops report generation, while warning-only findings remain accepted.
+
+Use `--allow-ambiguous-artifact` only as an explicit compatibility escape hatch. It runs canonical core permissive normalization, emits every original issue to stderr as `warning: permissive Run normalization <code> at <location>: <message>`, and analyzes normalized evidence only. Excluded or cleared evidence cannot contribute to scoring, while canonical validation summaries remain in Report `warnings[]` and `evidence_quality.limitations[]`. Analyzer library entry points remain permissive by default.
+
+Migration: remove the former `--strict-artifact` option from strict scripts because strictness is now the default. A formerly permissive `tailtriage analyze run.json` invocation must add `--allow-ambiguous-artifact` to retain permissive behavior. Tracing import `tailtriage import tracing-spans-jsonl --strict` remains a separate malformed/incomplete `tt.*` parser and import policy; it does not control Run-artifact validation.
+
+```text
+old strict:     tailtriage analyze run.json --strict-artifact
+new default:    tailtriage analyze run.json
+old permissive: tailtriage analyze run.json
+new permissive: tailtriage analyze run.json --allow-ambiguous-artifact
+```
 
 After core normalization, the CLI artifact loader requires at least one retained request event in `requests`. This is a command-level artifact-loading rule, not an in-process `tailtriage-analyzer` or generic core-integrity requirement.
 CLI input is Run artifact JSON from disk. CLI does not consume Report JSON as input.

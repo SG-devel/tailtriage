@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use tailtriage_core::{normalize_run_permissive, Run, SCHEMA_VERSION};
+use tailtriage_core::{normalize_run_permissive, Run, RunValidationReport, SCHEMA_VERSION};
 
 const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
 
@@ -22,6 +22,8 @@ pub struct LoadedArtifact {
     /// analyzer input when canonical findings from the original candidate must
     /// remain visible.
     pub original_run: Run,
+    /// Complete canonical findings from permissive normalization of the original run.
+    pub validation_report: RunValidationReport,
     /// Non-fatal loader findings that did not block loading.
     pub warnings: Vec<String>,
 }
@@ -172,6 +174,7 @@ pub fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadEr
 
     let normalized = normalize_run_permissive(&original_run);
     let run = normalized.run;
+    let validation_report = normalized.report;
 
     let mut warnings = original_run.metadata.lifecycle_warnings.clone();
     if original_run.metadata.unfinished_requests.count > 0 {
@@ -184,6 +187,7 @@ pub fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadEr
     Ok(LoadedArtifact {
         run,
         original_run,
+        validation_report,
         warnings,
     })
 }

@@ -294,8 +294,9 @@ def validate_governance_strictness_contract() -> None:
     lower_text = text.lower()
 
     required_tokens = (
-        "default run artifact analysis",
-        "tailtriage analyze --strict-artifact",
+        "default cli run artifact analysis strictly validates",
+        "tailtriage analyze --allow-ambiguous-artifact",
+        "analyzer library defaults remain permissive",
         "tracing import `--strict` separately controls",
         "does not replace strict run artifact validation",
         "stable wrapper format",

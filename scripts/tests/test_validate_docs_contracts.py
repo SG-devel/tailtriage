@@ -163,8 +163,9 @@ SpanRecord.finished_at_unix_ms
 
 Schema contract:
 
-- default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
-- strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
+- default CLI Run artifact analysis strictly validates the original candidate and stops report generation on error-level core findings
+- `tailtriage analyze --allow-ambiguous-artifact` emits every issue and analyzes normalized evidence
+- analyzer library defaults remain permissive
 - tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
 - tracing completed-span JSONL import supports the stable wrapper format as the only accepted tracing jsonl file format; pre-stable/internal jsonl must be regenerated
 """
@@ -178,8 +179,9 @@ Schema contract:
     def test_governance_strictness_contract_rejects_cli_import_conflation(self) -> None:
         spec_text = """# Spec
 
-- default Run artifact analysis is compatibility-oriented and warns on some ambiguous request-scoped attribution cases instead of failing
-- strict Run artifact validation is opt-in through the analyzer strict-validation APIs and `tailtriage analyze --strict-artifact`
+- default CLI Run artifact analysis strictly validates the original candidate and stops report generation on error-level core findings
+- `tailtriage analyze --allow-ambiguous-artifact` emits every issue and analyzes normalized evidence
+- analyzer library defaults remain permissive
 - tracing import `--strict` separately controls malformed or incomplete `tt.*` span handling during conversion; it does not replace strict Run artifact validation
 - tracing completed-span JSONL import supports the stable wrapper format as the only accepted tracing jsonl file format; pre-stable/internal jsonl must be regenerated
 - strict artifact validation is currently opt-in through strict analyzer validation APIs or CLI/import strict flags

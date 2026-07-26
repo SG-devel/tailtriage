@@ -213,6 +213,10 @@ run.shutdown()?;
 tailtriage analyze tailtriage-run.json --format json
 ```
 
+Saved Run artifacts are strictly validated by default. Error-level core integrity findings stop report generation before stdout is written; warning-only findings remain accepted and visible through the Report contract. If an older or ambiguous artifact must be triaged, add `--allow-ambiguous-artifact`. That explicit path emits every original core issue to stderr and analyzes only evidence retained by canonical core permissive normalization.
+
+The former `--strict-artifact` option is removed: use the command with no policy flag for strict behavior. A script that relied on the former permissive default must now add `--allow-ambiguous-artifact`. Tracing import `--strict` is separate and controls malformed or incomplete `tt.*` input during conversion, not saved Run validation. In-process analyzer APIs remain permissive by default; core callers can choose `inspect_run`, `validate_run_strict`, or `normalize_run_permissive` explicitly.
+
 ### Decide next check
 
 Read output in this order:
@@ -249,7 +253,7 @@ Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI o
 
 `request_id` is the per-run tailtriage identity of one completed logical request or work item. It must be unique among completed requests in one Run. Stage and queue events must reuse that ID only for the same logical request.
 
-External correlation or distributed trace IDs may repeat across retries, fanout branches, batch items, or attempts. When they can repeat, derive a unique tailtriage `request_id`, such as `trace_id:span_id`, `job_id:attempt`, or `batch_id:item_id`. The analyzer can warn or, with strict artifact validation, fail on mechanical ambiguity, but it cannot infer whether your request boundary, retry model, fanout model, or propagation model is semantically correct. Suspects remain triage leads and next checks, not proof of root cause.
+External correlation or distributed trace IDs may repeat across retries, fanout branches, batch items, or attempts. When they can repeat, derive a unique tailtriage `request_id`, such as `trace_id:span_id`, `job_id:attempt`, or `batch_id:item_id`. CLI analysis fails on mechanical ambiguity by default; permissive analyzer library calls warn. Neither can infer whether your request boundary, retry model, fanout model, or propagation model is semantically correct. Suspects remain triage leads and next checks, not proof of root cause.
 
 Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
 

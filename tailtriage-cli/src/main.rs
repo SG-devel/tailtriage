@@ -43,9 +43,13 @@ enum Command {
         /// Print analyzer option help and exit successfully.
         #[arg(long)]
         help_analyzer_options: bool,
-        /// Fail when request-scoped artifact invariants are ambiguous.
+        /// Allow ambiguous artifacts by warning and analyzing normalized evidence.
+        ///
+        /// Run-artifact validation is strict by default. This escape hatch emits
+        /// every core validation issue and excludes or clears invalid evidence
+        /// through canonical permissive normalization before analysis.
         #[arg(long)]
-        strict_artifact: bool,
+        allow_ambiguous_artifact: bool,
     },
 }
 
@@ -143,7 +147,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             analyzer_config,
             analyzer_set,
             help_analyzer_options,
-            strict_artifact,
+            allow_ambiguous_artifact,
         } => {
             if help_analyzer_options {
                 println!("{}", analyzer_options_help_text());
@@ -157,7 +161,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 )
             })?;
             let loaded = decode_run_artifact(&run_json)?;
-            if strict_artifact {
+            if allow_ambiguous_artifact {
+                emit_permissive_validation_warnings(&loaded.validation_report);
+            } else {
                 validate_cli_strict_artifact(&loaded.original_run)?;
             }
             if loaded.run.requests.is_empty() {
@@ -242,6 +248,24 @@ fn validate_cli_strict_artifact(run: &tailtriage_core::Run) -> Result<(), std::i
             ),
         )
     })
+}
+
+fn emit_permissive_validation_warnings(report: &tailtriage_core::RunValidationReport) {
+    for issue in &report.issues {
+        let mut location = issue.location.section.as_str().to_string();
+        if let Some(index) = issue.location.index {
+            write!(location, "[{index}]").expect("writing to String should not fail");
+        }
+        if let Some(field) = issue.location.field {
+            location.push('.');
+            location.push_str(field);
+        }
+        eprintln!(
+            "warning: permissive Run normalization {} at {location}: {}",
+            issue.code.as_str(),
+            issue.message
+        );
+    }
 }
 
 fn create_output_parent_dir(path: &std::path::Path) -> Result<(), std::io::Error> {
