@@ -381,8 +381,11 @@ At contract level:
 
 - set config file path with `config_path(...)`
 - call `reload_config()` to refresh the template from file
+- call the result-returning `reload_template(template)` for a direct replacement
 - reload applies to **future generations only**
-- active generation keeps activation-time config
+- active generation keeps an immutable activation-time config snapshot
+- reload creates no generation and starts no sampler; runtime sampler startup occurs on `enable()`
+- requests admitted before disarm remain bound to their original generation
 
 See crate README for the full TOML field reference and expanded starter example: [tailtriage-controller/README.md](../tailtriage-controller/README.md)
 
