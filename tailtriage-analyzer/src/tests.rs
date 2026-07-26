@@ -1819,17 +1819,18 @@ fn inflight_candidate_order_prefers_larger_positive_rate() {
 
 #[test]
 fn inflight_candidate_order_prefers_larger_p95() {
-    let samples = [
-        inflight("high-p95", 1, Some(1), 8),
-        inflight("high-p95", 2, Some(2), 8),
-        inflight("low-p95", 1, Some(1), 7),
-        inflight("low-p95", 2, Some(2), 7),
-    ];
+    let mut samples = (1..=21)
+        .map(|time| inflight("high-p95", time, Some(time), 8))
+        .collect::<Vec<_>>();
+
+    samples.push(inflight("low-p95-high-peak", 1, Some(1), 100));
+    samples.extend((2..=21).map(|time| inflight("low-p95-high-peak", time, Some(time), 1)));
+
     assert_dominant_inflight(
         &samples,
         InflightTrend {
             gauge: "high-p95".into(),
-            sample_count: 2,
+            sample_count: 21,
             peak_count: 8,
             p95_count: 8,
             growth_delta: 0,
