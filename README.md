@@ -59,6 +59,8 @@ For command-line analysis of saved Run artifact JSON:
 cargo install tailtriage-cli
 ```
 
+Saved Run analysis is strict by default: error-level core integrity findings stop report generation, while warning-only findings remain accepted. `--allow-ambiguous-artifact` is the explicit escape hatch; it warns for every original issue and analyzes only canonically normalized evidence. Tracing import `--strict` is a separate input parsing/import policy. In-process analyzer defaults remain permissive.
+
 For in-process Rust analysis/report generation:
 
 ```bash
