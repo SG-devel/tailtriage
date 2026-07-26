@@ -3,7 +3,7 @@ use tailtriage_core::Run;
 use crate::{
     partial_evidence::{EvidenceBasis, PartialEvidenceProfile, ScoredSuspect},
     percentile, runtime_metric_series, stage_attribution, AnalyzeOptions, DiagnosisKind,
-    InflightTrend, Suspect,
+    InflightCandidate, InflightOrdering, Suspect,
 };
 
 const SAMPLE_QUALITY_HIGH_SAMPLE_COUNT: usize = 100;
@@ -32,7 +32,7 @@ pub(super) fn queue_saturation_suspect(
     run: &Run,
     completed_queue_shares: &[u64],
     observed_queue_shares: &[u64],
-    inflight_trend: Option<&InflightTrend>,
+    inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
 ) -> Option<ScoredSuspect> {
     let completed_p95 = percentile(completed_queue_shares, 95, 100);
@@ -65,7 +65,7 @@ fn queue_candidate(
     queue_shares: &[u64],
     completed_only: bool,
     completed_queue_p95_permille: Option<u64>,
-    inflight_trend: Option<&InflightTrend>,
+    inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
 ) -> Option<ScoredSuspect> {
     let p95_queue_share_permille = percentile(queue_shares, 95, 100)?;
@@ -80,14 +80,14 @@ fn queue_candidate(
         .collect::<Vec<_>>();
     let max_depth = max_or_zero(&queue_depths);
     let growth_bonus = inflight_trend
-        .filter(|t| t.growth_delta > 0)
+        .filter(|t| t.known_positive_growth())
         .map_or(0, |_| 5);
     let depth_bonus = (max_depth.min(40) * 2) / 3;
     let base = score_from_permille(22, p95_queue_share_permille, 14);
     let clean_extreme = p95_queue_share_permille >= 985
         && max_depth >= 12
         && queue_shares.len() >= 20
-        && inflight_trend.is_some_and(|t| t.growth_delta > 0);
+        && inflight_trend.is_some_and(InflightCandidate::known_positive_growth);
     let score = cap_unless_clean_evidence(
         base + depth_bonus + growth_bonus + u64::from(score_sample_quality(queue_shares.len())),
         clean_extreme,
@@ -120,11 +120,8 @@ fn queue_candidate(
     if max_depth > 0 {
         evidence.push(format!("Observed queue depth sample up to {max_depth}."));
     }
-    if let Some(trend) = inflight_trend.filter(|trend| trend.growth_delta > 0) {
-        evidence.push(format!(
-            "In-flight gauge '{}' grew by {} over the run window (p95={}, peak={}).",
-            trend.gauge, trend.growth_delta, trend.p95_count, trend.peak_count
-        ));
+    if let Some(trend) = inflight_trend.filter(|trend| trend.known_positive_growth()) {
+        evidence.push(inflight_growth_evidence(trend));
     }
     Some(ScoredSuspect {
         suspect: suspect(
@@ -240,7 +237,7 @@ pub(super) fn blocking_pressure_suspect(run: &Run, options: &AnalyzeOptions) -> 
 
 pub(super) fn executor_pressure_suspect(
     run: &Run,
-    inflight_trend: Option<&InflightTrend>,
+    inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
 ) -> Option<Suspect> {
     let global = runtime_metric_series(&run.runtime_snapshots, |s| s.global_queue_depth);
@@ -251,7 +248,7 @@ pub(super) fn executor_pressure_suspect(
     let local = runtime_metric_series(&run.runtime_snapshots, |s| s.local_queue_depth);
     let alive = runtime_metric_series(&run.runtime_snapshots, |s| s.alive_tasks);
     let growth_bonus = inflight_trend
-        .filter(|t| t.growth_delta > 0)
+        .filter(|t| t.known_positive_growth())
         .map_or(0, |_| 4);
     let clean_extreme = p95_global >= 140 && global.len() >= 30;
     let score = cap_unless_clean_evidence(
@@ -272,6 +269,9 @@ pub(super) fn executor_pressure_suspect(
     if let Some(ap95) = percentile(&alive, 95, 100) {
         evidence.push(format!("Runtime alive_tasks p95 is {ap95}."));
     }
+    if let Some(trend) = inflight_trend.filter(|trend| trend.known_positive_growth()) {
+        evidence.push(inflight_growth_evidence(trend));
+    }
     Some(suspect(
         DiagnosisKind::ExecutorPressureSuspected,
         score,
@@ -282,6 +282,24 @@ pub(super) fn executor_pressure_suspect(
         ],
         options,
     ))
+}
+
+fn inflight_growth_evidence(candidate: &InflightCandidate) -> String {
+    let trend = &candidate.trend;
+    match (candidate.ordering, trend.growth_per_sec_milli) {
+        (_, Some(rate)) => format!(
+            "In-flight gauge '{}' latest active episode grew by {} across {} samples (p95={}, peak={}, run-relative rate={} milli-counts/sec).",
+            trend.gauge, trend.growth_delta, trend.sample_count, trend.p95_count, trend.peak_count, rate
+        ),
+        (InflightOrdering::UnixFallback, None) => format!(
+            "In-flight gauge '{}' latest active episode grew by {} across {} samples (p95={}, peak={}); ordering used Unix-ms fallback and no precise growth rate was derived.",
+            trend.gauge, trend.growth_delta, trend.sample_count, trend.p95_count, trend.peak_count
+        ),
+        (InflightOrdering::RunRelative, None) => format!(
+            "In-flight gauge '{}' latest active episode grew by {} across {} samples (p95={}, peak={}); precise run-relative growth rate is unavailable.",
+            trend.gauge, trend.growth_delta, trend.sample_count, trend.p95_count, trend.peak_count
+        ),
+    }
 }
 
 #[derive(Clone)]

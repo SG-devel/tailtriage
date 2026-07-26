@@ -57,7 +57,15 @@ Each suspect includes:
 - `evidence_quality`: structured signal coverage status, truncation counters, and overall evidence quality (`strong`/`partial`/`weak`).
 - `primary_suspect`: highest-ranked suspect with evidence and next checks.
 - `secondary_suspects[]`: additional ranked suspects.
-- `inflight_trend` (optional): dominant in-flight gauge trend summary when snapshots exist.
+- `inflight_trend` (optional): the selected gauge's latest retained activity-episode summary.
+  Positive samples open or continue an episode, the first retained zero closes it, and a later
+  positive sample starts a new episode. Active latest episodes outrank closed historical ones.
+  `sample_count` (including a terminal zero), peak, p95, and `growth_delta` are episode-local.
+  One sample has unknown direction even though `growth_delta` is represented as `0` for
+  compatibility. `growth_per_sec_milli` uses only valid run-relative microsecond timing;
+  `null` means a precise rate was unavailable. Unix milliseconds are only a coarse ordering
+  fallback and never produce a rate. Truncation can hide a zero transition, so analysis does
+  not fabricate closure. Growth remains supporting triage evidence, not root-cause proof.
 - `route_breakdowns`: always present and usually empty. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal (for example, different route-level primary suspects or a large route p95 latency spread). Route breakdowns are supporting context only; global `primary_suspect` remains the primary full-run triage lead. Route breakdowns use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals and are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
 - `temporal_segments`: always present and usually empty. It is populated only when conservative within-run early/late checks detect material signal movement (for example suspect-kind shifts or large p95 movement). Temporal segments are supporting within-run hints only; global `primary_suspect` remains the full-run triage lead. A temporal p95 warning means early/late request latency changed materially within the run. Temporal segments do not prove phase-specific root cause. Runtime and in-flight phase attribution is timestamp-filtered to each segment window and is limited when segment-filtered samples are sparse; when early/late windows overlap under concurrent requests, timestamp-filtered runtime/in-flight attribution is approximate.
 

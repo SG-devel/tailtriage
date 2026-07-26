@@ -14,6 +14,20 @@ Use this crate when you already have a completed `tailtriage_core::Run` in memor
 
 Suspects are investigation leads, not proof of root cause.
 
+### In-flight activity episodes
+
+`inflight_trend` summarizes the selected gauge's latest retained activity episode, not its
+full history. A positive sample starts an episode, the first retained zero closes it, and a
+later positive sample starts a new episode. Active latest episodes outrank closed historical
+episodes; sample count, peak, p95, and delta are episode-local.
+
+Complete run-relative microsecond timestamps are the only basis for
+`growth_per_sec_milli`. If any timestamp is missing, Unix milliseconds provide only a coarse
+ordering fallback and the rate is `null`. A `null` rate otherwise means a precise rate was
+unavailable. With one sample, direction is unknown even though `growth_delta` is represented
+as `0` for compatibility. Truncation can hide a zero; the analyzer does not invent closure.
+Growth is supporting triage evidence, not root-cause proof.
+
 `tailtriage-analyzer` accepts any `tailtriage_core::Run` value. It is intended for completed/finalized captures or stable snapshots; callers that require finalized artifacts should validate that separately.
 
 ## Installation
