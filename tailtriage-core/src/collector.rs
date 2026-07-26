@@ -382,6 +382,11 @@ impl Tailtriage {
         state.run.clone()
     }
 
+    #[cfg(test)]
+    pub(crate) fn live_inflight_gauge_count(&self) -> usize {
+        lock_state(&self.state.mutex).inflight_counts.len()
+    }
+
     /// Writes the current run artifact and finishes the run lifecycle.
     ///
     /// With default/non-strict lifecycle, unfinished requests are recorded in

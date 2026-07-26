@@ -18,38 +18,47 @@ impl Drop for InflightGuard<'_> {
             return;
         }
 
-        let sample = self.tailtriage.run_clock.sample();
-        let notify_limits_hit = {
-            let mut state = lock_state(&self.tailtriage.state.mutex);
-            if !matches!(state.phase, CollectorPhase::Open) {
-                return;
-            }
-            let entry = state.inflight_counts.entry(self.gauge.clone()).or_insert(0);
-            if *entry > 0 {
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let sample = self.tailtriage.run_clock.sample();
+            let notify_limits_hit = {
+                let mut state = lock_state(&self.tailtriage.state.mutex);
+                if !matches!(state.phase, CollectorPhase::Open) {
+                    return;
+                }
+                let Some(entry) = state.inflight_counts.get_mut(&self.gauge) else {
+                    return;
+                };
+                if *entry == 0 {
+                    return;
+                }
                 *entry -= 1;
+                let count = *entry;
+                let limit_hit = crate::retention::push_inflight_snapshot_bounded(
+                    &mut state.run,
+                    self.tailtriage.limits,
+                    InFlightSnapshot {
+                        gauge: self.gauge.clone(),
+                        at_unix_ms: sample.unix_ms,
+                        at_run_us: Some(sample.run_elapsed_us),
+                        count,
+                    },
+                );
+                if count == 0 {
+                    state.inflight_counts.remove(&self.gauge);
+                }
+                if limit_hit {
+                    self.tailtriage.truncation_state.inflight.mark_saturated();
+                    self.tailtriage
+                        .truncation_state
+                        .mark_run_limits_hit(&mut state.run)
+                } else {
+                    false
+                }
+            };
+            if notify_limits_hit {
+                self.tailtriage.notify_limits_hit_listener();
             }
-            let count = *entry;
-            if crate::retention::push_inflight_snapshot_bounded(
-                &mut state.run,
-                self.tailtriage.limits,
-                InFlightSnapshot {
-                    gauge: self.gauge.clone(),
-                    at_unix_ms: sample.unix_ms,
-                    at_run_us: Some(sample.run_elapsed_us),
-                    count,
-                },
-            ) {
-                self.tailtriage.truncation_state.inflight.mark_saturated();
-                self.tailtriage
-                    .truncation_state
-                    .mark_run_limits_hit(&mut state.run)
-            } else {
-                false
-            }
-        };
-        if notify_limits_hit {
-            self.tailtriage.notify_limits_hit_listener();
-        }
+        }));
     }
 }
 
