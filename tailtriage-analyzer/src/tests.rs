@@ -1684,25 +1684,196 @@ fn one_sample_inflight_episode_is_unknown_and_adds_no_bonus() {
     );
 }
 
+fn assert_dominant_inflight(
+    samples: &[tailtriage_core::InFlightSnapshot],
+    expected: InflightTrend,
+) {
+    assert_eq!(super::dominant_inflight_trend(samples), Some(expected));
+}
+
 #[test]
-fn inflight_candidate_order_prefers_rate_then_p95_peak_and_label() {
-    let samples = [
-        inflight("no-rate", 1, None, 1),
-        inflight("no-rate", 2, None, 4),
-        inflight("rate", 1, Some(1), 1),
-        inflight("rate", 2, Some(2_000_001), 4),
-    ];
-    assert_eq!(
-        super::dominant_inflight_trend(&samples).unwrap().gauge,
-        "rate"
+fn inflight_candidate_order_prefers_active_over_closed() {
+    assert_dominant_inflight(
+        &[
+            inflight("closed", 1, Some(1), 1),
+            inflight("closed", 2, Some(2), 20),
+            inflight("closed", 3, Some(3), 0),
+            inflight("active", 4, Some(4), 5),
+            inflight("active", 5, Some(5), 5),
+        ],
+        InflightTrend {
+            gauge: "active".into(),
+            sample_count: 2,
+            peak_count: 5,
+            p95_count: 5,
+            growth_delta: 0,
+            growth_per_sec_milli: Some(0),
+        },
     );
-    let tied = [
-        inflight("z", 1, Some(1), 2),
-        inflight("z", 2, Some(2), 2),
-        inflight("a", 1, Some(1), 2),
-        inflight("a", 2, Some(2), 2),
+}
+
+#[test]
+fn inflight_candidate_order_prefers_positive_over_unknown() {
+    let samples = [
+        inflight("positive", 1, Some(1), 1),
+        inflight("positive", 2, Some(1_000_001), 2),
+        inflight("unknown", 3, Some(3), 50),
     ];
-    assert_eq!(super::dominant_inflight_trend(&tied).unwrap().gauge, "a");
+    assert_dominant_inflight(
+        &samples,
+        InflightTrend {
+            gauge: "positive".into(),
+            sample_count: 2,
+            peak_count: 2,
+            p95_count: 2,
+            growth_delta: 1,
+            growth_per_sec_milli: Some(1000),
+        },
+    );
+}
+
+#[test]
+fn inflight_candidate_order_prefers_positive_over_non_growing() {
+    for (label, counts) in [("flat", [20, 20]), ("declining", [20, 10])] {
+        let samples = [
+            inflight("positive", 1, Some(1), 1),
+            inflight("positive", 2, Some(1_000_001), 2),
+            inflight(label, 1, Some(1), counts[0]),
+            inflight(label, 2, Some(1_000_001), counts[1]),
+        ];
+        assert_dominant_inflight(
+            &samples,
+            InflightTrend {
+                gauge: "positive".into(),
+                sample_count: 2,
+                peak_count: 2,
+                p95_count: 2,
+                growth_delta: 1,
+                growth_per_sec_milli: Some(1000),
+            },
+        );
+    }
+}
+
+#[test]
+fn inflight_candidate_order_prefers_larger_positive_delta() {
+    let samples = [
+        inflight("larger-delta", 1, Some(1), 1),
+        inflight("larger-delta", 2, Some(1_000_001), 6),
+        inflight("larger-peak", 1, Some(1), 100),
+        inflight("larger-peak", 2, Some(1_000_001), 103),
+    ];
+    assert_dominant_inflight(
+        &samples,
+        InflightTrend {
+            gauge: "larger-delta".into(),
+            sample_count: 2,
+            peak_count: 6,
+            p95_count: 6,
+            growth_delta: 5,
+            growth_per_sec_milli: Some(5000),
+        },
+    );
+}
+
+#[test]
+fn inflight_candidate_order_prefers_available_positive_rate() {
+    assert_dominant_inflight(
+        &[
+            inflight("no-rate", 1, None, 1),
+            inflight("no-rate", 2, None, 4),
+            inflight("rate", 1, Some(1), 1),
+            inflight("rate", 2, Some(2_000_001), 4),
+        ],
+        InflightTrend {
+            gauge: "rate".into(),
+            sample_count: 2,
+            peak_count: 4,
+            p95_count: 4,
+            growth_delta: 3,
+            growth_per_sec_milli: Some(1500),
+        },
+    );
+}
+
+#[test]
+fn inflight_candidate_order_prefers_larger_positive_rate() {
+    let samples = [
+        inflight("fast", 1, Some(1), 1),
+        inflight("fast", 2, Some(1_000_001), 4),
+        inflight("slow-large-peak", 1, Some(1), 100),
+        inflight("slow-large-peak", 2, Some(2_000_001), 103),
+    ];
+    assert_dominant_inflight(
+        &samples,
+        InflightTrend {
+            gauge: "fast".into(),
+            sample_count: 2,
+            peak_count: 4,
+            p95_count: 4,
+            growth_delta: 3,
+            growth_per_sec_milli: Some(3000),
+        },
+    );
+}
+
+#[test]
+fn inflight_candidate_order_prefers_larger_p95() {
+    let samples = [
+        inflight("high-p95", 1, Some(1), 8),
+        inflight("high-p95", 2, Some(2), 8),
+        inflight("low-p95", 1, Some(1), 7),
+        inflight("low-p95", 2, Some(2), 7),
+    ];
+    assert_dominant_inflight(
+        &samples,
+        InflightTrend {
+            gauge: "high-p95".into(),
+            sample_count: 2,
+            peak_count: 8,
+            p95_count: 8,
+            growth_delta: 0,
+            growth_per_sec_milli: Some(0),
+        },
+    );
+}
+
+#[test]
+fn inflight_candidate_order_prefers_larger_peak() {
+    let mut samples = vec![inflight("larger-peak", 1, Some(1), 10)];
+    samples.extend((2..=21).map(|time| inflight("larger-peak", time, Some(time), 1)));
+    samples.extend((1..=21).map(|time| inflight("smaller-peak", time, Some(time), 1)));
+    assert_dominant_inflight(
+        &samples,
+        InflightTrend {
+            gauge: "larger-peak".into(),
+            sample_count: 21,
+            peak_count: 10,
+            p95_count: 1,
+            growth_delta: -9,
+            growth_per_sec_milli: Some(-450_000_000),
+        },
+    );
+}
+
+#[test]
+fn inflight_candidate_order_uses_lexical_label_last() {
+    assert_dominant_inflight(
+        &[
+            inflight("z", 1, Some(1), 2),
+            inflight("z", 2, Some(2), 2),
+            inflight("a", 1, Some(1), 2),
+            inflight("a", 2, Some(2), 2),
+        ],
+        InflightTrend {
+            gauge: "a".into(),
+            sample_count: 2,
+            peak_count: 2,
+            p95_count: 2,
+            growth_delta: 0,
+            growth_per_sec_milli: Some(0),
+        },
+    );
 }
 
 #[test]
@@ -1720,7 +1891,7 @@ fn truncated_inflight_history_does_not_infer_missing_zero() {
 }
 
 #[test]
-fn inflight_trend_json_shape_remains_unchanged() {
+fn inflight_trend_json_shape_and_values_remain_unchanged() {
     let value = serde_json::to_value(InflightTrend {
         gauge: "g".into(),
         sample_count: 3,
@@ -1730,22 +1901,35 @@ fn inflight_trend_json_shape_remains_unchanged() {
         growth_per_sec_milli: Some(1500),
     })
     .unwrap();
-    let object = value.as_object().unwrap();
     assert_eq!(
-        object.keys().cloned().collect::<Vec<_>>(),
-        [
-            "gauge",
-            "growth_delta",
-            "growth_per_sec_milli",
-            "p95_count",
-            "peak_count",
-            "sample_count"
-        ]
+        value,
+        serde_json::json!({
+            "gauge": "g",
+            "sample_count": 3,
+            "peak_count": 4,
+            "p95_count": 4,
+            "growth_delta": 3,
+            "growth_per_sec_milli": 1500
+        })
     );
-    assert!(
-        object["gauge"].is_string()
-            && object["sample_count"].is_u64()
-            && object["growth_per_sec_milli"].is_i64()
+    assert_eq!(
+        serde_json::to_value(InflightTrend {
+            gauge: "g".into(),
+            sample_count: 1,
+            peak_count: 4,
+            p95_count: 4,
+            growth_delta: 0,
+            growth_per_sec_milli: None,
+        })
+        .unwrap(),
+        serde_json::json!({
+            "gauge": "g",
+            "sample_count": 1,
+            "peak_count": 4,
+            "p95_count": 4,
+            "growth_delta": 0,
+            "growth_per_sec_milli": null
+        })
     );
 }
 
@@ -1774,6 +1958,100 @@ fn queue_bonus_run(inflight_samples: Vec<tailtriage_core::InFlightSnapshot>) -> 
         .collect();
     run.inflight = inflight_samples;
     run
+}
+
+fn suspect_evidence<'a>(report: &'a Report, kind: &DiagnosisKind) -> &'a [String] {
+    &std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .find(|suspect| &suspect.kind == kind)
+        .expect("expected suspect")
+        .evidence
+}
+
+#[test]
+fn closed_historical_inflight_spike_adds_no_bonus_when_active_flat_episode_wins() {
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let report = analyze_run(
+        &queue_bonus_run(vec![
+            inflight("closed", 1, Some(1), 1),
+            inflight("closed", 2, Some(2), 20),
+            inflight("closed", 3, Some(3), 0),
+            inflight("active", 4, Some(4), 5),
+            inflight("active", 5, Some(5), 5),
+        ]),
+        AnalyzeOptions::default(),
+    );
+    assert_eq!(
+        report.inflight_trend,
+        Some(InflightTrend {
+            gauge: "active".into(),
+            sample_count: 2,
+            peak_count: 5,
+            p95_count: 5,
+            growth_delta: 0,
+            growth_per_sec_milli: Some(0),
+        })
+    );
+    assert_eq!(
+        suspect_score(&report, &DiagnosisKind::ApplicationQueueSaturation),
+        suspect_score(&baseline, &DiagnosisKind::ApplicationQueueSaturation)
+    );
+    assert!(
+        !suspect_evidence(&report, &DiagnosisKind::ApplicationQueueSaturation)
+            .iter()
+            .any(|evidence| evidence.contains("grew by"))
+    );
+}
+
+#[test]
+fn inflight_growth_evidence_states_unix_fallback_without_rate() {
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let report = analyze_run(
+        &queue_bonus_run(vec![
+            inflight("fallback", 1, Some(1), 1),
+            inflight("fallback", 2, None, 3),
+        ]),
+        AnalyzeOptions::default(),
+    );
+    assert_eq!(
+        report.inflight_trend.as_ref().unwrap().growth_per_sec_milli,
+        None
+    );
+    assert_eq!(
+        suspect_score(&report, &DiagnosisKind::ApplicationQueueSaturation)
+            - suspect_score(&baseline, &DiagnosisKind::ApplicationQueueSaturation),
+        5
+    );
+    let evidence = suspect_evidence(&report, &DiagnosisKind::ApplicationQueueSaturation).join(" ");
+    assert!(evidence.contains("latest active episode grew by 2"));
+    assert!(evidence.contains("ordering used Unix-ms fallback"));
+    assert!(evidence.contains("no precise growth rate was derived"));
+    assert!(!evidence.contains("rate="));
+}
+
+#[test]
+fn inflight_growth_evidence_states_unavailable_run_relative_rate() {
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let report = analyze_run(
+        &queue_bonus_run(vec![
+            inflight("zero-elapsed", 1, Some(10), 1),
+            inflight("zero-elapsed", 2, Some(10), 3),
+        ]),
+        AnalyzeOptions::default(),
+    );
+    assert_eq!(
+        report.inflight_trend.as_ref().unwrap().growth_per_sec_milli,
+        None
+    );
+    assert_eq!(
+        suspect_score(&report, &DiagnosisKind::ApplicationQueueSaturation)
+            - suspect_score(&baseline, &DiagnosisKind::ApplicationQueueSaturation),
+        5
+    );
+    let evidence = suspect_evidence(&report, &DiagnosisKind::ApplicationQueueSaturation).join(" ");
+    assert!(evidence.contains("latest active episode grew by 2"));
+    assert!(evidence.contains("precise run-relative growth rate is unavailable"));
+    assert!(!evidence.contains("Unix-ms fallback"));
 }
 
 #[test]
