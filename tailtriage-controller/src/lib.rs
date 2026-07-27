@@ -228,6 +228,8 @@ struct ActiveGenerationRuntime {
     runtime_sampler: Mutex<Option<RuntimeSampler>>,
     #[cfg(test)]
     finalization_test_hooks: Mutex<FinalizationTestHooks>,
+    #[cfg(test)]
+    admission_test_hooks: Mutex<AdmissionTestHooks>,
 }
 
 #[cfg(test)]
@@ -235,6 +237,26 @@ struct ActiveGenerationRuntime {
 struct FinalizationTestHooks {
     before_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     after_terminal_publication: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+#[cfg(test)]
+#[derive(Default, Clone)]
+struct AdmissionTestHooks {
+    before_admission_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    before_closure_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+#[cfg(test)]
+impl std::fmt::Debug for AdmissionTestHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdmissionTestHooks")
+            .field(
+                "before_admission_gate",
+                &self.before_admission_gate.is_some(),
+            )
+            .field("before_closure_gate", &self.before_closure_gate.is_some())
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -350,8 +372,12 @@ impl TailtriageController {
     ///
     /// # Errors
     ///
-    /// Returns [`ReloadTemplateError`] when `service_name` is blank or when
-    /// building a run with this template would fail.
+    /// Direct reload validates controller-owned template structure. It creates no Run,
+    /// generation, or runtime sampler; runtime and sampler startup failures remain
+    /// [`TailtriageController::enable`] errors.
+    ///
+    /// Returns [`ReloadTemplateError`] when the resolved controller template is
+    /// invalid, currently when `service_name` is blank.
     pub fn reload_template(
         &self,
         next_template: TailtriageControllerTemplate,
@@ -510,6 +536,8 @@ impl TailtriageController {
             runtime_sampler: Mutex::new(None),
             #[cfg(test)]
             finalization_test_hooks: Mutex::new(FinalizationTestHooks::default()),
+            #[cfg(test)]
+            admission_test_hooks: Mutex::new(AdmissionTestHooks::default()),
         });
         if template.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit {
             let active = Arc::downgrade(&runtime);
@@ -667,6 +695,19 @@ impl TailtriageController {
             }
         };
 
+        #[cfg(test)]
+        {
+            let hook = active
+                .admission_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .before_admission_gate
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+
         let _admission = active
             .admission_gate
             .lock()
@@ -753,6 +794,19 @@ impl TailtriageController {
         active: &Arc<ActiveGenerationRuntime>,
         reason: RunEndReason,
     ) -> u64 {
+        #[cfg(test)]
+        {
+            let hook = active
+                .admission_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .before_closure_gate
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+
         let _admission = active
             .admission_gate
             .lock()
@@ -1655,7 +1709,7 @@ impl std::error::Error for ReloadConfigError {
 /// Errors emitted while replacing controller activation templates directly.
 #[derive(Debug)]
 pub enum ReloadTemplateError {
-    /// Template failed validation against run build checks.
+    /// Template failed controller-owned validation.
     Validate(BuildError),
 }
 
@@ -1858,11 +1912,18 @@ mod tests {
     }
 
     #[derive(Serialize)]
+    #[allow(clippy::struct_field_names)]
     struct TestCaptureLimitsOverrideToml {
         #[serde(skip_serializing_if = "Option::is_none")]
-        max_requests: Option<u64>,
+        max_requests: Option<usize>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        max_stages: Option<u64>,
+        max_stages: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_queues: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_inflight_snapshots: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_runtime_snapshots: Option<usize>,
     }
 
     #[derive(Serialize)]
@@ -1954,6 +2015,7 @@ mod tests {
             last_finalize_error: Mutex::new(None),
             runtime_sampler: Mutex::new(None),
             finalization_test_hooks: Mutex::new(super::FinalizationTestHooks::default()),
+            admission_test_hooks: Mutex::new(super::AdmissionTestHooks::default()),
         });
         let inner = Arc::new(super::ControllerInner {
             template: Mutex::new(Arc::new(super::ResolvedControllerTemplate {
@@ -2027,6 +2089,9 @@ mod tests {
                     capture_limits_override: Some(TestCaptureLimitsOverrideToml {
                         max_requests: Some(17),
                         max_stages: Some(18),
+                        max_queues: None,
+                        max_inflight_snapshots: None,
+                        max_runtime_snapshots: None,
                     }),
                     strict_lifecycle: Some(strict),
                     sink: TestSinkToml {
@@ -2059,6 +2124,9 @@ mod tests {
                     capture_limits_override: Some(TestCaptureLimitsOverrideToml {
                         max_requests: Some(9),
                         max_stages: None,
+                        max_queues: None,
+                        max_inflight_snapshots: None,
+                        max_runtime_snapshots: None,
                     }),
                     strict_lifecycle: Some(true),
                     sink: TestSinkToml {
@@ -2128,6 +2196,41 @@ mod tests {
         fs::write(path, content).expect("config write should succeed");
     }
 
+    fn write_complete_resolution_config(path: &Path, output: &Path) {
+        let content = toml::to_string(&TestControllerConfigToml {
+            controller: TestControllerConfigBodyToml {
+                service_name: Some("resolved-service".to_owned()),
+                initially_enabled: Some(false),
+                activation: TestActivationToml {
+                    mode: "investigation",
+                    capture_limits_override: Some(TestCaptureLimitsOverrideToml {
+                        max_requests: Some(11),
+                        max_stages: Some(22),
+                        max_queues: Some(33),
+                        max_inflight_snapshots: Some(44),
+                        max_runtime_snapshots: Some(55),
+                    }),
+                    strict_lifecycle: Some(true),
+                    sink: TestSinkToml {
+                        sink_type: "local_json",
+                        output_path: output.to_path_buf(),
+                    },
+                    runtime_sampler: Some(TestRuntimeSamplerToml {
+                        enabled_for_armed_runs: true,
+                        mode_override: "investigation",
+                        interval_ms: 250,
+                        max_runtime_snapshots: 34,
+                    }),
+                    run_end_policy: Some(TestRunEndPolicyToml {
+                        kind: "auto_seal_on_limits_hit",
+                    }),
+                },
+            },
+        })
+        .expect("complete config TOML serialization should succeed");
+        fs::write(path, content).expect("complete config write should succeed");
+    }
+
     #[test]
     fn enable_capture_disable_finalizes_generation() {
         let output = test_output("enable-capture-disable");
@@ -2158,6 +2261,176 @@ mod tests {
         assert!(expected.exists());
 
         fs::remove_file(expected).expect("cleanup should succeed");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn admission_and_disable_linearize_without_generation_migration() {
+        fn install_gate_hooks(
+            active: &super::ActiveGenerationRuntime,
+        ) -> (
+            mpsc::Receiver<()>,
+            mpsc::Sender<()>,
+            mpsc::Receiver<()>,
+            mpsc::Sender<()>,
+        ) {
+            let (admission_reached_tx, admission_reached_rx) = mpsc::channel();
+            let (admission_release_tx, admission_release_rx) = mpsc::channel();
+            let (closure_reached_tx, closure_reached_rx) = mpsc::channel();
+            let (closure_release_tx, closure_release_rx) = mpsc::channel();
+            let admission_release_rx = Mutex::new(admission_release_rx);
+            let closure_release_rx = Mutex::new(closure_release_rx);
+            let mut hooks = active
+                .admission_test_hooks
+                .lock()
+                .expect("admission hooks lock");
+            hooks.before_admission_gate = Some(Arc::new(move || {
+                admission_reached_tx
+                    .send(())
+                    .expect("admission coordinator");
+                admission_release_rx
+                    .lock()
+                    .expect("admission release lock")
+                    .recv()
+                    .expect("admission release");
+            }));
+            hooks.before_closure_gate = Some(Arc::new(move || {
+                closure_reached_tx.send(()).expect("closure coordinator");
+                closure_release_rx
+                    .lock()
+                    .expect("closure release lock")
+                    .recv()
+                    .expect("closure release");
+            }));
+            (
+                admission_reached_rx,
+                admission_release_tx,
+                closure_reached_rx,
+                closure_release_tx,
+            )
+        }
+
+        let admission_controller = TailtriageController::builder("admission-wins-service")
+            .output(test_output("admission-wins-linearization"))
+            .build()
+            .expect("admission-wins controller should build");
+        let admission_generation = admission_controller
+            .enable()
+            .expect("generation should enable");
+        let admission_runtime = active_runtime(&admission_controller);
+        let (admission_reached, release_admission, closure_reached, release_closure) =
+            install_gate_hooks(&admission_runtime);
+        let controller = admission_controller.clone();
+        let admitting = std::thread::spawn(move || {
+            controller.begin_request_with(
+                "/linearization",
+                RequestOptions::new().request_id("req-admission-wins"),
+            )
+        });
+        let controller = admission_controller.clone();
+        let disabling = std::thread::spawn(move || controller.disable());
+        admission_reached
+            .recv()
+            .expect("admission should reach hook");
+        closure_reached.recv().expect("disable should reach hook");
+        release_admission.send(()).expect("release admission first");
+        let admitted = admitting.join().expect("admission thread should join");
+        assert!(matches!(
+            admitted.handle,
+            super::ControllerRequestHandle::Active(_)
+        ));
+        assert_eq!(
+            admission_runtime.inflight_captured.load(Ordering::Acquire),
+            1
+        );
+        release_closure.send(()).expect("release closure second");
+        assert!(matches!(
+            disabling.join().expect("disable thread should join"),
+            Ok(DisableOutcome::Closing {
+                generation_id: 1,
+                inflight_captured_requests: 1
+            })
+        ));
+        admitted.completion.finish_ok();
+        assert!(matches!(
+            admission_controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let admission_run = read_run(&admission_generation.artifact_path);
+        assert_eq!(
+            admission_run
+                .requests
+                .iter()
+                .filter(|request| request.request_id == "req-admission-wins")
+                .count(),
+            1
+        );
+
+        let disable_controller = TailtriageController::builder("disable-wins-service")
+            .output(test_output("disable-wins-linearization"))
+            .build()
+            .expect("disable-wins controller should build");
+        let disable_generation = disable_controller
+            .enable()
+            .expect("generation should enable");
+        let disable_runtime = active_runtime(&disable_controller);
+        let (admission_reached, release_admission, closure_reached, release_closure) =
+            install_gate_hooks(&disable_runtime);
+        let controller = disable_controller.clone();
+        let admitting = std::thread::spawn(move || {
+            controller.begin_request_with(
+                "/linearization",
+                RequestOptions::new().request_id("req-disable-wins"),
+            )
+        });
+        let controller = disable_controller.clone();
+        let disabling = std::thread::spawn(move || controller.disable());
+        admission_reached
+            .recv()
+            .expect("admission should reach hook");
+        closure_reached.recv().expect("disable should reach hook");
+        release_closure.send(()).expect("release closure first");
+        assert!(matches!(
+            disabling.join().expect("disable thread should join"),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+        assert_eq!(disable_runtime.inflight_captured.load(Ordering::Acquire), 0);
+        release_admission
+            .send(())
+            .expect("release admission second");
+        let inert = admitting.join().expect("admission thread should join");
+        assert!(matches!(
+            inert.handle,
+            super::ControllerRequestHandle::Inert(_)
+        ));
+        assert_eq!(disable_runtime.inflight_captured.load(Ordering::Acquire), 0);
+        let generation_one_run = read_run(&disable_generation.artifact_path);
+        assert!(generation_one_run
+            .requests
+            .iter()
+            .all(|request| request.request_id != "req-disable-wins"));
+
+        *disable_runtime
+            .admission_test_hooks
+            .lock()
+            .expect("admission hooks lock") = super::AdmissionTestHooks::default();
+        let generation_two = disable_controller
+            .enable()
+            .expect("generation 2 should enable");
+        drop(inert);
+        assert!(matches!(
+            disable_controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 2 })
+        ));
+        let generation_two_run = read_run(&generation_two.artifact_path);
+        assert!(generation_two_run
+            .requests
+            .iter()
+            .all(|request| request.request_id != "req-disable-wins"));
+
+        fs::remove_file(admission_generation.artifact_path).expect("cleanup admission artifact");
+        fs::remove_file(disable_generation.artifact_path).expect("cleanup generation 1 artifact");
+        fs::remove_file(generation_two.artifact_path).expect("cleanup generation 2 artifact");
     }
 
     #[test]
@@ -3331,6 +3604,86 @@ mod tests {
 
         fs::write(&config, "[controller\n").expect("invalid TOML write should succeed");
         assert!(TailtriageController::load_config_from_path(&config).is_err());
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
+    fn builder_direct_reload_and_config_reload_share_template_resolution() {
+        let output = test_output("complete-template-resolution");
+        let config = test_config_path("complete-template-resolution");
+        write_complete_resolution_config(&config, &output);
+
+        let expected = TailtriageControllerTemplate {
+            service_name: "resolved-service".to_owned(),
+            config_path: Some(config.clone()),
+            sink_template: ControllerSinkTemplate::LocalJson {
+                output_path: output.clone(),
+            },
+            selected_mode: CaptureMode::Investigation,
+            capture_limits_override: CaptureLimitsOverride {
+                max_requests: Some(11),
+                max_stages: Some(22),
+                max_queues: Some(33),
+                max_inflight_snapshots: Some(44),
+                max_runtime_snapshots: Some(55),
+            },
+            strict_lifecycle: true,
+            runtime_sampler: RuntimeSamplerTemplate {
+                enabled_for_armed_runs: true,
+                mode_override: Some(CaptureMode::Investigation),
+                interval_ms: Some(250),
+                max_runtime_snapshots: Some(34),
+            },
+            run_end_policy: RunEndPolicy::AutoSealOnLimitsHit,
+        };
+
+        let builder_controller = TailtriageController::builder("different-builder-service")
+            .output(test_output("different-builder-output"))
+            .config_path(&config)
+            .build()
+            .expect("builder config resolution should succeed");
+        assert_eq!(builder_controller.status().template, expected);
+
+        let direct_reload_controller = TailtriageController::builder("initial-direct-service")
+            .output(test_output("initial-direct-output"))
+            .build()
+            .expect("direct reload controller should build");
+        direct_reload_controller
+            .reload_template(expected.clone())
+            .expect("direct template reload should succeed");
+        assert_eq!(direct_reload_controller.status().template, expected);
+
+        write_config(
+            &config,
+            &test_output("initial-config-reload-output"),
+            "light",
+            false,
+            false,
+        );
+        let config_reload_controller = TailtriageController::builder("initial-config-service")
+            .config_path(&config)
+            .build()
+            .expect("config reload controller should build");
+        assert_ne!(config_reload_controller.status().template, expected);
+        write_complete_resolution_config(&config, &output);
+        config_reload_controller
+            .reload_config()
+            .expect("file-backed config reload should succeed");
+        assert_eq!(config_reload_controller.status().template, expected);
+
+        for controller in [
+            &builder_controller,
+            &direct_reload_controller,
+            &config_reload_controller,
+        ] {
+            assert!(matches!(
+                controller.status().generation,
+                GenerationState::Disabled { next_generation: 1 }
+            ));
+        }
+        assert!(!output.exists());
+        assert!(!super::generated_artifact_path(&expected.sink_template, 1).exists());
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
