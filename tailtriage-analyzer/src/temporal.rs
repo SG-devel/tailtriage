@@ -1,10 +1,7 @@
 use tailtriage_core::{RequestEvent, Run};
 
-use super::{
-    analyze_run_internal, AnalyzeOptions, DiagnosisKind, Report, SignalCoverageStatus,
-    TemporalSegment,
-};
-use crate::route;
+use super::{AnalyzeOptions, DiagnosisKind, SignalCoverageStatus, TemporalSegment};
+use crate::slicing::{analyze_slice, GlobalEvidencePolicy, SampleWindow, ScopedReportProjection};
 
 const TEMPORAL_RUNTIME_ATTRIBUTION_WARNING: &str = "Runtime and in-flight evidence is sparse in this segment after timestamp filtering; executor/blocking attribution is limited.";
 pub(super) const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.";
@@ -12,13 +9,6 @@ pub(super) const TEMPORAL_P95_SHIFT_WARNING: &str =
     "Temporal segments show a large p95 latency shift between early and late requests.";
 pub(super) const TEMPORAL_OVERLAP_ATTRIBUTION_WARNING: &str = "Segment windows overlap under concurrent requests; timestamp-filtered runtime/in-flight attribution is approximate.";
 pub(super) const TEMPORAL_WALL_CLOCK_FALLBACK_WARNING: &str = "Temporal segment used wall-clock timestamp fallback; attribution is approximate for artifacts without complete run-relative timing.";
-
-#[derive(Clone, Copy)]
-struct SegmentWindow {
-    unix_start: u64,
-    unix_finish: u64,
-    run_relative: Option<(u64, u64)>,
-}
 
 fn all_requests_have_run_relative_start(requests: &[RequestEvent]) -> bool {
     requests
@@ -75,60 +65,9 @@ fn segment_unix_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
     Some((start, finish))
 }
 
-fn retain_segment_sample(
-    at_unix_ms: u64,
-    at_run_us: Option<u64>,
-    window: SegmentWindow,
-) -> (bool, bool) {
-    if let (Some((start, finish)), Some(at)) = (window.run_relative, at_run_us) {
-        return (at >= start && at <= finish, false);
-    }
-
-    let retained = at_unix_ms >= window.unix_start && at_unix_ms <= window.unix_finish;
-    let used_unix_fallback = retained && window.run_relative.is_some() && at_run_us.is_none();
-    (retained, used_unix_fallback)
-}
-
-fn filter_segment_runtime_and_inflight(run: &mut Run, source: &Run, window: SegmentWindow) -> bool {
-    let mut used_unix_fallback = false;
-    run.runtime_snapshots = source
-        .runtime_snapshots
-        .iter()
-        .filter(|snapshot| {
-            let (retained, used_fallback) =
-                retain_segment_sample(snapshot.at_unix_ms, snapshot.at_run_us, window);
-            used_unix_fallback |= used_fallback;
-            retained
-        })
-        .cloned()
-        .collect();
-    run.inflight = source
-        .inflight
-        .iter()
-        .filter(|snapshot| {
-            let (retained, used_fallback) =
-                retain_segment_sample(snapshot.at_unix_ms, snapshot.at_run_us, window);
-            used_unix_fallback |= used_fallback;
-            retained
-        })
-        .cloned()
-        .collect();
-    used_unix_fallback
-}
-
-fn filtered_run_for_temporal_segment(
-    run: &Run,
-    request_ids: &[String],
-    window: SegmentWindow,
-) -> (Run, bool) {
-    let mut filtered = route::filtered_run_for_route(run, request_ids);
-    let used_unix_fallback = filter_segment_runtime_and_inflight(&mut filtered, run, window);
-    (filtered, used_unix_fallback)
-}
-
 fn temporal_segment_from_report(
     name: &str,
-    analyzed: Report,
+    analyzed: ScopedReportProjection,
     start: Option<u64>,
     finish: Option<u64>,
 ) -> TemporalSegment {
@@ -169,20 +108,20 @@ pub(super) fn temporal_segments(
     let build = |name: &str, seg: &[RequestEvent]| {
         let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
         let Some((unix_start, unix_finish)) = segment_unix_window(seg) else {
-            let analyzed = analyze_run_internal(&route::filtered_run_for_route(run, &ids), options);
-            return temporal_segment_from_report(name, analyzed, None, None);
+            let analyzed = analyze_slice(run, &ids, GlobalEvidencePolicy::Exclude, options);
+            return temporal_segment_from_report(name, analyzed.report, None, None);
         };
         let start = Some(unix_start);
         let finish = Some(unix_finish);
         let run_relative_window = segment_run_relative_window(seg);
-        let window = SegmentWindow {
+        let window = SampleWindow {
             unix_start,
             unix_finish,
             run_relative: run_relative_window,
         };
-        let (filtered, used_snapshot_unix_fallback) =
-            filtered_run_for_temporal_segment(run, &ids, window);
-        let mut analyzed = analyze_run_internal(&filtered, options);
+        let analyzed = analyze_slice(run, &ids, GlobalEvidencePolicy::Window(window), options);
+        let used_snapshot_unix_fallback = analyzed.used_unix_fallback;
+        let mut analyzed = analyzed.report;
         if run_relative_window.is_none() || used_snapshot_unix_fallback {
             analyzed
                 .warnings

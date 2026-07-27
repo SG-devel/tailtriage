@@ -12,6 +12,7 @@ mod options;
 mod partial_evidence;
 mod route;
 mod scoring;
+mod slicing;
 mod stage_attribution;
 mod temporal;
 

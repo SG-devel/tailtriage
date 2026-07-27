@@ -1,0 +1,271 @@
+{
+  "schema_version": 2,
+  "metadata": {
+    "run_id": "scoped-temporal-golden",
+    "service_name": "svc",
+    "service_version": null,
+    "started_at_unix_ms": 1,
+    "mode": "light",
+    "host": null,
+    "pid": 7,
+    "finalized_at_unix_ms": 2
+  },
+  "requests": [
+    {
+      "request_id": "t-00",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 100,
+      "finished_at_unix_ms": 101,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 1000,
+      "finished_at_run_us": 2000
+    },
+    {
+      "request_id": "t-01",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 101,
+      "finished_at_unix_ms": 102,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 2000,
+      "finished_at_run_us": 3000
+    },
+    {
+      "request_id": "t-02",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 102,
+      "finished_at_unix_ms": 103,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 3000,
+      "finished_at_run_us": 4000
+    },
+    {
+      "request_id": "t-03",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 103,
+      "finished_at_unix_ms": 104,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 4000,
+      "finished_at_run_us": 5000
+    },
+    {
+      "request_id": "t-04",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 104,
+      "finished_at_unix_ms": 105,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 5000,
+      "finished_at_run_us": 6000
+    },
+    {
+      "request_id": "t-05",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 105,
+      "finished_at_unix_ms": 106,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 6000,
+      "finished_at_run_us": 7000
+    },
+    {
+      "request_id": "t-06",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 106,
+      "finished_at_unix_ms": 107,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 7000,
+      "finished_at_run_us": 8000
+    },
+    {
+      "request_id": "t-07",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 107,
+      "finished_at_unix_ms": 108,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 8000,
+      "finished_at_run_us": 9000
+    },
+    {
+      "request_id": "t-08",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 108,
+      "finished_at_unix_ms": 109,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 9000,
+      "finished_at_run_us": 10000
+    },
+    {
+      "request_id": "t-09",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 109,
+      "finished_at_unix_ms": 110,
+      "latency_us": 1000,
+      "outcome": "ok",
+      "started_at_run_us": 10000,
+      "finished_at_run_us": 11000
+    },
+    {
+      "request_id": "t-10",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 110,
+      "finished_at_unix_ms": 111,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 11000,
+      "finished_at_run_us": 17000
+    },
+    {
+      "request_id": "t-11",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 111,
+      "finished_at_unix_ms": 112,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 12000,
+      "finished_at_run_us": 18000
+    },
+    {
+      "request_id": "t-12",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 112,
+      "finished_at_unix_ms": 113,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 13000,
+      "finished_at_run_us": 19000
+    },
+    {
+      "request_id": "t-13",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 113,
+      "finished_at_unix_ms": 114,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 14000,
+      "finished_at_run_us": 20000
+    },
+    {
+      "request_id": "t-14",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 114,
+      "finished_at_unix_ms": 115,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 15000,
+      "finished_at_run_us": 21000
+    },
+    {
+      "request_id": "t-15",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 115,
+      "finished_at_unix_ms": 116,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 16000,
+      "finished_at_run_us": 22000
+    },
+    {
+      "request_id": "t-16",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 116,
+      "finished_at_unix_ms": 117,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 17000,
+      "finished_at_run_us": 23000
+    },
+    {
+      "request_id": "t-17",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 117,
+      "finished_at_unix_ms": 118,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 18000,
+      "finished_at_run_us": 24000
+    },
+    {
+      "request_id": "t-18",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 118,
+      "finished_at_unix_ms": 119,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 19000,
+      "finished_at_run_us": 25000
+    },
+    {
+      "request_id": "t-19",
+      "route": "/temporal",
+      "kind": null,
+      "started_at_unix_ms": 119,
+      "finished_at_unix_ms": 120,
+      "latency_us": 6000,
+      "outcome": "ok",
+      "started_at_run_us": 20000,
+      "finished_at_run_us": 26000
+    }
+  ],
+  "stages": [],
+  "queues": [],
+  "inflight": [
+    {
+      "at_unix_ms": 105,
+      "at_run_us": 5000,
+      "gauge": "requests",
+      "count": 2
+    },
+    {
+      "at_unix_ms": 115,
+      "at_run_us": 15000,
+      "gauge": "requests",
+      "count": 8
+    }
+  ],
+  "runtime_snapshots": [
+    {
+      "at_unix_ms": 105,
+      "at_run_us": 5000,
+      "alive_tasks": 100,
+      "global_queue_depth": 20,
+      "local_queue_depth": 20,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": null
+    },
+    {
+      "at_unix_ms": 115,
+      "at_run_us": 15000,
+      "alive_tasks": 100,
+      "global_queue_depth": 1,
+      "local_queue_depth": 1,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": null
+    }
+  ]
+}

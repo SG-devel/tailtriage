@@ -1,10 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use tailtriage_core::Run;
 
-use super::{
-    analyze_run_internal, AnalyzeOptions, Report, RouteBreakdown, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
-};
+use super::{AnalyzeOptions, Report, RouteBreakdown, ROUTE_RUNTIME_ATTRIBUTION_WARNING};
+use crate::slicing::{analyze_slice, GlobalEvidencePolicy};
 
 pub(super) struct RouteBreakdownContext {
     pub(super) breakdowns: Vec<RouteBreakdown>,
@@ -47,8 +46,8 @@ pub(super) fn route_breakdowns(
 
     let mut candidates = Vec::new();
     for (route, request_ids) in eligible {
-        let filtered = filtered_run_for_route(run, &request_ids);
-        let mut analyzed = analyze_run_internal(&filtered, options);
+        let mut analyzed =
+            analyze_slice(run, &request_ids, GlobalEvidencePolicy::Exclude, options).report;
         analyzed
             .warnings
             .push(ROUTE_RUNTIME_ATTRIBUTION_WARNING.to_string());
@@ -133,30 +132,4 @@ fn should_emit_route_breakdowns(
             }
             _ => false,
         }
-}
-
-pub(super) fn filtered_run_for_route(run: &Run, request_ids: &[String]) -> Run {
-    let request_ids: HashSet<&str> = request_ids.iter().map(String::as_str).collect();
-    let mut filtered = run.clone();
-    filtered.requests = run
-        .requests
-        .iter()
-        .filter(|r| request_ids.contains(r.request_id.as_str()))
-        .cloned()
-        .collect();
-    filtered.stages = run
-        .stages
-        .iter()
-        .filter(|s| request_ids.contains(s.request_id.as_str()))
-        .cloned()
-        .collect();
-    filtered.queues = run
-        .queues
-        .iter()
-        .filter(|q| request_ids.contains(q.request_id.as_str()))
-        .cloned()
-        .collect();
-    filtered.runtime_snapshots = Vec::new();
-    filtered.inflight = Vec::new();
-    filtered
 }

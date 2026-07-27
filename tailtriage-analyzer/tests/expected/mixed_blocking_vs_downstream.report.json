@@ -1,0 +1,73 @@
+{
+  "request_count": 3,
+  "p50_latency_us": 1050,
+  "p95_latency_us": 1100,
+  "p99_latency_us": 1100,
+  "p95_queue_share_permille": 0,
+  "p95_service_share_permille": 1000,
+  "inflight_trend": null,
+  "warnings": [
+    "Run validation precise_interval_validation_unavailable: 3 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2.",
+    "Run validation precise_interval_validation_unavailable: 3 stage event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2.",
+    "Low completed-request count; diagnosis ranking may be unstable for this run window.",
+    "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited."
+  ],
+  "evidence_quality": {
+    "request_count": 3,
+    "queue_event_count": 0,
+    "stage_event_count": 3,
+    "runtime_snapshot_count": 3,
+    "inflight_snapshot_count": 0,
+    "requests": "partial",
+    "queues": "missing",
+    "stages": "present",
+    "runtime_snapshots": "partial",
+    "inflight_snapshots": "missing",
+    "truncated": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "quality": "weak",
+    "limitations": [
+      "Low completed-request count can make suspect ranking unstable.",
+      "Runtime snapshots have missing queue-depth fields, limiting executor vs blocking differentiation.",
+      "Validation limitation: Run validation precise_interval_validation_unavailable: 3 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2.",
+      "Validation limitation: Run validation precise_interval_validation_unavailable: 3 stage event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2."
+    ]
+  },
+  "primary_suspect": {
+    "kind": "downstream_stage_dominates",
+    "score": 72,
+    "confidence": "medium",
+    "evidence": [
+      "Stage 'db' has p95 latency 450 us across 3 samples.",
+      "Stage 'db' cumulative latency is 1270 us (403 permille of request latency).",
+      "Stage 'db' contributes 409 permille of tail request latency."
+    ],
+    "next_checks": [
+      "Inspect downstream dependency behind stage 'db'.",
+      "Collect downstream service timings and retry behavior during tail windows.",
+      "Review downstream SLO/error budget and align retry budget/backoff with it."
+    ],
+    "confidence_notes": []
+  },
+  "secondary_suspects": [
+    {
+      "kind": "blocking_pool_pressure",
+      "score": 51,
+      "confidence": "low",
+      "evidence": [
+        "Blocking queue depth p95 is 5, peak is 5, with 3/3 nonzero samples."
+      ],
+      "next_checks": [
+        "Audit blocking sections and move avoidable synchronous work out of hot paths.",
+        "Inspect spawn_blocking callsites for long-running CPU or I/O work."
+      ],
+      "confidence_notes": []
+    }
+  ],
+  "route_breakdowns": [],
+  "temporal_segments": []
+}
