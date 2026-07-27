@@ -51,19 +51,7 @@ pub(super) fn route_breakdowns(
         analyzed
             .warnings
             .push(ROUTE_RUNTIME_ATTRIBUTION_WARNING.to_string());
-        candidates.push(RouteBreakdown {
-            route,
-            request_count: analyzed.request_count,
-            p50_latency_us: analyzed.p50_latency_us,
-            p95_latency_us: analyzed.p95_latency_us,
-            p99_latency_us: analyzed.p99_latency_us,
-            p95_queue_share_permille: analyzed.p95_queue_share_permille,
-            p95_service_share_permille: analyzed.p95_service_share_permille,
-            evidence_quality: analyzed.evidence_quality,
-            primary_suspect: analyzed.primary_suspect,
-            secondary_suspects: analyzed.secondary_suspects,
-            warnings: analyzed.warnings,
-        });
+        candidates.push(analyzed.into_route_breakdown(route));
     }
     if !should_emit_route_breakdowns(global, &candidates, options) {
         return RouteBreakdownContext {

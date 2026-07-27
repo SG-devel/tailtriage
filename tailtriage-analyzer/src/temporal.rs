@@ -1,7 +1,7 @@
 use tailtriage_core::{RequestEvent, Run};
 
 use super::{AnalyzeOptions, DiagnosisKind, SignalCoverageStatus, TemporalSegment};
-use crate::slicing::{analyze_slice, GlobalEvidencePolicy, SampleWindow, ScopedReportProjection};
+use crate::slicing::{analyze_slice, GlobalEvidencePolicy, SampleWindow};
 
 const TEMPORAL_RUNTIME_ATTRIBUTION_WARNING: &str = "Runtime and in-flight evidence is sparse in this segment after timestamp filtering; executor/blocking attribution is limited.";
 pub(super) const TEMPORAL_SUSPECT_SHIFT_WARNING: &str = "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect.";
@@ -65,29 +65,6 @@ fn segment_unix_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
     Some((start, finish))
 }
 
-fn temporal_segment_from_report(
-    name: &str,
-    analyzed: ScopedReportProjection,
-    start: Option<u64>,
-    finish: Option<u64>,
-) -> TemporalSegment {
-    TemporalSegment {
-        name: name.to_string(),
-        request_count: analyzed.request_count,
-        started_at_unix_ms: start,
-        finished_at_unix_ms: finish,
-        p50_latency_us: analyzed.p50_latency_us,
-        p95_latency_us: analyzed.p95_latency_us,
-        p99_latency_us: analyzed.p99_latency_us,
-        p95_queue_share_permille: analyzed.p95_queue_share_permille,
-        p95_service_share_permille: analyzed.p95_service_share_permille,
-        evidence_quality: analyzed.evidence_quality,
-        primary_suspect: analyzed.primary_suspect,
-        secondary_suspects: analyzed.secondary_suspects,
-        warnings: analyzed.warnings,
-    }
-}
-
 pub(super) fn temporal_segments(
     run: &Run,
     global_warnings: &mut Vec<String>,
@@ -109,7 +86,9 @@ pub(super) fn temporal_segments(
         let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
         let Some((unix_start, unix_finish)) = segment_unix_window(seg) else {
             let analyzed = analyze_slice(run, &ids, GlobalEvidencePolicy::Exclude, options);
-            return temporal_segment_from_report(name, analyzed.report, None, None);
+            return analyzed
+                .report
+                .into_temporal_segment(name.to_string(), None, None);
         };
         let start = Some(unix_start);
         let finish = Some(unix_finish);
@@ -140,7 +119,7 @@ pub(super) fn temporal_segments(
                 .warnings
                 .push(TEMPORAL_RUNTIME_ATTRIBUTION_WARNING.to_string());
         }
-        temporal_segment_from_report(name, analyzed, start, finish)
+        analyzed.into_temporal_segment(name.to_string(), start, finish)
     };
     let mut early_seg = build("early", early);
     let mut late_seg = build("late", late);
