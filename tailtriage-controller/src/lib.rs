@@ -127,50 +127,38 @@ impl TailtriageControllerBuilder {
     /// [`Self::initially_enabled`] is `true` and the first generation cannot be
     /// armed.
     pub fn build(self) -> Result<TailtriageController, ControllerBuildError> {
-        let mut service_name = self.service_name;
-        let mut initially_enabled = self.initially_enabled;
-        let mut sink_template = self.sink_template;
-        let mut selected_mode = CaptureMode::Light;
-        let mut capture_limits_override = self.capture_limits_override;
-        let mut strict_lifecycle = self.strict_lifecycle;
-        let mut runtime_sampler = self.runtime_sampler;
-        let mut run_end_policy = self.run_end_policy;
-
-        if let Some(config_path) = self.config_path.as_ref() {
-            let loaded = TailtriageController::load_config_from_path(config_path)
-                .map_err(ControllerBuildError::ConfigLoad)?;
-            let activation = loaded.activation_template;
-            service_name = loaded.service_name.unwrap_or(service_name);
-            initially_enabled = loaded.initially_enabled.unwrap_or(initially_enabled);
-            sink_template = activation.sink_template;
-            selected_mode = activation.selected_mode;
-            capture_limits_override = activation.capture_limits_override;
-            strict_lifecycle = activation.strict_lifecycle;
-            runtime_sampler = activation.runtime_sampler;
-            run_end_policy = activation.run_end_policy;
-        }
-
-        if service_name.trim().is_empty() {
-            return Err(ControllerBuildError::EmptyServiceName);
-        }
-
-        let template = TailtriageControllerTemplate {
-            service_name,
-            config_path: self.config_path,
-            sink_template,
-            selected_mode: CaptureMode::Light,
-            capture_limits_override,
-            strict_lifecycle,
-            runtime_sampler,
-            run_end_policy,
-        };
-        let template = TailtriageControllerTemplate {
-            selected_mode,
-            ..template
-        };
+        let config_path = self.config_path.clone();
+        let loaded = config_path
+            .as_ref()
+            .map(TailtriageController::load_config_from_path)
+            .transpose()
+            .map_err(ControllerBuildError::ConfigLoad)?;
+        let initially_enabled = loaded
+            .as_ref()
+            .and_then(|config| config.initially_enabled)
+            .unwrap_or(self.initially_enabled);
+        let template = resolve_controller_template(
+            TailtriageControllerTemplate {
+                service_name: self.service_name,
+                config_path,
+                sink_template: self.sink_template,
+                selected_mode: CaptureMode::Light,
+                capture_limits_override: self.capture_limits_override,
+                strict_lifecycle: self.strict_lifecycle,
+                runtime_sampler: self.runtime_sampler,
+                run_end_policy: self.run_end_policy,
+            },
+            loaded,
+        )
+        .map_err(|error| match error {
+            BuildError::EmptyServiceName => ControllerBuildError::EmptyServiceName,
+            BuildError::InvalidFinalizationTime { .. } => {
+                unreachable!("pure controller template validation does not validate timestamps")
+            }
+        })?;
 
         let inner = Arc::new(ControllerInner {
-            template: Mutex::new(template),
+            template: Mutex::new(Arc::new(template)),
             lifecycle: Mutex::new(ControllerLifecycle::Disabled { next_generation: 1 }),
             inert_request_seq: AtomicU64::new(1),
         });
@@ -194,9 +182,34 @@ pub struct TailtriageController {
 
 #[derive(Debug)]
 struct ControllerInner {
-    template: Mutex<TailtriageControllerTemplate>,
+    template: Mutex<Arc<ResolvedControllerTemplate>>,
     lifecycle: Mutex<ControllerLifecycle>,
     inert_request_seq: AtomicU64,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedControllerTemplate {
+    public: TailtriageControllerTemplate,
+}
+
+fn resolve_controller_template(
+    mut template: TailtriageControllerTemplate,
+    loaded: Option<LoadedControllerConfig>,
+) -> Result<ResolvedControllerTemplate, BuildError> {
+    if let Some(loaded) = loaded {
+        template.service_name = loaded.service_name.unwrap_or(template.service_name);
+        let activation = loaded.activation_template;
+        template.sink_template = activation.sink_template;
+        template.selected_mode = activation.selected_mode;
+        template.capture_limits_override = activation.capture_limits_override;
+        template.strict_lifecycle = activation.strict_lifecycle;
+        template.runtime_sampler = activation.runtime_sampler;
+        template.run_end_policy = activation.run_end_policy;
+    }
+    if template.service_name.trim().is_empty() {
+        return Err(BuildError::EmptyServiceName);
+    }
+    Ok(ResolvedControllerTemplate { public: template })
 }
 
 #[derive(Debug)]
@@ -215,6 +228,8 @@ struct ActiveGenerationRuntime {
     runtime_sampler: Mutex<Option<RuntimeSampler>>,
     #[cfg(test)]
     finalization_test_hooks: Mutex<FinalizationTestHooks>,
+    #[cfg(test)]
+    admission_test_hooks: Mutex<AdmissionTestHooks>,
 }
 
 #[cfg(test)]
@@ -222,6 +237,26 @@ struct ActiveGenerationRuntime {
 struct FinalizationTestHooks {
     before_gate: Option<Arc<dyn Fn() + Send + Sync>>,
     after_terminal_publication: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+#[cfg(test)]
+#[derive(Default, Clone)]
+struct AdmissionTestHooks {
+    before_admission_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+    before_closure_gate: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+#[cfg(test)]
+impl std::fmt::Debug for AdmissionTestHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdmissionTestHooks")
+            .field(
+                "before_admission_gate",
+                &self.before_admission_gate.is_some(),
+            )
+            .field("before_closure_gate", &self.before_closure_gate.is_some())
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -282,23 +317,6 @@ impl ActiveGenerationRuntime {
 }
 
 impl TailtriageController {
-    fn validate_template(template: &TailtriageControllerTemplate) -> Result<(), BuildError> {
-        let artifact_path = generated_artifact_path(&template.sink_template, 1);
-        let run_id = format!("{}-generation-1", template.service_name);
-
-        let mut builder = Tailtriage::builder(template.service_name.clone())
-            .run_id(run_id)
-            .output(&artifact_path);
-        builder = match template.selected_mode {
-            CaptureMode::Light => builder.light(),
-            CaptureMode::Investigation => builder.investigation(),
-        };
-        builder = builder.capture_limits_override(template.capture_limits_override);
-        builder = builder.strict_lifecycle(template.strict_lifecycle);
-        let _ = builder.build()?;
-        Ok(())
-    }
-
     fn next_inert_request_id(&self) -> String {
         let id = self.inner.inert_request_seq.fetch_add(1, Ordering::Relaxed);
         format!("inert-{id}")
@@ -342,46 +360,36 @@ impl TailtriageController {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         TailtriageControllerStatus {
-            template: template.clone(),
+            template: template.public.clone(),
             generation: lifecycle.snapshot(),
         }
     }
 
     /// Replaces the template used to create the next activation generation.
     ///
-    /// This compatibility helper validates `next_template` and then applies it.
-    ///
-    /// # Panics
-    ///
-    /// Panics when template validation fails. Prefer
-    /// [`TailtriageController::try_reload_template`] to handle validation errors explicitly.
-    pub fn reload_template(&self, next_template: TailtriageControllerTemplate) {
-        self.try_reload_template(next_template)
-            .expect("invalid template for reload_template");
-    }
-
-    /// Replaces the template used to create the next activation generation.
-    ///
-    /// Unlike [`TailtriageController::reload_template`], this method returns
-    /// validation errors instead of panicking.
-    ///
-    /// Validation matches the build-time checks done by [`TailtriageController::enable`].
+    /// Validation is pure: it creates no generation or runtime sampler. The replacement
+    /// affects only future activations; an active generation keeps its immutable snapshot.
     ///
     /// # Errors
     ///
-    /// Returns [`ReloadTemplateError`] when `service_name` is blank or when
-    /// building a run with this template would fail.
-    pub fn try_reload_template(
+    /// Direct reload validates controller-owned template structure. It creates no Run,
+    /// generation, or runtime sampler; runtime and sampler startup failures remain
+    /// [`TailtriageController::enable`] errors.
+    ///
+    /// Returns [`ReloadTemplateError`] when the resolved controller template is
+    /// invalid, currently when `service_name` is blank.
+    pub fn reload_template(
         &self,
         next_template: TailtriageControllerTemplate,
     ) -> Result<(), ReloadTemplateError> {
-        Self::validate_template(&next_template).map_err(ReloadTemplateError::Validate)?;
+        let resolved = resolve_controller_template(next_template, None)
+            .map_err(ReloadTemplateError::Validate)?;
         let mut template = self
             .inner
             .template
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *template = next_template;
+        *template = Arc::new(resolved);
         Ok(())
     }
 
@@ -402,34 +410,23 @@ impl TailtriageController {
                 .template
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(config_path) = template.config_path.clone() else {
+            let Some(config_path) = template.public.config_path.clone() else {
                 return Err(ReloadConfigError::MissingConfigPath);
             };
-            (config_path, template.service_name.clone())
+            (config_path, template.public.clone())
         };
 
         let loaded = TailtriageController::load_config_from_path(&config_path)
             .map_err(ReloadConfigError::Load)?;
-        let activation = loaded.activation_template;
-        let validated = TailtriageControllerTemplate {
-            service_name: loaded.service_name.unwrap_or(service_name),
-            config_path: Some(config_path),
-            sink_template: activation.sink_template,
-            selected_mode: activation.selected_mode,
-            capture_limits_override: activation.capture_limits_override,
-            strict_lifecycle: activation.strict_lifecycle,
-            runtime_sampler: activation.runtime_sampler,
-            run_end_policy: activation.run_end_policy,
-        };
-
-        Self::validate_template(&validated).map_err(ReloadConfigError::Validate)?;
+        let resolved = resolve_controller_template(service_name, Some(loaded))
+            .map_err(ReloadConfigError::Validate)?;
 
         let mut template = self
             .inner
             .template
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *template = validated;
+        *template = Arc::new(resolved);
 
         Ok(())
     }
@@ -475,6 +472,22 @@ impl TailtriageController {
             }
         };
 
+        let runtime = Self::construct_generation(&self.inner, &template, next_generation)?;
+
+        *lifecycle = ControllerLifecycle::Active {
+            active: Arc::clone(&runtime),
+            next_generation: next_generation.saturating_add(1),
+        };
+
+        Ok(runtime.snapshot())
+    }
+
+    fn construct_generation(
+        inner: &Arc<ControllerInner>,
+        resolved: &Arc<ResolvedControllerTemplate>,
+        next_generation: u64,
+    ) -> Result<Arc<ActiveGenerationRuntime>, EnableError> {
+        let template = &resolved.public;
         let artifact_path = generated_artifact_path(&template.sink_template, next_generation);
         let run_id = format!("{}-generation-{next_generation}", template.service_name);
 
@@ -523,24 +536,20 @@ impl TailtriageController {
             runtime_sampler: Mutex::new(None),
             #[cfg(test)]
             finalization_test_hooks: Mutex::new(FinalizationTestHooks::default()),
+            #[cfg(test)]
+            admission_test_hooks: Mutex::new(AdmissionTestHooks::default()),
         });
         if template.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit {
             let active = Arc::downgrade(&runtime);
-            let inner = Arc::downgrade(&self.inner);
+            let inner = Arc::downgrade(inner);
             let listener: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
                 TailtriageController::on_limits_hit_signal(&inner, &active);
             });
             runtime.run.set_limits_hit_listener(Some(listener));
         }
 
-        Self::start_runtime_sampler_if_enabled(&template, &runtime, &run)?;
-
-        *lifecycle = ControllerLifecycle::Active {
-            active: Arc::clone(&runtime),
-            next_generation: next_generation.saturating_add(1),
-        };
-
-        Ok(runtime.snapshot())
+        Self::start_runtime_sampler_if_enabled(template, &runtime, &run)?;
+        Ok(runtime)
     }
 
     fn start_runtime_sampler_if_enabled(
@@ -606,7 +615,7 @@ impl TailtriageController {
         let inflight = Self::close_generation_admissions(&active, RunEndReason::ManualDisarm);
         let generation_id = active.state.generation_id;
         if inflight == 0 {
-            Self::finalize_active(&self.inner, &active)?;
+            Self::finalize_generation(&self.inner, &active)?;
             Ok(DisableOutcome::Finalized { generation_id })
         } else {
             Ok(DisableOutcome::Closing {
@@ -686,6 +695,19 @@ impl TailtriageController {
             }
         };
 
+        #[cfg(test)]
+        {
+            let hook = active
+                .admission_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .before_admission_gate
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+
         let _admission = active
             .admission_gate
             .lock()
@@ -762,8 +784,7 @@ impl TailtriageController {
 
         if let Some(active) = maybe_active {
             Self::close_generation_admissions(&active, RunEndReason::Shutdown);
-            self.force_finalize_generation(&active)
-                .map_err(ShutdownError::Finalize)?;
+            Self::finalize_generation(&self.inner, &active).map_err(ShutdownError::Finalize)?;
         }
 
         Ok(())
@@ -773,6 +794,19 @@ impl TailtriageController {
         active: &Arc<ActiveGenerationRuntime>,
         reason: RunEndReason,
     ) -> u64 {
+        #[cfg(test)]
+        {
+            let hook = active
+                .admission_test_hooks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .before_closure_gate
+                .clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+
         let _admission = active
             .admission_gate
             .lock()
@@ -790,21 +824,7 @@ impl TailtriageController {
         active.inflight_captured.load(Ordering::Acquire)
     }
 
-    fn force_finalize_generation(
-        &self,
-        active: &Arc<ActiveGenerationRuntime>,
-    ) -> Result<(), DisableError> {
-        Self::finalize_generation_shared(&self.inner, active)
-    }
-
-    fn finalize_generation_shared(
-        inner: &Arc<ControllerInner>,
-        active: &Arc<ActiveGenerationRuntime>,
-    ) -> Result<(), DisableError> {
-        Self::finalize_active(inner, active)
-    }
-
-    fn finalize_active(
+    fn finalize_generation(
         inner: &Arc<ControllerInner>,
         active: &Arc<ActiveGenerationRuntime>,
     ) -> Result<(), DisableError> {
@@ -1019,7 +1039,7 @@ impl TailtriageController {
         let Some(inner) = inner.upgrade() else {
             return;
         };
-        let _ = TailtriageController::finalize_generation_shared(&inner, &active);
+        let _ = TailtriageController::finalize_generation(&inner, &active);
     }
 }
 
@@ -1153,7 +1173,7 @@ impl ActiveControllerCompletion {
         let Some(inner) = self.inner.upgrade() else {
             return;
         };
-        let _ = TailtriageController::finalize_generation_shared(&inner, active);
+        let _ = TailtriageController::finalize_generation(&inner, active);
     }
 }
 
@@ -1689,7 +1709,7 @@ impl std::error::Error for ReloadConfigError {
 /// Errors emitted while replacing controller activation templates directly.
 #[derive(Debug)]
 pub enum ReloadTemplateError {
-    /// Template failed validation against run build checks.
+    /// Template failed controller-owned validation.
     Validate(BuildError),
 }
 
@@ -1892,11 +1912,18 @@ mod tests {
     }
 
     #[derive(Serialize)]
+    #[allow(clippy::struct_field_names)]
     struct TestCaptureLimitsOverrideToml {
         #[serde(skip_serializing_if = "Option::is_none")]
-        max_requests: Option<u64>,
+        max_requests: Option<usize>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        max_stages: Option<u64>,
+        max_stages: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_queues: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_inflight_snapshots: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_runtime_snapshots: Option<usize>,
     }
 
     #[derive(Serialize)]
@@ -1988,20 +2015,23 @@ mod tests {
             last_finalize_error: Mutex::new(None),
             runtime_sampler: Mutex::new(None),
             finalization_test_hooks: Mutex::new(super::FinalizationTestHooks::default()),
+            admission_test_hooks: Mutex::new(super::AdmissionTestHooks::default()),
         });
         let inner = Arc::new(super::ControllerInner {
-            template: Mutex::new(super::TailtriageControllerTemplate {
-                service_name: "checkout-service".to_string(),
-                config_path: None,
-                sink_template: ControllerSinkTemplate::LocalJson {
-                    output_path: test_output(&format!("{base}-gen2")),
+            template: Mutex::new(Arc::new(super::ResolvedControllerTemplate {
+                public: super::TailtriageControllerTemplate {
+                    service_name: "checkout-service".to_string(),
+                    config_path: None,
+                    sink_template: ControllerSinkTemplate::LocalJson {
+                        output_path: test_output(&format!("{base}-gen2")),
+                    },
+                    selected_mode: CaptureMode::Light,
+                    capture_limits_override: CaptureLimitsOverride::default(),
+                    strict_lifecycle: false,
+                    runtime_sampler: RuntimeSamplerTemplate::default(),
+                    run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
                 },
-                selected_mode: CaptureMode::Light,
-                capture_limits_override: CaptureLimitsOverride::default(),
-                strict_lifecycle: false,
-                runtime_sampler: RuntimeSamplerTemplate::default(),
-                run_end_policy: RunEndPolicy::ContinueAfterLimitsHit,
-            }),
+            })),
             lifecycle: Mutex::new(super::ControllerLifecycle::Active {
                 active: Arc::clone(&runtime),
                 next_generation: 2,
@@ -2059,6 +2089,9 @@ mod tests {
                     capture_limits_override: Some(TestCaptureLimitsOverrideToml {
                         max_requests: Some(17),
                         max_stages: Some(18),
+                        max_queues: None,
+                        max_inflight_snapshots: None,
+                        max_runtime_snapshots: None,
                     }),
                     strict_lifecycle: Some(strict),
                     sink: TestSinkToml {
@@ -2091,6 +2124,9 @@ mod tests {
                     capture_limits_override: Some(TestCaptureLimitsOverrideToml {
                         max_requests: Some(9),
                         max_stages: None,
+                        max_queues: None,
+                        max_inflight_snapshots: None,
+                        max_runtime_snapshots: None,
                     }),
                     strict_lifecycle: Some(true),
                     sink: TestSinkToml {
@@ -2160,6 +2196,41 @@ mod tests {
         fs::write(path, content).expect("config write should succeed");
     }
 
+    fn write_complete_resolution_config(path: &Path, output: &Path) {
+        let content = toml::to_string(&TestControllerConfigToml {
+            controller: TestControllerConfigBodyToml {
+                service_name: Some("resolved-service".to_owned()),
+                initially_enabled: Some(false),
+                activation: TestActivationToml {
+                    mode: "investigation",
+                    capture_limits_override: Some(TestCaptureLimitsOverrideToml {
+                        max_requests: Some(11),
+                        max_stages: Some(22),
+                        max_queues: Some(33),
+                        max_inflight_snapshots: Some(44),
+                        max_runtime_snapshots: Some(55),
+                    }),
+                    strict_lifecycle: Some(true),
+                    sink: TestSinkToml {
+                        sink_type: "local_json",
+                        output_path: output.to_path_buf(),
+                    },
+                    runtime_sampler: Some(TestRuntimeSamplerToml {
+                        enabled_for_armed_runs: true,
+                        mode_override: "investigation",
+                        interval_ms: 250,
+                        max_runtime_snapshots: 34,
+                    }),
+                    run_end_policy: Some(TestRunEndPolicyToml {
+                        kind: "auto_seal_on_limits_hit",
+                    }),
+                },
+            },
+        })
+        .expect("complete config TOML serialization should succeed");
+        fs::write(path, content).expect("complete config write should succeed");
+    }
+
     #[test]
     fn enable_capture_disable_finalizes_generation() {
         let output = test_output("enable-capture-disable");
@@ -2190,6 +2261,176 @@ mod tests {
         assert!(expected.exists());
 
         fs::remove_file(expected).expect("cleanup should succeed");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn admission_and_disable_linearize_without_generation_migration() {
+        fn install_gate_hooks(
+            active: &super::ActiveGenerationRuntime,
+        ) -> (
+            mpsc::Receiver<()>,
+            mpsc::Sender<()>,
+            mpsc::Receiver<()>,
+            mpsc::Sender<()>,
+        ) {
+            let (admission_reached_tx, admission_reached_rx) = mpsc::channel();
+            let (admission_release_tx, admission_release_rx) = mpsc::channel();
+            let (closure_reached_tx, closure_reached_rx) = mpsc::channel();
+            let (closure_release_tx, closure_release_rx) = mpsc::channel();
+            let admission_release_rx = Mutex::new(admission_release_rx);
+            let closure_release_rx = Mutex::new(closure_release_rx);
+            let mut hooks = active
+                .admission_test_hooks
+                .lock()
+                .expect("admission hooks lock");
+            hooks.before_admission_gate = Some(Arc::new(move || {
+                admission_reached_tx
+                    .send(())
+                    .expect("admission coordinator");
+                admission_release_rx
+                    .lock()
+                    .expect("admission release lock")
+                    .recv()
+                    .expect("admission release");
+            }));
+            hooks.before_closure_gate = Some(Arc::new(move || {
+                closure_reached_tx.send(()).expect("closure coordinator");
+                closure_release_rx
+                    .lock()
+                    .expect("closure release lock")
+                    .recv()
+                    .expect("closure release");
+            }));
+            (
+                admission_reached_rx,
+                admission_release_tx,
+                closure_reached_rx,
+                closure_release_tx,
+            )
+        }
+
+        let admission_controller = TailtriageController::builder("admission-wins-service")
+            .output(test_output("admission-wins-linearization"))
+            .build()
+            .expect("admission-wins controller should build");
+        let admission_generation = admission_controller
+            .enable()
+            .expect("generation should enable");
+        let admission_runtime = active_runtime(&admission_controller);
+        let (admission_reached, release_admission, closure_reached, release_closure) =
+            install_gate_hooks(&admission_runtime);
+        let controller = admission_controller.clone();
+        let admitting = std::thread::spawn(move || {
+            controller.begin_request_with(
+                "/linearization",
+                RequestOptions::new().request_id("req-admission-wins"),
+            )
+        });
+        let controller = admission_controller.clone();
+        let disabling = std::thread::spawn(move || controller.disable());
+        admission_reached
+            .recv()
+            .expect("admission should reach hook");
+        closure_reached.recv().expect("disable should reach hook");
+        release_admission.send(()).expect("release admission first");
+        let admitted = admitting.join().expect("admission thread should join");
+        assert!(matches!(
+            admitted.handle,
+            super::ControllerRequestHandle::Active(_)
+        ));
+        assert_eq!(
+            admission_runtime.inflight_captured.load(Ordering::Acquire),
+            1
+        );
+        release_closure.send(()).expect("release closure second");
+        assert!(matches!(
+            disabling.join().expect("disable thread should join"),
+            Ok(DisableOutcome::Closing {
+                generation_id: 1,
+                inflight_captured_requests: 1
+            })
+        ));
+        admitted.completion.finish_ok();
+        assert!(matches!(
+            admission_controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let admission_run = read_run(&admission_generation.artifact_path);
+        assert_eq!(
+            admission_run
+                .requests
+                .iter()
+                .filter(|request| request.request_id == "req-admission-wins")
+                .count(),
+            1
+        );
+
+        let disable_controller = TailtriageController::builder("disable-wins-service")
+            .output(test_output("disable-wins-linearization"))
+            .build()
+            .expect("disable-wins controller should build");
+        let disable_generation = disable_controller
+            .enable()
+            .expect("generation should enable");
+        let disable_runtime = active_runtime(&disable_controller);
+        let (admission_reached, release_admission, closure_reached, release_closure) =
+            install_gate_hooks(&disable_runtime);
+        let controller = disable_controller.clone();
+        let admitting = std::thread::spawn(move || {
+            controller.begin_request_with(
+                "/linearization",
+                RequestOptions::new().request_id("req-disable-wins"),
+            )
+        });
+        let controller = disable_controller.clone();
+        let disabling = std::thread::spawn(move || controller.disable());
+        admission_reached
+            .recv()
+            .expect("admission should reach hook");
+        closure_reached.recv().expect("disable should reach hook");
+        release_closure.send(()).expect("release closure first");
+        assert!(matches!(
+            disabling.join().expect("disable thread should join"),
+            Ok(DisableOutcome::Finalized { generation_id: 1 })
+        ));
+        assert_eq!(disable_runtime.inflight_captured.load(Ordering::Acquire), 0);
+        release_admission
+            .send(())
+            .expect("release admission second");
+        let inert = admitting.join().expect("admission thread should join");
+        assert!(matches!(
+            inert.handle,
+            super::ControllerRequestHandle::Inert(_)
+        ));
+        assert_eq!(disable_runtime.inflight_captured.load(Ordering::Acquire), 0);
+        let generation_one_run = read_run(&disable_generation.artifact_path);
+        assert!(generation_one_run
+            .requests
+            .iter()
+            .all(|request| request.request_id != "req-disable-wins"));
+
+        *disable_runtime
+            .admission_test_hooks
+            .lock()
+            .expect("admission hooks lock") = super::AdmissionTestHooks::default();
+        let generation_two = disable_controller
+            .enable()
+            .expect("generation 2 should enable");
+        drop(inert);
+        assert!(matches!(
+            disable_controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id: 2 })
+        ));
+        let generation_two_run = read_run(&generation_two.artifact_path);
+        assert!(generation_two_run
+            .requests
+            .iter()
+            .all(|request| request.request_id != "req-disable-wins"));
+
+        fs::remove_file(admission_generation.artifact_path).expect("cleanup admission artifact");
+        fs::remove_file(disable_generation.artifact_path).expect("cleanup generation 1 artifact");
+        fs::remove_file(generation_two.artifact_path).expect("cleanup generation 2 artifact");
     }
 
     #[test]
@@ -3095,15 +3336,17 @@ mod tests {
         );
         let controller_a = controller.clone();
         let gen1_a = Arc::clone(&gen1_runtime);
-        let finalizer_a =
-            std::thread::spawn(move || controller_a.force_finalize_generation(&gen1_a));
+        let finalizer_a = std::thread::spawn(move || {
+            TailtriageController::finalize_generation(&controller_a.inner, &gen1_a)
+        });
         entered_rx.recv().expect("sink should be entered");
         assert_eq!(calls.load(Ordering::Acquire), 1);
 
         let controller_b = controller.clone();
         let gen1_b = Arc::clone(&gen1_runtime);
-        let finalizer_b =
-            std::thread::spawn(move || controller_b.force_finalize_generation(&gen1_b));
+        let finalizer_b = std::thread::spawn(move || {
+            TailtriageController::finalize_generation(&controller_b.inner, &gen1_b)
+        });
         b_gate_rx
             .recv()
             .expect("waiter should reach generation-1 finalization gate");
@@ -3207,8 +3450,7 @@ mod tests {
             .expect("terminal failure should allow generation rollover");
         assert_eq!(gen2.generation_id, 2);
 
-        let replay = controller
-            .force_finalize_generation(&gen1_runtime)
+        let replay = TailtriageController::finalize_generation(&controller.inner, &gen1_runtime)
             .expect_err("old generation should replay its terminal failure");
         assert_eq!(replay.to_string(), original_display);
         assert!(matches!(
@@ -3367,6 +3609,86 @@ mod tests {
     }
 
     #[test]
+    fn builder_direct_reload_and_config_reload_share_template_resolution() {
+        let output = test_output("complete-template-resolution");
+        let config = test_config_path("complete-template-resolution");
+        write_complete_resolution_config(&config, &output);
+
+        let expected = TailtriageControllerTemplate {
+            service_name: "resolved-service".to_owned(),
+            config_path: Some(config.clone()),
+            sink_template: ControllerSinkTemplate::LocalJson {
+                output_path: output.clone(),
+            },
+            selected_mode: CaptureMode::Investigation,
+            capture_limits_override: CaptureLimitsOverride {
+                max_requests: Some(11),
+                max_stages: Some(22),
+                max_queues: Some(33),
+                max_inflight_snapshots: Some(44),
+                max_runtime_snapshots: Some(55),
+            },
+            strict_lifecycle: true,
+            runtime_sampler: RuntimeSamplerTemplate {
+                enabled_for_armed_runs: true,
+                mode_override: Some(CaptureMode::Investigation),
+                interval_ms: Some(250),
+                max_runtime_snapshots: Some(34),
+            },
+            run_end_policy: RunEndPolicy::AutoSealOnLimitsHit,
+        };
+
+        let builder_controller = TailtriageController::builder("different-builder-service")
+            .output(test_output("different-builder-output"))
+            .config_path(&config)
+            .build()
+            .expect("builder config resolution should succeed");
+        assert_eq!(builder_controller.status().template, expected);
+
+        let direct_reload_controller = TailtriageController::builder("initial-direct-service")
+            .output(test_output("initial-direct-output"))
+            .build()
+            .expect("direct reload controller should build");
+        direct_reload_controller
+            .reload_template(expected.clone())
+            .expect("direct template reload should succeed");
+        assert_eq!(direct_reload_controller.status().template, expected);
+
+        write_config(
+            &config,
+            &test_output("initial-config-reload-output"),
+            "light",
+            false,
+            false,
+        );
+        let config_reload_controller = TailtriageController::builder("initial-config-service")
+            .config_path(&config)
+            .build()
+            .expect("config reload controller should build");
+        assert_ne!(config_reload_controller.status().template, expected);
+        write_complete_resolution_config(&config, &output);
+        config_reload_controller
+            .reload_config()
+            .expect("file-backed config reload should succeed");
+        assert_eq!(config_reload_controller.status().template, expected);
+
+        for controller in [
+            &builder_controller,
+            &direct_reload_controller,
+            &config_reload_controller,
+        ] {
+            assert!(matches!(
+                controller.status().generation,
+                GenerationState::Disabled { next_generation: 1 }
+            ));
+        }
+        assert!(!output.exists());
+        assert!(!super::generated_artifact_path(&expected.sink_template, 1).exists());
+
+        fs::remove_file(config).expect("config cleanup should succeed");
+    }
+
+    #[test]
     fn toml_parses_windows_style_escaped_output_path() {
         let config_toml = r#"[controller]
 
@@ -3421,13 +3743,14 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
     }
 
     #[test]
-    fn try_reload_template_validates_before_enable() {
+    fn invalid_direct_reload_is_transactional_and_side_effect_free() {
         let output = test_output("try-reload-template-validate");
         let controller = TailtriageController::builder("checkout-service")
             .output(&output)
             .build()
             .expect("build should succeed");
 
+        let before = controller.status();
         let invalid = TailtriageControllerTemplate {
             service_name: String::new(),
             config_path: None,
@@ -3442,13 +3765,54 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
         };
 
         assert!(matches!(
-            controller.try_reload_template(invalid),
-            Err(ReloadTemplateError::Validate(_))
+            controller.reload_template(invalid),
+            Err(ReloadTemplateError::Validate(
+                super::BuildError::EmptyServiceName
+            ))
+        ));
+        assert_eq!(controller.status(), before);
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 1 }
+        ));
+        assert!(!super::generated_artifact_path(&before.template.sink_template, 1).exists());
+    }
+
+    #[test]
+    fn sampler_template_reload_is_side_effect_free_until_enable() {
+        let output = test_output("sampler-reload-side-effect-free");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .build()
+            .expect("disabled controller should build outside a runtime");
+        let mut template = controller.status().template;
+        template.runtime_sampler.enabled_for_armed_runs = true;
+        let result: Result<(), ReloadTemplateError> = controller.reload_template(template);
+        result.expect("pure reload should not require a Tokio runtime");
+
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 1 }
+        ));
+        assert!(!super::generated_artifact_path(
+            &ControllerSinkTemplate::LocalJson {
+                output_path: output
+            },
+            1
+        )
+        .exists());
+        assert!(matches!(
+            controller.enable(),
+            Err(super::EnableError::MissingTokioRuntimeForSampler)
+        ));
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 1 }
         ));
     }
 
     #[test]
-    fn reload_config_validates_template_before_enable() {
+    fn invalid_config_reload_is_transactional_and_side_effect_free() {
         let output = test_output("reload-config-validate");
         let config = test_config_path("reload-config-validate");
         write_config(&config, &output, "light", false, false);
@@ -3457,6 +3821,7 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
             .config_path(&config)
             .build()
             .expect("build should succeed");
+        let before = controller.status();
 
         fs::write(
             &config,
@@ -3486,8 +3851,12 @@ kind = "continue_after_limits_hit"
 
         assert!(matches!(
             controller.reload_config(),
-            Err(ReloadConfigError::Validate(_))
+            Err(ReloadConfigError::Validate(
+                super::BuildError::EmptyServiceName
+            ))
         ));
+        assert_eq!(controller.status(), before);
+        assert!(!super::generated_artifact_path(&before.template.sink_template, 1).exists());
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }

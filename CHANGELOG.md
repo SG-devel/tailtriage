@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Simplified controller internals around one pure immutable template resolution path, one generation constructor, and one lifecycle-preserving finalizer. Direct template reload is now the single result-returning `reload_template(template)` API; migrate `try_reload_template(template)?` to `reload_template(template)?`, and handle the `Result` if the former panicking method was used. Direct and TOML reload remain transactional, affect only future generations, and create neither a capture generation nor a runtime sampler.
 - CLI Run-artifact analysis is now strict by default. Error-level core findings stop report generation; warning-only findings remain accepted. The removed `--strict-artifact` option is replaced by the explicit `--allow-ambiguous-artifact` compatibility path, which emits every issue and analyzes only canonical normalized evidence. Tracing import `--strict` and permissive analyzer library defaults are unchanged.
 - Suspect ranking now selects the primary after final evidence-aware confidence adjustment, ordering by final confidence, unchanged raw score, then stable suspect-kind rank while keeping raw-score ambiguity semantics.
 - Analyzer completed queue/stage distributions exclude partial events; partial durations are treated as observed lower bounds, materially partial-dependent queue/stage suspects are capped at medium confidence, partial evidence remains visible through existing evidence-quality, warning, evidence, and confidence-note fields, and tracing intake remains completed-only.
