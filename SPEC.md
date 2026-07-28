@@ -433,3 +433,7 @@ Completed queue/stage distributions exclude partial observations. Partial durati
 Queue/service public p95 fields remain completed-only. Materially partial-reliant queue/stage candidates cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
 
 Global, route, and temporal projections share this policy. Tracing intake remains completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+
+### Native/tracing equivalence
+
+For independently encoded equivalent workloads, native/core Runs and stable completed-span JSONL must preserve the same normalized completed request, stage, and queue evidence, semantic order and configured retention, and analyzer diagnosis. Deterministic package fixtures compare each path against independent expected projections. Completed-span JSONL parity excludes generated/wall-clock/lifecycle/source metadata and cannot represent partial stage/queue, runtime, in-flight, sampler, or complete truncation state. Run JSON remains the complete artifact.

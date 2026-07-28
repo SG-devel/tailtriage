@@ -1,0 +1,76 @@
+{
+  "request_count": 6,
+  "p50_latency_us": 100000,
+  "p95_latency_us": 100000,
+  "p99_latency_us": 100000,
+  "p95_queue_share_permille": 650,
+  "p95_service_share_permille": 350,
+  "inflight_trend": null,
+  "evidence_quality": {
+    "dropped_inflight_snapshots": 0,
+    "dropped_queues": 0,
+    "dropped_requests": 0,
+    "dropped_runtime_snapshots": 0,
+    "dropped_stages": 0,
+    "inflight_snapshot_count": 0,
+    "inflight_snapshots": "missing",
+    "limitations": [
+      "Low completed-request count can make suspect ranking unstable.",
+      "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation.",
+      "Validation limitation: Run validation precise_interval_validation_unavailable: 6 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+      "Validation limitation: Run validation precise_interval_validation_unavailable: 6 stage event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+      "Validation limitation: Run validation precise_interval_validation_unavailable: 6 queue event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+    ],
+    "quality": "weak",
+    "queue_event_count": 6,
+    "queues": "present",
+    "request_count": 6,
+    "requests": "partial",
+    "runtime_snapshot_count": 0,
+    "runtime_snapshots": "missing",
+    "stage_event_count": 6,
+    "stages": "present",
+    "truncated": false
+  },
+  "primary_suspect": {
+    "confidence": "medium",
+    "confidence_notes": [],
+    "evidence": [
+      "Queue wait at p95 consumes 65.0% of request time.",
+      "Observed queue depth sample up to 3."
+    ],
+    "kind": "application_queue_saturation",
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ],
+    "score": 70
+  },
+  "secondary_suspects": [
+    {
+      "confidence": "low",
+      "confidence_notes": [],
+      "evidence": [
+        "Stage 'db' has p95 latency 15000 us across 6 samples.",
+        "Stage 'db' cumulative latency is 90000 us (150 permille of request latency).",
+        "Stage 'db' contributes 150 permille of tail request latency."
+      ],
+      "kind": "downstream_stage_dominates",
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'db'.",
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
+      ],
+      "score": 41
+    }
+  ],
+  "warnings": [
+    "Run validation precise_interval_validation_unavailable: 6 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+    "Run validation precise_interval_validation_unavailable: 6 stage event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+    "Run validation precise_interval_validation_unavailable: 6 queue event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+    "Low completed-request count; diagnosis ranking may be unstable for this run window.",
+    "No runtime snapshots captured; executor and blocking-pressure interpretation is limited."
+  ],
+  "route_breakdowns": [],
+  "temporal_segments": []
+}

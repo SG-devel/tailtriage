@@ -1,0 +1,1487 @@
+{
+  "precise_route_divergent": {
+    "schema_version": 2,
+    "metadata": {
+      "run_id": "native-precise_route_divergent",
+      "service_name": "equivalence-service",
+      "service_version": null,
+      "started_at_unix_ms": 1700000000000,
+      "finalized_at_unix_ms": 1700000001500,
+      "mode": "light",
+      "effective_core_config": {
+        "mode": "light",
+        "capture_limits": {
+          "max_requests": 100000,
+          "max_stages": 200000,
+          "max_queues": 200000,
+          "max_inflight_snapshots": 200000,
+          "max_runtime_snapshots": 100000
+        },
+        "strict_lifecycle": false
+      },
+      "effective_tokio_sampler_config": null,
+      "host": null,
+      "pid": null,
+      "lifecycle_warnings": [],
+      "unfinished_requests": {
+        "count": 0,
+        "sample": []
+      },
+      "run_end_reason": null
+    },
+    "requests": [
+      {
+        "request_id": "route-1",
+        "route": "/queued",
+        "kind": null,
+        "started_at_unix_ms": 1700000000000,
+        "started_at_run_us": 0,
+        "finished_at_unix_ms": 1700000000100,
+        "finished_at_run_us": 100000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "route-2",
+        "route": "/queued",
+        "kind": null,
+        "started_at_unix_ms": 1700000000200,
+        "started_at_run_us": 200000,
+        "finished_at_unix_ms": 1700000000300,
+        "finished_at_run_us": 300000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "route-3",
+        "route": "/queued",
+        "kind": null,
+        "started_at_unix_ms": 1700000000400,
+        "started_at_run_us": 400000,
+        "finished_at_unix_ms": 1700000000500,
+        "finished_at_run_us": 500000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "route-4",
+        "route": "/queued",
+        "kind": null,
+        "started_at_unix_ms": 1700000000600,
+        "started_at_run_us": 600000,
+        "finished_at_unix_ms": 1700000000700,
+        "finished_at_run_us": 700000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "route-5",
+        "route": "/downstream",
+        "kind": null,
+        "started_at_unix_ms": 1700000000800,
+        "started_at_run_us": 800000,
+        "finished_at_unix_ms": 1700000000900,
+        "finished_at_run_us": 900000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "route-6",
+        "route": "/downstream",
+        "kind": null,
+        "started_at_unix_ms": 1700000001000,
+        "started_at_run_us": 1000000,
+        "finished_at_unix_ms": 1700000001100,
+        "finished_at_run_us": 1100000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "route-7",
+        "route": "/downstream",
+        "kind": null,
+        "started_at_unix_ms": 1700000001200,
+        "started_at_run_us": 1200000,
+        "finished_at_unix_ms": 1700000001300,
+        "finished_at_run_us": 1300000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "route-8",
+        "route": "/downstream",
+        "kind": null,
+        "started_at_unix_ms": 1700000001400,
+        "started_at_run_us": 1400000,
+        "finished_at_unix_ms": 1700000001500,
+        "finished_at_run_us": 1500000,
+        "latency_us": 100000,
+        "outcome": "error"
+      }
+    ],
+    "stages": [
+      {
+        "request_id": "route-1",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000010,
+        "finished_at_unix_ms": 1700000000020,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 10000,
+        "finished_at_run_us": 20000
+      },
+      {
+        "request_id": "route-2",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000210,
+        "finished_at_unix_ms": 1700000000220,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 210000,
+        "finished_at_run_us": 220000
+      },
+      {
+        "request_id": "route-3",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000410,
+        "finished_at_unix_ms": 1700000000420,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 410000,
+        "finished_at_run_us": 420000
+      },
+      {
+        "request_id": "route-4",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000610,
+        "finished_at_unix_ms": 1700000000620,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 610000,
+        "finished_at_run_us": 620000
+      },
+      {
+        "request_id": "route-5",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000810,
+        "finished_at_unix_ms": 1700000000885,
+        "latency_us": 75000,
+        "success": true,
+        "started_at_run_us": 810000,
+        "finished_at_run_us": 885000
+      },
+      {
+        "request_id": "route-6",
+        "stage": "db",
+        "started_at_unix_ms": 1700000001010,
+        "finished_at_unix_ms": 1700000001085,
+        "latency_us": 75000,
+        "success": true,
+        "started_at_run_us": 1010000,
+        "finished_at_run_us": 1085000
+      },
+      {
+        "request_id": "route-7",
+        "stage": "db",
+        "started_at_unix_ms": 1700000001210,
+        "finished_at_unix_ms": 1700000001285,
+        "latency_us": 75000,
+        "success": false,
+        "started_at_run_us": 1210000,
+        "finished_at_run_us": 1285000
+      },
+      {
+        "request_id": "route-8",
+        "stage": "db",
+        "started_at_unix_ms": 1700000001410,
+        "finished_at_unix_ms": 1700000001485,
+        "latency_us": 75000,
+        "success": true,
+        "started_at_run_us": 1410000,
+        "finished_at_run_us": 1485000
+      }
+    ],
+    "queues": [
+      {
+        "request_id": "route-1",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000001,
+        "waited_until_unix_ms": 1700000000071,
+        "wait_us": 70000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 1000,
+        "waited_until_run_us": 71000
+      },
+      {
+        "request_id": "route-2",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000201,
+        "waited_until_unix_ms": 1700000000271,
+        "wait_us": 70000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 201000,
+        "waited_until_run_us": 271000
+      },
+      {
+        "request_id": "route-3",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000401,
+        "waited_until_unix_ms": 1700000000471,
+        "wait_us": 70000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 401000,
+        "waited_until_run_us": 471000
+      },
+      {
+        "request_id": "route-4",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000601,
+        "waited_until_unix_ms": 1700000000671,
+        "wait_us": 70000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 601000,
+        "waited_until_run_us": 671000
+      },
+      {
+        "request_id": "route-5",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000801,
+        "waited_until_unix_ms": 1700000000806,
+        "wait_us": 5000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 801000,
+        "waited_until_run_us": 806000
+      },
+      {
+        "request_id": "route-6",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000001001,
+        "waited_until_unix_ms": 1700000001006,
+        "wait_us": 5000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 1001000,
+        "waited_until_run_us": 1006000
+      },
+      {
+        "request_id": "route-7",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000001201,
+        "waited_until_unix_ms": 1700000001206,
+        "wait_us": 5000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 1201000,
+        "waited_until_run_us": 1206000
+      },
+      {
+        "request_id": "route-8",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000001401,
+        "waited_until_unix_ms": 1700000001406,
+        "wait_us": 5000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 1401000,
+        "waited_until_run_us": 1406000
+      }
+    ],
+    "inflight": [],
+    "runtime_snapshots": [],
+    "truncation": {
+      "limits_hit": false,
+      "dropped_requests": 0,
+      "dropped_stages": 0,
+      "dropped_queues": 0,
+      "dropped_inflight_snapshots": 0,
+      "dropped_runtime_snapshots": 0
+    }
+  },
+  "precise_temporal_movement": {
+    "schema_version": 2,
+    "metadata": {
+      "run_id": "native-precise_temporal_movement",
+      "service_name": "equivalence-service",
+      "service_version": null,
+      "started_at_unix_ms": 1700000000000,
+      "finalized_at_unix_ms": 1700000003570,
+      "mode": "light",
+      "effective_core_config": {
+        "mode": "light",
+        "capture_limits": {
+          "max_requests": 100000,
+          "max_stages": 200000,
+          "max_queues": 200000,
+          "max_inflight_snapshots": 200000,
+          "max_runtime_snapshots": 100000
+        },
+        "strict_lifecycle": false
+      },
+      "effective_tokio_sampler_config": null,
+      "host": null,
+      "pid": null,
+      "lifecycle_warnings": [],
+      "unfinished_requests": {
+        "count": 0,
+        "sample": []
+      },
+      "run_end_reason": null
+    },
+    "requests": [
+      {
+        "request_id": "temporal-01",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000000000,
+        "started_at_run_us": 0,
+        "finished_at_unix_ms": 1700000000100,
+        "finished_at_run_us": 100000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-02",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000000150,
+        "started_at_run_us": 150000,
+        "finished_at_unix_ms": 1700000000250,
+        "finished_at_run_us": 250000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-03",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000000300,
+        "started_at_run_us": 300000,
+        "finished_at_unix_ms": 1700000000400,
+        "finished_at_run_us": 400000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-04",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000000450,
+        "started_at_run_us": 450000,
+        "finished_at_unix_ms": 1700000000550,
+        "finished_at_run_us": 550000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-05",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000000600,
+        "started_at_run_us": 600000,
+        "finished_at_unix_ms": 1700000000700,
+        "finished_at_run_us": 700000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-06",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000000750,
+        "started_at_run_us": 750000,
+        "finished_at_unix_ms": 1700000000850,
+        "finished_at_run_us": 850000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-07",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000000900,
+        "started_at_run_us": 900000,
+        "finished_at_unix_ms": 1700000001000,
+        "finished_at_run_us": 1000000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-08",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000001050,
+        "started_at_run_us": 1050000,
+        "finished_at_unix_ms": 1700000001150,
+        "finished_at_run_us": 1150000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-09",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000001200,
+        "started_at_run_us": 1200000,
+        "finished_at_unix_ms": 1700000001300,
+        "finished_at_run_us": 1300000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-10",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000001350,
+        "started_at_run_us": 1350000,
+        "finished_at_unix_ms": 1700000001450,
+        "finished_at_run_us": 1450000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-11",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000001500,
+        "started_at_run_us": 1500000,
+        "finished_at_unix_ms": 1700000001600,
+        "finished_at_run_us": 1600000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-12",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000001650,
+        "started_at_run_us": 1650000,
+        "finished_at_unix_ms": 1700000001750,
+        "finished_at_run_us": 1750000,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-13",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000001800,
+        "started_at_run_us": 1800000,
+        "finished_at_unix_ms": 1700000001920,
+        "finished_at_run_us": 1920000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-14",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000001950,
+        "started_at_run_us": 1950000,
+        "finished_at_unix_ms": 1700000002070,
+        "finished_at_run_us": 2070000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-15",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000002100,
+        "started_at_run_us": 2100000,
+        "finished_at_unix_ms": 1700000002220,
+        "finished_at_run_us": 2220000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-16",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000002250,
+        "started_at_run_us": 2250000,
+        "finished_at_unix_ms": 1700000002370,
+        "finished_at_run_us": 2370000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-17",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000002400,
+        "started_at_run_us": 2400000,
+        "finished_at_unix_ms": 1700000002520,
+        "finished_at_run_us": 2520000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-18",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000002550,
+        "started_at_run_us": 2550000,
+        "finished_at_unix_ms": 1700000002670,
+        "finished_at_run_us": 2670000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-19",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000002700,
+        "started_at_run_us": 2700000,
+        "finished_at_unix_ms": 1700000002820,
+        "finished_at_run_us": 2820000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-20",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000002850,
+        "started_at_run_us": 2850000,
+        "finished_at_unix_ms": 1700000002970,
+        "finished_at_run_us": 2970000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-21",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000003000,
+        "started_at_run_us": 3000000,
+        "finished_at_unix_ms": 1700000003120,
+        "finished_at_run_us": 3120000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-22",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000003150,
+        "started_at_run_us": 3150000,
+        "finished_at_unix_ms": 1700000003270,
+        "finished_at_run_us": 3270000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-23",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000003300,
+        "started_at_run_us": 3300000,
+        "finished_at_unix_ms": 1700000003420,
+        "finished_at_run_us": 3420000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "temporal-24",
+        "route": "/work",
+        "kind": null,
+        "started_at_unix_ms": 1700000003450,
+        "started_at_run_us": 3450000,
+        "finished_at_unix_ms": 1700000003570,
+        "finished_at_run_us": 3570000,
+        "latency_us": 120000,
+        "outcome": "ok"
+      }
+    ],
+    "stages": [
+      {
+        "request_id": "temporal-01",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000000010,
+        "finished_at_unix_ms": 1700000000020,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 10000,
+        "finished_at_run_us": 20000
+      },
+      {
+        "request_id": "temporal-02",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000000160,
+        "finished_at_unix_ms": 1700000000170,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 160000,
+        "finished_at_run_us": 170000
+      },
+      {
+        "request_id": "temporal-03",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000000310,
+        "finished_at_unix_ms": 1700000000320,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 310000,
+        "finished_at_run_us": 320000
+      },
+      {
+        "request_id": "temporal-04",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000000460,
+        "finished_at_unix_ms": 1700000000470,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 460000,
+        "finished_at_run_us": 470000
+      },
+      {
+        "request_id": "temporal-05",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000000610,
+        "finished_at_unix_ms": 1700000000620,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 610000,
+        "finished_at_run_us": 620000
+      },
+      {
+        "request_id": "temporal-06",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000000760,
+        "finished_at_unix_ms": 1700000000770,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 760000,
+        "finished_at_run_us": 770000
+      },
+      {
+        "request_id": "temporal-07",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000000910,
+        "finished_at_unix_ms": 1700000000920,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 910000,
+        "finished_at_run_us": 920000
+      },
+      {
+        "request_id": "temporal-08",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000001060,
+        "finished_at_unix_ms": 1700000001070,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 1060000,
+        "finished_at_run_us": 1070000
+      },
+      {
+        "request_id": "temporal-09",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000001210,
+        "finished_at_unix_ms": 1700000001220,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 1210000,
+        "finished_at_run_us": 1220000
+      },
+      {
+        "request_id": "temporal-10",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000001360,
+        "finished_at_unix_ms": 1700000001370,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 1360000,
+        "finished_at_run_us": 1370000
+      },
+      {
+        "request_id": "temporal-11",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000001510,
+        "finished_at_unix_ms": 1700000001520,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 1510000,
+        "finished_at_run_us": 1520000
+      },
+      {
+        "request_id": "temporal-12",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000001660,
+        "finished_at_unix_ms": 1700000001670,
+        "latency_us": 10000,
+        "success": true,
+        "started_at_run_us": 1660000,
+        "finished_at_run_us": 1670000
+      },
+      {
+        "request_id": "temporal-13",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000001810,
+        "finished_at_unix_ms": 1700000001900,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 1810000,
+        "finished_at_run_us": 1900000
+      },
+      {
+        "request_id": "temporal-14",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000001960,
+        "finished_at_unix_ms": 1700000002050,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 1960000,
+        "finished_at_run_us": 2050000
+      },
+      {
+        "request_id": "temporal-15",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000002110,
+        "finished_at_unix_ms": 1700000002200,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 2110000,
+        "finished_at_run_us": 2200000
+      },
+      {
+        "request_id": "temporal-16",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000002260,
+        "finished_at_unix_ms": 1700000002350,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 2260000,
+        "finished_at_run_us": 2350000
+      },
+      {
+        "request_id": "temporal-17",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000002410,
+        "finished_at_unix_ms": 1700000002500,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 2410000,
+        "finished_at_run_us": 2500000
+      },
+      {
+        "request_id": "temporal-18",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000002560,
+        "finished_at_unix_ms": 1700000002650,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 2560000,
+        "finished_at_run_us": 2650000
+      },
+      {
+        "request_id": "temporal-19",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000002710,
+        "finished_at_unix_ms": 1700000002800,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 2710000,
+        "finished_at_run_us": 2800000
+      },
+      {
+        "request_id": "temporal-20",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000002860,
+        "finished_at_unix_ms": 1700000002950,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 2860000,
+        "finished_at_run_us": 2950000
+      },
+      {
+        "request_id": "temporal-21",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000003010,
+        "finished_at_unix_ms": 1700000003100,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 3010000,
+        "finished_at_run_us": 3100000
+      },
+      {
+        "request_id": "temporal-22",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000003160,
+        "finished_at_unix_ms": 1700000003250,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 3160000,
+        "finished_at_run_us": 3250000
+      },
+      {
+        "request_id": "temporal-23",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000003310,
+        "finished_at_unix_ms": 1700000003400,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 3310000,
+        "finished_at_run_us": 3400000
+      },
+      {
+        "request_id": "temporal-24",
+        "stage": "downstream",
+        "started_at_unix_ms": 1700000003460,
+        "finished_at_unix_ms": 1700000003550,
+        "latency_us": 90000,
+        "success": true,
+        "started_at_run_us": 3460000,
+        "finished_at_run_us": 3550000
+      }
+    ],
+    "queues": [
+      {
+        "request_id": "temporal-01",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000000001,
+        "waited_until_unix_ms": 1700000000071,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1000,
+        "waited_until_run_us": 71000
+      },
+      {
+        "request_id": "temporal-02",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000000151,
+        "waited_until_unix_ms": 1700000000221,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 151000,
+        "waited_until_run_us": 221000
+      },
+      {
+        "request_id": "temporal-03",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000000301,
+        "waited_until_unix_ms": 1700000000371,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 301000,
+        "waited_until_run_us": 371000
+      },
+      {
+        "request_id": "temporal-04",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000000451,
+        "waited_until_unix_ms": 1700000000521,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 451000,
+        "waited_until_run_us": 521000
+      },
+      {
+        "request_id": "temporal-05",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000000601,
+        "waited_until_unix_ms": 1700000000671,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 601000,
+        "waited_until_run_us": 671000
+      },
+      {
+        "request_id": "temporal-06",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000000751,
+        "waited_until_unix_ms": 1700000000821,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 751000,
+        "waited_until_run_us": 821000
+      },
+      {
+        "request_id": "temporal-07",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000000901,
+        "waited_until_unix_ms": 1700000000971,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 901000,
+        "waited_until_run_us": 971000
+      },
+      {
+        "request_id": "temporal-08",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000001051,
+        "waited_until_unix_ms": 1700000001121,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1051000,
+        "waited_until_run_us": 1121000
+      },
+      {
+        "request_id": "temporal-09",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000001201,
+        "waited_until_unix_ms": 1700000001271,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1201000,
+        "waited_until_run_us": 1271000
+      },
+      {
+        "request_id": "temporal-10",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000001351,
+        "waited_until_unix_ms": 1700000001421,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1351000,
+        "waited_until_run_us": 1421000
+      },
+      {
+        "request_id": "temporal-11",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000001501,
+        "waited_until_unix_ms": 1700000001571,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1501000,
+        "waited_until_run_us": 1571000
+      },
+      {
+        "request_id": "temporal-12",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000001651,
+        "waited_until_unix_ms": 1700000001721,
+        "wait_us": 70000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1651000,
+        "waited_until_run_us": 1721000
+      },
+      {
+        "request_id": "temporal-13",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000001801,
+        "waited_until_unix_ms": 1700000001806,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1801000,
+        "waited_until_run_us": 1806000
+      },
+      {
+        "request_id": "temporal-14",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000001951,
+        "waited_until_unix_ms": 1700000001956,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 1951000,
+        "waited_until_run_us": 1956000
+      },
+      {
+        "request_id": "temporal-15",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000002101,
+        "waited_until_unix_ms": 1700000002106,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 2101000,
+        "waited_until_run_us": 2106000
+      },
+      {
+        "request_id": "temporal-16",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000002251,
+        "waited_until_unix_ms": 1700000002256,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 2251000,
+        "waited_until_run_us": 2256000
+      },
+      {
+        "request_id": "temporal-17",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000002401,
+        "waited_until_unix_ms": 1700000002406,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 2401000,
+        "waited_until_run_us": 2406000
+      },
+      {
+        "request_id": "temporal-18",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000002551,
+        "waited_until_unix_ms": 1700000002556,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 2551000,
+        "waited_until_run_us": 2556000
+      },
+      {
+        "request_id": "temporal-19",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000002701,
+        "waited_until_unix_ms": 1700000002706,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 2701000,
+        "waited_until_run_us": 2706000
+      },
+      {
+        "request_id": "temporal-20",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000002851,
+        "waited_until_unix_ms": 1700000002856,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 2851000,
+        "waited_until_run_us": 2856000
+      },
+      {
+        "request_id": "temporal-21",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000003001,
+        "waited_until_unix_ms": 1700000003006,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 3001000,
+        "waited_until_run_us": 3006000
+      },
+      {
+        "request_id": "temporal-22",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000003151,
+        "waited_until_unix_ms": 1700000003156,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 3151000,
+        "waited_until_run_us": 3156000
+      },
+      {
+        "request_id": "temporal-23",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000003301,
+        "waited_until_unix_ms": 1700000003306,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 3301000,
+        "waited_until_run_us": 3306000
+      },
+      {
+        "request_id": "temporal-24",
+        "queue": "admission",
+        "waited_from_unix_ms": 1700000003451,
+        "waited_until_unix_ms": 1700000003456,
+        "wait_us": 5000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 3451000,
+        "waited_until_run_us": 3456000
+      }
+    ],
+    "inflight": [],
+    "runtime_snapshots": [],
+    "truncation": {
+      "limits_hit": false,
+      "dropped_requests": 0,
+      "dropped_stages": 0,
+      "dropped_queues": 0,
+      "dropped_inflight_snapshots": 0,
+      "dropped_runtime_snapshots": 0
+    }
+  },
+  "duration_only_legacy": {
+    "schema_version": 2,
+    "metadata": {
+      "run_id": "native-duration_only_legacy",
+      "service_name": "equivalence-service",
+      "service_version": null,
+      "started_at_unix_ms": 1700000000000,
+      "finalized_at_unix_ms": 1700000000700,
+      "mode": "light",
+      "effective_core_config": {
+        "mode": "light",
+        "capture_limits": {
+          "max_requests": 100000,
+          "max_stages": 200000,
+          "max_queues": 200000,
+          "max_inflight_snapshots": 200000,
+          "max_runtime_snapshots": 100000
+        },
+        "strict_lifecycle": false
+      },
+      "effective_tokio_sampler_config": null,
+      "host": null,
+      "pid": null,
+      "lifecycle_warnings": [],
+      "unfinished_requests": {
+        "count": 0,
+        "sample": []
+      },
+      "run_end_reason": null
+    },
+    "requests": [
+      {
+        "request_id": "legacy-1",
+        "route": "/legacy",
+        "kind": null,
+        "started_at_unix_ms": 1700000000000,
+        "finished_at_unix_ms": 1700000000100,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "legacy-2",
+        "route": "/legacy",
+        "kind": null,
+        "started_at_unix_ms": 1700000000120,
+        "finished_at_unix_ms": 1700000000220,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "legacy-3",
+        "route": "/legacy",
+        "kind": null,
+        "started_at_unix_ms": 1700000000240,
+        "finished_at_unix_ms": 1700000000340,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "legacy-4",
+        "route": "/legacy",
+        "kind": null,
+        "started_at_unix_ms": 1700000000360,
+        "finished_at_unix_ms": 1700000000460,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "legacy-5",
+        "route": "/legacy",
+        "kind": null,
+        "started_at_unix_ms": 1700000000480,
+        "finished_at_unix_ms": 1700000000580,
+        "latency_us": 100000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "legacy-6",
+        "route": "/legacy",
+        "kind": null,
+        "started_at_unix_ms": 1700000000600,
+        "finished_at_unix_ms": 1700000000700,
+        "latency_us": 100000,
+        "outcome": "ok"
+      }
+    ],
+    "stages": [
+      {
+        "request_id": "legacy-1",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000020,
+        "finished_at_unix_ms": 1700000000035,
+        "latency_us": 15000,
+        "success": true
+      },
+      {
+        "request_id": "legacy-2",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000140,
+        "finished_at_unix_ms": 1700000000155,
+        "latency_us": 15000,
+        "success": true
+      },
+      {
+        "request_id": "legacy-3",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000260,
+        "finished_at_unix_ms": 1700000000275,
+        "latency_us": 15000,
+        "success": true
+      },
+      {
+        "request_id": "legacy-4",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000380,
+        "finished_at_unix_ms": 1700000000395,
+        "latency_us": 15000,
+        "success": true
+      },
+      {
+        "request_id": "legacy-5",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000500,
+        "finished_at_unix_ms": 1700000000515,
+        "latency_us": 15000,
+        "success": true
+      },
+      {
+        "request_id": "legacy-6",
+        "stage": "db",
+        "started_at_unix_ms": 1700000000620,
+        "finished_at_unix_ms": 1700000000635,
+        "latency_us": 15000,
+        "success": true
+      }
+    ],
+    "queues": [
+      {
+        "request_id": "legacy-1",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000001,
+        "waited_until_unix_ms": 1700000000066,
+        "wait_us": 65000,
+        "depth_at_start": 3
+      },
+      {
+        "request_id": "legacy-2",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000121,
+        "waited_until_unix_ms": 1700000000186,
+        "wait_us": 65000,
+        "depth_at_start": 3
+      },
+      {
+        "request_id": "legacy-3",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000241,
+        "waited_until_unix_ms": 1700000000306,
+        "wait_us": 65000,
+        "depth_at_start": 3
+      },
+      {
+        "request_id": "legacy-4",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000361,
+        "waited_until_unix_ms": 1700000000426,
+        "wait_us": 65000,
+        "depth_at_start": 3
+      },
+      {
+        "request_id": "legacy-5",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000481,
+        "waited_until_unix_ms": 1700000000546,
+        "wait_us": 65000,
+        "depth_at_start": 3
+      },
+      {
+        "request_id": "legacy-6",
+        "queue": "permits",
+        "waited_from_unix_ms": 1700000000601,
+        "waited_until_unix_ms": 1700000000666,
+        "wait_us": 65000,
+        "depth_at_start": 3
+      }
+    ],
+    "inflight": [],
+    "runtime_snapshots": [],
+    "truncation": {
+      "limits_hit": false,
+      "dropped_requests": 0,
+      "dropped_stages": 0,
+      "dropped_queues": 0,
+      "dropped_inflight_snapshots": 0,
+      "dropped_runtime_snapshots": 0
+    }
+  },
+  "semantic_retention_limits": {
+    "schema_version": 2,
+    "metadata": {
+      "run_id": "native-semantic_retention_limits",
+      "service_name": "equivalence-service",
+      "service_version": null,
+      "started_at_unix_ms": 1700000000000,
+      "finalized_at_unix_ms": 1700000000480,
+      "mode": "light",
+      "effective_core_config": {
+        "mode": "light",
+        "capture_limits": {
+          "max_requests": 5,
+          "max_stages": 5,
+          "max_queues": 5,
+          "max_inflight_snapshots": 200000,
+          "max_runtime_snapshots": 100000
+        },
+        "strict_lifecycle": false
+      },
+      "effective_tokio_sampler_config": null,
+      "host": null,
+      "pid": null,
+      "lifecycle_warnings": [],
+      "unfinished_requests": {
+        "count": 0,
+        "sample": []
+      },
+      "run_end_reason": null
+    },
+    "requests": [
+      {
+        "request_id": "limit-1",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000000,
+        "started_at_run_us": 0,
+        "finished_at_unix_ms": 1700000000080,
+        "finished_at_run_us": 80000,
+        "latency_us": 80000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "limit-2",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000100,
+        "started_at_run_us": 100000,
+        "finished_at_unix_ms": 1700000000180,
+        "finished_at_run_us": 180000,
+        "latency_us": 80000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "limit-00",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000200,
+        "started_at_run_us": 200000,
+        "finished_at_unix_ms": 1700000000280,
+        "finished_at_run_us": 280000,
+        "latency_us": 80000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "limit-01",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000300,
+        "started_at_run_us": 300000,
+        "finished_at_unix_ms": 1700000000380,
+        "finished_at_run_us": 380000,
+        "latency_us": 80000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "limit-02",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000400,
+        "started_at_run_us": 400000,
+        "finished_at_unix_ms": 1700000000480,
+        "finished_at_run_us": 480000,
+        "latency_us": 80000,
+        "outcome": "ok"
+      }
+    ],
+    "stages": [
+      {
+        "request_id": "limit-1",
+        "stage": "stage-1",
+        "started_at_unix_ms": 1700000000030,
+        "finished_at_unix_ms": 1700000000050,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 30000,
+        "finished_at_run_us": 50000
+      },
+      {
+        "request_id": "limit-2",
+        "stage": "stage-2",
+        "started_at_unix_ms": 1700000000130,
+        "finished_at_unix_ms": 1700000000150,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 130000,
+        "finished_at_run_us": 150000
+      },
+      {
+        "request_id": "limit-00",
+        "stage": "stage-00",
+        "started_at_unix_ms": 1700000000230,
+        "finished_at_unix_ms": 1700000000250,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 230000,
+        "finished_at_run_us": 250000
+      },
+      {
+        "request_id": "limit-01",
+        "stage": "stage-01",
+        "started_at_unix_ms": 1700000000330,
+        "finished_at_unix_ms": 1700000000350,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 330000,
+        "finished_at_run_us": 350000
+      },
+      {
+        "request_id": "limit-02",
+        "stage": "stage-02",
+        "started_at_unix_ms": 1700000000430,
+        "finished_at_unix_ms": 1700000000450,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 430000,
+        "finished_at_run_us": 450000
+      }
+    ],
+    "queues": [
+      {
+        "request_id": "limit-1",
+        "queue": "queue-1",
+        "waited_from_unix_ms": 1700000000001,
+        "waited_until_unix_ms": 1700000000031,
+        "wait_us": 30000,
+        "depth_at_start": 1,
+        "waited_from_run_us": 1000,
+        "waited_until_run_us": 31000
+      },
+      {
+        "request_id": "limit-2",
+        "queue": "queue-2",
+        "waited_from_unix_ms": 1700000000101,
+        "waited_until_unix_ms": 1700000000131,
+        "wait_us": 30000,
+        "depth_at_start": 2,
+        "waited_from_run_us": 101000,
+        "waited_until_run_us": 131000
+      },
+      {
+        "request_id": "limit-00",
+        "queue": "queue-00",
+        "waited_from_unix_ms": 1700000000201,
+        "waited_until_unix_ms": 1700000000231,
+        "wait_us": 30000,
+        "depth_at_start": 3,
+        "waited_from_run_us": 201000,
+        "waited_until_run_us": 231000
+      },
+      {
+        "request_id": "limit-01",
+        "queue": "queue-01",
+        "waited_from_unix_ms": 1700000000301,
+        "waited_until_unix_ms": 1700000000331,
+        "wait_us": 30000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 301000,
+        "waited_until_run_us": 331000
+      },
+      {
+        "request_id": "limit-02",
+        "queue": "queue-02",
+        "waited_from_unix_ms": 1700000000401,
+        "waited_until_unix_ms": 1700000000431,
+        "wait_us": 30000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 401000,
+        "waited_until_run_us": 431000
+      }
+    ],
+    "inflight": [],
+    "runtime_snapshots": [],
+    "truncation": {
+      "limits_hit": false,
+      "dropped_requests": 0,
+      "dropped_stages": 0,
+      "dropped_queues": 0,
+      "dropped_inflight_snapshots": 0,
+      "dropped_runtime_snapshots": 0
+    }
+  }
+}

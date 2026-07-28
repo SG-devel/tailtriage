@@ -1,0 +1,203 @@
+{
+  "request_count": 8,
+  "p50_latency_us": 100000,
+  "p95_latency_us": 100000,
+  "p99_latency_us": 100000,
+  "p95_queue_share_permille": 700,
+  "p95_service_share_permille": 950,
+  "inflight_trend": null,
+  "evidence_quality": {
+    "dropped_inflight_snapshots": 0,
+    "dropped_queues": 0,
+    "dropped_requests": 0,
+    "dropped_runtime_snapshots": 0,
+    "dropped_stages": 0,
+    "inflight_snapshot_count": 0,
+    "inflight_snapshots": "missing",
+    "limitations": [
+      "Low completed-request count can make suspect ranking unstable.",
+      "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+    ],
+    "quality": "weak",
+    "queue_event_count": 8,
+    "queues": "present",
+    "request_count": 8,
+    "requests": "partial",
+    "runtime_snapshot_count": 0,
+    "runtime_snapshots": "missing",
+    "stage_event_count": 8,
+    "stages": "present",
+    "truncated": false
+  },
+  "primary_suspect": {
+    "confidence": "medium",
+    "confidence_notes": [
+      "Low completed-request count caps confidence.",
+      "Top suspects are close in score; confidence is capped by ambiguity."
+    ],
+    "evidence": [
+      "Queue wait at p95 consumes 70.0% of request time.",
+      "Observed queue depth sample up to 5."
+    ],
+    "kind": "application_queue_saturation",
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ],
+    "score": 76
+  },
+  "secondary_suspects": [
+    {
+      "confidence": "medium",
+      "confidence_notes": [
+        "Low completed-request count caps confidence.",
+        "Top suspects are close in score; confidence is capped by ambiguity."
+      ],
+      "evidence": [
+        "Stage 'db' has p95 latency 75000 us across 8 samples.",
+        "Stage 'db' cumulative latency is 340000 us (425 permille of request latency).",
+        "Stage 'db' contributes 425 permille of tail request latency."
+      ],
+      "kind": "downstream_stage_dominates",
+      "next_checks": [
+        "Inspect downstream dependency behind stage 'db'.",
+        "Collect downstream service timings and retry behavior during tail windows.",
+        "Review downstream SLO/error budget and align retry budget/backoff with it."
+      ],
+      "score": 75
+    }
+  ],
+  "warnings": [
+    "Low completed-request count; diagnosis ranking may be unstable for this run window.",
+    "No runtime snapshots captured; executor and blocking-pressure interpretation is limited.",
+    "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.",
+    "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect."
+  ],
+  "route_breakdowns": [
+    {
+      "evidence_quality": {
+        "dropped_inflight_snapshots": 0,
+        "dropped_queues": 0,
+        "dropped_requests": 0,
+        "dropped_runtime_snapshots": 0,
+        "dropped_stages": 0,
+        "inflight_snapshot_count": 0,
+        "inflight_snapshots": "missing",
+        "limitations": [
+          "Low completed-request count can make suspect ranking unstable.",
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ],
+        "quality": "weak",
+        "queue_event_count": 4,
+        "queues": "present",
+        "request_count": 4,
+        "requests": "partial",
+        "runtime_snapshot_count": 0,
+        "runtime_snapshots": "missing",
+        "stage_event_count": 4,
+        "stages": "present",
+        "truncated": false
+      },
+      "p50_latency_us": 100000,
+      "p95_latency_us": 100000,
+      "p95_queue_share_permille": 50,
+      "p95_service_share_permille": 950,
+      "p99_latency_us": 100000,
+      "primary_suspect": {
+        "confidence": "medium",
+        "confidence_notes": [
+          "Low completed-request count caps confidence."
+        ],
+        "evidence": [
+          "Stage 'db' has p95 latency 75000 us across 4 samples.",
+          "Stage 'db' cumulative latency is 300000 us (750 permille of request latency).",
+          "Stage 'db' contributes 750 permille of tail request latency."
+        ],
+        "kind": "downstream_stage_dominates",
+        "next_checks": [
+          "Inspect downstream dependency behind stage 'db'.",
+          "Collect downstream service timings and retry behavior during tail windows.",
+          "Review downstream SLO/error budget and align retry budget/backoff with it."
+        ],
+        "score": 95
+      },
+      "request_count": 4,
+      "route": "/downstream",
+      "secondary_suspects": [],
+      "warnings": [
+        "Low completed-request count; diagnosis ranking may be unstable for this run window.",
+        "Runtime and in-flight signals are global and are not attributed to this route."
+      ]
+    },
+    {
+      "evidence_quality": {
+        "dropped_inflight_snapshots": 0,
+        "dropped_queues": 0,
+        "dropped_requests": 0,
+        "dropped_runtime_snapshots": 0,
+        "dropped_stages": 0,
+        "inflight_snapshot_count": 0,
+        "inflight_snapshots": "missing",
+        "limitations": [
+          "Low completed-request count can make suspect ranking unstable.",
+          "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."
+        ],
+        "quality": "weak",
+        "queue_event_count": 4,
+        "queues": "present",
+        "request_count": 4,
+        "requests": "partial",
+        "runtime_snapshot_count": 0,
+        "runtime_snapshots": "missing",
+        "stage_event_count": 4,
+        "stages": "present",
+        "truncated": false
+      },
+      "p50_latency_us": 100000,
+      "p95_latency_us": 100000,
+      "p95_queue_share_permille": 700,
+      "p95_service_share_permille": 300,
+      "p99_latency_us": 100000,
+      "primary_suspect": {
+        "confidence": "medium",
+        "confidence_notes": [],
+        "evidence": [
+          "Queue wait at p95 consumes 70.0% of request time.",
+          "Observed queue depth sample up to 5."
+        ],
+        "kind": "application_queue_saturation",
+        "next_checks": [
+          "Inspect queue admission limits and producer burst patterns.",
+          "Compare queue wait distribution before and after increasing worker parallelism."
+        ],
+        "score": 75
+      },
+      "request_count": 4,
+      "route": "/queued",
+      "secondary_suspects": [
+        {
+          "confidence": "low",
+          "confidence_notes": [],
+          "evidence": [
+            "Stage 'db' has p95 latency 10000 us across 4 samples.",
+            "Stage 'db' cumulative latency is 40000 us (100 permille of request latency).",
+            "Stage 'db' contributes 100 permille of tail request latency."
+          ],
+          "kind": "downstream_stage_dominates",
+          "next_checks": [
+            "Inspect downstream dependency behind stage 'db'.",
+            "Collect downstream service timings and retry behavior during tail windows.",
+            "Review downstream SLO/error budget and align retry budget/backoff with it."
+          ],
+          "score": 35
+        }
+      ],
+      "warnings": [
+        "Low completed-request count; diagnosis ranking may be unstable for this run window.",
+        "No runtime snapshots captured; executor and blocking-pressure interpretation is limited.",
+        "Runtime and in-flight signals are global and are not attributed to this route."
+      ]
+    }
+  ],
+  "temporal_segments": []
+}
