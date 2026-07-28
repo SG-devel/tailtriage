@@ -260,3 +260,9 @@ Use `TracingSession` as the sole current live entry point for capture-to-Run wor
 Background runtime sampling is opt-in through `sampler_interval(...)`. Manual runtime collection is opt-in through `manual_runtime_snapshots()`. A plain live session still captures request, stage, and queue evidence without runtime collection, and `record_runtime_snapshot(...)?` returns a configuration error when runtime collection is not enabled. Manual snapshots may coexist with background sampling.
 
 Run JSON remains the complete persisted artifact. Completed-span JSONL preserves retained original tracing sources for completed spans, but omits runtime snapshots and other Run-only state. Each output file is an independent transaction.
+
+## Native/tracing equivalence contract
+
+Native/core capture and stable tracing JSONL are equivalent when independently supplied with the same logical workload for normalized completed request, stage, and queue evidence; retained semantic source order and semantic retention when configured equally; and analyzer diagnosis for that equivalent retained evidence. Committed package fixtures compare both paths independently with exact expected evidence and report projections.
+
+Generated run IDs, absolute wall-clock anchors, host/PID, finalization timestamps, lifecycle-only metadata, tracing source file/line context, and raw-recorder diagnostics are not required to match. Partial stage or queue evidence, in-flight snapshots, runtime snapshots, Tokio sampler metadata, and complete truncation/lifecycle state are not representable through completed-span JSONL. Runtime-assisted parity is therefore a separate Run-level contract requiring explicitly equivalent snapshots. **Run JSON remains the complete artifact.** Suspects remain triage leads, not proof of root cause.

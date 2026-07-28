@@ -1,0 +1,675 @@
+{
+  "service_name": "equivalence-service",
+  "mode": "light",
+  "effective_core_config": {
+    "mode": "light",
+    "capture_limits": {
+      "max_requests": 100000,
+      "max_stages": 200000,
+      "max_queues": 200000,
+      "max_inflight_snapshots": 200000,
+      "max_runtime_snapshots": 100000
+    },
+    "strict_lifecycle": false
+  },
+  "requests": [
+    {
+      "request_id": "temporal-01",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 0,
+      "finished_at_run_us": 100000
+    },
+    {
+      "request_id": "temporal-02",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 150000,
+      "finished_at_run_us": 250000
+    },
+    {
+      "request_id": "temporal-03",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 300000,
+      "finished_at_run_us": 400000
+    },
+    {
+      "request_id": "temporal-04",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 450000,
+      "finished_at_run_us": 550000
+    },
+    {
+      "request_id": "temporal-05",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 600000,
+      "finished_at_run_us": 700000
+    },
+    {
+      "request_id": "temporal-06",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 750000,
+      "finished_at_run_us": 850000
+    },
+    {
+      "request_id": "temporal-07",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 900000,
+      "finished_at_run_us": 1000000
+    },
+    {
+      "request_id": "temporal-08",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 1050000,
+      "finished_at_run_us": 1150000
+    },
+    {
+      "request_id": "temporal-09",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 1200000,
+      "finished_at_run_us": 1300000
+    },
+    {
+      "request_id": "temporal-10",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 1350000,
+      "finished_at_run_us": 1450000
+    },
+    {
+      "request_id": "temporal-11",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 1500000,
+      "finished_at_run_us": 1600000
+    },
+    {
+      "request_id": "temporal-12",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 100000,
+      "started_at_run_us": 1650000,
+      "finished_at_run_us": 1750000
+    },
+    {
+      "request_id": "temporal-13",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 1800000,
+      "finished_at_run_us": 1920000
+    },
+    {
+      "request_id": "temporal-14",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 1950000,
+      "finished_at_run_us": 2070000
+    },
+    {
+      "request_id": "temporal-15",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 2100000,
+      "finished_at_run_us": 2220000
+    },
+    {
+      "request_id": "temporal-16",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 2250000,
+      "finished_at_run_us": 2370000
+    },
+    {
+      "request_id": "temporal-17",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 2400000,
+      "finished_at_run_us": 2520000
+    },
+    {
+      "request_id": "temporal-18",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 2550000,
+      "finished_at_run_us": 2670000
+    },
+    {
+      "request_id": "temporal-19",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 2700000,
+      "finished_at_run_us": 2820000
+    },
+    {
+      "request_id": "temporal-20",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 2850000,
+      "finished_at_run_us": 2970000
+    },
+    {
+      "request_id": "temporal-21",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 3000000,
+      "finished_at_run_us": 3120000
+    },
+    {
+      "request_id": "temporal-22",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 3150000,
+      "finished_at_run_us": 3270000
+    },
+    {
+      "request_id": "temporal-23",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 3300000,
+      "finished_at_run_us": 3420000
+    },
+    {
+      "request_id": "temporal-24",
+      "route": "/work",
+      "kind": null,
+      "outcome": "ok",
+      "latency_us": 120000,
+      "started_at_run_us": 3450000,
+      "finished_at_run_us": 3570000
+    }
+  ],
+  "stages": [
+    {
+      "request_id": "temporal-01",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 10000,
+      "finished_at_run_us": 20000
+    },
+    {
+      "request_id": "temporal-02",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 160000,
+      "finished_at_run_us": 170000
+    },
+    {
+      "request_id": "temporal-03",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 310000,
+      "finished_at_run_us": 320000
+    },
+    {
+      "request_id": "temporal-04",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 460000,
+      "finished_at_run_us": 470000
+    },
+    {
+      "request_id": "temporal-05",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 610000,
+      "finished_at_run_us": 620000
+    },
+    {
+      "request_id": "temporal-06",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 760000,
+      "finished_at_run_us": 770000
+    },
+    {
+      "request_id": "temporal-07",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 910000,
+      "finished_at_run_us": 920000
+    },
+    {
+      "request_id": "temporal-08",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 1060000,
+      "finished_at_run_us": 1070000
+    },
+    {
+      "request_id": "temporal-09",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 1210000,
+      "finished_at_run_us": 1220000
+    },
+    {
+      "request_id": "temporal-10",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 1360000,
+      "finished_at_run_us": 1370000
+    },
+    {
+      "request_id": "temporal-11",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 1510000,
+      "finished_at_run_us": 1520000
+    },
+    {
+      "request_id": "temporal-12",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 10000,
+      "started_at_run_us": 1660000,
+      "finished_at_run_us": 1670000
+    },
+    {
+      "request_id": "temporal-13",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 1810000,
+      "finished_at_run_us": 1900000
+    },
+    {
+      "request_id": "temporal-14",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 1960000,
+      "finished_at_run_us": 2050000
+    },
+    {
+      "request_id": "temporal-15",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 2110000,
+      "finished_at_run_us": 2200000
+    },
+    {
+      "request_id": "temporal-16",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 2260000,
+      "finished_at_run_us": 2350000
+    },
+    {
+      "request_id": "temporal-17",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 2410000,
+      "finished_at_run_us": 2500000
+    },
+    {
+      "request_id": "temporal-18",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 2560000,
+      "finished_at_run_us": 2650000
+    },
+    {
+      "request_id": "temporal-19",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 2710000,
+      "finished_at_run_us": 2800000
+    },
+    {
+      "request_id": "temporal-20",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 2860000,
+      "finished_at_run_us": 2950000
+    },
+    {
+      "request_id": "temporal-21",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 3010000,
+      "finished_at_run_us": 3100000
+    },
+    {
+      "request_id": "temporal-22",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 3160000,
+      "finished_at_run_us": 3250000
+    },
+    {
+      "request_id": "temporal-23",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 3310000,
+      "finished_at_run_us": 3400000
+    },
+    {
+      "request_id": "temporal-24",
+      "stage": "downstream",
+      "success": true,
+      "completed": true,
+      "latency_us": 90000,
+      "started_at_run_us": 3460000,
+      "finished_at_run_us": 3550000
+    }
+  ],
+  "queues": [
+    {
+      "request_id": "temporal-01",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 1000,
+      "waited_until_run_us": 71000
+    },
+    {
+      "request_id": "temporal-02",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 151000,
+      "waited_until_run_us": 221000
+    },
+    {
+      "request_id": "temporal-03",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 301000,
+      "waited_until_run_us": 371000
+    },
+    {
+      "request_id": "temporal-04",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 451000,
+      "waited_until_run_us": 521000
+    },
+    {
+      "request_id": "temporal-05",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 601000,
+      "waited_until_run_us": 671000
+    },
+    {
+      "request_id": "temporal-06",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 751000,
+      "waited_until_run_us": 821000
+    },
+    {
+      "request_id": "temporal-07",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 901000,
+      "waited_until_run_us": 971000
+    },
+    {
+      "request_id": "temporal-08",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 1051000,
+      "waited_until_run_us": 1121000
+    },
+    {
+      "request_id": "temporal-09",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 1201000,
+      "waited_until_run_us": 1271000
+    },
+    {
+      "request_id": "temporal-10",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 1351000,
+      "waited_until_run_us": 1421000
+    },
+    {
+      "request_id": "temporal-11",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 1501000,
+      "waited_until_run_us": 1571000
+    },
+    {
+      "request_id": "temporal-12",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 70000,
+      "waited_from_run_us": 1651000,
+      "waited_until_run_us": 1721000
+    },
+    {
+      "request_id": "temporal-13",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 1801000,
+      "waited_until_run_us": 1806000
+    },
+    {
+      "request_id": "temporal-14",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 1951000,
+      "waited_until_run_us": 1956000
+    },
+    {
+      "request_id": "temporal-15",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 2101000,
+      "waited_until_run_us": 2106000
+    },
+    {
+      "request_id": "temporal-16",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 2251000,
+      "waited_until_run_us": 2256000
+    },
+    {
+      "request_id": "temporal-17",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 2401000,
+      "waited_until_run_us": 2406000
+    },
+    {
+      "request_id": "temporal-18",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 2551000,
+      "waited_until_run_us": 2556000
+    },
+    {
+      "request_id": "temporal-19",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 2701000,
+      "waited_until_run_us": 2706000
+    },
+    {
+      "request_id": "temporal-20",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 2851000,
+      "waited_until_run_us": 2856000
+    },
+    {
+      "request_id": "temporal-21",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 3001000,
+      "waited_until_run_us": 3006000
+    },
+    {
+      "request_id": "temporal-22",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 3151000,
+      "waited_until_run_us": 3156000
+    },
+    {
+      "request_id": "temporal-23",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 3301000,
+      "waited_until_run_us": 3306000
+    },
+    {
+      "request_id": "temporal-24",
+      "queue": "admission",
+      "depth_at_start": 4,
+      "completed": true,
+      "wait_us": 5000,
+      "waited_from_run_us": 3451000,
+      "waited_until_run_us": 3456000
+    }
+  ],
+  "semantic_truncation": {
+    "limits_hit": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0
+  }
+}

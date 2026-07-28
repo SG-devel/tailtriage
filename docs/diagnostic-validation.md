@@ -121,3 +121,9 @@ Completed queue and stage distributions exclude partial observations. Partial du
 Queue/service public p95 fields remain completed-only. A queue or downstream-stage suspect materially relying on an observed-lower-bound path cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
 
 Global, route, and temporal projections share this policy. Tracing imports remain completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+
+## Native/tracing equivalence validation
+
+Two complementary tracks protect intake parity. Normal Cargo tests use committed native Run, stable completed-span JSONL, and independent expected fixtures to compare exact shared completed evidence and comparable analyzer results. This deterministic contract is not a claim of production diagnostic accuracy.
+
+The live demo track exercises real native and tracing capture across scenarios and modes with machine-sensitive semantic checks; it is neither byte-exact nor formal causal proof. Completed-span JSONL cannot carry partial stage/queue, runtime, in-flight, sampler, or complete lifecycle/truncation state. Run JSON remains the complete artifact.

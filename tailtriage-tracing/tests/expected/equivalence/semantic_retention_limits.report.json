@@ -1,0 +1,59 @@
+{
+  "request_count": 2,
+  "p50_latency_us": 80000,
+  "p95_latency_us": 80000,
+  "p99_latency_us": 80000,
+  "p95_queue_share_permille": 375,
+  "p95_service_share_permille": 625,
+  "inflight_trend": null,
+  "evidence_quality": {
+    "dropped_inflight_snapshots": 0,
+    "dropped_queues": 3,
+    "dropped_requests": 3,
+    "dropped_runtime_snapshots": 0,
+    "dropped_stages": 3,
+    "inflight_snapshot_count": 0,
+    "inflight_snapshots": "missing",
+    "limitations": [
+      "Low completed-request count can make suspect ranking unstable.",
+      "Queue and stage instrumentation are both unavailable, limiting application vs downstream interpretation.",
+      "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation.",
+      "Capture truncation dropped evidence and can reduce diagnosis completeness."
+    ],
+    "quality": "weak",
+    "queue_event_count": 2,
+    "queues": "truncated",
+    "request_count": 2,
+    "requests": "truncated",
+    "runtime_snapshot_count": 0,
+    "runtime_snapshots": "missing",
+    "stage_event_count": 2,
+    "stages": "truncated",
+    "truncated": true
+  },
+  "primary_suspect": {
+    "confidence": "low",
+    "confidence_notes": [],
+    "evidence": [
+      "Queue wait at p95 consumes 37.5% of request time.",
+      "Observed queue depth sample up to 2."
+    ],
+    "kind": "application_queue_saturation",
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ],
+    "score": 49
+  },
+  "secondary_suspects": [],
+  "warnings": [
+    "Capture limits were hit during this run; dropped evidence can reduce diagnosis completeness and confidence.",
+    "Capture truncated requests: dropped 3 request events after reaching the configured max_requests limit. This dropped evidence can reduce diagnosis completeness and confidence.",
+    "Capture truncated stages: dropped 3 stage events after reaching the configured max_stages limit. This dropped evidence can reduce diagnosis completeness and confidence.",
+    "Capture truncated queues: dropped 3 queue events after reaching the configured max_queues limit. This dropped evidence can reduce diagnosis completeness and confidence.",
+    "Low completed-request count; diagnosis ranking may be unstable for this run window.",
+    "No runtime snapshots captured; executor and blocking-pressure interpretation is limited."
+  ],
+  "route_breakdowns": [],
+  "temporal_segments": []
+}

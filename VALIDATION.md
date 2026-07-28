@@ -128,3 +128,9 @@ Completed queue and stage distributions exclude partial observations. Partial du
 Queue/service public p95 fields remain completed-only. A queue or downstream-stage suspect materially relying on an observed-lower-bound path cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
 
 Global, route, and temporal projections share this policy. Tracing imports remain completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+
+### Native/tracing equivalence tracks
+
+Deterministic exact package-level equivalence uses committed native Run and stable completed-span JSONL fixtures in normal Cargo tests. It compares exact representable completed evidence, retention order/counters, and exact comparable analyzer output against independent expected artifacts. This proves the intake equivalence contract; it is not production diagnostic-accuracy evidence.
+
+Live demo parity exercises real capture paths across multiple scenarios and modes with broader, machine-sensitive semantic checks. It is intentionally not byte-exact and does not require exact ranking equality in every mitigated run. It supports capture-to-re-run triage validation, not causal proof. Run JSON remains the complete artifact because completed-span JSONL excludes Run-only runtime, in-flight, lifecycle, and complete truncation state.

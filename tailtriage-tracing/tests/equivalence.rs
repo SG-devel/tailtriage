@@ -1,10 +1,9 @@
-#![cfg(feature = "live")]
+#[path = "support/live_harness.rs"]
+mod live_harness;
 
-mod support;
-
-use support::equivalence_harness::assert_deterministic_span_import_full_parity;
+use live_harness::assert_deterministic_span_import_full_parity;
 
 #[test]
-fn deterministic_span_import_matches_native_run_analysis_and_rendering() {
+fn deterministic_span_import_remains_a_compact_live_harness_smoke_test() {
     assert_deterministic_span_import_full_parity();
 }
