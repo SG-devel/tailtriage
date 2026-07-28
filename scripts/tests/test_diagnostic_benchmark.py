@@ -1,591 +1,161 @@
-import copy
-import contextlib
-import io
-import json
-import os
-import tempfile
-import unittest
+import json,tempfile,unittest
 from pathlib import Path
 from unittest import mock
-
 from scripts import diagnostic_benchmark as db
 
-ALLOWED = sorted(db.ALLOWED_GROUND_TRUTH)
-
-BASE_CASE = {
-    "id": "case-1",
-    "artifact": "case-1.json",
-    "artifact_type": "analysis_report",
-    "ground_truth": "application_queue_saturation",
-    "required_top2": ["application_queue_saturation"],
-    "acceptable_primary": ["application_queue_saturation"],
-    "tags": ["queue"],
-    "must_include_evidence": [],
-    "must_include_next_checks": [],
-    "expected_warnings": [],
-    "allowed_warnings": [],
-    "top1_required": False,
-    "notes": "deterministic queue case",
-}
-
-
-def valid_report(*, primary_kind="application_queue_saturation", confidence="high", score=1.0, evidence=None, next_checks=None, secondary=None, warnings=None, confidence_notes=None, evidence_quality=None, route_breakdowns=None, temporal_segments=None):
-    primary = {
-        "kind": primary_kind,
-        "confidence": confidence,
-        "score": score,
-        "evidence": evidence if evidence is not None else ["Queue wait dominates"],
-    }
-    if next_checks is not None:
-        primary["next_checks"] = next_checks
-    if confidence_notes is not None:
-        primary["confidence_notes"] = confidence_notes
-    return {
-        "primary_suspect": primary,
-        "secondary_suspects": secondary or [],
-        "warnings": warnings or [],
-        "evidence_quality": evidence_quality or {},
-        "route_breakdowns": route_breakdowns or [],
-        "temporal_segments": temporal_segments or [],
-    }
-
-
-class DiagnosticBenchmarkTests(unittest.TestCase):
-    def make_case(self, **updates):
-        case = copy.deepcopy(BASE_CASE)
-        case.update(updates)
-        return case
-
-    def make_manifest(self, *cases, schema_version=1):
-        return {"schema_version": schema_version, "cases": list(cases)}
-
-    def write_json(self, root, relative_path, payload):
-        path = Path(root) / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload), encoding="utf-8")
-        return path
-
-    def run_single_case(self, case, report, *, min_top1=0.0, min_top2=0.0, max_high_confidence_wrong=99):
-        with tempfile.TemporaryDirectory() as td:
-            self.write_json(td, case["artifact"], report)
-            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(case))
-            return db.run(str(manifest_path), min_top1, min_top2, max_high_confidence_wrong)
-
-    # Manifest validation tests
-    def test_manifest_schema_version_required(self):
-        with self.assertRaisesRegex(ValueError, "schema_version"):
-            db.validate_manifest(self.make_manifest(self.make_case(), schema_version=0))
-
-    def test_committed_manifest_has_required_schema_version(self):
-        manifest_path = Path(__file__).resolve().parents[2] / "validation" / "diagnostics" / "manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual(manifest.get("schema_version"), 1)
-        db.validate_manifest(manifest)
-
-    def test_manifest_duplicate_ids_fail(self):
-        c1 = self.make_case(id="dup", artifact="a.json")
-        c2 = self.make_case(id="dup", artifact="b.json")
-        with self.assertRaisesRegex(ValueError, "duplicate case id"):
-            db.validate_manifest(self.make_manifest(c1, c2))
-
-    def test_manifest_non_empty_id_and_artifact_required(self):
-        with self.assertRaisesRegex(ValueError, "id"):
-            db.validate_manifest(self.make_manifest(self.make_case(id="")))
-        with self.assertRaisesRegex(ValueError, "artifact"):
-            db.validate_manifest(self.make_manifest(self.make_case(artifact="")))
-
-    def test_manifest_artifact_type_must_be_allowed(self):
-        bad = self.make_case(artifact_type="anything_else")
-        with self.assertRaisesRegex(ValueError, "artifact_type"):
-            db.validate_manifest(self.make_manifest(bad))
-        db.validate_manifest(self.make_manifest(self.make_case(artifact_type="run_artifact")))
-        db.validate_manifest(self.make_manifest(self.make_case(artifact_type="tracing_span_jsonl")))
-
-    def test_manifest_ground_truth_and_required_top2_rules(self):
-        with self.assertRaisesRegex(ValueError, "unknown ground_truth"):
-            db.validate_manifest(self.make_manifest(self.make_case(ground_truth="not_a_kind")))
-        with self.assertRaisesRegex(ValueError, "required_top2 must be a non-empty list"):
-            db.validate_manifest(self.make_manifest(self.make_case(required_top2=[])))
-        with self.assertRaisesRegex(ValueError, "required_top2 contains unknown diagnosis kind"):
-            db.validate_manifest(self.make_manifest(self.make_case(required_top2=["unknown"])))
-        with self.assertRaisesRegex(ValueError, "required_top2 must include ground_truth"):
-            db.validate_manifest(self.make_manifest(self.make_case(required_top2=["blocking_pool_pressure"])))
-
-    def test_manifest_acceptable_primary_rules(self):
-        with self.assertRaisesRegex(ValueError, "acceptable_primary must be a non-empty list"):
-            db.validate_manifest(self.make_manifest(self.make_case(acceptable_primary=[])))
-        with self.assertRaisesRegex(ValueError, "acceptable_primary contains unknown diagnosis kind"):
-            db.validate_manifest(self.make_manifest(self.make_case(acceptable_primary=["bad_kind"])))
-        with self.assertRaisesRegex(ValueError, "acceptable_primary must include ground_truth"):
-            db.validate_manifest(self.make_manifest(self.make_case(acceptable_primary=["blocking_pool_pressure"])))
-
-    def test_manifest_list_and_scalar_field_shapes(self):
-        with self.assertRaisesRegex(ValueError, "tags"):
-            db.validate_manifest(self.make_manifest(self.make_case(tags=[""])))
-        with self.assertRaisesRegex(ValueError, "must_include_evidence"):
-            db.validate_manifest(self.make_manifest(self.make_case(must_include_evidence=[1])))
-        with self.assertRaisesRegex(ValueError, "must_include_next_checks"):
-            db.validate_manifest(self.make_manifest(self.make_case(must_include_next_checks=[1])))
-        with self.assertRaisesRegex(ValueError, "expected_warnings"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_warnings=[1])))
-        with self.assertRaisesRegex(ValueError, "allowed_warnings"):
-            db.validate_manifest(self.make_manifest(self.make_case(allowed_warnings=[1])))
-
-    def test_manifest_wildcard_warnings_and_remaining_fields(self):
-        with self.assertRaisesRegex(ValueError, "wildcard"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_warnings=["*"])))
-        with self.assertRaisesRegex(ValueError, "wildcard"):
-            db.validate_manifest(self.make_manifest(self.make_case(allowed_warnings=["*"])))
-        with self.assertRaisesRegex(ValueError, "top1_required"):
-            db.validate_manifest(self.make_manifest(self.make_case(top1_required="yes")))
-        with self.assertRaisesRegex(ValueError, "notes"):
-            db.validate_manifest(self.make_manifest(self.make_case(notes="")))
-    def test_manifest_max_primary_confidence_rules(self):
-        db.validate_manifest(self.make_manifest(self.make_case()))
-        for allowed in ["low", "medium", "high"]:
-            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=allowed)))
-        with self.assertRaisesRegex(ValueError, "max_primary_confidence must be one of"):
-            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="very_high")))
-        with self.assertRaisesRegex(ValueError, "max_primary_confidence must be one of"):
-            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence="extreme")))
-        with self.assertRaisesRegex(ValueError, "max_primary_confidence must be a string"):
-            db.validate_manifest(self.make_manifest(self.make_case(max_primary_confidence=1)))
-
-
-    def test_run_artifact_loads_report_via_cli_json(self):
-        case = self.make_case(artifact_type="run_artifact", artifact="run.json")
-        fake_report = valid_report()
-        with tempfile.TemporaryDirectory() as td:
-            artifact_path = self.write_json(td, case["artifact"], {"schema_version": 1})
-            with mock.patch("scripts.diagnostic_benchmark.subprocess.run") as mocked_run:
-                mocked_run.return_value = mock.Mock(returncode=0, stdout=json.dumps(fake_report), stderr="")
-                loaded = db.load_case_report(case, Path(td))
-        self.assertEqual(loaded["primary_suspect"]["kind"], fake_report["primary_suspect"]["kind"])
-        mocked_run.assert_called_once()
-        cmd = mocked_run.call_args.args[0]
-        self.assertEqual(cmd[0], "cargo")
-        self.assertIn("tailtriage-cli", cmd)
-        self.assertIn("analyze", cmd)
-        self.assertIn(str(artifact_path.resolve()), cmd)
-        self.assertEqual(cmd[-2:], ["--format", "json"])
-
-    def test_tracing_span_jsonl_imports_then_analyzes_via_cli(self):
-        case = self.make_case(artifact_type="tracing_span_jsonl", artifact="spans.jsonl", id="trace-case")
-        fake_report = valid_report()
-        with tempfile.TemporaryDirectory() as td:
-            artifact_path = Path(td) / case["artifact"]
-            artifact_path.write_text("{}\n", encoding="utf-8")
-            calls = []
-
-            def fake_run(command, capture_output, text):
-                calls.append(command)
-                if "import" in command:
-                    output_path = Path(command[command.index("--output") + 1])
-                    output_path.write_text('{"schema_version":1}', encoding="utf-8")
-                    return mock.Mock(returncode=0, stdout="", stderr="")
-                return mock.Mock(returncode=0, stdout=json.dumps(fake_report), stderr="")
-
-            with mock.patch("scripts.diagnostic_benchmark.subprocess.run", side_effect=fake_run):
-                loaded = db.load_case_report(case, Path(td))
-
-        self.assertEqual(loaded["primary_suspect"]["kind"], fake_report["primary_suspect"]["kind"])
-        self.assertEqual(len(calls), 2)
-        self.assertIn("import", calls[0])
-        self.assertIn("tracing-spans-jsonl", calls[0])
-        self.assertIn(str(artifact_path.resolve()), calls[0])
-        self.assertIn("analyze", calls[1])
-        self.assertEqual(calls[1][-2:], ["--format", "json"])
-
-    def test_tracing_span_jsonl_import_failure_includes_command_output_and_path(self):
-        case = self.make_case(artifact_type="tracing_span_jsonl", artifact="spans.jsonl", id="trace-fail")
-        with tempfile.TemporaryDirectory() as td:
-            artifact_path = Path(td) / case["artifact"]
-            artifact_path.write_text("{}\n", encoding="utf-8")
-            with mock.patch("scripts.diagnostic_benchmark.subprocess.run") as mocked_run:
-                mocked_run.return_value = mock.Mock(returncode=1, stdout="out detail", stderr="err detail")
-                with self.assertRaisesRegex(ValueError, "trace-fail") as ctx:
-                    db.load_case_report(case, Path(td))
-        message = str(ctx.exception)
-        self.assertIn(str(artifact_path.resolve()), message)
-        self.assertIn("tracing-spans-jsonl", message)
-        self.assertIn("out detail", message)
-        self.assertIn("err detail", message)
-
-    def test_run_artifact_cli_failure_includes_case_and_path(self):
-        case = self.make_case(artifact_type="run_artifact", artifact="run.json", id="raw-case")
-        with tempfile.TemporaryDirectory() as td:
-            artifact_path = self.write_json(td, case["artifact"], {"schema_version": 1})
-            with mock.patch("scripts.diagnostic_benchmark.subprocess.run") as mocked_run:
-                mocked_run.return_value = mock.Mock(returncode=1, stdout="", stderr="boom")
-                with self.assertRaisesRegex(ValueError, "raw-case"):
-                    db.load_case_report(case, Path(td))
-                with self.assertRaisesRegex(ValueError, str(artifact_path.resolve())):
-                    db.load_case_report(case, Path(td))
-
-    # Report validation tests
-    def test_report_missing_primary_fails(self):
-        with self.assertRaisesRegex(ValueError, "primary_suspect"):
-            db.extract({"secondary_suspects": [], "warnings": []})
-
-    def test_report_primary_field_validation(self):
-        with self.assertRaisesRegex(ValueError, "primary_suspect.kind"):
-            db.extract({"primary_suspect": {"kind": "bad", "confidence": "high", "evidence": []}, "secondary_suspects": [], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "confidence"):
-            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "bad", "evidence": []}, "secondary_suspects": [], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "confidence"):
-            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "very_high", "evidence": []}, "secondary_suspects": [], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "score"):
-            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "high", "score": "x", "evidence": []}, "secondary_suspects": [], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "evidence"):
-            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "high", "evidence": "x"}, "secondary_suspects": [], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "next_checks"):
-            db.extract({"primary_suspect": {"kind": ALLOWED[0], "confidence": "high", "evidence": [], "next_checks": "x"}, "secondary_suspects": [], "warnings": []})
-
-    def test_report_secondary_and_warnings_validation(self):
-        primary = {"kind": ALLOWED[0], "confidence": "high", "evidence": []}
-        with self.assertRaisesRegex(ValueError, "secondary_suspects.kind"):
-            db.extract({"primary_suspect": primary, "secondary_suspects": [{"kind": "bad"}], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "secondary_suspects.confidence"):
-            db.extract({"primary_suspect": primary, "secondary_suspects": [{"confidence": "bad"}], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "secondary_suspects.confidence"):
-            db.extract({"primary_suspect": primary, "secondary_suspects": [{"confidence": "very_high"}], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "secondary_suspects.score"):
-            db.extract({"primary_suspect": primary, "secondary_suspects": [{"score": "bad"}], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "secondary_suspects.evidence"):
-            db.extract({"primary_suspect": primary, "secondary_suspects": [{"evidence": "bad"}], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "secondary_suspects.next_checks"):
-            db.extract({"primary_suspect": primary, "secondary_suspects": [{"next_checks": "bad"}], "warnings": []})
-        with self.assertRaisesRegex(ValueError, "warnings"):
-            db.extract({"primary_suspect": primary, "secondary_suspects": [], "warnings": [1]})
-
-    def test_analysis_report_requires_primary_score_but_synthetic_may_omit(self):
-        case = self.make_case(artifact_type="analysis_report")
-        no_score_report = valid_report(score=None)
-        del no_score_report["primary_suspect"]["score"]
-        with self.assertRaisesRegex(ValueError, "analysis_report requires"):
-            self.run_single_case(case, no_score_report)
-
-        synthetic = self.make_case(artifact_type="synthetic_analysis_report")
-        metrics, failures = self.run_single_case(synthetic, no_score_report)
-        self.assertEqual(metrics["total_cases"], 1)
-        self.assertFalse(failures)
-
-    # Metric semantics tests
-    def test_top1_required_wrong_primary_fails(self):
-        case = self.make_case(top1_required=True)
-        metrics, failures = self.run_single_case(case, valid_report(primary_kind="blocking_pool_pressure"))
-        self.assertTrue(failures)
-        self.assertEqual(len(metrics["failed_cases"]), 1)
-        self.assertFalse(metrics["failed_cases"][0]["top1_ok"])
-
-    def test_required_top2_missing_fails_even_if_primary_acceptable(self):
-        case = self.make_case(
-            required_top2=["application_queue_saturation"],
-            acceptable_primary=["application_queue_saturation", "blocking_pool_pressure"],
-        )
-        metrics, failures = self.run_single_case(case, valid_report(primary_kind="blocking_pool_pressure"))
-        self.assertTrue(failures)
-        self.assertFalse(metrics["failed_cases"][0]["top2_ok"])
-
-    def test_acceptable_alternate_primary_with_ground_truth_secondary(self):
-        case = self.make_case(acceptable_primary=["application_queue_saturation", "blocking_pool_pressure"])
-        secondary = [{"kind": "application_queue_saturation", "evidence": ["backup"]}]
-        metrics, failures = self.run_single_case(case, valid_report(primary_kind="blocking_pool_pressure", secondary=secondary))
-        self.assertFalse(failures)
-        self.assertEqual(metrics["high_confidence_wrong_count"], 0)
-
-    def test_high_confidence_unacceptable_primary_counts_even_with_gt_secondary(self):
-        case = self.make_case(acceptable_primary=["application_queue_saturation"])
-        secondary = [{"kind": "application_queue_saturation", "evidence": ["backup"]}]
-        metrics, failures = self.run_single_case(case, valid_report(primary_kind="blocking_pool_pressure", secondary=secondary), max_high_confidence_wrong=0)
-        self.assertEqual(metrics["high_confidence_wrong_count"], 1)
-        self.assertTrue(failures)
-
-    def test_warning_and_evidence_semantics(self):
-        case = self.make_case(must_include_evidence=["secondary evidence"], expected_warnings=["expected warn"], allowed_warnings=["optional warn"])
-        secondary = [{"kind": "blocking_pool_pressure", "evidence": ["secondary evidence"]}]
-        good_report = valid_report(secondary=secondary, warnings=["expected warn", "optional warn"])
-        metrics, failures = self.run_single_case(case, good_report)
-        self.assertFalse(failures)
-        self.assertEqual(metrics["unexpected_warning_count"], 0)
-
-        missing_expected = valid_report(secondary=secondary, warnings=[])
-        metrics, failures = self.run_single_case(case, missing_expected)
-        self.assertEqual(metrics["missing_expected_warning_count"], 1)
-        self.assertTrue(failures)
-
-        unexpected_warning = valid_report(secondary=secondary, warnings=["expected warn", "not allowed"])
-        metrics, failures = self.run_single_case(case, unexpected_warning)
-        self.assertEqual(metrics["unexpected_warning_count"], 1)
-        self.assertTrue(failures)
-
-    def test_next_check_metrics_and_required_substrings(self):
-        case_no_requirements = self.make_case()
-        report_with_next_checks = valid_report(next_checks=["inspect queue depth"], secondary=[{"kind": "blocking_pool_pressure", "next_checks": ["check blocking pool"]}])
-        metrics, failures = self.run_single_case(case_no_requirements, report_with_next_checks)
-        self.assertFalse(failures)
-        self.assertIsNone(metrics["next_check_pass_rate"])
-        self.assertEqual(metrics["next_check_presence_rate"], 1.0)
-
-        required_case = self.make_case(must_include_next_checks=["queue depth"])
-        metrics, failures = self.run_single_case(required_case, report_with_next_checks)
-        self.assertFalse(failures)
-        self.assertEqual(metrics["next_check_required_cases"], 1)
-        self.assertEqual(metrics["next_check_passed_cases"], 1)
-
-        missing_report = valid_report(next_checks=["check runtime metrics"])
-        metrics, failures = self.run_single_case(required_case, missing_report)
-        self.assertTrue(failures)
-        self.assertEqual(metrics["next_check_passed_cases"], 0)
-        self.assertFalse(metrics["failed_cases"][0]["next_check_ok"])
-
-    def test_failed_cases_include_useful_fields(self):
-        case = self.make_case(top1_required=True, expected_warnings=["must appear"])
-        metrics, _ = self.run_single_case(case, valid_report(primary_kind="blocking_pool_pressure", warnings=[]))
-        self.assertEqual(len(metrics["failed_cases"]), 1)
-        row = metrics["failed_cases"][0]
-        for field in ["id", "top1_ok", "top2_ok", "evidence_ok", "next_check_ok", "confidence_ceiling_ok", "max_primary_confidence", "primary_confidence", "unexpected_warnings", "missing_expected_warnings", "top1_required"]:
-            self.assertIn(field, row)
-    def test_confidence_ceiling_semantics_and_metrics(self):
-        base_case = self.make_case(max_primary_confidence="medium")
-        metrics, failures = self.run_single_case(base_case, valid_report(confidence="medium"))
-        self.assertFalse(failures)
-        self.assertEqual(metrics["confidence_ceiling_cases"], 1)
-        self.assertEqual(metrics["confidence_ceiling_passed_cases"], 1)
-        self.assertEqual(metrics["confidence_ceiling_pass_rate"], 1.0)
-
-        metrics, failures = self.run_single_case(base_case, valid_report(confidence="low"))
-        self.assertFalse(failures)
-        self.assertEqual(metrics["confidence_ceiling_passed_cases"], 1)
-
-        metrics, failures = self.run_single_case(base_case, valid_report(confidence="high"))
-        self.assertTrue(failures)
-        self.assertEqual(metrics["confidence_ceiling_passed_cases"], 0)
-        row = metrics["failed_cases"][0]
-        self.assertFalse(row["confidence_ceiling_ok"])
-        self.assertEqual(row["max_primary_confidence"], "medium")
-        self.assertEqual(row["primary_confidence"], "high")
-
-
-    def test_optional_manifest_field_validation(self):
-        with self.assertRaisesRegex(ValueError, "expected_evidence_quality must be a string"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality=1)))
-        with self.assertRaisesRegex(ValueError, "expected_evidence_quality"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_evidence_quality="bad")))
-        with self.assertRaisesRegex(ValueError, "unknown signal family"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"bad":"present"})))
-        with self.assertRaisesRegex(ValueError, "expected_signal_statuses values must be strings"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"queues": 1})))
-        with self.assertRaisesRegex(ValueError, "unknown signal status"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_signal_statuses={"queues":"bad"})))
-        with self.assertRaisesRegex(ValueError, "expected_route_breakdowns must be a string"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_route_breakdowns=1)))
-        with self.assertRaisesRegex(ValueError, "expected_temporal_segments must be a string"):
-            db.validate_manifest(self.make_manifest(self.make_case(expected_temporal_segments=1)))
-        with self.assertRaisesRegex(ValueError, "must_include_confidence_notes"):
-            db.validate_manifest(self.make_manifest(self.make_case(must_include_confidence_notes="x")))
-
-    def test_optional_checks_pass_and_fail(self):
-        case = self.make_case(expected_evidence_quality="strong", expected_signal_statuses={"queues":"present"}, must_include_confidence_notes=["queue"], expected_route_breakdowns="non_empty", expected_temporal_segments="non_empty", must_include_route_warning=["route caveat"], must_include_temporal_warning=["overlap"], expected_top_level_warnings=["top warning"], allowed_warnings=["top warning"])
-        report = valid_report(confidence_notes=["Queue confidence note"], warnings=["top warning"], evidence_quality={"quality":"strong","queues":"present"}, route_breakdowns=[{"warnings":["route caveat"]}], temporal_segments=[{"warnings":["overlap"]}])
-        metrics, failures = self.run_single_case(case, report)
-        self.assertFalse(failures)
-        self.assertEqual(metrics["evidence_quality_check_passed_cases"], 1)
-
-        bad = valid_report(confidence_notes=["other"], warnings=[], evidence_quality={"quality":"weak","queues":"missing"}, route_breakdowns=[], temporal_segments=[])
-        metrics, failures = self.run_single_case(case, bad)
-        self.assertTrue(failures)
-        row = metrics["failed_cases"][0]
-        self.assertFalse(row["evidence_quality_ok"])
-        self.assertFalse(row["signal_status_ok"])
-        self.assertFalse(row["confidence_note_ok"])
-        self.assertFalse(row["route_breakdown_ok"])
-        self.assertFalse(row["temporal_segment_ok"])
-        self.assertFalse(row["route_warning_ok"])
-        self.assertFalse(row["temporal_warning_ok"])
-        self.assertEqual(row["missing_expected_top_level_warnings"], ["top warning"])
-
-    def test_existing_cases_without_optional_fields_still_pass(self):
-        case = self.make_case()
-        metrics, failures = self.run_single_case(case, valid_report())
-        self.assertFalse(failures)
-        self.assertEqual(metrics["evidence_quality_check_cases"], 0)
-
-    def test_route_temporal_warning_only_checks_count_cases(self):
-        route_case = self.make_case(must_include_route_warning=["route caveat"])
-        route_report = valid_report(route_breakdowns=[{"warnings": ["route caveat noted"]}])
-        metrics, failures = self.run_single_case(route_case, route_report)
-        self.assertFalse(failures)
-        self.assertEqual(metrics["route_breakdown_check_cases"], 1)
-        self.assertEqual(metrics["route_breakdown_check_passed_cases"], 1)
-
-        temporal_case = self.make_case(must_include_temporal_warning=["segment overlap"])
-        temporal_report = valid_report(temporal_segments=[{"warnings": ["segment overlap warning"]}])
-        metrics, failures = self.run_single_case(temporal_case, temporal_report)
-        self.assertFalse(failures)
-        self.assertEqual(metrics["temporal_segment_check_cases"], 1)
-        self.assertEqual(metrics["temporal_segment_check_passed_cases"], 1)
-
-    def test_route_temporal_shape_and_warning_do_not_double_count(self):
-        route_case = self.make_case(expected_route_breakdowns="non_empty", must_include_route_warning=["route caveat"])
-        route_report = valid_report(route_breakdowns=[{"warnings": ["route caveat"]}])
-        metrics, failures = self.run_single_case(route_case, route_report)
-        self.assertFalse(failures)
-        self.assertEqual(metrics["route_breakdown_check_cases"], 1)
-
-        temporal_case = self.make_case(expected_temporal_segments="non_empty", must_include_temporal_warning=["overlap"])
-        temporal_report = valid_report(temporal_segments=[{"warnings": ["overlap"]}])
-        metrics, failures = self.run_single_case(temporal_case, temporal_report)
-        self.assertFalse(failures)
-        self.assertEqual(metrics["temporal_segment_check_cases"], 1)
-
-    def test_failed_rows_include_optional_mismatch_details(self):
-        case = self.make_case(
-            expected_evidence_quality="strong",
-            expected_signal_statuses={"queues": "present"},
-            must_include_confidence_notes=["queue confidence"],
-            must_include_route_warning=["route caveat"],
-            must_include_temporal_warning=["segment overlap"],
-        )
-        report = valid_report(
-            confidence_notes=["other note"],
-            evidence_quality={"quality": "weak", "queues": "missing"},
-            route_breakdowns=[{"warnings": ["different route warning"]}],
-            temporal_segments=[{"warnings": ["different segment warning"]}],
-        )
-        metrics, failures = self.run_single_case(case, report)
-        self.assertTrue(failures)
-        row = metrics["failed_cases"][0]
-        self.assertEqual(row["expected_evidence_quality"], "strong")
-        self.assertEqual(row["actual_evidence_quality"], "weak")
-        self.assertEqual(row["signal_status_mismatches"], [{"family": "queues", "expected": "present", "actual": "missing"}])
-        self.assertEqual(row["missing_confidence_notes"], ["queue confidence"])
-        self.assertEqual(row["missing_route_warnings"], ["route caveat"])
-        self.assertEqual(row["missing_temporal_warnings"], ["segment overlap"])
-
-    def test_malformed_optional_fields_do_not_satisfy_non_empty_checks(self):
-        case = self.make_case(expected_route_breakdowns="non_empty", expected_temporal_segments="non_empty")
-        report = valid_report(route_breakdowns=[], temporal_segments=[])
-        report["route_breakdowns"] = "not-a-list"
-        report["temporal_segments"] = "not-a-list"
-        metrics, failures = self.run_single_case(case, report)
-        self.assertTrue(failures)
-        row = metrics["failed_cases"][0]
-        self.assertFalse(row["route_breakdown_ok"])
-        self.assertFalse(row["temporal_segment_ok"])
-    # Threshold and output/path tests
-    def test_threshold_failures(self):
-        case = self.make_case()
-        report = valid_report(primary_kind="blocking_pool_pressure")
-        _, failures = self.run_single_case(case, report, min_top1=1.0)
-        self.assertTrue(any("top1_accuracy" in f for f in failures))
-        _, failures = self.run_single_case(case, report, min_top2=1.0)
-        self.assertTrue(any("top2_recall" in f for f in failures))
-        _, failures = self.run_single_case(case, report, max_high_confidence_wrong=0)
-        self.assertTrue(any("high_confidence_wrong_count" in f for f in failures))
-
-    def test_metrics_shape_and_absolute_manifest_path(self):
-        with tempfile.TemporaryDirectory() as td:
-            case = self.make_case()
-            self.write_json(td, case["artifact"], valid_report())
-            manifest = self.write_json(td, "manifest.json", self.make_manifest(case))
-            cwd = os.getcwd()
-            os.chdir("/")
-            try:
-                metrics, failures = db.run(str(manifest.resolve()), 0.0, 0.0, 99)
-            finally:
-                os.chdir(cwd)
-
-            self.assertFalse(failures)
-            expected_keys = {
-                "total_cases", "top1_accuracy", "top2_recall", "high_confidence_wrong_count",
-                "per_ground_truth_counts", "confusion_matrix", "confidence_bucket_accuracy",
-                "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases",
-                "next_check_presence_rate", "next_check_pass_rate", "confidence_ceiling_cases",
-                "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "unexpected_warning_count",
-                "missing_expected_warning_count", "evidence_quality_check_cases", "evidence_quality_check_passed_cases",
-                "signal_status_check_cases", "signal_status_check_passed_cases", "confidence_note_check_cases",
-                "confidence_note_check_passed_cases", "route_breakdown_check_cases", "route_breakdown_check_passed_cases",
-                "temporal_segment_check_cases", "temporal_segment_check_passed_cases", "failed_cases",
-                "validated_paths",
-            }
-            self.assertEqual(set(metrics.keys()), expected_keys)
-
-    def test_main_prints_optional_check_counters(self):
-        case = self.make_case(
-            expected_evidence_quality="strong",
-            expected_signal_statuses={"queues": "present"},
-            must_include_confidence_notes=["queue"],
-            expected_route_breakdowns="non_empty",
-            expected_temporal_segments="non_empty",
-        )
-        report = valid_report(
-            confidence_notes=["queue note"],
-            evidence_quality={"quality": "strong", "queues": "present"},
-            route_breakdowns=[{"warnings": []}],
-            temporal_segments=[{"warnings": []}],
-        )
-        with tempfile.TemporaryDirectory() as td:
-            self.write_json(td, case["artifact"], report)
-            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(case))
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                with mock.patch(
-                    "sys.argv",
-                    [
-                        "diagnostic_benchmark.py",
-                        "--manifest",
-                        str(manifest_path),
-                        "--min-top1",
-                        "0.0",
-                        "--min-top2",
-                        "0.0",
-                        "--max-high-confidence-wrong",
-                        "99",
-                    ],
-                ):
-                    db.main()
-            output = buf.getvalue()
-        self.assertIn("evidence_quality_checks=1/1", output)
-        self.assertIn("signal_status_checks=1/1", output)
-        self.assertIn("confidence_note_checks=1/1", output)
-        self.assertIn("route_breakdown_checks=1/1", output)
-        self.assertIn("temporal_segment_checks=1/1", output)
-        self.assertIn("confidence_bucket_accuracy.low=n/a total=0 correct=0", output)
-        self.assertIn("confidence_bucket_accuracy.medium=n/a total=0 correct=0", output)
-        self.assertIn("confidence_bucket_accuracy.high=1.000 total=1 correct=1", output)
-
-    def test_main_prints_confidence_bucket_accuracy_for_missing_and_present_buckets(self):
-        low_case = self.make_case(id="low-case", artifact="low-case.json")
-        medium_case = self.make_case(id="medium-case", artifact="medium-case.json")
-        low_report = valid_report(confidence="low")
-        medium_report = valid_report(confidence="medium")
-        with tempfile.TemporaryDirectory() as td:
-            self.write_json(td, low_case["artifact"], low_report)
-            self.write_json(td, medium_case["artifact"], medium_report)
-            manifest_path = self.write_json(td, "manifest.json", self.make_manifest(low_case, medium_case))
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                with mock.patch(
-                    "sys.argv",
-                    [
-                        "diagnostic_benchmark.py",
-                        "--manifest",
-                        str(manifest_path),
-                        "--min-top1",
-                        "0.0",
-                        "--min-top2",
-                        "0.0",
-                        "--max-high-confidence-wrong",
-                        "99",
-                    ],
-                ):
-                    db.main()
-            output = buf.getvalue()
-        self.assertIn("confidence_bucket_accuracy.low=1.000 total=1 correct=1", output)
-        self.assertIn("confidence_bucket_accuracy.medium=1.000 total=1 correct=1", output)
-        self.assertIn("confidence_bucket_accuracy.high=n/a total=0 correct=0", output)
-
-
-if __name__ == "__main__":
-    unittest.main()
+def report(kind='application_queue_saturation',conf='high',secondary=None):
+ return {'primary_suspect':{'kind':kind,'confidence':conf,'score':1,'evidence':['queue evidence'],'next_checks':['check queue']},'secondary_suspects':([] if secondary is None else [{'kind':secondary,'confidence':'medium','evidence':[],'next_checks':[]}]),'warnings':[]}
+def case(cid='run',typ='run_artifact',eligible=True,**kw):
+ c={'id':cid,'artifact':cid+'.json','artifact_type':typ,'validation_class':db.TYPE_CLASS[typ],'accuracy_eligible':eligible,'tags':[],'notes':'test case','expected_primary_kinds':['application_queue_saturation'],'required_visible_suspects':['application_queue_saturation'],'must_include_evidence':['queue'],'must_include_next_checks':['check'],'expected_warnings':[],'allowed_warnings':[]}
+ if eligible:c.update(observation_id=cid,ground_truth='application_queue_saturation',exact_primary_kind='application_queue_saturation')
+ c.update(kw);return c
+def manifest(*cases):return {'schema_version':2,'cases':list(cases)}
+class Result:
+ def __init__(self,code=0,out='',err=''):self.returncode=code;self.stdout=out;self.stderr=err
+class Tests(unittest.TestCase):
+ def write(self,root,cases,reports=None):
+  root=Path(root)
+  for c,r in zip(cases,reports or [report()]*len(cases)):(root/c['artifact']).write_text(json.dumps(r))
+  p=root/'manifest.json';p.write_text(json.dumps(manifest(*cases)));return p
+ def runmock(self,p,outputs):
+  with mock.patch.object(db,'_invoke',side_effect=outputs) as inv:return db.run(p,0,0,99),inv
+ def test_report_only_manifest_fails_with_zero_analyzer_executions(self):
+  c=case('r','analysis_report',False)
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[c]);(m,f),inv=self.runmock(p,[])
+  self.assertEqual(m['report_contract']['passed_count'],1);self.assertEqual(m['analyzer_execution']['case_count'],0);self.assertIsNone(m['analyzer_accuracy']['top1_accuracy']);self.assertIn('diagnostic corpus contains zero analyzer-executed cases',f);inv.assert_not_called()
+ def test_analyzer_execution_without_accuracy_observations_fails_distinctly(self):
+  c=case(eligible=False)
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[c]);(m,f),inv=self.runmock(p,[Result(out=json.dumps(report()))])
+  self.assertEqual(m['analyzer_execution']['case_count'],1);self.assertIn('diagnostic corpus contains zero accuracy-eligible analyzer observations',f);self.assertNotIn('diagnostic corpus contains zero analyzer-executed cases',f);inv.assert_called_once()
+ def test_report_contract_results_do_not_change_analyzer_accuracy(self):
+  a=case();r=case('r','analysis_report',False)
+  vals=[]
+  for rr in [report(),report('blocking_pool_pressure','low','downstream_stage_dominates')]:
+   with tempfile.TemporaryDirectory() as td:
+    p=self.write(td,[a,r],[report(),rr]);(m,_),_=self.runmock(p,[Result(out=json.dumps(report()))]);vals.append(m['analyzer_accuracy'])
+  self.assertEqual(vals[0],vals[1])
+ def test_run_artifact_executes_cli_analyzer(self):
+  c=case()
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[c]);(m,_),inv=self.runmock(p,[Result(out=json.dumps(report()))])
+  cmd=inv.call_args.args[0];self.assertEqual(cmd[:7],['cargo','run','--quiet','-p','tailtriage-cli','--','analyze']);self.assertNotIn('--allow-ambiguous-artifact',cmd);self.assertEqual(m['analyzer_execution']['run_artifact_count'],1);self.assertEqual(m['report_contract']['case_count'],0)
+ def test_tracing_jsonl_executes_import_then_analyzer(self):
+  c=case('trace','tracing_span_jsonl');
+  def invoke(cmd):
+   if 'import' in cmd:Path(cmd[-1]).write_text('{}');return Result()
+   return Result(out=json.dumps(report()))
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[c]);
+   with mock.patch.object(db,'_invoke',side_effect=invoke) as inv:m,f=db.run(p,0,0,99)
+  self.assertFalse(f);self.assertIn('import',inv.call_args_list[0].args[0]);self.assertIn('tracing-spans-jsonl',inv.call_args_list[0].args[0]);self.assertIn('analyze',inv.call_args_list[1].args[0]);self.assertEqual(m['analyzer_execution']['tracing_jsonl_count'],1)
+ def test_equivalent_encodings_share_one_accuracy_observation(self):
+  a=case('a');b=case('b',observation_id='a')
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[a,b]);(m,f),_=self.runmock(p,[Result(out=json.dumps(report())),Result(out=json.dumps(report()))])
+  self.assertFalse(f);self.assertEqual(m['analyzer_execution']['case_count'],2);self.assertEqual(m['analyzer_accuracy']['encoding_count'],2);self.assertEqual(m['analyzer_accuracy']['observation_count'],1)
+ def test_equivalent_encoding_diagnosis_disagreement_fails_observation(self):
+  a=case('a');b=case('b',observation_id='a')
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[a,b]);(m,f),_=self.runmock(p,[Result(out=json.dumps(report())),Result(out=json.dumps(report(secondary='blocking_pool_pressure')))])
+  self.assertTrue(f);x=m['failed_analyzer_cases'][-1];self.assertEqual(x['observation_id'],'a');self.assertEqual(x['member_case_ids'],['a','b']);self.assertEqual(m['analyzer_accuracy']['observation_count'],0)
+ def test_equivalent_encoding_confidence_disagreement_fails_observation(self):
+  a=case('a');b=case('b',observation_id='a')
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[a,b]);(m,_),_=self.runmock(p,[Result(out=json.dumps(report(conf='high'))),Result(out=json.dumps(report(conf='medium')))])
+  self.assertIn('confidence disagreement',m['failed_analyzer_cases'][-1]['error'])
+ def test_observation_labels_must_match(self):
+  changes={'ground_truth':'blocking_pool_pressure','expected_primary_kinds':['blocking_pool_pressure'],'required_visible_suspects':['blocking_pool_pressure'],'exact_primary_kind':'blocking_pool_pressure'}
+  for key,value in changes.items():
+   with self.subTest(key=key):
+    a=case('a');b=case('b',observation_id='a');b[key]=value
+    with self.assertRaisesRegex(ValueError,'observation labels disagree|exact_primary_kind|ground_truth must be in'):db.validate_manifest(manifest(a,b))
+ def test_accuracy_ground_truth_must_be_in_both_contract_lists(self):
+  variants=[
+   ({'expected_primary_kinds':['blocking_pool_pressure']},False),
+   ({'required_visible_suspects':['blocking_pool_pressure']},False),
+   ({},True),
+   ({'expected_primary_kinds':['blocking_pool_pressure','application_queue_saturation']},True),
+   ({'required_visible_suspects':['blocking_pool_pressure','application_queue_saturation']},True),
+  ]
+  for changes,valid in variants:
+   with self.subTest(changes=changes):
+    c=case(**changes)
+    if valid:db.validate_manifest(manifest(c))
+    else:
+     with self.assertRaisesRegex(ValueError,'ground_truth must be in'):db.validate_manifest(manifest(c))
+ def test_ground_truth_top1_cannot_be_high_confidence_wrong(self):
+  c=case(expected_primary_kinds=['blocking_pool_pressure','application_queue_saturation'])
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[c]);(m,_),_=self.runmock(p,[Result(out=json.dumps(report()))])
+  self.assertEqual(m['analyzer_accuracy']['high_confidence_wrong_count'],0)
+ def test_class_type_and_eligibility_matrix(self):
+  bad=[case('x','analysis_report',False,validation_class='analyzer_execution'),case('x','synthetic_analysis_report',False,validation_class='analyzer_execution'),case(validation_class='report_contract'),case('x','tracing_span_jsonl',True,validation_class='report_contract'),case('x','analysis_report',False,accuracy_eligible=True),case('x','analysis_report',False,ground_truth='insufficient_evidence'),case('x','analysis_report',False,observation_id='x'),case(observation_id=None),case(ground_truth=None),case(eligible=False,ground_truth='insufficient_evidence'),case(eligible=False,execution_expectation='failure',failure_stage='analyze',expected_error_substrings=[],forbidden_error_substrings=[],stdout_expectation='empty',accuracy_eligible=True)]
+  for c in bad:
+   with self.subTest(c=c):
+    with self.assertRaises(ValueError):db.validate_manifest(manifest(c))
+ def test_version_1_fields_are_rejected(self):
+  for key in db.OLD:
+   with self.assertRaisesRegex(ValueError,'version-1'):db.validate_manifest(manifest(case(**{key:[]})))
+ def test_expected_execution_failure_is_checked_not_skipped(self):
+  base=case(eligible=False,execution_expectation='failure',failure_stage='analyze',expected_error_substrings=['needed'],forbidden_error_substrings=['secret'],stdout_expectation='empty')
+  scenarios=[(Result(1,'','needed'),True),(Result(0,json.dumps(report()),''),False),(Result(1,'','missing'),False),(Result(1,'','needed secret'),False),(Result(1,'output','needed'),False)]
+  for result,passed in scenarios:
+   with tempfile.TemporaryDirectory() as td:
+    p=self.write(td,[base]);(m,_),_=self.runmock(p,[result]);self.assertEqual(m['analyzer_execution']['cases'][0]['passed'],passed)
+  trace=case('t','tracing_span_jsonl',False,execution_expectation='failure',failure_stage='analyze',expected_error_substrings=[],forbidden_error_substrings=[],stdout_expectation='ignore')
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[trace]);(m,_),_=self.runmock(p,[Result(1,'','bad')]);self.assertFalse(m['analyzer_execution']['cases'][0]['passed'])
+ def test_expected_failure_diagnostics_are_stderr_only(self):
+  base=case(eligible=False,execution_expectation='failure',failure_stage='analyze',expected_error_substrings=['needed'],forbidden_error_substrings=['secret'],stdout_expectation='ignore')
+  scenarios=[(Result(1,'','needed'),True),(Result(1,'needed',''),False),(Result(1,'needed',''),False),(Result(1,'','needed secret'),False),(Result(1,'output','needed'),False),(Result(1,'','needed'),False),(Result(1,'anything','needed'),True)]
+  policies=['ignore','non_empty','ignore','ignore','empty','non_empty','ignore']
+  for result,passed,policy in zip((x[0] for x in scenarios),(x[1] for x in scenarios),policies):
+   with self.subTest(result=result.__dict__,policy=policy):
+    c=dict(base,stdout_expectation=policy)
+    with tempfile.TemporaryDirectory() as td:
+     p=self.write(td,[c]);(m,_),_=self.runmock(p,[result]);row=m['analyzer_execution']['cases'][0]
+    self.assertEqual(row['passed'],passed)
+    if result.stdout=='needed' and not result.stderr:self.assertIn('missing stderr diagnostic',row['error'])
+ def test_optional_contract_fields_are_strictly_validated(self):
+  valid={'exact_primary_kind':'application_queue_saturation','max_primary_confidence':'high','expected_evidence_quality':'strong','expected_signal_statuses':{'queues':'present'},'must_include_confidence_notes':[],'must_include_route_warning':[],'must_include_temporal_warning':[],'expected_top_level_warnings':[],'expected_route_breakdowns':'empty','expected_temporal_segments':'non_empty'}
+  db.validate_manifest(manifest(case(**valid)))
+  invalid=[('exact_primary_kind',42),('exact_primary_kind','unknown'),('max_primary_confidence',42),('max_primary_confidence','very_high'),('expected_evidence_quality',42),('expected_evidence_quality','complete'),('expected_signal_statuses',[]),('expected_signal_statuses',{'unknown':'present'}),('expected_signal_statuses',{'queues':'available'}),('must_include_confidence_notes','not-a-list'),('must_include_route_warning','not-a-list'),('must_include_temporal_warning',[42]),('expected_top_level_warnings',['*']),('must_include_route_warning',['*']),('must_include_temporal_warning',['*']),('expected_route_breakdowns','sometimes'),('expected_route_breakdowns',True),('expected_temporal_segments','sometimes'),('expected_temporal_segments',True)]
+  for field,value in invalid:
+   with self.subTest(field=field,value=value):
+    with self.assertRaises(ValueError):db.validate_manifest(manifest(case(**{field:value})))
+  for field in db.FAILURE_FIELDS:
+   with self.subTest(success_field=field):
+    with self.assertRaisesRegex(ValueError,'only on failure'):db.validate_manifest(manifest(case(**{field:[] if 'substrings' in field else 'analyze'})))
+ def test_extract_rejects_malformed_report_shapes(self):
+  mutations=[
+   lambda r:r.update(secondary_suspects=[42]),lambda r:r.update(secondary_suspects=[{'kind':'unknown'}]),lambda r:r.update(secondary_suspects=[{'kind':'blocking_pool_pressure','confidence':'certain'}]),lambda r:r['primary_suspect'].update(score='one'),lambda r:r['primary_suspect'].update(score=True),lambda r:r.update(secondary_suspects=[{'kind':'blocking_pool_pressure','score':'one'}]),lambda r:r.update(secondary_suspects=[{'kind':'blocking_pool_pressure','score':False}]),lambda r:r['primary_suspect'].update(evidence=['ok',42]),lambda r:r.update(secondary_suspects=[{'kind':'blocking_pool_pressure','evidence':[42]}]),lambda r:r['primary_suspect'].update(next_checks=[42]),lambda r:r.update(secondary_suspects=[{'kind':'blocking_pool_pressure','next_checks':[42]}]),lambda r:r['primary_suspect'].update(confidence_notes=[42]),lambda r:r.update(warnings=[42]),lambda r:r.update(evidence_quality=[]),lambda r:r.update(route_breakdowns={}),lambda r:r.update(route_breakdowns=[42]),lambda r:r.update(temporal_segments={}),lambda r:r.update(temporal_segments=[42]),lambda r:r.update(route_breakdowns=[{'warnings':[42]}]),lambda r:r.update(temporal_segments=[{'warnings':[42]}]),
+  ]
+  for mutate in mutations:
+   with self.subTest(mutate=mutate):
+    r=report();mutate(r)
+    with self.assertRaises(ValueError):db.extract(r)
+  r=report(secondary='blocking_pool_pressure');r.update(evidence_quality={'quality':'strong'},route_breakdowns=[{'warnings':['route']}],temporal_segments=[{'warnings':['time']}]);r['primary_suspect']['confidence_notes']=['note'];db.extract(r)
+ def test_incomplete_equivalent_encoding_group_is_not_scored(self):
+  bad_outputs=[Result(1,'','boom'),Result(out='not json'),Result(out=json.dumps({'primary_suspect':{}}))]
+  for bad in bad_outputs:
+   with self.subTest(bad=bad.__dict__):
+    a=case('a');b=case('b',observation_id='a')
+    with tempfile.TemporaryDirectory() as td:
+     p=self.write(td,[a,b]);(m,_),_=self.runmock(p,[Result(out=json.dumps(report())),bad])
+    acc=m['analyzer_accuracy'];self.assertEqual(acc['encoding_count'],1);self.assertEqual(acc['observation_count'],0);self.assertEqual(acc['per_ground_truth_counts'],{});self.assertEqual(acc['confusion_matrix'],{});self.assertEqual(acc['confidence_bucket_accuracy'],{});self.assertEqual(acc['observations'],[])
+    row=m['failed_analyzer_cases'][-1];self.assertEqual(row['expected_member_ids'],['a','b']);self.assertEqual(row['usable_member_ids'],['a']);self.assertEqual(row['unusable_member_ids'],['b']);self.assertIn('incomplete',row['error'])
+  a=case('a');b=case('b',observation_id='a');c=case('c')
+  with tempfile.TemporaryDirectory() as td:
+   p=self.write(td,[a,b,c]);(m,_),_=self.runmock(p,[Result(out=json.dumps(report())),Result(1,'','boom'),Result(out=json.dumps(report()))])
+  self.assertEqual(m['analyzer_accuracy']['encoding_count'],2);self.assertEqual(m['analyzer_accuracy']['observation_count'],1);self.assertEqual(m['analyzer_accuracy']['observations'][0]['observation_id'],'c')
+ def test_artifact_policy_is_typed(self):
+  db.validate_manifest(manifest(case()));db.validate_manifest(manifest(case(artifact_policy='allow_ambiguous')))
+  self.assertIn('--allow-ambiguous-artifact',db._command('analyze',case(artifact_policy='allow_ambiguous'),Path('x')))
+  for c in [case('t','tracing_span_jsonl',True,artifact_policy='strict'),case('r','analysis_report',False,artifact_policy='strict'),case(artifact_policy='other'),case(command=['evil'])]:
+   with self.assertRaises(ValueError):db.validate_manifest(manifest(c))
+ def test_committed_manifest_invariants(self):
+  p=Path(__file__).parents[2]/'validation/diagnostics/manifest.json';m=json.loads(p.read_text());db.validate_manifest(m)
+  self.assertEqual(m['schema_version'],2);self.assertTrue(any(c['validation_class']=='analyzer_execution' for c in m['cases']));self.assertTrue(any(c['validation_class']=='report_contract' for c in m['cases']));self.assertTrue(any(c['accuracy_eligible'] for c in m['cases']))
+if __name__=='__main__':unittest.main()

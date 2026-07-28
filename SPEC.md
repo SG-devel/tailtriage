@@ -283,7 +283,7 @@ The validation surface includes:
 
 ### 8.1 Deterministic diagnostic corpus
 
-The deterministic corpus validates analyzer/report behavior against labeled fixtures. The current corpus mixes analyzer-executed artifacts (`run_artifact` and `tracing_span_jsonl`, which flow through Run JSON analysis) with report-only fixtures that validate report contract handling without re-running the analyzer.
+The schema-version-2 deterministic corpus mechanically separates analyzer-executed cases from report-contract cases. Diagnosis accuracy uses only unique accuracy-eligible observations; equivalent artifact encodings execute independently but count once. Report-contract fixtures validate Report output contracts without executing the analyzer or entering accuracy. The current corpus mixes analyzer-executed artifacts (`run_artifact` and `tracing_span_jsonl`, which flow through Run JSON analysis) with report-only fixtures that validate report contract handling without re-running the analyzer.
 
 It may check:
 

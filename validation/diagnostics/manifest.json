@@ -1,33 +1,34 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "description": "Diagnostic validation corpus for tailtriage analyzer reports.",
   "cases": [
     {
       "id": "queue_before",
       "artifact": "../../demos/queue_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "queue",
         "demo",
         "before"
       ],
+      "notes": "Queue scenario before mitigation is queue-dominant.",
+      "expected_primary_kinds": [
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "exact_primary_kind": "application_queue_saturation",
       "must_include_evidence": [
         "Queue wait"
       ],
-      "notes": "Queue scenario before mitigation is queue-dominant.",
+      "must_include_next_checks": [],
       "expected_warnings": [
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
-      "top1_required": true,
       "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation"
-      ],
-      "must_include_next_checks": [],
       "expected_evidence_quality": "strong",
       "expected_signal_statuses": {
         "queues": "present",
@@ -40,56 +41,57 @@
       "id": "queue_after",
       "artifact": "../../demos/queue_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "queue",
         "demo",
         "after"
       ],
-      "must_include_evidence": [
-        "Stage"
-      ],
       "notes": "After mitigation, queue contribution drops and work stage dominates.",
-      "expected_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "blocking_before",
       "artifact": "../../demos/blocking_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "blocking_pool_pressure",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "blocking",
         "demo",
         "before"
       ],
+      "notes": "Blocking pool backlog is intentional pre-fix condition.",
+      "expected_primary_kinds": [
+        "blocking_pool_pressure"
+      ],
+      "required_visible_suspects": [
+        "blocking_pool_pressure"
+      ],
+      "exact_primary_kind": "blocking_pool_pressure",
       "must_include_evidence": [
         "Blocking queue depth"
       ],
-      "notes": "Blocking pool backlog is intentional pre-fix condition.",
+      "must_include_next_checks": [],
       "expected_warnings": [
         "missing blocking_queue_depth or local_queue_depth",
         "Top suspects are close in score",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
-      "top1_required": true,
       "allowed_warnings": [],
-      "required_top2": [
-        "blocking_pool_pressure"
-      ],
-      "acceptable_primary": [
-        "blocking_pool_pressure"
-      ],
-      "must_include_next_checks": [],
       "expected_evidence_quality": "partial",
       "expected_signal_statuses": {
         "runtime_snapshots": "partial"
@@ -102,162 +104,165 @@
       "id": "blocking_after",
       "artifact": "../../demos/blocking_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "blocking",
         "demo",
         "after"
       ],
+      "notes": "After blocking mitigation, downstream work can dominate residual tail.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates",
+        "blocking_pool_pressure"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
       "must_include_evidence": [
         "Stage"
       ],
-      "notes": "After blocking mitigation, downstream work can dominate residual tail.",
+      "must_include_next_checks": [],
       "expected_warnings": [
         "missing blocking_queue_depth or local_queue_depth",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
-      "top1_required": false,
       "allowed_warnings": [
         "Top suspects are close in score"
-      ],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates",
-        "blocking_pool_pressure"
-      ],
-      "must_include_next_checks": []
+      ]
     },
     {
       "id": "executor_before",
       "artifact": "../../demos/executor_pressure_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "executor_pressure_suspected",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "executor",
         "demo",
         "before"
       ],
+      "notes": "Executor-pressure demo before mitigation should prioritize executor suspect.",
+      "expected_primary_kinds": [
+        "executor_pressure_suspected"
+      ],
+      "required_visible_suspects": [
+        "executor_pressure_suspected"
+      ],
+      "exact_primary_kind": "executor_pressure_suspected",
       "must_include_evidence": [
         "Global queue depth"
       ],
-      "notes": "Executor-pressure demo before mitigation should prioritize executor suspect.",
+      "must_include_next_checks": [],
       "expected_warnings": [],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "executor_pressure_suspected"
-      ],
-      "acceptable_primary": [
-        "executor_pressure_suspected"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "executor_after",
       "artifact": "../../demos/executor_pressure_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "executor_pressure_suspected",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "executor",
         "demo",
         "after"
       ],
-      "must_include_evidence": [
-        "Runtime global queue depth"
-      ],
       "notes": "Post-mitigation executor pressure reduces, but executor remains the expected true cause in this fixture; downstream may appear as an acceptable alternate primary.",
-      "expected_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "executor_pressure_suspected"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "executor_pressure_suspected",
         "downstream_stage_dominates"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "executor_pressure_suspected"
+      ],
+      "must_include_evidence": [
+        "Runtime global queue depth"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "downstream_before",
       "artifact": "../../demos/downstream_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "downstream",
         "demo",
         "before"
       ],
-      "must_include_evidence": [
-        "Stage"
-      ],
       "notes": "Downstream slowdown scenario should identify downstream stage dominance.",
-      "expected_warnings": [],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "exact_primary_kind": "downstream_stage_dominates",
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "downstream_after",
       "artifact": "../../demos/downstream_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "downstream",
         "demo",
         "after"
       ],
+      "notes": "After improvements downstream may still be top but with reduced severity.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "exact_primary_kind": "downstream_stage_dominates",
       "must_include_evidence": [
         "Stage"
       ],
-      "notes": "After improvements downstream may still be top but with reduced severity.",
+      "must_include_next_checks": [],
       "expected_warnings": [],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "mixed_baseline",
       "artifact": "../../demos/mixed_contention_service/fixtures/baseline-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "mixed",
         "demo",
         "baseline"
       ],
-      "must_include_evidence": [
-        "Queue wait"
-      ],
       "notes": "Mixed baseline intentionally keeps queue and executor signals close.",
-      "expected_warnings": [
-        "Temporal segments show a large p95 latency shift between early and late requests."
-      ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "application_queue_saturation",
         "executor_pressure_suspected"
       ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
       "must_include_next_checks": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
+      "allowed_warnings": [],
       "expected_temporal_segments": "non_empty",
       "expected_top_level_warnings": [
         "large p95 latency shift"
@@ -270,491 +275,506 @@
       "id": "mixed_mitigated",
       "artifact": "../../demos/mixed_contention_service/fixtures/mitigated-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "mixed",
         "demo",
         "mitigated"
       ],
-      "must_include_evidence": [
-        "Stage"
-      ],
       "notes": "Mitigated mixed case reduces contention so downstream work often leads.",
-      "expected_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "cold_start_before",
       "artifact": "../../demos/cold_start_burst_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "cold-start",
         "demo",
         "before"
       ],
-      "must_include_evidence": [
-        "Queue wait"
-      ],
       "notes": "Cold-start burst before mitigation shows admission queue pressure.",
-      "expected_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "application_queue_saturation",
         "executor_pressure_suspected"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "cold_start_after",
       "artifact": "../../demos/cold_start_burst_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "cold-start",
         "demo",
         "after"
       ],
-      "must_include_evidence": [
-        "Stage"
-      ],
       "notes": "After warmup mitigation queue pressure drops and stage work dominates.",
-      "expected_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "db_pool_before",
       "artifact": "../../demos/db_pool_saturation_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "db-pool",
         "demo",
         "before"
       ],
-      "must_include_evidence": [
-        "Queue wait"
-      ],
       "notes": "Before pool tuning queueing from limited DB pool appears strongly.",
-      "expected_warnings": [
-        "Temporal segments show a large p95 latency shift between early and late requests."
-      ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "application_queue_saturation",
         "downstream_stage_dominates"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
+      "allowed_warnings": []
     },
     {
       "id": "db_pool_after",
       "artifact": "../../demos/db_pool_saturation_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "db-pool",
         "demo",
         "after"
       ],
-      "must_include_evidence": [
-        "Stage"
-      ],
       "notes": "After queue improvement, dependency stage often dominates residual tails.",
-      "expected_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "shared_lock_before",
       "artifact": "../../demos/shared_state_lock_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "shared-lock",
         "demo",
         "before"
       ],
-      "must_include_evidence": [
-        "Stage"
-      ],
       "notes": "Shared lock contention manifests through stage latency dominance.",
-      "expected_warnings": [
-        "Temporal segments show a large p95 latency shift between early and late requests."
-      ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
+      "allowed_warnings": []
     },
     {
       "id": "shared_lock_after",
       "artifact": "../../demos/shared_state_lock_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "shared-lock",
         "demo",
         "after"
       ],
-      "must_include_evidence": [
-        "Stage"
-      ],
       "notes": "After mitigation remaining time is still mostly stage work.",
-      "expected_warnings": [
-        "Temporal segments show a large p95 latency shift between early and late requests."
-      ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_evidence": [
+        "Stage"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Temporal segments show a large p95 latency shift between early and late requests."
+      ],
+      "allowed_warnings": []
     },
     {
       "id": "retry_before",
       "artifact": "../../demos/retry_storm_service/fixtures/before-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "retry",
         "demo",
         "before"
       ],
-      "must_include_evidence": [
-        "downstream"
-      ],
       "notes": "Retry storm amplifies downstream latency contribution.",
-      "expected_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "downstream_stage_dominates",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "must_include_evidence": [
+        "downstream"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": []
     },
     {
       "id": "retry_after",
       "artifact": "../../demos/retry_storm_service/fixtures/after-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "retry",
         "demo",
         "after"
       ],
+      "notes": "After retry tuning downstream remains dominant but improved.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "exact_primary_kind": "downstream_stage_dominates",
       "must_include_evidence": [
         "Stage"
       ],
-      "notes": "After retry tuning downstream remains dominant but improved.",
+      "must_include_next_checks": [],
       "expected_warnings": [],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "queue_sample",
       "artifact": "../../demos/queue_service/fixtures/sample-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "queue",
         "demo",
         "sample"
       ],
+      "notes": "Queue sample is canonical queue saturation evidence.",
+      "expected_primary_kinds": [
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "exact_primary_kind": "application_queue_saturation",
       "must_include_evidence": [
         "Queue wait"
       ],
-      "notes": "Queue sample is canonical queue saturation evidence.",
+      "must_include_next_checks": [],
       "expected_warnings": [
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "blocking_sample",
       "artifact": "../../demos/blocking_service/fixtures/sample-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "blocking_pool_pressure",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "blocking",
         "demo",
         "sample"
       ],
+      "notes": "Blocking sample is canonical blocking saturation evidence.",
+      "expected_primary_kinds": [
+        "blocking_pool_pressure"
+      ],
+      "required_visible_suspects": [
+        "blocking_pool_pressure"
+      ],
+      "exact_primary_kind": "blocking_pool_pressure",
       "must_include_evidence": [
         "Blocking queue depth"
       ],
-      "notes": "Blocking sample is canonical blocking saturation evidence.",
+      "must_include_next_checks": [],
       "expected_warnings": [
         "missing blocking_queue_depth or local_queue_depth",
         "Top suspects are close in score",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "blocking_pool_pressure"
-      ],
-      "acceptable_primary": [
-        "blocking_pool_pressure"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "executor_sample",
       "artifact": "../../demos/executor_pressure_service/fixtures/sample-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "executor_pressure_suspected",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "executor",
         "demo",
         "sample"
       ],
+      "notes": "Executor sample has clear runtime queue pressure cues.",
+      "expected_primary_kinds": [
+        "executor_pressure_suspected"
+      ],
+      "required_visible_suspects": [
+        "executor_pressure_suspected"
+      ],
+      "exact_primary_kind": "executor_pressure_suspected",
       "must_include_evidence": [
         "Global queue depth"
       ],
-      "notes": "Executor sample has clear runtime queue pressure cues.",
+      "must_include_next_checks": [],
       "expected_warnings": [],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "executor_pressure_suspected"
-      ],
-      "acceptable_primary": [
-        "executor_pressure_suspected"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "downstream_sample",
       "artifact": "../../demos/downstream_service/fixtures/sample-analysis.json",
       "artifact_type": "analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "downstream",
         "demo",
         "sample"
       ],
+      "notes": "Downstream sample has clear stage dominance cues.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "exact_primary_kind": "downstream_stage_dominates",
       "must_include_evidence": [
         "Stage"
       ],
-      "notes": "Downstream sample has clear stage dominance cues.",
+      "must_include_next_checks": [],
       "expected_warnings": [],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_insufficient",
       "artifact": "corpus/insufficient-evidence.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "insufficient_evidence",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "insufficient"
       ],
+      "notes": "Intentional low-signal report validates insufficient-evidence behavior.",
+      "expected_primary_kinds": [
+        "insufficient_evidence"
+      ],
+      "required_visible_suspects": [
+        "insufficient_evidence"
+      ],
       "must_include_evidence": [
         "Not enough"
       ],
-      "notes": "Intentional low-signal report validates insufficient-evidence behavior.",
+      "must_include_next_checks": [],
       "expected_warnings": [
         "Missing queue",
         "Missing stage"
       ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "insufficient_evidence"
-      ],
-      "acceptable_primary": [
-        "insufficient_evidence"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_missing_runtime",
       "artifact": "corpus/missing-runtime-warning.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "executor_pressure_suspected",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "warning"
       ],
-      "must_include_evidence": [
-        "Global queue depth"
-      ],
       "notes": "Runtime warning should be accepted when expected.",
-      "expected_warnings": [
-        "Runtime signals are missing"
-      ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "executor_pressure_suspected"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "executor_pressure_suspected",
         "application_queue_saturation"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "executor_pressure_suspected"
+      ],
+      "must_include_evidence": [
+        "Global queue depth"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Runtime signals are missing"
+      ],
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_missing_stage",
       "artifact": "corpus/missing-stage-warning.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "warning"
       ],
+      "notes": "Stage warning allowed for partial instrumentation cases.",
+      "expected_primary_kinds": [
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "exact_primary_kind": "application_queue_saturation",
       "must_include_evidence": [
         "Queue wait"
       ],
-      "notes": "Stage warning allowed for partial instrumentation cases.",
+      "must_include_next_checks": [],
       "expected_warnings": [
         "Stage instrumentation is missing"
       ],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation"
-      ],
-      "must_include_next_checks": []
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_truncation",
       "artifact": "corpus/truncation-warning.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "truncation"
       ],
-      "must_include_evidence": [
-        "Queue wait"
-      ],
       "notes": "Truncation warning validates partial-data handling without changing ranking.",
-      "expected_warnings": [
-        "Truncation"
-      ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "application_queue_saturation",
         "executor_pressure_suspected"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Truncation"
+      ],
+      "allowed_warnings": []
     },
     {
       "id": "synthetic_ambiguous",
       "artifact": "corpus/weak-mixed-ambiguity.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "mixed"
       ],
-      "must_include_evidence": [
-        "Queue wait"
-      ],
       "notes": "Close scores case validates ambiguity-warning handling.",
-      "expected_warnings": [
-        "Ambiguous diagnosis"
-      ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
+      "expected_primary_kinds": [
         "application_queue_saturation",
         "downstream_stage_dominates"
       ],
-      "must_include_next_checks": []
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "must_include_evidence": [
+        "Queue wait"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Ambiguous diagnosis"
+      ],
+      "allowed_warnings": []
     },
     {
       "id": "adversarial_low_request_count",
       "artifact": "corpus/low-request-count.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "insufficient_evidence",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "sparse-sample"
       ],
+      "notes": "Synthetic adversarial case for sparse sample humility: too few requests should force insufficient-evidence with low confidence.",
+      "expected_primary_kinds": [
+        "insufficient_evidence"
+      ],
+      "required_visible_suspects": [
+        "insufficient_evidence"
+      ],
+      "exact_primary_kind": "insufficient_evidence",
       "must_include_evidence": [
         "unstable",
         "requests"
@@ -767,15 +787,7 @@
         "Low request count"
       ],
       "allowed_warnings": [],
-      "top1_required": true,
-      "required_top2": [
-        "insufficient_evidence"
-      ],
-      "acceptable_primary": [
-        "insufficient_evidence"
-      ],
       "max_primary_confidence": "low",
-      "notes": "Synthetic adversarial case for sparse sample humility: too few requests should force insufficient-evidence with low confidence.",
       "expected_evidence_quality": "weak",
       "must_include_confidence_notes": [
         "Low request count"
@@ -785,11 +797,21 @@
       "id": "adversarial_no_queue_events",
       "artifact": "corpus/no-queue-events.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "missing-queue"
+      ],
+      "notes": "Synthetic adversarial missing-queue case: downstream can lead, but queue saturation must remain visible in top-2 and confidence must stay conservative.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
       ],
       "must_include_evidence": [
         "Stage",
@@ -802,27 +824,27 @@
         "Queue instrumentation missing"
       ],
       "allowed_warnings": [],
-      "top1_required": false,
-      "required_top2": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
-      ],
-      "max_primary_confidence": "medium",
-      "notes": "Synthetic adversarial missing-queue case: downstream can lead, but queue saturation must remain visible in top-2 and confidence must stay conservative."
+      "max_primary_confidence": "medium"
     },
     {
       "id": "adversarial_no_stage_events",
       "artifact": "corpus/no-stage-events.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "application_queue_saturation",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "missing-stage"
+      ],
+      "notes": "Synthetic adversarial missing-stage case: queue may lead, but downstream dominance cannot be excluded without stage events.",
+      "expected_primary_kinds": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
       ],
       "must_include_evidence": [
         "Queue wait",
@@ -835,27 +857,27 @@
         "Stage instrumentation missing"
       ],
       "allowed_warnings": [],
-      "top1_required": false,
-      "required_top2": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
-      ],
-      "max_primary_confidence": "medium",
-      "notes": "Synthetic adversarial missing-stage case: queue may lead, but downstream dominance cannot be excluded without stage events."
+      "max_primary_confidence": "medium"
     },
     {
       "id": "adversarial_no_runtime_snapshots",
       "artifact": "corpus/no-runtime-snapshots.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "executor_pressure_suspected",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "missing-runtime"
+      ],
+      "notes": "Synthetic adversarial runtime-missing case: executor and blocking suspects should both remain visible with capped confidence.",
+      "expected_primary_kinds": [
+        "executor_pressure_suspected",
+        "blocking_pool_pressure"
+      ],
+      "required_visible_suspects": [
+        "executor_pressure_suspected",
+        "blocking_pool_pressure"
       ],
       "must_include_evidence": [
         "runtime snapshots are absent"
@@ -867,27 +889,27 @@
         "Runtime snapshots missing"
       ],
       "allowed_warnings": [],
-      "top1_required": false,
-      "required_top2": [
-        "executor_pressure_suspected",
-        "blocking_pool_pressure"
-      ],
-      "acceptable_primary": [
-        "executor_pressure_suspected",
-        "blocking_pool_pressure"
-      ],
-      "max_primary_confidence": "medium",
-      "notes": "Synthetic adversarial runtime-missing case: executor and blocking suspects should both remain visible with capped confidence."
+      "max_primary_confidence": "medium"
     },
     {
       "id": "adversarial_missing_optional_runtime_fields",
       "artifact": "corpus/missing-optional-runtime-fields.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "blocking_pool_pressure",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "runtime-fields"
+      ],
+      "notes": "Synthetic adversarial partial-runtime-fields case: optional Tokio fields missing should limit confidence while retaining plausible runtime suspects.",
+      "expected_primary_kinds": [
+        "blocking_pool_pressure",
+        "executor_pressure_suspected"
+      ],
+      "required_visible_suspects": [
+        "blocking_pool_pressure",
+        "executor_pressure_suspected"
       ],
       "must_include_evidence": [
         "optional runtime fields",
@@ -901,28 +923,27 @@
         "Optional runtime fields missing"
       ],
       "allowed_warnings": [],
-      "top1_required": false,
-      "required_top2": [
-        "blocking_pool_pressure",
-        "executor_pressure_suspected"
-      ],
-      "acceptable_primary": [
-        "blocking_pool_pressure",
-        "executor_pressure_suspected"
-      ],
-      "max_primary_confidence": "medium",
-      "notes": "Synthetic adversarial partial-runtime-fields case: optional Tokio fields missing should limit confidence while retaining plausible runtime suspects."
+      "max_primary_confidence": "medium"
     },
     {
       "id": "adversarial_truncated_artifact",
       "artifact": "corpus/truncated-artifact-adversarial.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "truncation",
         "partial-data"
+      ],
+      "notes": "Synthetic adversarial truncation case: plausible dominant stage signal is retained but confidence is capped and truncation follow-up is required.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates",
+        "blocking_pool_pressure"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
       ],
       "must_include_evidence": [
         "Truncation warning",
@@ -936,22 +957,14 @@
         "Artifact appears truncated"
       ],
       "allowed_warnings": [],
-      "top1_required": false,
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates",
-        "blocking_pool_pressure"
-      ],
-      "max_primary_confidence": "medium",
-      "notes": "Synthetic adversarial truncation case: plausible dominant stage signal is retained but confidence is capped and truncation follow-up is required."
+      "max_primary_confidence": "medium"
     },
     {
       "id": "adversarial_weak_blocking_strong_downstream",
       "artifact": "corpus/weak-blocking-strong-downstream.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
@@ -959,6 +972,15 @@
         "downstream",
         "blocking"
       ],
+      "notes": "Synthetic adversarial mixed-signal case: strong downstream evidence should outrank weak blocking hints while keeping blocking visible in top-2.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates",
+        "blocking_pool_pressure"
+      ],
+      "exact_primary_kind": "downstream_stage_dominates",
       "must_include_evidence": [
         "tail time",
         "weak"
@@ -967,22 +989,14 @@
         "downstream dependency"
       ],
       "expected_warnings": [],
-      "allowed_warnings": [],
-      "top1_required": true,
-      "required_top2": [
-        "downstream_stage_dominates",
-        "blocking_pool_pressure"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates"
-      ],
-      "notes": "Synthetic adversarial mixed-signal case: strong downstream evidence should outrank weak blocking hints while keeping blocking visible in top-2."
+      "allowed_warnings": []
     },
     {
       "id": "adversarial_blocking_correlated_stage",
       "artifact": "corpus/blocking-correlated-stage.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "blocking_pool_pressure",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
@@ -990,6 +1004,15 @@
         "blocking",
         "stage-correlation"
       ],
+      "notes": "Synthetic adversarial correlation case: stage latency is visible but blocking pressure should win when blocking correlation evidence is strong.",
+      "expected_primary_kinds": [
+        "blocking_pool_pressure"
+      ],
+      "required_visible_suspects": [
+        "blocking_pool_pressure",
+        "downstream_stage_dominates"
+      ],
+      "exact_primary_kind": "blocking_pool_pressure",
       "must_include_evidence": [
         "Blocking queue depth",
         "correlated"
@@ -999,28 +1022,28 @@
         "blocking callsites"
       ],
       "expected_warnings": [],
-      "allowed_warnings": [],
-      "top1_required": true,
-      "required_top2": [
-        "blocking_pool_pressure",
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "blocking_pool_pressure"
-      ],
-      "notes": "Synthetic adversarial correlation case: stage latency is visible but blocking pressure should win when blocking correlation evidence is strong."
+      "allowed_warnings": []
     },
     {
       "id": "adversarial_noise_only_workload",
       "artifact": "corpus/noise-only-workload.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "insufficient_evidence",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "noise",
         "mixed-low-signal"
       ],
+      "notes": "Synthetic adversarial noise-only case: mixed low-signal evidence should remain insufficient-evidence with low confidence.",
+      "expected_primary_kinds": [
+        "insufficient_evidence"
+      ],
+      "required_visible_suspects": [
+        "insufficient_evidence"
+      ],
+      "exact_primary_kind": "insufficient_evidence",
       "must_include_evidence": [
         "No bottleneck family",
         "weak and mixed"
@@ -1032,27 +1055,28 @@
         "No dominant signal"
       ],
       "allowed_warnings": [],
-      "top1_required": true,
-      "required_top2": [
-        "insufficient_evidence"
-      ],
-      "acceptable_primary": [
-        "insufficient_evidence"
-      ],
-      "max_primary_confidence": "low",
-      "notes": "Synthetic adversarial noise-only case: mixed low-signal evidence should remain insufficient-evidence with low confidence."
+      "max_primary_confidence": "low"
     },
     {
       "id": "adversarial_high_latency_missing_instrumentation",
       "artifact": "corpus/high-latency-missing-instrumentation.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "insufficient_evidence",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "adversarial",
         "high-latency",
         "missing-instrumentation"
       ],
+      "notes": "Synthetic adversarial high-latency-without-explanatory-signals case: latency alone should not force a specific high-confidence suspect.",
+      "expected_primary_kinds": [
+        "insufficient_evidence"
+      ],
+      "required_visible_suspects": [
+        "insufficient_evidence"
+      ],
+      "exact_primary_kind": "insufficient_evidence",
       "must_include_evidence": [
         "High p99 latency",
         "instrumentation is missing"
@@ -1064,39 +1088,32 @@
         "High latency observed"
       ],
       "allowed_warnings": [],
-      "top1_required": true,
-      "required_top2": [
-        "insufficient_evidence"
-      ],
-      "acceptable_primary": [
-        "insufficient_evidence"
-      ],
-      "max_primary_confidence": "low",
-      "notes": "Synthetic adversarial high-latency-without-explanatory-signals case: latency alone should not force a specific high-confidence suspect."
+      "max_primary_confidence": "low"
     },
     {
       "id": "synthetic_route_divergence",
       "artifact": "corpus/route-divergence.json",
       "artifact_type": "synthetic_analysis_report",
-      "ground_truth": "downstream_stage_dominates",
+      "validation_class": "report_contract",
+      "accuracy_eligible": false,
       "tags": [
         "synthetic",
         "route"
       ],
+      "notes": "Synthetic route divergence case for route breakdown validation.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
+      "exact_primary_kind": "downstream_stage_dominates",
       "must_include_evidence": [
         "Route /slow"
       ],
-      "notes": "Synthetic route divergence case for route breakdown validation.",
-      "expected_warnings": [],
-      "top1_required": true,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates"
-      ],
       "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": [],
       "expected_route_breakdowns": "non_empty",
       "must_include_route_warning": [
         "not route-attributed"
@@ -1110,26 +1127,29 @@
       "id": "tracing_queue_dominant",
       "artifact": "corpus/tracing-queue-dominant.jsonl",
       "artifact_type": "tracing_span_jsonl",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "tracing_queue_dominant",
       "ground_truth": "application_queue_saturation",
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation"
-      ],
       "tags": [
         "tracing",
         "import",
         "queue"
       ],
+      "notes": "Completed tailtriage tracing span JSONL fixture validates CLI import to Run JSON, CLI analyze, and queue-dominant diagnosis behavior.",
+      "expected_primary_kinds": [
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "exact_primary_kind": "application_queue_saturation",
       "must_include_evidence": [
         "Queue wait"
       ],
       "must_include_next_checks": [],
       "expected_warnings": [],
       "allowed_warnings": [],
-      "top1_required": true,
-      "notes": "Completed tailtriage tracing span JSONL fixture validates CLI import to Run JSON, CLI analyze, and queue-dominant diagnosis behavior.",
       "expected_evidence_quality": "strong",
       "expected_signal_statuses": {
         "queues": "present",
@@ -1141,18 +1161,23 @@
       "id": "raw_low_request_insufficient",
       "artifact": "corpus/run-artifacts/low-request-insufficient.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "raw_low_request_insufficient",
       "ground_truth": "insufficient_evidence",
-      "required_top2": [
-        "insufficient_evidence"
-      ],
-      "acceptable_primary": [
-        "insufficient_evidence"
-      ],
       "tags": [
         "adversarial",
         "raw-run",
         "low-request"
       ],
+      "notes": "Raw run fixture with low request count validates analyze_run insufficient-evidence fallback.",
+      "expected_primary_kinds": [
+        "insufficient_evidence"
+      ],
+      "required_visible_suspects": [
+        "insufficient_evidence"
+      ],
+      "exact_primary_kind": "insufficient_evidence",
       "must_include_evidence": [],
       "must_include_next_checks": [],
       "expected_warnings": [
@@ -1165,26 +1190,28 @@
         "No stage events captured",
         "No runtime snapshots captured"
       ],
-      "top1_required": true,
-      "notes": "Raw run fixture with low request count validates analyze_run insufficient-evidence fallback.",
       "max_primary_confidence": "low"
     },
     {
       "id": "raw_no_queue_events",
       "artifact": "corpus/run-artifacts/no-queue-events.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "raw_no_queue_events",
       "ground_truth": "downstream_stage_dominates",
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates",
-        "insufficient_evidence"
-      ],
       "tags": [
         "adversarial",
         "raw-run",
         "missing-queue"
+      ],
+      "notes": "Raw run fixture without queue events checks missing-queue warning and conservative interpretation.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates",
+        "insufficient_evidence"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
       ],
       "must_include_evidence": [
         "Stage"
@@ -1197,26 +1224,28 @@
         "No queue events captured",
         "No runtime snapshots captured"
       ],
-      "top1_required": false,
-      "notes": "Raw run fixture without queue events checks missing-queue warning and conservative interpretation.",
       "max_primary_confidence": "medium"
     },
     {
       "id": "raw_no_stage_events",
       "artifact": "corpus/run-artifacts/no-stage-events.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "raw_no_stage_events",
       "ground_truth": "application_queue_saturation",
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation",
-        "insufficient_evidence"
-      ],
       "tags": [
         "adversarial",
         "raw-run",
         "missing-stage"
+      ],
+      "notes": "Raw run fixture without stage events checks missing-stage warning and confidence cap.",
+      "expected_primary_kinds": [
+        "application_queue_saturation",
+        "insufficient_evidence"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
       ],
       "must_include_evidence": [
         "Queue wait"
@@ -1229,26 +1258,29 @@
         "No stage events captured",
         "No runtime snapshots captured"
       ],
-      "top1_required": false,
-      "notes": "Raw run fixture without stage events checks missing-stage warning and confidence cap.",
       "max_primary_confidence": "medium"
     },
     {
       "id": "raw_no_runtime_snapshots",
       "artifact": "corpus/run-artifacts/no-runtime-snapshots.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "raw_no_runtime_snapshots",
       "ground_truth": "application_queue_saturation",
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation"
-      ],
       "tags": [
         "adversarial",
         "raw-run",
         "missing-runtime"
       ],
+      "notes": "Raw run fixture checks runtime-missing warning from analyzer run path.",
+      "expected_primary_kinds": [
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "exact_primary_kind": "application_queue_saturation",
       "must_include_evidence": [
         "Queue wait"
       ],
@@ -1259,26 +1291,29 @@
       "allowed_warnings": [
         "Low completed-request count"
       ],
-      "top1_required": true,
-      "notes": "Raw run fixture checks runtime-missing warning from analyzer run path.",
       "max_primary_confidence": "medium"
     },
     {
       "id": "raw_truncated_partial_evidence",
       "artifact": "corpus/run-artifacts/truncated-queues.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "raw_truncated_partial_evidence",
       "ground_truth": "application_queue_saturation",
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation"
-      ],
       "tags": [
         "adversarial",
         "raw-run",
         "truncation"
       ],
+      "notes": "Raw run fixture with truncation validates warning propagation and conservative confidence.",
+      "expected_primary_kinds": [
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "exact_primary_kind": "application_queue_saturation",
       "must_include_evidence": [
         "Queue wait"
       ],
@@ -1291,193 +1326,201 @@
         "Low completed-request count",
         "No runtime snapshots captured"
       ],
-      "top1_required": true,
-      "notes": "Raw run fixture with truncation validates warning propagation and conservative confidence.",
       "max_primary_confidence": "medium"
     },
     {
       "id": "partial-evidence-completed-only",
       "artifact": "corpus/partial-evidence-completed-only.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "partial-evidence-completed-only",
       "ground_truth": "application_queue_saturation",
       "tags": [
         "partial-evidence"
       ],
-      "must_include_evidence": [
-        "Queue wait at p95 consumes"
-      ],
-      "must_include_confidence_notes": [],
-      "expected_top_level_warnings": [],
-      "top1_required": false,
-      "allowed_warnings": [
-        "Top suspects are close in score"
-      ],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_primary_kinds": [
         "application_queue_saturation",
         "downstream_stage_dominates"
       ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
+      "must_include_evidence": [
+        "Queue wait at p95 consumes"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [],
+      "allowed_warnings": [
+        "Top suspects are close in score"
+      ],
+      "must_include_confidence_notes": [],
+      "expected_top_level_warnings": [],
       "expected_evidence_quality": "strong",
       "expected_signal_statuses": {
         "queues": "present",
         "stages": "present"
-      },
-      "must_include_next_checks": [],
-      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
-      "expected_warnings": []
+      }
     },
     {
       "id": "partial-evidence-mixed",
       "artifact": "corpus/partial-evidence-mixed.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "partial-evidence-mixed",
       "ground_truth": "downstream_stage_dominates",
       "tags": [
         "partial-evidence"
       ],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
       "must_include_evidence": [
         "observed lower-bound p95 latency"
+      ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "allowed_warnings": [
+        "Top suspects are close in score"
       ],
       "must_include_confidence_notes": [
         "Partial stage evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
-      ],
-      "top1_required": false,
-      "allowed_warnings": [
-        "Top suspects are close in score"
-      ],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
       ],
       "expected_evidence_quality": "partial",
       "expected_signal_statuses": {
         "stages": "partial",
         "queues": "partial"
       },
-      "max_primary_confidence": "medium",
-      "must_include_next_checks": [],
-      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
-      "expected_warnings": [
-        "Partial queue/stage observations are lower bounds"
-      ]
+      "max_primary_confidence": "medium"
     },
     {
       "id": "partial-evidence-queue-only",
       "artifact": "corpus/partial-evidence-queue-only.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "partial-evidence-queue-only",
       "ground_truth": "application_queue_saturation",
       "tags": [
         "partial-evidence"
       ],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_primary_kinds": [
+        "application_queue_saturation",
+        "downstream_stage_dominates"
+      ],
+      "required_visible_suspects": [
+        "application_queue_saturation"
+      ],
       "must_include_evidence": [
         "Observed queue-wait lower bound at p95 is"
       ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "allowed_warnings": [],
       "must_include_confidence_notes": [
         "Partial queue evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
       ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "application_queue_saturation"
-      ],
-      "acceptable_primary": [
-        "application_queue_saturation",
-        "downstream_stage_dominates"
-      ],
       "expected_evidence_quality": "partial",
       "expected_signal_statuses": {
         "queues": "partial"
       },
-      "max_primary_confidence": "medium",
-      "must_include_next_checks": [],
-      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
-      "expected_warnings": [
-        "Partial queue/stage observations are lower bounds"
-      ]
+      "max_primary_confidence": "medium"
     },
     {
       "id": "partial-evidence-stage-only",
       "artifact": "corpus/partial-evidence-stage-only.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "partial-evidence-stage-only",
       "ground_truth": "downstream_stage_dominates",
       "tags": [
         "partial-evidence"
       ],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
       "must_include_evidence": [
         "observed lower-bound p95 latency"
       ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "allowed_warnings": [],
       "must_include_confidence_notes": [
         "Partial stage evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
       ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
-      ],
       "expected_evidence_quality": "partial",
       "expected_signal_statuses": {
         "stages": "partial"
       },
-      "max_primary_confidence": "medium",
-      "must_include_next_checks": [],
-      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
-      "expected_warnings": [
-        "Partial queue/stage observations are lower bounds"
-      ]
+      "max_primary_confidence": "medium"
     },
     {
       "id": "cancelled-request-with-partial-child",
       "artifact": "corpus/cancelled-request-with-partial-child.json",
       "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
+      "observation_id": "cancelled-request-with-partial-child",
       "ground_truth": "downstream_stage_dominates",
       "tags": [
         "partial-evidence"
       ],
+      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
+      "expected_primary_kinds": [
+        "downstream_stage_dominates",
+        "application_queue_saturation"
+      ],
+      "required_visible_suspects": [
+        "downstream_stage_dominates"
+      ],
       "must_include_evidence": [
         "observed lower-bound p95 latency"
       ],
+      "must_include_next_checks": [],
+      "expected_warnings": [
+        "Partial queue/stage observations are lower bounds"
+      ],
+      "allowed_warnings": [],
       "must_include_confidence_notes": [
         "Partial stage evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."
       ],
       "expected_top_level_warnings": [
         "Partial queue/stage observations are lower bounds"
       ],
-      "top1_required": false,
-      "allowed_warnings": [],
-      "required_top2": [
-        "downstream_stage_dominates"
-      ],
-      "acceptable_primary": [
-        "downstream_stage_dominates",
-        "application_queue_saturation"
-      ],
       "expected_evidence_quality": "partial",
       "expected_signal_statuses": {
         "stages": "partial"
       },
-      "max_primary_confidence": "medium",
-      "must_include_next_checks": [],
-      "notes": "Partial evidence fixture; suspects are triage leads, not production truth.",
-      "expected_warnings": [
-        "Partial queue/stage observations are lower bounds"
-      ]
+      "max_primary_confidence": "medium"
     }
   ]
 }

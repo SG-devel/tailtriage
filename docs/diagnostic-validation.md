@@ -3,23 +3,15 @@
 `tailtriage` validation checks diagnosis quality for triage. It does not provide root-cause proof.
 
 ## Methodology
-The benchmark evaluates a deterministic corpus of analyzer reports and selected raw run artifacts against workload-grounded labels. Raw run artifacts are analyzed via Run -> analyze_run() in the CLI path. It checks suspect ranking behavior, evidence/warning expectations, and bounded failure semantics.
+The schema-version-2 benchmark separates three concepts. An analyzer-executed case either analyzes a raw Run or imports stable tracing JSONL and then analyzes it; its success or failure execution contract is always checked. An accuracy-eligible observation is a unique logical workload and is the only diagnosis-accuracy denominator, even when multiple artifact encodings execute independently. A report-contract case inspects a pre-generated or synthetic Report and never executes the analyzer or affects accuracy.
+
+Top-1 means the observation primary equals ground truth. Top-2 means ground truth is primary or first secondary. High-confidence-wrong means a high-confidence primary falls outside `expected_primary_kinds`. Ground truth is controlled fixture intent, not production truth or root-cause proof. Equivalent encodings must agree on ordered diagnosis visibility and confidence bucket.
 
 ## Deterministic vs repeated-run validation
-Deterministic fixture validation is exercised directly in normal CI against `validation/diagnostics/manifest.json` and referenced fixtures, and is also exercised by the scorecard generator. Durable scorecards are generated only by the versioned/manual snapshot workflow (`validation-snapshot.yml`) on `workflow_dispatch` and `v*` tags. Normal CI does not publish durable diagnostic scorecards.
+Deterministic fixture validation is mandatory in normal CI; durable scorecards remain manual/tag snapshot outputs. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
 
-## Top-1 vs required top-2
-- **Top-1**: primary suspect matches `ground_truth`.
-- **Required top-2**: every kind in `required_top2` appears in primary or first secondary suspect.
-
-## Ground-truth interpretation
-`ground_truth` means the expected diagnostic family for the controlled fixture intent. It does not mean production root-cause proof.
-
-## `acceptable_primary`
-`acceptable_primary` defines which primary kinds are acceptable for ambiguous/mixed interpretation and high-confidence-wrong classification. It does not replace `required_top2`.
-
-## High-confidence-wrong count
-`high_confidence_wrong_count` increments when primary confidence is `high` and primary kind is outside `acceptable_primary`.
+## Deferred corpus work
+Deterministic typed fixture generation is deferred to Prompt 18B. An expanded analyzer-executed corpus and exact demo replacements are deferred to Prompt 18C; no demo is removed here.
 
 ## Confidence calibration
 The scorecard includes confidence-bucket accuracy summaries (low/medium/high buckets) as calibration hints, not probability guarantees.
