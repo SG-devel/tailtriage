@@ -1,0 +1,65 @@
+{
+  "request_count": 3,
+  "p50_latency_us": 120,
+  "p95_latency_us": 150,
+  "p99_latency_us": 150,
+  "p95_queue_share_permille": 666,
+  "p95_service_share_permille": 500,
+  "inflight_trend": {
+    "gauge": "worker_inflight",
+    "sample_count": 3,
+    "peak_count": 6,
+    "p95_count": 6,
+    "growth_delta": 5,
+    "growth_per_sec_milli": null
+  },
+  "warnings": [
+    "Run validation precise_interval_validation_unavailable: 3 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2.",
+    "Run validation precise_interval_validation_unavailable: 3 queue event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2.",
+    "Low completed-request count; diagnosis ranking may be unstable for this run window.",
+    "No runtime snapshots captured; executor and blocking-pressure interpretation is limited."
+  ],
+  "evidence_quality": {
+    "request_count": 3,
+    "queue_event_count": 3,
+    "stage_event_count": 0,
+    "runtime_snapshot_count": 0,
+    "inflight_snapshot_count": 3,
+    "requests": "partial",
+    "queues": "present",
+    "stages": "missing",
+    "runtime_snapshots": "missing",
+    "inflight_snapshots": "present",
+    "truncated": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0,
+    "quality": "weak",
+    "limitations": [
+      "Low completed-request count can make suspect ranking unstable.",
+      "Runtime snapshots are missing, limiting executor and blocking-pressure interpretation.",
+      "Validation limitation: Run validation precise_interval_validation_unavailable: 3 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2.",
+      "Validation limitation: Run validation precise_interval_validation_unavailable: 3 queue event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2."
+    ]
+  },
+  "primary_suspect": {
+    "kind": "application_queue_saturation",
+    "score": 78,
+    "confidence": "medium",
+    "evidence": [
+      "Queue wait at p95 consumes 66.6% of request time.",
+      "Observed queue depth sample up to 6.",
+      "In-flight gauge 'worker_inflight' latest active episode grew by 5 across 3 samples (p95=6, peak=6); ordering used Unix-ms fallback and no precise growth rate was derived."
+    ],
+    "next_checks": [
+      "Inspect queue admission limits and producer burst patterns.",
+      "Compare queue wait distribution before and after increasing worker parallelism."
+    ],
+    "confidence_notes": []
+  },
+  "secondary_suspects": [],
+  "route_breakdowns": [],
+  "temporal_segments": []
+}

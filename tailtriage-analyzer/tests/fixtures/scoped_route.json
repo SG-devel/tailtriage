@@ -1,0 +1,139 @@
+{
+  "schema_version": 2,
+  "metadata": {
+    "run_id": "scoped-route-golden",
+    "service_name": "svc",
+    "service_version": null,
+    "started_at_unix_ms": 1,
+    "mode": "light",
+    "host": null,
+    "pid": 7,
+    "finalized_at_unix_ms": 2
+  },
+  "requests": [
+    {
+      "request_id": "q-0",
+      "route": "/queue",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 10000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "q-1",
+      "route": "/queue",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 10000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "q-2",
+      "route": "/queue",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 10000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "d-0",
+      "route": "/downstream",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 2000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "d-1",
+      "route": "/downstream",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 2000,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "d-2",
+      "route": "/downstream",
+      "kind": null,
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 2000,
+      "outcome": "ok"
+    }
+  ],
+  "stages": [
+    {
+      "request_id": "d-0",
+      "stage": "db",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 1900,
+      "success": true
+    },
+    {
+      "request_id": "d-1",
+      "stage": "db",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 1900,
+      "success": true
+    },
+    {
+      "request_id": "d-2",
+      "stage": "db",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 1900,
+      "success": true
+    }
+  ],
+  "queues": [
+    {
+      "request_id": "q-0",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 9000,
+      "depth_at_start": 9
+    },
+    {
+      "request_id": "q-1",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 9000,
+      "depth_at_start": 9
+    },
+    {
+      "request_id": "q-2",
+      "queue": "worker",
+      "waited_from_unix_ms": 1,
+      "waited_until_unix_ms": 2,
+      "wait_us": 9000,
+      "depth_at_start": 9
+    }
+  ],
+  "inflight": [
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 1,
+      "count": 1
+    },
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 2,
+      "count": 3
+    },
+    {
+      "gauge": "worker_inflight",
+      "at_unix_ms": 3,
+      "count": 6
+    }
+  ],
+  "runtime_snapshots": []
+}
