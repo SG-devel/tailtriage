@@ -200,6 +200,7 @@ fn duration_only_native_and_tracing_cases_share_core_warning_and_report_semantic
     }
 }
 #[test]
+#[allow(clippy::too_many_lines)]
 fn semantic_limits_retain_the_same_evidence_and_drop_counts() {
     let source = native_case("semantic_retention_limits");
     assert_eq!(
@@ -219,12 +220,63 @@ fn semantic_limits_retain_the_same_evidence_and_drop_counts() {
         ),
         (0, 0, 0)
     );
+    let request_ids = source
+        .requests
+        .iter()
+        .map(|event| event.request_id.as_str())
+        .collect::<Vec<_>>();
+    let stage_names = source
+        .stages
+        .iter()
+        .map(|event| event.stage.as_str())
+        .collect::<Vec<_>>();
+    let queue_names = source
+        .queues
+        .iter()
+        .map(|event| event.queue.as_str())
+        .collect::<Vec<_>>();
     assert_eq!(
-        std::fs::read_to_string(fixture_path("semantic_retention_limits"))
-            .unwrap()
-            .lines()
-            .count(),
-        15
+        request_ids,
+        ["limit-1", "limit-2", "limit-00", "limit-01", "limit-02"]
+    );
+    assert_eq!(
+        stage_names,
+        ["stage-1", "stage-2", "stage-00", "stage-01", "stage-02"]
+    );
+    assert_eq!(
+        queue_names,
+        ["queue-1", "queue-2", "queue-00", "queue-01", "queue-02"]
+    );
+    for identities in [&request_ids, &stage_names, &queue_names] {
+        let mut lexical = identities.clone();
+        lexical.sort_unstable();
+        assert_ne!(&lexical[..2], &identities[..2]);
+    }
+    let expected_tracing_order = [
+        ("request", "limit-1", None),
+        ("stage", "limit-1", Some("stage-1")),
+        ("queue", "limit-1", Some("queue-1")),
+        ("request", "limit-2", None),
+        ("stage", "limit-2", Some("stage-2")),
+        ("queue", "limit-2", Some("queue-2")),
+        ("request", "limit-00", None),
+        ("stage", "limit-00", Some("stage-00")),
+        ("queue", "limit-00", Some("queue-00")),
+        ("request", "limit-01", None),
+        ("stage", "limit-01", Some("stage-01")),
+        ("queue", "limit-01", Some("queue-01")),
+        ("request", "limit-02", None),
+        ("stage", "limit-02", Some("stage-02")),
+        ("queue", "limit-02", Some("queue-02")),
+    ];
+    let tracing_order = tracing_fixture_semantic_order("semantic_retention_limits");
+    assert_eq!(
+        tracing_order,
+        expected_tracing_order.map(|(kind, request, identity)| (
+            kind.to_owned(),
+            request.to_owned(),
+            identity.map(str::to_owned)
+        ))
     );
     assert_case_matches_independent_oracles("semantic_retention_limits", Some(limits()));
     for run in case_pair_array("semantic_retention_limits", Some(limits())) {
@@ -330,281 +382,511 @@ fn equivalence_projections_detect_every_contract_field_mutation() {
     let run = native_case("precise_route_divergent");
     let base = project_run(&run).unwrap();
     macro_rules! run_mut {
-        ($label:literal,$change:expr) => {{
-            let mut x = run.clone();
-            $change(&mut x);
-            let changed = project_run(&x).unwrap();
-            assert_ne!(changed, base, $label);
+        ($source:expr, $expected:expr) => {{
+            let mut source = run.clone();
+            $source(&mut source);
+            let actual = project_run(&source).unwrap();
+            let mut expected = base.clone();
+            $expected(&mut expected);
+            assert_eq!(actual, expected);
         }};
     }
-    run_mut!("service_name", |x: &mut tailtriage_core::Run| x
-        .metadata
-        .service_name
-        .push('x'));
-    run_mut!("mode", |x: &mut tailtriage_core::Run| x.metadata.mode =
-        tailtriage_core::CaptureMode::Investigation);
-    run_mut!("config", |x: &mut tailtriage_core::Run| x
-        .metadata
-        .effective_core_config =
-        None);
-    run_mut!("request_id", |x: &mut tailtriage_core::Run| x.requests[0]
-        .request_id
-        .push('x'));
-    run_mut!("route", |x: &mut tailtriage_core::Run| x.requests[0]
-        .route
-        .push('x'));
-    run_mut!("kind", |x: &mut tailtriage_core::Run| x.requests[0].kind =
-        Some("x".into()));
-    run_mut!("outcome", |x: &mut tailtriage_core::Run| x.requests[0]
-        .outcome
-        .push('x'));
-    run_mut!("request latency", |x: &mut tailtriage_core::Run| x
-        .requests[0]
-        .latency_us +=
-        1);
-    run_mut!("request start", |x: &mut tailtriage_core::Run| x.requests
-        [0]
-    .started_at_run_us =
-        Some(9));
-    run_mut!("request finish", |x: &mut tailtriage_core::Run| x
-        .requests[0]
-        .finished_at_run_us =
-        Some(9));
-    run_mut!("stage request", |x: &mut tailtriage_core::Run| x.stages[0]
-        .request_id
-        .push('x'));
-    run_mut!("stage", |x: &mut tailtriage_core::Run| x.stages[0]
-        .stage
-        .push('x'));
-    run_mut!("success", |x: &mut tailtriage_core::Run| x.stages[0]
-        .success =
-        !x.stages[0].success);
-    run_mut!("stage latency", |x: &mut tailtriage_core::Run| x.stages
-        [0]
-    .latency_us +=
-        1);
-    run_mut!("stage start", |x: &mut tailtriage_core::Run| x.stages[0]
-        .started_at_run_us =
-        Some(9));
-    run_mut!("stage finish", |x: &mut tailtriage_core::Run| x.stages[0]
-        .finished_at_run_us =
-        Some(9));
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.metadata.service_name = "mutated-service".into(),
+        |x: &mut RepresentableRunProjection| x.service_name = "mutated-service".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.metadata.mode =
+            tailtriage_core::CaptureMode::Investigation,
+        |x: &mut RepresentableRunProjection| x.mode = tailtriage_core::CaptureMode::Investigation
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.metadata.effective_core_config = None,
+        |x: &mut RepresentableRunProjection| x.effective_core_config = None
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.requests[0].request_id = "mutated-request".into(),
+        |x: &mut RepresentableRunProjection| x.requests[0].request_id = "mutated-request".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.requests[0].route = "/mutated-route".into(),
+        |x: &mut RepresentableRunProjection| x.requests[0].route = "/mutated-route".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.requests[0].kind = Some("mutated-kind".into()),
+        |x: &mut RepresentableRunProjection| x.requests[0].kind = Some("mutated-kind".into())
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.requests[0].outcome = "mutated-outcome".into(),
+        |x: &mut RepresentableRunProjection| x.requests[0].outcome = "mutated-outcome".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.requests[0].latency_us = 111_111,
+        |x: &mut RepresentableRunProjection| x.requests[0].latency_us = 111_111
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.requests[0].started_at_run_us = Some(222_222),
+        |x: &mut RepresentableRunProjection| x.requests[0].started_at_run_us = Some(222_222)
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.requests[0].finished_at_run_us = Some(333_333),
+        |x: &mut RepresentableRunProjection| x.requests[0].finished_at_run_us = Some(333_333)
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.stages[0].request_id = "mutated-stage-request".into(),
+        |x: &mut RepresentableRunProjection| x.stages[0].request_id =
+            "mutated-stage-request".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.stages[0].stage = "mutated-stage".into(),
+        |x: &mut RepresentableRunProjection| x.stages[0].stage = "mutated-stage".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.stages[0].success = !x.stages[0].success,
+        |x: &mut RepresentableRunProjection| x.stages[0].success = !x.stages[0].success
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.stages[0].latency_us = 111_112,
+        |x: &mut RepresentableRunProjection| x.stages[0].latency_us = 111_112
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.stages[0].started_at_run_us = Some(222_223),
+        |x: &mut RepresentableRunProjection| x.stages[0].started_at_run_us = Some(222_223)
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.stages[0].finished_at_run_us = Some(333_334),
+        |x: &mut RepresentableRunProjection| x.stages[0].finished_at_run_us = Some(333_334)
+    );
     let mut partial = run.clone();
     partial.stages[0].completed = false;
     assert_eq!(
         project_run(&partial),
         Err(UnsupportedParityEvidence::PartialStage)
     );
-    run_mut!("queue request", |x: &mut tailtriage_core::Run| x.queues[0]
-        .request_id
-        .push('x'));
-    run_mut!("queue", |x: &mut tailtriage_core::Run| x.queues[0]
-        .queue
-        .push('x'));
-    run_mut!("depth", |x: &mut tailtriage_core::Run| x.queues[0]
-        .depth_at_start =
-        Some(99));
-    run_mut!("wait", |x: &mut tailtriage_core::Run| x.queues[0]
-        .wait_us += 1);
-    run_mut!("queue start", |x: &mut tailtriage_core::Run| x.queues[0]
-        .waited_from_run_us =
-        Some(9));
-    run_mut!("queue finish", |x: &mut tailtriage_core::Run| x.queues[0]
-        .waited_until_run_us =
-        Some(9));
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.queues[0].request_id = "mutated-queue-request".into(),
+        |x: &mut RepresentableRunProjection| x.queues[0].request_id =
+            "mutated-queue-request".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.queues[0].queue = "mutated-queue".into(),
+        |x: &mut RepresentableRunProjection| x.queues[0].queue = "mutated-queue".into()
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.queues[0].depth_at_start = Some(77_777),
+        |x: &mut RepresentableRunProjection| x.queues[0].depth_at_start = Some(77_777)
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.queues[0].wait_us = 111_113,
+        |x: &mut RepresentableRunProjection| x.queues[0].wait_us = 111_113
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.queues[0].waited_from_run_us = Some(222_224),
+        |x: &mut RepresentableRunProjection| x.queues[0].waited_from_run_us = Some(222_224)
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.queues[0].waited_until_run_us = Some(333_335),
+        |x: &mut RepresentableRunProjection| x.queues[0].waited_until_run_us = Some(333_335)
+    );
     let mut partial = run.clone();
     partial.queues[0].completed = false;
     assert_eq!(
         project_run(&partial),
         Err(UnsupportedParityEvidence::PartialQueue)
     );
-    run_mut!("limits", |x: &mut tailtriage_core::Run| x
-        .truncation
-        .limits_hit =
-        true);
-    run_mut!("dropped requests", |x: &mut tailtriage_core::Run| x
-        .truncation
-        .dropped_requests +=
-        1);
-    run_mut!("dropped stages", |x: &mut tailtriage_core::Run| x
-        .truncation
-        .dropped_stages +=
-        1);
-    run_mut!("dropped queues", |x: &mut tailtriage_core::Run| x
-        .truncation
-        .dropped_queues +=
-        1);
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.truncation.limits_hit = true,
+        |x: &mut RepresentableRunProjection| x.semantic_truncation.limits_hit = true
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.truncation.dropped_requests = 11,
+        |x: &mut RepresentableRunProjection| x.semantic_truncation.dropped_requests = 11
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.truncation.dropped_stages = 22,
+        |x: &mut RepresentableRunProjection| x.semantic_truncation.dropped_stages = 22
+    );
+    run_mut!(
+        |x: &mut tailtriage_core::Run| x.truncation.dropped_queues = 33,
+        |x: &mut RepresentableRunProjection| x.semantic_truncation.dropped_queues = 33
+    );
 
     let typed = typed_report(&run);
     let projected = project_report(&typed);
-    macro_rules! report_mut {
-        ($label:literal,$change:expr) => {{
-            let mut x = typed.clone();
-            $change(&mut x);
-            assert_ne!(project_report(&x), projected, $label);
+    macro_rules! report_field {
+        ($source:expr, $expected:expr) => {{
+            let mut source = typed.clone();
+            $source(&mut source);
+            let actual = project_report(&source);
+            let mut expected = projected.clone();
+            $expected(&mut expected);
+            assert_eq!(actual, expected);
         }};
     }
-    report_mut!("count", |x: &mut tailtriage_analyzer::Report| x
-        .request_count +=
-        1);
-    report_mut!("p50", |x: &mut tailtriage_analyzer::Report| x
-        .p50_latency_us =
-        Some(1));
-    report_mut!("p95", |x: &mut tailtriage_analyzer::Report| x
-        .p95_latency_us =
-        Some(1));
-    report_mut!("p99", |x: &mut tailtriage_analyzer::Report| x
-        .p99_latency_us =
-        Some(1));
-    report_mut!("queue share", |x: &mut tailtriage_analyzer::Report| x
-        .p95_queue_share_permille =
-        Some(1));
-    report_mut!("service share", |x: &mut tailtriage_analyzer::Report| x
-        .p95_service_share_permille =
-        Some(1));
-    report_mut!("trend", |x: &mut tailtriage_analyzer::Report| x
-        .inflight_trend =
-        Some(tailtriage_analyzer::InflightTrend {
-            gauge: "x".into(),
-            sample_count: 2,
-            peak_count: 2,
-            p95_count: 2,
-            growth_delta: 1,
-            growth_per_sec_milli: Some(1)
-        }));
-    report_mut!("quality", |x: &mut tailtriage_analyzer::Report| x
-        .evidence_quality
-        .limitations
-        .push("x".into()));
-    report_mut!("primary kind", |x: &mut tailtriage_analyzer::Report| x
-        .primary_suspect
-        .kind =
-        x.secondary_suspects[0].kind.clone());
-    report_mut!("primary score", |x: &mut tailtriage_analyzer::Report| x
-        .primary_suspect
-        .score +=
-        1);
-    report_mut!("confidence", |x: &mut tailtriage_analyzer::Report| x
-        .primary_suspect
-        .confidence =
-        tailtriage_analyzer::Confidence::Low);
-    report_mut!("notes order", |x: &mut tailtriage_analyzer::Report| x
-        .primary_suspect
-        .confidence_notes
-        .reverse());
-    report_mut!("evidence order", |x: &mut tailtriage_analyzer::Report| x
-        .primary_suspect
-        .evidence
-        .reverse());
-    report_mut!("checks order", |x: &mut tailtriage_analyzer::Report| x
-        .primary_suspect
-        .next_checks
-        .reverse());
-    report_mut!(
-        "secondary content",
-        |x: &mut tailtriage_analyzer::Report| x.secondary_suspects[0].score += 1
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.request_count = 987,
+        |x: &mut ComparableReportProjection| x.request_count = 987
     );
-    report_mut!("secondary order", |x: &mut tailtriage_analyzer::Report| {
-        let mut other = x.secondary_suspects[0].clone();
-        other.score += 1;
-        x.secondary_suspects.push(other);
-        x.secondary_suspects.reverse();
-    });
-    report_mut!("warning", |x: &mut tailtriage_analyzer::Report| x.warnings
-        [0]
-    .push('x'));
-    report_mut!("warning order", |x: &mut tailtriage_analyzer::Report| x
-        .warnings
-        .reverse());
-    report_mut!("route name", |x: &mut tailtriage_analyzer::Report| x
-        .route_breakdowns[0]
-        .route
-        .push('x'));
-    report_mut!("route order", |x: &mut tailtriage_analyzer::Report| x
-        .route_breakdowns
-        .reverse());
-    report_mut!("route count", |x: &mut tailtriage_analyzer::Report| x
-        .route_breakdowns[0]
-        .request_count +=
-        1);
-    report_mut!("route percentile", |x: &mut tailtriage_analyzer::Report| {
-        x.route_breakdowns[0].p95_latency_us = Some(1)
-    });
-    report_mut!("route shares", |x: &mut tailtriage_analyzer::Report| x
-        .route_breakdowns[0]
-        .p95_queue_share_permille =
-        Some(1));
-    report_mut!("route quality", |x: &mut tailtriage_analyzer::Report| x
-        .route_breakdowns[0]
-        .evidence_quality
-        .limitations
-        .push("x".into()));
-    report_mut!("route primary", |x: &mut tailtriage_analyzer::Report| x
-        .route_breakdowns[0]
-        .primary_suspect
-        .score +=
-        1);
-    report_mut!("route secondary", |x: &mut tailtriage_analyzer::Report| {
-        x.route_breakdowns[1].secondary_suspects[0].score += 1
-    });
-    report_mut!("route warnings", |x: &mut tailtriage_analyzer::Report| x
-        .route_breakdowns[0]
-        .warnings
-        .reverse());
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.p50_latency_us = Some(111_111),
+        |x: &mut ComparableReportProjection| x.p50_latency_us = Some(111_111)
+    );
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.p95_latency_us = Some(222_222),
+        |x: &mut ComparableReportProjection| x.p95_latency_us = Some(222_222)
+    );
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.p99_latency_us = Some(333_333),
+        |x: &mut ComparableReportProjection| x.p99_latency_us = Some(333_333)
+    );
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.p95_queue_share_permille = Some(444),
+        |x: &mut ComparableReportProjection| x.p95_queue_share_permille = Some(444)
+    );
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.p95_service_share_permille = Some(555),
+        |x: &mut ComparableReportProjection| x.p95_service_share_permille = Some(555)
+    );
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.inflight_trend =
+            Some(tailtriage_analyzer::InflightTrend {
+                gauge: "mutated-gauge".into(),
+                sample_count: 7,
+                peak_count: 8,
+                p95_count: 9,
+                growth_delta: 10,
+                growth_per_sec_milli: Some(11)
+            }),
+        |x: &mut ComparableReportProjection| x.inflight_trend = serde_json::json!({"gauge":"mutated-gauge","sample_count":7,"peak_count":8,"p95_count":9,"growth_delta":10,"growth_per_sec_milli":11})
+    );
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.evidence_quality.limitations =
+            vec!["mutated-quality".into()],
+        |x: &mut ComparableReportProjection| x.evidence_quality["limitations"] =
+            serde_json::json!(["mutated-quality"])
+    );
+    report_field!(
+        |x: &mut tailtriage_analyzer::Report| x.warnings =
+            vec!["warning-b".into(), "warning-a".into()],
+        |x: &mut ComparableReportProjection| x.warnings =
+            vec!["warning-b".into(), "warning-a".into()]
+    );
+
+    macro_rules! nested_report {
+        ($field:ident, $source:expr, $pointer:literal, $value:expr) => {{
+            let mut source = typed.clone();
+            $source(&mut source);
+            let actual = project_report(&source);
+            assert_eq!(actual.$field.pointer($pointer), Some(&$value));
+            let mut expected = projected.clone();
+            *expected.$field.pointer_mut($pointer).unwrap() = $value;
+            assert_eq!(actual, expected);
+        }};
+    }
+    nested_report!(
+        primary_suspect,
+        |x: &mut tailtriage_analyzer::Report| x.primary_suspect.kind =
+            x.secondary_suspects[0].kind.clone(),
+        "/kind",
+        serde_json::to_value(&typed.secondary_suspects[0].kind).unwrap()
+    );
+    nested_report!(
+        primary_suspect,
+        |x: &mut tailtriage_analyzer::Report| x.primary_suspect.score = 91,
+        "/score",
+        serde_json::json!(91)
+    );
+    nested_report!(
+        primary_suspect,
+        |x: &mut tailtriage_analyzer::Report| x.primary_suspect.confidence =
+            tailtriage_analyzer::Confidence::Low,
+        "/confidence",
+        serde_json::json!("low")
+    );
+    nested_report!(
+        primary_suspect,
+        |x: &mut tailtriage_analyzer::Report| x.primary_suspect.confidence_notes =
+            vec!["note-b".into(), "note-a".into()],
+        "/confidence_notes",
+        serde_json::json!(["note-b", "note-a"])
+    );
+    nested_report!(
+        primary_suspect,
+        |x: &mut tailtriage_analyzer::Report| x.primary_suspect.evidence =
+            vec!["evidence-b".into(), "evidence-a".into()],
+        "/evidence",
+        serde_json::json!(["evidence-b", "evidence-a"])
+    );
+    nested_report!(
+        primary_suspect,
+        |x: &mut tailtriage_analyzer::Report| x.primary_suspect.next_checks =
+            vec!["check-b".into(), "check-a".into()],
+        "/next_checks",
+        serde_json::json!(["check-b", "check-a"])
+    );
+
+    let mut secondary_source = typed.clone();
+    let first = secondary_source.secondary_suspects[0].clone();
+    let mut distinct = first.clone();
+    distinct.score = 73;
+    secondary_source.secondary_suspects = vec![distinct.clone(), first.clone(), first.clone()];
+    secondary_source.secondary_suspects.reverse();
+    let secondary_actual = project_report(&secondary_source);
+    let expected_secondary = serde_json::to_value(&secondary_source.secondary_suspects).unwrap();
+    assert_eq!(secondary_actual.secondary_suspects, expected_secondary);
+    let mut secondary_expected = projected.clone();
+    secondary_expected.secondary_suspects = expected_secondary;
+    assert_eq!(secondary_actual, secondary_expected);
+
+    macro_rules! breakdown_case {
+        ($source_report:expr, $base_projection:expr, $field:ident, $source:expr, $pointer:literal, $value:expr) => {{
+            let mut source = $source_report.clone();
+            $source(&mut source);
+            let actual = project_report(&source);
+            assert_eq!(actual.$field.pointer($pointer), Some(&$value));
+            let mut expected = $base_projection.clone();
+            *expected.$field.pointer_mut($pointer).unwrap() = $value;
+            assert_eq!(actual, expected);
+        }};
+    }
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].route =
+            "/mutated-route-breakdown".into(),
+        "/0/route",
+        serde_json::json!("/mutated-route-breakdown")
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].request_count = 41,
+        "/0/request_count",
+        serde_json::json!(41)
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].p50_latency_us = Some(111_111),
+        "/0/p50_latency_us",
+        serde_json::json!(111_111)
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].p95_latency_us = Some(222_222),
+        "/0/p95_latency_us",
+        serde_json::json!(222_222)
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].p99_latency_us = Some(333_333),
+        "/0/p99_latency_us",
+        serde_json::json!(333_333)
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].p95_queue_share_permille =
+            Some(444),
+        "/0/p95_queue_share_permille",
+        serde_json::json!(444)
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].p95_service_share_permille =
+            Some(555),
+        "/0/p95_service_share_permille",
+        serde_json::json!(555)
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].evidence_quality.limitations =
+            vec!["route-quality".into()],
+        "/0/evidence_quality/limitations",
+        serde_json::json!(["route-quality"])
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].primary_suspect.score = 81,
+        "/0/primary_suspect/score",
+        serde_json::json!(81)
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[1].secondary_suspects =
+            vec![x.route_breakdowns[1].secondary_suspects[0].clone(); 2],
+        "/1/secondary_suspects",
+        serde_json::to_value(vec![
+            typed.route_breakdowns[1].secondary_suspects[0].clone();
+            2
+        ])
+        .unwrap()
+    );
+    breakdown_case!(
+        typed,
+        projected,
+        route_breakdowns,
+        |x: &mut tailtriage_analyzer::Report| x.route_breakdowns[0].warnings =
+            vec!["route-b".into(), "route-a".into()],
+        "/0/warnings",
+        serde_json::json!(["route-b", "route-a"])
+    );
+    let mut route_order = typed.clone();
+    route_order.route_breakdowns.reverse();
+    let route_actual = project_report(&route_order);
+    let route_value = serde_json::to_value(&route_order.route_breakdowns).unwrap();
+    assert_eq!(route_actual.route_breakdowns, route_value);
+    let mut route_expected = projected.clone();
+    route_expected.route_breakdowns = route_value;
+    assert_eq!(route_actual, route_expected);
+
     let temporal = typed_report(&native_case("precise_temporal_movement"));
-    let tp = project_report(&temporal);
-    macro_rules! temporal_mut {
-        ($label:literal,$change:expr) => {{
-            let mut x = temporal.clone();
-            $change(&mut x);
-            assert_ne!(project_report(&x), tp, $label);
-        }};
-    }
-    temporal_mut!("segment name", |x: &mut tailtriage_analyzer::Report| x
-        .temporal_segments[0]
-        .name
-        .push('x'));
-    temporal_mut!("segment order", |x: &mut tailtriage_analyzer::Report| x
+    let temporal_base = project_report(&temporal);
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].name =
+            "mutated-segment".into(),
+        "/0/name",
+        serde_json::json!("mutated-segment")
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].request_count = 42,
+        "/0/request_count",
+        serde_json::json!(42)
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].p50_latency_us = Some(111_111),
+        "/0/p50_latency_us",
+        serde_json::json!(111_111)
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].p95_latency_us = Some(222_222),
+        "/0/p95_latency_us",
+        serde_json::json!(222_222)
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].p99_latency_us = Some(333_333),
+        "/0/p99_latency_us",
+        serde_json::json!(333_333)
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].p95_queue_share_permille =
+            Some(444),
+        "/0/p95_queue_share_permille",
+        serde_json::json!(444)
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].p95_service_share_permille =
+            Some(555),
+        "/0/p95_service_share_permille",
+        serde_json::json!(555)
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].evidence_quality.limitations =
+            vec!["temporal-quality".into()],
+        "/0/evidence_quality/limitations",
+        serde_json::json!(["temporal-quality"])
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].primary_suspect.score = 82,
+        "/0/primary_suspect/score",
+        serde_json::json!(82)
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].secondary_suspects =
+            vec![x.temporal_segments[0].secondary_suspects[0].clone(); 2],
+        "/0/secondary_suspects",
+        serde_json::to_value(vec![
+            temporal.temporal_segments[0].secondary_suspects[0]
+                .clone();
+            2
+        ])
+        .unwrap()
+    );
+    breakdown_case!(
+        temporal,
+        temporal_base,
+        temporal_segments,
+        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].warnings =
+            vec!["temporal-b".into(), "temporal-a".into()],
+        "/0/warnings",
+        serde_json::json!(["temporal-b", "temporal-a"])
+    );
+    let mut temporal_order = temporal.clone();
+    temporal_order.temporal_segments.reverse();
+    let temporal_order_actual = project_report(&temporal_order);
+    assert_eq!(
+        temporal_order_actual.temporal_segments[0]["name"],
+        serde_json::json!("late")
+    );
+    assert_eq!(
+        temporal_order_actual.temporal_segments[1]["name"],
+        serde_json::json!("early")
+    );
+    let mut temporal_order_expected = temporal_base.clone();
+    temporal_order_expected
         .temporal_segments
-        .reverse());
-    temporal_mut!("segment count", |x: &mut tailtriage_analyzer::Report| x
-        .temporal_segments[0]
-        .request_count +=
-        1);
-    temporal_mut!(
-        "segment percentile",
-        |x: &mut tailtriage_analyzer::Report| x.temporal_segments[0].p95_latency_us = Some(1)
-    );
-    temporal_mut!("segment shares", |x: &mut tailtriage_analyzer::Report| x
-        .temporal_segments[0]
-        .p95_queue_share_permille =
-        Some(1));
-    temporal_mut!("segment quality", |x: &mut tailtriage_analyzer::Report| x
-        .temporal_segments[0]
-        .evidence_quality
-        .limitations
-        .push("x".into()));
-    temporal_mut!("segment primary", |x: &mut tailtriage_analyzer::Report| {
-        x.temporal_segments[0].primary_suspect.score += 1
-    });
-    temporal_mut!(
-        "segment secondary",
-        |x: &mut tailtriage_analyzer::Report| {
-            let suspect = x.temporal_segments[0].primary_suspect.clone();
-            x.temporal_segments[0].secondary_suspects.push(suspect);
-        }
-    );
-    temporal_mut!("segment warnings", |x: &mut tailtriage_analyzer::Report| x
-        .temporal_segments[0]
-        .warnings
-        .reverse());
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    assert_eq!(temporal_order_actual, temporal_order_expected);
+
     let mut unix = temporal.clone();
     unix.temporal_segments[0].started_at_unix_ms = Some(1);
     unix.temporal_segments[0].finished_at_unix_ms = Some(2);
-    assert_eq!(project_report(&unix), tp);
-    unix.temporal_segments[0].request_count += 1;
-    assert_ne!(project_report(&unix), tp);
+    assert_eq!(project_report(&unix), temporal_base);
+    unix.temporal_segments[0].request_count = 43;
+    let unix_actual = project_report(&unix);
+    let mut unix_expected = temporal_base.clone();
+    unix_expected.temporal_segments[0]["request_count"] = serde_json::json!(43);
+    assert_eq!(unix_actual, unix_expected);
 }
+
 #[test]
 fn native_and_tracing_projection_json_matches_checked_in_bytes() {
     for (name, limits) in [

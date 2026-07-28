@@ -170,6 +170,24 @@ pub fn fixture_path(name: &str) -> std::path::PathBuf {
         .join("tests/fixtures/equivalence")
         .join(format!("{name}.jsonl"))
 }
+pub fn tracing_fixture_semantic_order(name: &str) -> Vec<(String, String, Option<String>)> {
+    std::fs::read_to_string(fixture_path(name))
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let wrapper: Value = serde_json::from_str(line).unwrap();
+            let fields = &wrapper["span"]["fields"];
+            (
+                fields["tt.kind"].as_str().unwrap().to_owned(),
+                fields["tt.request_id"].as_str().unwrap().to_owned(),
+                fields["tt.stage"]
+                    .as_str()
+                    .or_else(|| fields["tt.queue"].as_str())
+                    .map(str::to_owned),
+            )
+        })
+        .collect()
+}
 pub fn import_case(name: &str, limits: Option<CaptureLimits>) -> Run {
     let mut o = ImportOptions::new("equivalence-service").mode(CaptureMode::Light);
     if let Some(l) = limits {
