@@ -13,6 +13,10 @@ TYPE_CLASS={"run_artifact":"analyzer_execution","tracing_span_jsonl":"analyzer_e
 COMMON=("id","artifact","artifact_type","validation_class","accuracy_eligible","tags","notes","expected_primary_kinds","required_visible_suspects","must_include_evidence","must_include_next_checks","expected_warnings","allowed_warnings")
 OLD={"required_top2","acceptable_primary","top1_required"}
 CONF_ORDER={"low":0,"medium":1,"high":2}
+EVIDENCE_QUALITIES={"strong","partial","weak"}
+SIGNAL_FAMILIES={"requests","queues","stages","runtime_snapshots","inflight_snapshots"}
+SIGNAL_STATUSES={"present","missing","partial","truncated"}
+FAILURE_FIELDS=("failure_stage","expected_error_substrings","forbidden_error_substrings","stdout_expectation")
 
 def load_json(path):
     with Path(path).open(encoding="utf-8") as f:return json.load(f)
@@ -43,10 +47,25 @@ def validate_manifest(manifest):
             if any(x not in KINDS for x in c[key]):raise ValueError(f"{key} contains unknown diagnosis kind for {cid}")
         for key in ("tags","must_include_evidence","must_include_next_checks","expected_warnings","allowed_warnings"):_strings(c[key],key,cid)
         if "*" in c["expected_warnings"]+c["allowed_warnings"]:raise ValueError(f"wildcard '*' is not allowed in warnings lists for {cid}")
+        if "exact_primary_kind" in c:
+            if not isinstance(c["exact_primary_kind"],str) or c["exact_primary_kind"] not in KINDS:raise ValueError(f"exact_primary_kind must be an allowed diagnosis kind for {cid}")
+        if "max_primary_confidence" in c and (not isinstance(c["max_primary_confidence"],str) or c["max_primary_confidence"] not in CONF_ORDER):raise ValueError(f"max_primary_confidence must be one of low/medium/high for {cid}")
+        if "expected_evidence_quality" in c and (not isinstance(c["expected_evidence_quality"],str) or c["expected_evidence_quality"] not in EVIDENCE_QUALITIES):raise ValueError(f"expected_evidence_quality must be one of strong/partial/weak for {cid}")
+        if "expected_signal_statuses" in c:
+            statuses=c["expected_signal_statuses"]
+            if not isinstance(statuses,dict):raise ValueError(f"expected_signal_statuses must be an object for {cid}")
+            if any(not isinstance(k,str) or k not in SIGNAL_FAMILIES for k in statuses):raise ValueError(f"expected_signal_statuses contains unknown signal family for {cid}")
+            if any(not isinstance(v,str) or v not in SIGNAL_STATUSES for v in statuses.values()):raise ValueError(f"expected_signal_statuses contains unknown signal status for {cid}")
+        for key in ("must_include_confidence_notes","must_include_route_warning","must_include_temporal_warning","expected_top_level_warnings"):
+            if key in c:
+                _strings(c[key],key,cid)
+                if key!="must_include_confidence_notes" and "*" in c[key]:raise ValueError(f"wildcard '*' is not allowed in {key} for {cid}")
+        for key in ("expected_route_breakdowns","expected_temporal_segments"):
+            if key in c and (not isinstance(c[key],str) or c[key] not in {"empty","non_empty"}):raise ValueError(f"{key} must be one of empty/non_empty for {cid}")
         if not isinstance(c["artifact"],str) or not c["artifact"] or not isinstance(c["notes"],str) or not c["notes"]:raise ValueError(f"artifact and notes must be non-empty strings for {cid}")
         if cls=="report_contract":
             if c["accuracy_eligible"]:raise ValueError(f"report_contract must be accuracy ineligible for {cid}")
-            for key in ("ground_truth","observation_id","execution_expectation","artifact_policy"):
+            for key in ("ground_truth","observation_id","execution_expectation","artifact_policy","command","args",*FAILURE_FIELDS):
                 if key in c:raise ValueError(f"{key} is not allowed on report_contract for {cid}")
         else:
             expectation=c.get("execution_expectation","success")
@@ -62,10 +81,15 @@ def validate_manifest(manifest):
                 if c["failure_stage"] not in ({"analyze"} if typ=="run_artifact" else {"import","analyze"}):raise ValueError(f"invalid failure_stage for {cid}")
                 _strings(c["expected_error_substrings"],"expected_error_substrings",cid);_strings(c["forbidden_error_substrings"],"forbidden_error_substrings",cid)
                 if c["stdout_expectation"] not in {"empty","non_empty","ignore"}:raise ValueError(f"invalid stdout_expectation for {cid}")
+            else:
+                for key in FAILURE_FIELDS:
+                    if key in c:raise ValueError(f"{key} is allowed only on failure cases for {cid}")
             if c["accuracy_eligible"]:
                 for key in ("observation_id","ground_truth"):
                     if not isinstance(c.get(key),str) or not c[key].strip():raise ValueError(f"accuracy eligible case requires non-empty {key} for {cid}")
                 if c["ground_truth"] not in KINDS:raise ValueError(f"unknown ground_truth for {cid}")
+                if c["ground_truth"] not in c["expected_primary_kinds"]:raise ValueError(f"ground_truth must be in expected_primary_kinds for {cid}")
+                if c["ground_truth"] not in c["required_visible_suspects"]:raise ValueError(f"ground_truth must be in required_visible_suspects for {cid}")
                 if "exact_primary_kind" in c and c["exact_primary_kind"]!=c["ground_truth"]:raise ValueError(f"exact_primary_kind must equal ground_truth for {cid}")
                 label=(c["ground_truth"],tuple(c["expected_primary_kinds"]),tuple(c["required_visible_suspects"]),c.get("exact_primary_kind"))
                 oid=c["observation_id"]
@@ -99,11 +123,32 @@ def _execute(case,path):
         except json.JSONDecodeError:return None,stages
 
 def extract(report):
-    if not isinstance(report,dict) or not isinstance(report.get("primary_suspect"),dict) or not isinstance(report.get("secondary_suspects"),list) or not isinstance(report.get("warnings"),list):raise ValueError("invalid Report shape")
-    p=report["primary_suspect"]; kind=p.get("kind");conf=p.get("confidence")
-    if kind not in KINDS or conf not in CONF_ORDER:raise ValueError("invalid primary suspect")
-    suspects=[p]+[x for x in report["secondary_suspects"] if isinstance(x,dict)]
-    def flatten(field):return [v for s in suspects for v in s.get(field,[]) if isinstance(v,str)]
+    if not isinstance(report,dict):raise ValueError("report must be a JSON object")
+    if not isinstance(report.get("primary_suspect"),dict):raise ValueError("report.primary_suspect must be an object")
+    if not isinstance(report.get("secondary_suspects"),list):raise ValueError("report.secondary_suspects must be a list")
+    if not isinstance(report.get("warnings"),list) or any(not isinstance(x,str) for x in report["warnings"]):raise ValueError("report.warnings must be a list of strings")
+    def suspect(value,name,primary=False):
+        if not isinstance(value,dict):raise ValueError(f"{name} must be an object")
+        if primary and value.get("kind") not in KINDS:raise ValueError(f"{name}.kind must be an allowed diagnosis kind")
+        if not primary and "kind" in value and value["kind"] not in KINDS:raise ValueError(f"{name}.kind must be an allowed diagnosis kind when present")
+        if primary and value.get("confidence") not in CONF_ORDER:raise ValueError(f"{name}.confidence must be one of low/medium/high")
+        if "confidence" in value and value["confidence"] not in CONF_ORDER:raise ValueError(f"{name}.confidence must be one of low/medium/high when present")
+        if "score" in value and (isinstance(value["score"],bool) or not isinstance(value["score"],(int,float))):raise ValueError(f"{name}.score must be numeric when present")
+        if primary and (not isinstance(value.get("evidence"),list) or any(not isinstance(x,str) for x in value["evidence"])):raise ValueError(f"{name}.evidence must be a list of strings")
+        for field in ("evidence","next_checks","confidence_notes"):
+            if field in value and (not isinstance(value[field],list) or any(not isinstance(x,str) for x in value[field])):raise ValueError(f"{name}.{field} must be a list of strings when present")
+    p=report["primary_suspect"];suspect(p,"report.primary_suspect",True)
+    for s in report["secondary_suspects"]:suspect(s,"report.secondary_suspects entry")
+    for field in ("route_breakdowns","temporal_segments"):
+        if field in report:
+            items=report[field]
+            if not isinstance(items,list):raise ValueError(f"report.{field} must be a list when present")
+            for item in items:
+                if not isinstance(item,dict):raise ValueError(f"report.{field} entries must be objects")
+                if "warnings" in item and (not isinstance(item["warnings"],list) or any(not isinstance(x,str) for x in item["warnings"])):raise ValueError(f"report.{field} entry warnings must be a list of strings")
+    if "evidence_quality" in report and not isinstance(report["evidence_quality"],dict):raise ValueError("report.evidence_quality must be an object when present")
+    kind=p["kind"];conf=p["confidence"];suspects=[p]+report["secondary_suspects"]
+    def flatten(field):return [v for s in suspects for v in s.get(field,[])]
     return {"top1":kind,"top2":[s.get("kind") for s in suspects[:2] if s.get("kind")],"primary_confidence":conf,"evidence":flatten("evidence"),"next_checks":flatten("next_checks"),"confidence_notes":flatten("confidence_notes"),"warnings":report["warnings"],"evidence_quality":report.get("evidence_quality",{}),"route_breakdowns":report.get("route_breakdowns",[]),"temporal_segments":report.get("temporal_segments",[])}
 
 def _contains(required,actual):return all(any(r.lower() in a.lower() for a in actual) for r in required)
@@ -127,12 +172,12 @@ def _assert_case(case,ext):
 
 def _failure_contract(case,stages):
     if not stages:return False,"command was not invoked"
-    stage,res=stages[-1]; text=res.stdout+"\n"+res.stderr
+    stage,res=stages[-1]
     if res.returncode==0:return False,"expected execution failure succeeded"
     errors=[]
     if stage!=case["failure_stage"]:errors.append(f"failed at {stage}, expected {case['failure_stage']}")
-    errors += [f"missing diagnostic: {x}" for x in case["expected_error_substrings"] if x not in text]
-    errors += [f"forbidden diagnostic: {x}" for x in case["forbidden_error_substrings"] if x in text]
+    errors += [f"missing stderr diagnostic: {x}" for x in case["expected_error_substrings"] if x not in res.stderr]
+    errors += [f"forbidden stderr diagnostic: {x}" for x in case["forbidden_error_substrings"] if x in res.stderr]
     want=case["stdout_expectation"]
     if want=="empty" and res.stdout:errors.append("stdout was not empty")
     if want=="non_empty" and not res.stdout:errors.append("stdout was empty")
@@ -141,6 +186,9 @@ def _failure_contract(case,stages):
 def run(manifest_path,min_top1=.75,min_top2=.90,max_high_confidence_wrong=0):
     path=Path(manifest_path).resolve();manifest=load_json(path);validate_manifest(manifest)
     analyzer=[];contracts=[];failed_a=[];failed_r=[];members=defaultdict(list);paths=Counter();expected_failures=unexpected_failures=successes=run_executions=tracing_executions=0
+    expected_members=defaultdict(list)
+    for c in manifest["cases"]:
+        if c["accuracy_eligible"]:expected_members[c["observation_id"]].append(c["id"])
     for c in manifest["cases"]:
         paths[c["artifact_type"]]+=1; artifact=(path.parent/c["artifact"]).resolve()
         if c["validation_class"]=="report_contract":
@@ -167,11 +215,14 @@ def run(manifest_path,min_top1=.75,min_top2=.90,max_high_confidence_wrong=0):
         if not ok:failed_a.append(row)
         if c["accuracy_eligible"] and ext is not None:members[c["observation_id"]].append((c,ext))
     observations=[]
-    for oid,group in members.items():
-        ids=[c["id"] for c,_ in group]; signatures={(e["top1"],tuple(e["top2"]),e["primary_confidence"]) for _,e in group}
+    for oid,expected_ids in expected_members.items():
+        group=members[oid];usable_ids=[c["id"] for c,_ in group];unusable_ids=[x for x in expected_ids if x not in usable_ids]
+        if usable_ids!=expected_ids:
+            failed_a.append({"observation_id":oid,"expected_member_ids":expected_ids,"usable_member_ids":usable_ids,"unusable_member_ids":unusable_ids,"error":"accuracy observation is incomplete because one or more declared encodings produced no usable Report"});continue
+        signatures={(e["top1"],tuple(e["top2"]),e["primary_confidence"]) for _,e in group}
         if len(signatures)!=1:
-            failed_a.append({"observation_id":oid,"member_case_ids":ids,"error":"equivalent encoding diagnosis or confidence disagreement"});continue
-        c,e=group[0];observations.append({"observation_id":oid,"member_case_ids":ids,"ground_truth":c["ground_truth"],"expected_primary_kinds":c["expected_primary_kinds"],"top1":e["top1"],"top2":e["top2"],"confidence":e["primary_confidence"]})
+            failed_a.append({"observation_id":oid,"member_case_ids":expected_ids,"error":"equivalent encoding diagnosis or confidence disagreement"});continue
+        c,e=group[0];observations.append({"observation_id":oid,"member_case_ids":expected_ids,"ground_truth":c["ground_truth"],"expected_primary_kinds":c["expected_primary_kinds"],"top1":e["top1"],"top2":e["top2"],"confidence":e["primary_confidence"]})
     per=Counter();confusion=defaultdict(Counter);buckets=defaultdict(lambda:{"total":0,"correct":0});hcw=0
     for o in observations:
         gt=o["ground_truth"];correct=o["top1"]==gt;per[gt]+=1;confusion[gt][o["top1"]]+=1;b=buckets[o["confidence"]];b["total"]+=1;b["correct"]+=correct
