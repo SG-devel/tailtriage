@@ -6,40 +6,17 @@ Demos teach; validation measures.
 
 Normal CI runs the deterministic corpus benchmark against `validation/diagnostics/manifest.json` as a required gate for schema/corpus drift. Durable/versioned scorecards remain manual/tag snapshot artifacts from `.github/workflows/validation-snapshot.yml`.
 
-## Case schema fields
+## Validation classes and schema
 
-- `schema_version`: manifest schema version (currently `1`).
-- `artifact`: path to the analyzer-report fixture, relative to `manifest.json`.
-- `artifact_type`:
-  - `analysis_report`: real demo-emitted analyzer report fixture.
-  - `synthetic_analysis_report`: hand-written report-shaped synthetic fixture used for coverage gaps.
-  - `run_artifact`: raw captured run fixture analyzed through `tailtriage analyze` (Run -> analyze_run()) for analyzer-path validation.
-  - `tracing_span_jsonl`: completed tailtriage tracing-span JSONL imported through `tailtriage import tracing-spans-jsonl`, then analyzed through `tailtriage analyze` for import + analyzer-path validation.
-- `ground_truth`: expected diagnostic family for the controlled fixture intent. It does not mean production root-cause proof.
-- `required_top2`: diagnosis kinds that must appear in primary or first secondary suspect. Usually `[ground_truth]`. Must include `ground_truth`.
-- `acceptable_primary`: diagnosis kinds acceptable as primary for mixed/ambiguous interpretation. Must include `ground_truth`. This does **not** satisfy `required_top2` by itself.
-- `top1_required`: when `true`, primary kind must equal `ground_truth`.
-- `max_primary_confidence`: optional confidence ceiling for primary suspect (`low|medium|high`).
-- `must_include_evidence`: evidence substrings that must appear in primary or secondary evidence.
-- `must_include_next_checks`: next-check substrings that must appear when required by a case. Selected adversarial cases use this to validate relevant follow-up guidance.
-- `expected_warnings`: warning substrings that must appear.
-- `allowed_warnings`: warning substrings that may appear in addition to expected warnings (tolerated extras only).
-- `notes`: workload-intent note explaining why labels are set.
-- `tags`: non-empty string tags for grouping/filtering.
+Manifest schema version 2 requires every case to declare an artifact type, `validation_class`, and `accuracy_eligible`. Raw `run_artifact` cases and stable `tracing_span_jsonl` cases are `analyzer_execution`; the latter import first and both analyze at benchmark execution. Their execution expectation defaults to `success`; typed failure contracts declare `failure_stage`, required and forbidden diagnostics, and stdout expectations. Run artifacts default to strict policy and may explicitly select the existing `allow_ambiguous` CLI policy.
 
-## Corpus discipline
+An accuracy-eligible analyzer case declares `observation_id` and `ground_truth`. Encodings of the same logical workload share an observation ID, must have consistent labels and diagnosis/confidence output, and count once. These unique accuracy-eligible observations are the only diagnosis-accuracy denominator. Ground truth is controlled fixture intent, not production truth or root-cause proof.
 
-- Label by fixture/workload intent, not by analyzer output.
-- `required_top2` and `acceptable_primary` are different:
-  - `required_top2` = required visibility of true causes.
-  - `acceptable_primary` = tolerated primary classification for ambiguity handling/high-confidence-wrong interpretation.
-- Do not use wildcard warning allowlists (`"*"` is invalid).
-- Keep synthetic fixtures small, hand-readable, and explicitly scoped to gaps.
-- Use `max_primary_confidence` for humility checks in sparse-sample, missing-instrumentation, truncation, noise-only, or close mixed-signal cases.
-- Confidence ceilings validate conservative triage behavior, not truth probabilities.
-- Synthetic fixtures are report-shaped adversarial coverage artifacts, not substitutes for analyzer-generated captures.
-- Raw `run_artifact` fixtures validate analyzer-path behavior on committed captured-shape evidence and remain deterministic fixture checks, not production-accuracy claims or real-service validation.
-- `tracing_span_jsonl` fixtures validate the completed tailtriage tracing JSONL import path and then the same Run JSON analyzer path; they do not claim support for ordinary tracing log JSON or prove production root cause.
+Pre-generated `analysis_report` and report-shaped `synthetic_analysis_report` cases are `report_contract`, are always accuracy ineligible, and contain neither ground truth nor observation IDs. They inspect Report suspects, evidence, next checks, confidence, warnings, route breakdowns, and temporal segments without executing an importer or analyzer. Report-contract cases do not contribute to top-1, top-2, confusion, confidence-bucket, per-ground-truth, or high-confidence-wrong metrics. Exact warning allowlisting remains mandatory.
+
+Case diagnosis contracts use `expected_primary_kinds`, `required_visible_suspects` (primary or first secondary), and optional `exact_primary_kind`. Analyzer success cases may be execution-only; expected execution failures must be accuracy ineligible.
+
+Deterministic typed fixture generation is deferred to Prompt 18B. Corpus expansion and exact demo-replacement cases are deferred to Prompt 18C. No demo is removed here.
 
 ## Running the benchmark
 

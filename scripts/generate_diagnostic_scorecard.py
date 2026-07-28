@@ -116,7 +116,7 @@ def _linux_mem_kib():
 def collect_environment(repo_root: Path, manifest_path: Path, snapshot_label, thresholds):
     manifest_sha, artifacts_sha = manifest_and_artifact_hashes(manifest_path)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "snapshot_label": snapshot_label,
         "git": {
@@ -169,28 +169,25 @@ def collect_environment(repo_root: Path, manifest_path: Path, snapshot_label, th
 def render_failed_cases(failed_cases):
     if not failed_cases:
         return "None\n"
-    lines = ["| id | top1_ok | top2_ok | evidence_ok | next_check_ok | confidence_ceiling_ok |", "|---|---:|---:|---:|---:|---:|"]
+    lines = ["| id | diagnostic |", "|---|---|"]
     for case in failed_cases:
-        lines.append(f"| {case['id']} | {case['top1_ok']} | {case['top2_ok']} | {case['evidence_ok']} | {case['next_check_ok']} | {case['confidence_ceiling_ok']} |")
+        lines.append(f"| {case.get('id', case.get('observation_id'))} | {case.get('error', 'case contract failed')} |")
     return "\n".join(lines) + "\n"
 
 
 def render_scorecard(metrics, env):
-    metric_keys = ["total_cases", "top1_accuracy", "top2_recall", "high_confidence_wrong_count", "required_evidence_pass_rate", "next_check_required_cases", "next_check_passed_cases", "next_check_pass_rate", "next_check_presence_rate", "confidence_ceiling_cases", "confidence_ceiling_passed_cases", "confidence_ceiling_pass_rate", "unexpected_warning_count", "missing_expected_warning_count"]
+    execution=metrics["analyzer_execution"];accuracy=metrics["analyzer_accuracy"];contracts=metrics["report_contract"]
+    fmt=lambda v: "n/a" if v is None else v
     parts = ["# Diagnostic validation scorecard\n", "## Snapshot\n", f"- Generated at (UTC): {env['generated_at_utc']}", f"- Snapshot label: {env.get('snapshot_label')}", f"- Git SHA: {env['git'].get('sha')}", f"- Git tag: {env['git'].get('tag')}", f"- Git describe: {env['git'].get('describe')}\n", "## Environment\n", f"- tailtriage workspace package version: {env['tailtriage'].get('workspace_package_version')}"]
     for k, v in env["tailtriage"]["packages"].items():
         parts.append(f"- {k}: {v}")
-    parts.extend([f"- GitHub run: {env['github_actions'].get('run_id')} ({env['github_actions'].get('ref')})", f"- Runner: {env['github_actions'].get('runner_os')} {env['github_actions'].get('runner_arch')} / {env['github_actions'].get('image_version')}", f"- Python: {env['software'].get('python')}", f"- rustc: {env['software'].get('rustc')}", f"- cargo: {env['software'].get('cargo')}", f"- CPU model: {env['hardware'].get('cpu_model')}", f"- Logical cores: {env['hardware'].get('logical_cores')}", f"- Memory KiB: {env['hardware'].get('memory_total_kib')}\n", "## Inputs\n", f"- Manifest SHA256: {env['inputs']['manifest_sha256']}", f"- Referenced artifacts SHA256: {env['inputs']['referenced_artifacts_sha256']}", f"- Thresholds: {json.dumps(env['inputs']['thresholds'], sort_keys=True)}\n", "## Metrics\n", "| metric | value |", "|---|---:|"])
-    for k in metric_keys:
-        parts.append(f"| {k} | {metrics.get(k)} |")
-    parts.append(f"| failed_case_count | {len(metrics.get('failed_cases', []))} |\n")
-    parts.append("## Per-ground-truth case counts\n")
-    for k, v in sorted(metrics.get("per_ground_truth_counts", {}).items()):
+    parts.extend([f"- GitHub run: {env['github_actions'].get('run_id')} ({env['github_actions'].get('ref')})", f"- Runner: {env['github_actions'].get('runner_os')} {env['github_actions'].get('runner_arch')} / {env['github_actions'].get('image_version')}", f"- Python: {env['software'].get('python')}", f"- rustc: {env['software'].get('rustc')}", f"- cargo: {env['software'].get('cargo')}", f"- CPU model: {env['hardware'].get('cpu_model')}", f"- Logical cores: {env['hardware'].get('logical_cores')}", f"- Memory KiB: {env['hardware'].get('memory_total_kib')}\n", "## Inputs\n", f"- Manifest cases: {metrics['manifest_case_count']}", f"- Manifest SHA256: {env['inputs']['manifest_sha256']}", f"- Referenced artifacts SHA256: {env['inputs']['referenced_artifacts_sha256']}", f"- Thresholds: {json.dumps(env['inputs']['thresholds'], sort_keys=True)}\n", "## Analyzer execution\n", f"- Cases: {execution['case_count']}",f"- Successful analyzer executions: {execution['success_count']}",f"- Expected failures: {execution['expected_failure_count']}",f"- Unexpected failures: {execution['unexpected_failure_count']}\n","## Analyzer accuracy\n",f"- Unique accuracy observations: {accuracy['observation_count']}",f"- Executed artifact encodings: {accuracy['encoding_count']}",f"- Top-1 accuracy: {fmt(accuracy['top1_accuracy'])}",f"- Top-2 recall: {fmt(accuracy['top2_recall'])}",f"- High-confidence wrong: {accuracy['high_confidence_wrong_count']}\n","### Per-ground-truth observation counts\n"])
+    for k, v in sorted(accuracy.get("per_ground_truth_counts", {}).items()):
         parts.append(f"- {k}: {v}")
-    parts.append("\n## Confidence bucket accuracy\n")
-    for k, v in sorted(metrics.get("confidence_bucket_accuracy", {}).items()):
+    parts.append("\n### Confidence bucket accuracy\n")
+    for k, v in sorted(accuracy.get("confidence_bucket_accuracy", {}).items()):
         parts.append(f"- {k}: accuracy={v.get('accuracy')} total={v.get('total')} correct={v.get('correct')}")
-    parts.append("\n## Validated paths\n")
+    parts.extend(["\n## Report-contract validation\n",f"- Cases: {contracts['case_count']}",f"- Passed: {contracts['passed_count']}",f"- Failed: {contracts['failed_count']}","- Report-contract cases do not contribute to analyzer accuracy.\n","## Validated input paths\n"])
     validated_path_labels = {
         "analysis_report": "analysis_report fixtures",
         "synthetic_analysis_report": "synthetic_analysis_report fixtures",
@@ -199,10 +196,12 @@ def render_scorecard(metrics, env):
     }
     for k, label in validated_path_labels.items():
         parts.append(f"- {label}: {metrics.get('validated_paths', {}).get(k, 0)}")
-    parts.append("\n## Failed cases\n")
-    parts.append(render_failed_cases(metrics.get("failed_cases", [])))
+    parts.append("\n## Failed analyzer cases\n")
+    parts.append(render_failed_cases(metrics.get("failed_analyzer_cases", [])))
+    parts.append("## Failed report-contract cases\n")
+    parts.append(render_failed_cases(metrics.get("failed_report_contract_cases", [])))
     parts.append("## Non-claims\n")
-    parts.extend(["- This is not root-cause proof.", "- This is not universal production accuracy.", "- This is not universal production overhead.", "- This is not real-service validation.", "- `ground_truth` labels are controlled fixture intent, not production truth."])
+    parts.extend(["- This is not root-cause proof.", "- This is not universal production accuracy.", "- This is not universal production overhead.", "- This is not real-service validation.", "- Fixture labels are controlled intent, not production truth.","- Report-contract pass rates are not analyzer accuracy.","- Equivalent artifact encodings are not independent observations.","- Prompt 17 equivalence is not an accuracy denominator."])
     return "\n".join(parts) + "\n"
 
 

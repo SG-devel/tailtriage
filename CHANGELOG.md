@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Diagnostic validation now separates analyzer-executed accuracy observations from pre-generated Report-contract checks.
+
 - Native/core Run fixtures and stable tracing JSONL now have a deterministic equivalence contract for shared completed evidence and analyzer results, with explicit Run-only limitations.
 
 - Route and temporal analysis now share internal request-scoped Run slicing and scoped-report projection while preserving their distinct runtime/in-flight attribution policies and existing serialized Report output.
