@@ -1,1 +1,3 @@
 tailtriage-analyzer/tests/expected/*.json text eol=lf
+
+tailtriage-tracing/tests/expected/equivalence/*.json text eol=lf

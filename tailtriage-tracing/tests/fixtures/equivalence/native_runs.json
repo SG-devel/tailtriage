@@ -1294,9 +1294,9 @@
       "effective_core_config": {
         "mode": "light",
         "capture_limits": {
-          "max_requests": 2,
-          "max_stages": 2,
-          "max_queues": 2,
+          "max_requests": 5,
+          "max_stages": 5,
+          "max_queues": 5,
           "max_inflight_snapshots": 200000,
           "max_runtime_snapshots": 100000
         },
@@ -1334,6 +1334,39 @@
         "finished_at_run_us": 180000,
         "latency_us": 80000,
         "outcome": "ok"
+      },
+      {
+        "request_id": "limit-3",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000200,
+        "started_at_run_us": 200000,
+        "finished_at_unix_ms": 1700000000280,
+        "finished_at_run_us": 280000,
+        "latency_us": 80000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "limit-4",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000300,
+        "started_at_run_us": 300000,
+        "finished_at_unix_ms": 1700000000380,
+        "finished_at_run_us": 380000,
+        "latency_us": 80000,
+        "outcome": "ok"
+      },
+      {
+        "request_id": "limit-5",
+        "route": "/limited",
+        "kind": null,
+        "started_at_unix_ms": 1700000000400,
+        "started_at_run_us": 400000,
+        "finished_at_unix_ms": 1700000000480,
+        "finished_at_run_us": 480000,
+        "latency_us": 80000,
+        "outcome": "ok"
       }
     ],
     "stages": [
@@ -1356,6 +1389,36 @@
         "success": true,
         "started_at_run_us": 130000,
         "finished_at_run_us": 150000
+      },
+      {
+        "request_id": "limit-3",
+        "stage": "stage-3",
+        "started_at_unix_ms": 1700000000230,
+        "finished_at_unix_ms": 1700000000250,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 230000,
+        "finished_at_run_us": 250000
+      },
+      {
+        "request_id": "limit-4",
+        "stage": "stage-4",
+        "started_at_unix_ms": 1700000000330,
+        "finished_at_unix_ms": 1700000000350,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 330000,
+        "finished_at_run_us": 350000
+      },
+      {
+        "request_id": "limit-5",
+        "stage": "stage-5",
+        "started_at_unix_ms": 1700000000430,
+        "finished_at_unix_ms": 1700000000450,
+        "latency_us": 20000,
+        "success": true,
+        "started_at_run_us": 430000,
+        "finished_at_run_us": 450000
       }
     ],
     "queues": [
@@ -1378,15 +1441,45 @@
         "depth_at_start": 2,
         "waited_from_run_us": 101000,
         "waited_until_run_us": 131000
+      },
+      {
+        "request_id": "limit-3",
+        "queue": "queue-3",
+        "waited_from_unix_ms": 1700000000201,
+        "waited_until_unix_ms": 1700000000231,
+        "wait_us": 30000,
+        "depth_at_start": 3,
+        "waited_from_run_us": 201000,
+        "waited_until_run_us": 231000
+      },
+      {
+        "request_id": "limit-4",
+        "queue": "queue-4",
+        "waited_from_unix_ms": 1700000000301,
+        "waited_until_unix_ms": 1700000000331,
+        "wait_us": 30000,
+        "depth_at_start": 4,
+        "waited_from_run_us": 301000,
+        "waited_until_run_us": 331000
+      },
+      {
+        "request_id": "limit-5",
+        "queue": "queue-5",
+        "waited_from_unix_ms": 1700000000401,
+        "waited_until_unix_ms": 1700000000431,
+        "wait_us": 30000,
+        "depth_at_start": 5,
+        "waited_from_run_us": 401000,
+        "waited_until_run_us": 431000
       }
     ],
     "inflight": [],
     "runtime_snapshots": [],
     "truncation": {
-      "limits_hit": true,
-      "dropped_requests": 3,
-      "dropped_stages": 3,
-      "dropped_queues": 3,
+      "limits_hit": false,
+      "dropped_requests": 0,
+      "dropped_stages": 0,
+      "dropped_queues": 0,
       "dropped_inflight_snapshots": 0,
       "dropped_runtime_snapshots": 0
     }

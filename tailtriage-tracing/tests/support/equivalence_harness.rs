@@ -2,7 +2,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions, Report};
-use tailtriage_core::{CaptureLimits, CaptureMode, EffectiveCoreConfig, Run};
+use tailtriage_core::{
+    CaptureLimits, CaptureMode, EffectiveCoreConfig, Run, RunBuilder, RunBuilderOptions,
+};
 use tailtriage_tracing::{import_jsonl_path, ImportOptions};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,8 +185,33 @@ pub fn native_case(name: &str) -> Run {
         .map(|m: std::collections::BTreeMap<String, Run>| m[name].clone())
         .unwrap()
 }
+pub fn typed_report(run: &Run) -> Report {
+    analyze_run(run, AnalyzeOptions::default())
+}
 pub fn report(run: &Run) -> ComparableReportProjection {
-    project_report(&analyze_run(run, AnalyzeOptions::default()))
+    project_report(&typed_report(run))
+}
+pub fn build_native_case_with_limits(name: &str, limits: CaptureLimits) -> Run {
+    let source = native_case(name);
+    let mut builder = RunBuilder::new(
+        RunBuilderOptions::new(&source.metadata.service_name)
+            .mode(source.metadata.mode)
+            .capture_limits(limits)
+            .strict_lifecycle(false)
+            .started_at_unix_ms(source.metadata.started_at_unix_ms)
+            .finalized_at_unix_ms(source.metadata.finalized_at_unix_ms.unwrap()),
+    )
+    .unwrap();
+    for event in source.requests {
+        builder.push_request(event).unwrap();
+    }
+    for event in source.stages {
+        builder.push_stage(event).unwrap();
+    }
+    for event in source.queues {
+        builder.push_queue(event).unwrap();
+    }
+    builder.finish()
 }
 
 pub fn expected_run(name: &str) -> RepresentableRunProjection {
@@ -208,4 +235,19 @@ pub fn expected_report(name: &str) -> ComparableReportProjection {
         .unwrap(),
     )
     .unwrap()
+}
+
+fn expected_json_bytes(name: &str, suffix: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/expected/equivalence")
+            .join(format!("{name}.{suffix}.json")),
+    )
+    .unwrap()
+}
+pub fn expected_run_json_bytes(name: &str) -> String {
+    expected_json_bytes(name, "run")
+}
+pub fn expected_report_json_bytes(name: &str) -> String {
+    expected_json_bytes(name, "report")
 }
