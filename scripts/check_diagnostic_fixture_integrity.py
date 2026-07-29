@@ -50,7 +50,7 @@ def manifest_inventory(root, failures):
         if not isinstance(case_id, str) or not case_id:
             failures.append(f"non-empty case ID required for analyzer {label}")
             readable = False
-        if artifact_type not in ARTIFACT_TYPES:
+        if not isinstance(artifact_type, str) or artifact_type not in ARTIFACT_TYPES:
             failures.append(f"invalid artifact type for {label}")
             readable = False
         if not isinstance(artifact, str) or not artifact:
@@ -79,8 +79,10 @@ def manifest_inventory(root, failures):
                           "accuracy_eligible": accuracy_eligible,
                           "observation_id": observation_id})
 
-    ids = Counter(item["case_id"] for item in inventory)
-    paths = Counter(item["artifact"] for item in inventory)
+    ids = Counter(item["case_id"] for item in inventory
+                  if isinstance(item["case_id"], str) and item["case_id"])
+    paths = Counter(item["artifact"] for item in inventory
+                    if isinstance(item["artifact"], str) and item["artifact"])
     for value, count in ids.items():
         if count > 1:
             failures.append(f"duplicate manifest case ID: {value}")
@@ -219,7 +221,9 @@ def calculate_entries(root, inventory, failures):
                           "byte_length": len(data), "shape": shape})
     accuracy_by_hash = {}
     for item, entry in ((item, entry) for item in inventory for entry in entries
-                        if item["case_id"] == entry["case_id"] and item["accuracy_eligible"]):
+                        if item["case_id"] == entry["case_id"] and item["accuracy_eligible"]
+                        and isinstance(item["observation_id"], str)
+                        and item["observation_id"]):
         accuracy_by_hash.setdefault(entry["sha256"], []).append(
             (item["case_id"], item["observation_id"]))
     for digest, members in accuracy_by_hash.items():
@@ -268,7 +272,7 @@ def compare_lock(lock, entries, failures):
         shape = entry.get("shape")
         if not isinstance(case_id, str) or not case_id:
             failures.append(f"{label} case_id must be a non-empty string")
-        if artifact_type not in ARTIFACT_TYPES:
+        if not isinstance(artifact_type, str) or artifact_type not in ARTIFACT_TYPES:
             failures.append(f"{label} artifact_type must be run_artifact or tracing_span_jsonl")
         if not isinstance(artifact, str) or not artifact:
             failures.append(f"{label} artifact must be a non-empty string")

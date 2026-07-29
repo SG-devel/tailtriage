@@ -89,6 +89,12 @@ class FixtureIntegrityTest(unittest.TestCase):
         self.assertIn(phrase, result.stderr)
         return result
 
+    def assert_validation_failure(self, phrase, *args):
+        result = self.assert_failure(phrase, *args)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("TypeError", result.stderr)
+        return result
+
     def test_valid_inventory_passes(self):
         result = self.command()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -179,6 +185,15 @@ class FixtureIntegrityTest(unittest.TestCase):
     def test_invalid_lock_artifact_type_is_rejected(self):
         self.mutate_entry(lambda entry: entry.update(artifact_type="report"))
         self.assert_failure("artifact_type must be run_artifact or tracing_span_jsonl")
+
+    def test_unhashable_lock_artifact_type_is_rejected(self):
+        for value in ([], {}):
+            with self.subTest(value=value):
+                self.mutate_entry(lambda entry, value=value: entry.update(artifact_type=value))
+                self.assert_validation_failure(
+                    "artifact_type must be run_artifact or tracing_span_jsonl"
+                )
+                self.command("--refresh")
 
     def test_empty_lock_artifact_path_is_rejected(self):
         self.mutate_entry(lambda entry: entry.update(artifact=""))
@@ -272,6 +287,44 @@ class FixtureIntegrityTest(unittest.TestCase):
         cases[1]["artifact"] = "corpus/run.json"
         self.write_manifest(cases)
         self.assert_failure("duplicate manifest artifact path: corpus/run.json")
+
+    def test_unhashable_manifest_fields_are_rejected(self):
+        fields = {
+            "id": "non-empty case ID required",
+            "artifact_type": "invalid artifact type",
+            "artifact": "non-empty artifact path required",
+            "observation_id": "non-empty observation_id required",
+        }
+        for field, phrase in fields.items():
+            for value in ([], {}):
+                for args in ((), ("--refresh",)):
+                    with self.subTest(field=field, value=value, args=args):
+                        cases = self.cases()
+                        cases[0][field] = value
+                        self.write_manifest(cases)
+                        self.assert_validation_failure(phrase, *args)
+
+    def test_combined_unhashable_manifest_values_report_all_errors(self):
+        cases = self.cases()
+        cases[0].update(id=[], artifact_type={}, artifact=[], observation_id={})
+        self.write_manifest(cases)
+        expected = {
+            "invalid artifact type for case 0",
+            "non-empty artifact path required for case 0",
+            "non-empty case ID required for analyzer case 0",
+            "non-empty observation_id required for accuracy-eligible analyzer case 0",
+        }
+        lock_before = (self.diagnostics / "analyzer-fixtures.lock.json").read_bytes()
+        for args in ((), ("--refresh",)):
+            with self.subTest(args=args):
+                result = self.assert_validation_failure("invalid artifact type", *args)
+                lines = result.stderr.splitlines()
+                self.assertEqual(lines, sorted(lines))
+                self.assertTrue(expected.issubset(lines))
+        self.assertEqual(
+            lock_before,
+            (self.diagnostics / "analyzer-fixtures.lock.json").read_bytes(),
+        )
 
     def duplicate_run_cases(self, first_observation="one", second_observation="two",
                             accuracy_eligible=True):
