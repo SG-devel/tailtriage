@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Committed analyzer fixtures now have a deterministic inventory, byte, formatting, and structural integrity lock checked before diagnostic execution.
+
 - Diagnostic validation now separates analyzer-executed accuracy observations from pre-generated Report-contract checks.
 
 - Native/core Run fixtures and stable tracing JSONL now have a deterministic equivalence contract for shared completed evidence and analyzer results, with explicit Run-only limitations.

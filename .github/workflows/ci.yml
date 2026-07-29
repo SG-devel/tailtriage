@@ -243,6 +243,14 @@ jobs:
         if: matrix.extended && matrix.profile == 'release'
         run: python3 -m unittest scripts.tests.test_measure_collector_limits
 
+      - name: Validate diagnostic fixture integrity helper tests
+        if: matrix.extended && matrix.profile == 'dev'
+        run: python3 -m unittest scripts.tests.test_check_diagnostic_fixture_integrity
+
+      - name: Check diagnostic analyzer fixture integrity
+        if: matrix.extended && matrix.profile == 'dev'
+        run: python3 scripts/check_diagnostic_fixture_integrity.py
+
       - name: Validate diagnostic benchmark helper unit tests
         if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_diagnostic_benchmark
