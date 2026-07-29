@@ -49,6 +49,9 @@ jobs:
           fi
           echo "SAFE_SNAPSHOT_LABEL=$SAFE_SNAPSHOT_LABEL" >> "$GITHUB_ENV"
 
+      - name: Check diagnostic analyzer fixture integrity
+        run: python3 scripts/check_diagnostic_fixture_integrity.py
+
       - name: Generate scorecard snapshot
         run: |
           python3 scripts/generate_diagnostic_scorecard.py \

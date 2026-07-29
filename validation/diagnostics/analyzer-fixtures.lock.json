@@ -1,0 +1,314 @@
+{
+  "format": "tailtriage.analyzer-fixture-lock.v1",
+  "fixtures": [
+    {
+      "case_id": "cancelled-request-with-partial-child",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/cancelled-request-with-partial-child.json",
+      "sha256": "f5015440a70fcbc974c228ef0d80f2deeb4627f0bd6521ced35a2116e78a595f",
+      "byte_length": 8459,
+      "shape": {
+        "request_count": 20,
+        "stage_count": 20,
+        "queue_count": 0,
+        "inflight_snapshot_count": 0,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 20,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "cancelled": 1,
+          "ok": 19
+        },
+        "requests_with_run_interval": 20,
+        "stages_with_run_interval": 20,
+        "queues_with_run_interval": 0,
+        "first_request_id": "r0",
+        "last_request_id": "r19",
+        "truncation": {
+          "limits_hit": false,
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 0,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0
+        }
+      }
+    },
+    {
+      "case_id": "partial-evidence-completed-only",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/partial-evidence-completed-only.json",
+      "sha256": "c07f0c6c0c5b155807239c6ff5e7172d1ecec1a154836827f924f036af87af81",
+      "byte_length": 11702,
+      "shape": {
+        "request_count": 20,
+        "stage_count": 20,
+        "queue_count": 20,
+        "inflight_snapshot_count": 0,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 20
+        },
+        "requests_with_run_interval": 20,
+        "stages_with_run_interval": 20,
+        "queues_with_run_interval": 20,
+        "first_request_id": "r0",
+        "last_request_id": "r19",
+        "truncation": {
+          "limits_hit": false,
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 0,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0
+        }
+      }
+    },
+    {
+      "case_id": "partial-evidence-mixed",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/partial-evidence-mixed.json",
+      "sha256": "b5b80b8dac3a7a8c217a5e31abd26f8b88126a4d29c55ba1f86d014c54558312",
+      "byte_length": 12137,
+      "shape": {
+        "request_count": 20,
+        "stage_count": 20,
+        "queue_count": 20,
+        "inflight_snapshot_count": 0,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 12,
+        "partial_queue_count": 12,
+        "outcomes": {
+          "ok": 20
+        },
+        "requests_with_run_interval": 20,
+        "stages_with_run_interval": 20,
+        "queues_with_run_interval": 20,
+        "first_request_id": "r0",
+        "last_request_id": "r19",
+        "truncation": {
+          "limits_hit": false,
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 0,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0
+        }
+      }
+    },
+    {
+      "case_id": "partial-evidence-queue-only",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/partial-evidence-queue-only.json",
+      "sha256": "a8cb48254ac33b86e664198630044e732b89fcdc6ce8441f204d534f8fd7ff66",
+      "byte_length": 8623,
+      "shape": {
+        "request_count": 20,
+        "stage_count": 0,
+        "queue_count": 20,
+        "inflight_snapshot_count": 0,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 0,
+        "partial_queue_count": 20,
+        "outcomes": {
+          "ok": 20
+        },
+        "requests_with_run_interval": 20,
+        "stages_with_run_interval": 0,
+        "queues_with_run_interval": 20,
+        "first_request_id": "r0",
+        "last_request_id": "r19",
+        "truncation": {
+          "limits_hit": false,
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 0,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0
+        }
+      }
+    },
+    {
+      "case_id": "partial-evidence-stage-only",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/partial-evidence-stage-only.json",
+      "sha256": "945c8a3df30a598175980debdb8d2777017b4d3e2b54ecda555f7e5acbe88722",
+      "byte_length": 8443,
+      "shape": {
+        "request_count": 20,
+        "stage_count": 20,
+        "queue_count": 0,
+        "inflight_snapshot_count": 0,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 20,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 20
+        },
+        "requests_with_run_interval": 20,
+        "stages_with_run_interval": 20,
+        "queues_with_run_interval": 0,
+        "first_request_id": "r0",
+        "last_request_id": "r19",
+        "truncation": {
+          "limits_hit": false,
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 0,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0
+        }
+      }
+    },
+    {
+      "case_id": "raw_low_request_insufficient",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/run-artifacts/low-request-insufficient.json",
+      "sha256": "40ddae72148812d0f78e3b27d81084dde39af52ad40e3ba022802728da65f607",
+      "byte_length": 916,
+      "shape": {
+        "request_count": 3,
+        "stage_count": 0,
+        "queue_count": 0,
+        "inflight_snapshot_count": 0,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 3
+        },
+        "requests_with_run_interval": 0,
+        "stages_with_run_interval": 0,
+        "queues_with_run_interval": 0,
+        "first_request_id": "r1",
+        "last_request_id": "r3",
+        "truncation": null
+      }
+    },
+    {
+      "case_id": "raw_no_queue_events",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/run-artifacts/no-queue-events.json",
+      "sha256": "0be768f6b5cf5779aea98bf51ed853bf2245924e871a75aae565fed58e7ffb87",
+      "byte_length": 2563,
+      "shape": {
+        "request_count": 3,
+        "stage_count": 6,
+        "queue_count": 0,
+        "inflight_snapshot_count": 0,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 3
+        },
+        "requests_with_run_interval": 3,
+        "stages_with_run_interval": 6,
+        "queues_with_run_interval": 0,
+        "first_request_id": "r1",
+        "last_request_id": "r3",
+        "truncation": null
+      }
+    },
+    {
+      "case_id": "raw_no_runtime_snapshots",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/run-artifacts/no-runtime-snapshots.json",
+      "sha256": "2b45c75b3639f7fb6b1e93faadf7d692676372e5d88e3cfaf3d6ee406d25b87a",
+      "byte_length": 2868,
+      "shape": {
+        "request_count": 3,
+        "stage_count": 3,
+        "queue_count": 3,
+        "inflight_snapshot_count": 3,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 3
+        },
+        "requests_with_run_interval": 3,
+        "stages_with_run_interval": 3,
+        "queues_with_run_interval": 3,
+        "first_request_id": "r1",
+        "last_request_id": "r3",
+        "truncation": null
+      }
+    },
+    {
+      "case_id": "raw_no_stage_events",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/run-artifacts/no-stage-events.json",
+      "sha256": "d1894fdb62cb21ff835404c30b631de6b9bd2ac17a20ea6c918d562da5e11581",
+      "byte_length": 2126,
+      "shape": {
+        "request_count": 3,
+        "stage_count": 0,
+        "queue_count": 3,
+        "inflight_snapshot_count": 3,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 3
+        },
+        "requests_with_run_interval": 3,
+        "stages_with_run_interval": 0,
+        "queues_with_run_interval": 3,
+        "first_request_id": "r1",
+        "last_request_id": "r3",
+        "truncation": null
+      }
+    },
+    {
+      "case_id": "raw_truncated_partial_evidence",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/run-artifacts/truncated-queues.json",
+      "sha256": "6fa941745b311ffa2a02cc7514c6e71b9cd7d8e23628cd2d50fd8e9e1105b21d",
+      "byte_length": 2335,
+      "shape": {
+        "request_count": 3,
+        "stage_count": 0,
+        "queue_count": 3,
+        "inflight_snapshot_count": 3,
+        "runtime_snapshot_count": 0,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 3
+        },
+        "requests_with_run_interval": 3,
+        "stages_with_run_interval": 0,
+        "queues_with_run_interval": 3,
+        "first_request_id": "r1",
+        "last_request_id": "r3",
+        "truncation": {
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 2,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0,
+          "limits_hit": true
+        }
+      }
+    },
+    {
+      "case_id": "tracing_queue_dominant",
+      "artifact_type": "tracing_span_jsonl",
+      "artifact": "corpus/tracing-queue-dominant.jsonl",
+      "sha256": "fb02eef1cd8fe3735a87d3925dd8343e143445ee655939fbc5ee64cdde718136",
+      "byte_length": 23267,
+      "shape": {
+        "line_count": 72,
+        "request_span_count": 24,
+        "stage_span_count": 24,
+        "queue_span_count": 24,
+        "other_span_count": 0,
+        "first_request_id": "trace-req-00",
+        "last_request_id": "trace-req-23"
+      }
+    }
+  ]
+}

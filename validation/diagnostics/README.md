@@ -4,7 +4,7 @@ This directory defines the deterministic diagnostic-validation corpus used by `s
 
 Demos teach; validation measures.
 
-Normal CI runs the deterministic corpus benchmark against `validation/diagnostics/manifest.json` as a required gate for schema/corpus drift. Durable/versioned scorecards remain manual/tag snapshot artifacts from `.github/workflows/validation-snapshot.yml`.
+The analyzer artifacts are manually authored and committed. `analyzer-fixtures.lock.json` uses the self-identifying `tailtriage.analyzer-fixture-lock.v1` format to record their manifest-owned inventory, exact bytes, text formatting, and compact structural shape. It is an integrity lock, not a fixture generator. The checker also rejects byte-identical analyzer inputs assigned to distinct accuracy observations; multiple encodings for the same observation may share bytes. Normal CI checks the lock before running the deterministic corpus benchmark against `validation/diagnostics/manifest.json`; durable/versioned scorecards remain manual/tag snapshot artifacts from `.github/workflows/validation-snapshot.yml`.
 
 ## Validation classes and schema
 
@@ -16,7 +16,9 @@ Pre-generated `analysis_report` and report-shaped `synthetic_analysis_report` ca
 
 Case diagnosis contracts use `expected_primary_kinds`, `required_visible_suspects` (primary or first secondary), and optional `exact_primary_kind`. Analyzer success cases may be execution-only; expected execution failures must be accuracy ineligible.
 
-Deterministic typed fixture generation is deferred to Prompt 18B. Corpus expansion and exact demo-replacement cases are deferred to Prompt 18C. No demo is removed here.
+The integrity checker deliberately stops at inventory, bytes, formatting, and compact shape. The benchmark remains the typed and semantic validation boundary: raw Run fixtures are decoded and strictly validated through the CLI, while stable tracing JSONL fixtures pass through the public tracing importer before analysis. Matching lock hashes does not prove diagnosis correctness, and fixture labels remain controlled intent rather than production truth.
+
+Run `python3 scripts/check_diagnostic_fixture_integrity.py` to check the committed lock. For an intentional analyzer-fixture change, run `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`, review the byte and shape changes, and commit the updated lock with the manually edited fixture. Refresh modifies only the lock.
 
 ## Running the benchmark
 
