@@ -22,7 +22,9 @@ The integrity checker deliberately stops at inventory, bytes, formatting, and co
 
 Add a committed analyzer fixture only when it protects an artifact-format, importer, CLI, warning, or end-to-end regression boundary. Do not add fixtures solely to achieve one fixture per diagnosis family.
 
-Diagnosis-family scoring coverage belongs in typed analyzer tests. Live demo Runs and summaries belong under `target/` and remain local/manual. The Prompt 18B integrity lock remains required for the existing committed analyzer fixtures.
+The diagnostic manifest and benchmark own corpus classification and accounting. The analyzer fixture lock and integrity checker protect committed analyzer artifacts. Typed analyzer tests own diagnosis-rule coverage.
+
+Bounded demo smoke and parity checks may run in CI. Repeated-run and mitigation matrices remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
 
 Run `python3 scripts/check_diagnostic_fixture_integrity.py` to check the committed lock. For an intentional analyzer-fixture change, run `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`, review the byte and shape changes, and commit the updated lock with the manually edited fixture. Refresh modifies only the lock.
 

@@ -8,13 +8,15 @@ Pre-generated and synthetic Reports validate Report fields, warnings, evidence, 
 
 ## Validation responsibilities
 
-| Layer | What it proves | Mechanism | Execution |
+| Layer | Purpose | Mechanism | Execution |
 | --- | --- | --- | --- |
 | Analyzer rule correctness | Explicit evidence selects the intended diagnosis | Typed Rust tests | Normal CI |
-| Artifact pipeline regression | Representative committed artifacts pass through real intake and analyzer paths | Existing corpus and integrity lock | Normal CI |
-| Live workload behavior | Real demos produce useful signals on a particular machine | Existing demo and matrix runners | Local/manual |
+| Artifact pipeline regression | Representative committed artifacts pass through real intake and analyzer paths | Diagnostic corpus and integrity lock | Normal CI |
+| Live workload behavior | Real demos produce expected signals and preserve integration behavior | Bounded demo smoke/parity checks plus repeated-run and mitigation matrices | CI smoke/parity; local/manual repeated runs |
 
-Prompt 18A owns corpus accounting. Prompt 18B owns integrity protection for committed analyzer artifacts. Prompt 18C does not expand the corpus: diagnosis-family completeness belongs in typed analyzer tests, while committed artifacts protect representative decoding, import, CLI, warning, and end-to-end regression boundaries. Live demo outputs remain local/manual under `target/` and are not committed.
+The diagnostic manifest and benchmark own corpus classification and accounting. The analyzer fixture lock and integrity checker protect committed analyzer artifacts. Typed analyzer tests own diagnosis-rule coverage.
+
+Real workloads are validated in two ways: bounded demo smoke and parity checks may run in CI, while repeated-run and mitigation matrices remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
 
 ## Summary
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.
