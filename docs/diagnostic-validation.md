@@ -10,8 +10,13 @@ Top-1 means the observation primary equals ground truth. Top-2 means ground trut
 ## Deterministic vs repeated-run validation
 Deterministic fixture validation is mandatory in normal CI; durable scorecards remain manual/tag snapshot outputs. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
 
-## Deferred corpus work
-Deterministic typed fixture generation is deferred to Prompt 18B. An expanded analyzer-executed corpus and exact demo replacements are deferred to Prompt 18C; no demo is removed here.
+## Validation responsibilities
+
+Typed analyzer tests construct explicit evidence and prove that scoring rules select the intended diagnosis. Diagnosis-family scoring coverage belongs in these deterministic, machine-independent tests.
+
+The committed diagnostic corpus proves that representative Run and tracing artifacts pass through the real decoding, import, CLI, and analyzer paths. Its `analyzer_accuracy` field measures agreement against controlled committed observation labels. It does not estimate universal or production accuracy, and the corpus does not need one analyzer fixture for every diagnosis family.
+
+Live demo, repeated-run, and mitigation matrices evaluate whether real workloads produce useful signals on a particular machine. These scheduler-, timing-, workload-, and machine-sensitive checks remain local/manual, with generated Runs and summaries under `target/` rather than committed as corpus artifacts.
 
 ## Confidence calibration
 The scorecard includes confidence-bucket accuracy summaries (low/medium/high buckets) as calibration hints, not probability guarantees.

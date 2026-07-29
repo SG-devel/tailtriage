@@ -18,6 +18,12 @@ Case diagnosis contracts use `expected_primary_kinds`, `required_visible_suspect
 
 The integrity checker deliberately stops at inventory, bytes, formatting, and compact shape. The benchmark remains the typed and semantic validation boundary: raw Run fixtures are decoded and strictly validated through the CLI, while stable tracing JSONL fixtures pass through the public tracing importer before analysis. Matching lock hashes does not prove diagnosis correctness, and fixture labels remain controlled intent rather than production truth.
 
+## Fixture ownership rule
+
+Add a committed analyzer fixture only when it protects an artifact-format, importer, CLI, warning, or end-to-end regression boundary. Do not add fixtures solely to achieve one fixture per diagnosis family.
+
+Diagnosis-family scoring coverage belongs in typed analyzer tests. Live demo Runs and summaries belong under `target/` and remain local/manual. The Prompt 18B integrity lock remains required for the existing committed analyzer fixtures.
+
 Run `python3 scripts/check_diagnostic_fixture_integrity.py` to check the committed lock. For an intentional analyzer-fixture change, run `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`, review the byte and shape changes, and commit the updated lock with the manually edited fixture. Refresh modifies only the lock.
 
 ## Running the benchmark

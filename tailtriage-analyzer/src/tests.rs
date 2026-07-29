@@ -1391,6 +1391,44 @@ fn runtime_snapshot(
 }
 
 #[test]
+fn clear_blocking_pressure_selects_blocking_pool() {
+    let mut run = test_run();
+    run.requests = (0..20).map(sample_request).collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(24)); 40];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|evidence| evidence.contains("Blocking queue depth")));
+}
+
+#[test]
+fn clear_scheduler_pressure_selects_executor_pressure() {
+    let mut run = test_run();
+    run.requests = (0..20).map(sample_request).collect();
+    run.runtime_snapshots = vec![runtime_snapshot(Some(140), Some(12), Some(0)); 40];
+
+    let report = analyze_run(&run, AnalyzeOptions::default());
+
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ExecutorPressureSuspected
+    );
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|evidence| evidence.contains("Runtime global queue depth")));
+}
+
+#[test]
 fn downstream_stage_tie_break_is_deterministic() {
     let mut run = test_run();
     run.stages = vec![
