@@ -10,8 +10,16 @@ Top-1 means the observation primary equals ground truth. Top-2 means ground trut
 ## Deterministic vs repeated-run validation
 Deterministic fixture validation is mandatory in normal CI; durable scorecards remain manual/tag snapshot outputs. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
 
-## Deferred corpus work
-Deterministic typed fixture generation is deferred to Prompt 18B. An expanded analyzer-executed corpus and exact demo replacements are deferred to Prompt 18C; no demo is removed here.
+## Analyzer-executed ground-truth coverage
+Analyzer-executed ground-truth coverage includes:
+
+- `application_queue_saturation`
+- `downstream_stage_dominates`
+- `blocking_pool_pressure`
+- `executor_pressure_suspected`
+- `insufficient_evidence`
+
+The blocking-pool and executor-pressure Runs are bounded, demo-derived deterministic corpus snapshots. They preserve controlled evidence for stable analyzer checks; they do not claim that every complete demo execution is byte-identical or that the fixture labels are universal production truth.
 
 ## Confidence calibration
 The scorecard includes confidence-bucket accuracy summaries (low/medium/high buckets) as calibration hints, not probability guarantees.

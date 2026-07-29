@@ -541,16 +541,18 @@
     },
     {
       "id": "blocking_sample",
-      "artifact": "../../demos/blocking_service/fixtures/sample-analysis.json",
-      "artifact_type": "analysis_report",
-      "validation_class": "report_contract",
-      "accuracy_eligible": false,
+      "artifact": "corpus/demo-runs/blocking-sample.json",
+      "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
       "tags": [
         "blocking",
         "demo",
-        "sample"
+        "sample",
+        "raw-run",
+        "bounded-demo-snapshot"
       ],
-      "notes": "Blocking sample is canonical blocking saturation evidence.",
+      "notes": "Bounded committed fixture derived from a controlled blocking baseline capture.",
       "expected_primary_kinds": [
         "blocking_pool_pressure"
       ],
@@ -567,20 +569,24 @@
         "Top suspects are close in score",
         "Temporal segments show a large p95 latency shift between early and late requests."
       ],
-      "allowed_warnings": []
+      "allowed_warnings": [],
+      "observation_id": "blocking_sample",
+      "ground_truth": "blocking_pool_pressure"
     },
     {
       "id": "executor_sample",
-      "artifact": "../../demos/executor_pressure_service/fixtures/sample-analysis.json",
-      "artifact_type": "analysis_report",
-      "validation_class": "report_contract",
-      "accuracy_eligible": false,
+      "artifact": "corpus/demo-runs/executor-sample.json",
+      "artifact_type": "run_artifact",
+      "validation_class": "analyzer_execution",
+      "accuracy_eligible": true,
       "tags": [
         "executor",
         "demo",
-        "sample"
+        "sample",
+        "raw-run",
+        "bounded-demo-snapshot"
       ],
-      "notes": "Executor sample has clear runtime queue pressure cues.",
+      "notes": "Bounded committed fixture derived from a controlled executor baseline capture.",
       "expected_primary_kinds": [
         "executor_pressure_suspected"
       ],
@@ -593,7 +599,9 @@
       ],
       "must_include_next_checks": [],
       "expected_warnings": [],
-      "allowed_warnings": []
+      "allowed_warnings": [],
+      "observation_id": "executor_sample",
+      "ground_truth": "executor_pressure_suspected"
     },
     {
       "id": "downstream_sample",

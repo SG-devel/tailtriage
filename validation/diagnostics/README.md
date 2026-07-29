@@ -20,6 +20,16 @@ The integrity checker deliberately stops at inventory, bytes, formatting, and co
 
 Run `python3 scripts/check_diagnostic_fixture_integrity.py` to check the committed lock. For an intentional analyzer-fixture change, run `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`, review the byte and shape changes, and commit the updated lock with the manually edited fixture. Refresh modifies only the lock.
 
+For a bounded demo-derived Run fixture, maintainers:
+
+1. capture the relevant controlled Run under `target/`;
+2. derive a bounded representative fixture;
+3. validate the existing diagnosis contract;
+4. copy only the bounded fixture into the corpus;
+5. refresh and review the integrity lock.
+
+Nothing under `target/` is committed.
+
 ## Running the benchmark
 
 ```bash

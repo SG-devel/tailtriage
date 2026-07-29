@@ -1,0 +1,1327 @@
+{
+  "schema_version": 2,
+  "metadata": {
+    "run_id": "run-06ce2b1c-bd9f-4105-a6d7-af0fdc06ee4b",
+    "service_name": "executor_pressure_demo",
+    "service_version": null,
+    "started_at_unix_ms": 1785328560649,
+    "finalized_at_unix_ms": 1785328597836,
+    "mode": "light",
+    "effective_core_config": {
+      "mode": "light",
+      "capture_limits": {
+        "max_requests": 100000,
+        "max_stages": 200000,
+        "max_queues": 200000,
+        "max_inflight_snapshots": 200000,
+        "max_runtime_snapshots": 100000
+      },
+      "strict_lifecycle": false
+    },
+    "effective_tokio_sampler_config": null,
+    "host": null,
+    "pid": null,
+    "lifecycle_warnings": [],
+    "unfinished_requests": {
+      "count": 0,
+      "sample": []
+    },
+    "run_end_reason": null
+  },
+  "requests": [
+    {
+      "request_id": "request-132",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563435,
+      "started_at_run_us": 2786345,
+      "finished_at_unix_ms": 1785328595646,
+      "finished_at_run_us": 34996731,
+      "latency_us": 32210386,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-34",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563443,
+      "started_at_run_us": 2794554,
+      "finished_at_unix_ms": 1785328596772,
+      "finished_at_run_us": 36123271,
+      "latency_us": 33328717,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-99",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563441,
+      "started_at_run_us": 2792056,
+      "finished_at_unix_ms": 1785328597074,
+      "finished_at_run_us": 36424843,
+      "latency_us": 33632787,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-205",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563447,
+      "started_at_run_us": 2797719,
+      "finished_at_unix_ms": 1785328597220,
+      "finished_at_run_us": 36571010,
+      "latency_us": 33773291,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-64",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563446,
+      "started_at_run_us": 2797045,
+      "finished_at_unix_ms": 1785328597270,
+      "finished_at_run_us": 36620987,
+      "latency_us": 33823942,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-126",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563440,
+      "started_at_run_us": 2790662,
+      "finished_at_unix_ms": 1785328597338,
+      "finished_at_run_us": 36689062,
+      "latency_us": 33898399,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-6",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563435,
+      "started_at_run_us": 2785684,
+      "finished_at_unix_ms": 1785328597373,
+      "finished_at_run_us": 36724627,
+      "latency_us": 33938943,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-102",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563441,
+      "started_at_run_us": 2792337,
+      "finished_at_unix_ms": 1785328597446,
+      "finished_at_run_us": 36797106,
+      "latency_us": 34004768,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-220",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563437,
+      "started_at_run_us": 2788577,
+      "finished_at_unix_ms": 1785328597496,
+      "finished_at_run_us": 36847169,
+      "latency_us": 34058592,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-30",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563435,
+      "started_at_run_us": 2786102,
+      "finished_at_unix_ms": 1785328597561,
+      "finished_at_run_us": 36912372,
+      "latency_us": 34126270,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-75",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563440,
+      "started_at_run_us": 2791557,
+      "finished_at_unix_ms": 1785328597565,
+      "finished_at_run_us": 36915904,
+      "latency_us": 34124347,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-5",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563445,
+      "started_at_run_us": 2795802,
+      "finished_at_unix_ms": 1785328597565,
+      "finished_at_run_us": 36915935,
+      "latency_us": 34120133,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-169",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563443,
+      "started_at_run_us": 2793726,
+      "finished_at_unix_ms": 1785328597566,
+      "finished_at_run_us": 36917458,
+      "latency_us": 34123731,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-123",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563436,
+      "started_at_run_us": 2787228,
+      "finished_at_unix_ms": 1785328597568,
+      "finished_at_run_us": 36919235,
+      "latency_us": 34132006,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-94",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563448,
+      "started_at_run_us": 2799424,
+      "finished_at_unix_ms": 1785328597602,
+      "finished_at_run_us": 36952720,
+      "latency_us": 34153296,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-96",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563436,
+      "started_at_run_us": 2786934,
+      "finished_at_unix_ms": 1785328597603,
+      "finished_at_run_us": 36954530,
+      "latency_us": 34167596,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-111",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563441,
+      "started_at_run_us": 2792485,
+      "finished_at_unix_ms": 1785328597615,
+      "finished_at_run_us": 36966371,
+      "latency_us": 34173885,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-194",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563441,
+      "started_at_run_us": 2792230,
+      "finished_at_unix_ms": 1785328597618,
+      "finished_at_run_us": 36969126,
+      "latency_us": 34176896,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-210",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563449,
+      "started_at_run_us": 2800627,
+      "finished_at_unix_ms": 1785328597628,
+      "finished_at_run_us": 36979323,
+      "latency_us": 34178695,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-131",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563442,
+      "started_at_run_us": 2792875,
+      "finished_at_unix_ms": 1785328597637,
+      "finished_at_run_us": 36988251,
+      "latency_us": 34195376,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-157",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563455,
+      "started_at_run_us": 2806376,
+      "finished_at_unix_ms": 1785328597670,
+      "finished_at_run_us": 37020888,
+      "latency_us": 34214512,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-23",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563445,
+      "started_at_run_us": 2796241,
+      "finished_at_unix_ms": 1785328597673,
+      "finished_at_run_us": 37023985,
+      "latency_us": 34227744,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-235",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563444,
+      "started_at_run_us": 2795397,
+      "finished_at_unix_ms": 1785328597697,
+      "finished_at_run_us": 37047894,
+      "latency_us": 34252496,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-101",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563441,
+      "started_at_run_us": 2792210,
+      "finished_at_unix_ms": 1785328597698,
+      "finished_at_run_us": 37048885,
+      "latency_us": 34256674,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-35",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563435,
+      "started_at_run_us": 2786264,
+      "finished_at_unix_ms": 1785328597706,
+      "finished_at_run_us": 37057137,
+      "latency_us": 34270873,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-191",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563437,
+      "started_at_run_us": 2788120,
+      "finished_at_unix_ms": 1785328597712,
+      "finished_at_run_us": 37062806,
+      "latency_us": 34274686,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-179",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563457,
+      "started_at_run_us": 2808543,
+      "finished_at_unix_ms": 1785328597729,
+      "finished_at_run_us": 37080548,
+      "latency_us": 34272005,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-219",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563437,
+      "started_at_run_us": 2788257,
+      "finished_at_unix_ms": 1785328597729,
+      "finished_at_run_us": 37080611,
+      "latency_us": 34292354,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-161",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563437,
+      "started_at_run_us": 2787976,
+      "finished_at_unix_ms": 1785328597739,
+      "finished_at_run_us": 37089653,
+      "latency_us": 34301677,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-135",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563442,
+      "started_at_run_us": 2792994,
+      "finished_at_unix_ms": 1785328597742,
+      "finished_at_run_us": 37093209,
+      "latency_us": 34300215,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-43",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563444,
+      "started_at_run_us": 2794826,
+      "finished_at_unix_ms": 1785328597743,
+      "finished_at_run_us": 37094158,
+      "latency_us": 34299332,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-233",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563438,
+      "started_at_run_us": 2788868,
+      "finished_at_unix_ms": 1785328597759,
+      "finished_at_run_us": 37110470,
+      "latency_us": 34321601,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-100",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563455,
+      "started_at_run_us": 2805848,
+      "finished_at_unix_ms": 1785328597759,
+      "finished_at_run_us": 37110496,
+      "latency_us": 34304647,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-199",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563453,
+      "started_at_run_us": 2803864,
+      "finished_at_unix_ms": 1785328597759,
+      "finished_at_run_us": 37110526,
+      "latency_us": 34306662,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-110",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563454,
+      "started_at_run_us": 2805171,
+      "finished_at_unix_ms": 1785328597766,
+      "finished_at_run_us": 37116879,
+      "latency_us": 34311707,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-73",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563439,
+      "started_at_run_us": 2790081,
+      "finished_at_unix_ms": 1785328597779,
+      "finished_at_run_us": 37130522,
+      "latency_us": 34340441,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-28",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563438,
+      "started_at_run_us": 2789211,
+      "finished_at_unix_ms": 1785328597780,
+      "finished_at_run_us": 37131525,
+      "latency_us": 34342313,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-201",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563437,
+      "started_at_run_us": 2787974,
+      "finished_at_unix_ms": 1785328597780,
+      "finished_at_run_us": 37131550,
+      "latency_us": 34343575,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-85",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563446,
+      "started_at_run_us": 2797447,
+      "finished_at_unix_ms": 1785328597780,
+      "finished_at_run_us": 37131638,
+      "latency_us": 34334190,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-11",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563445,
+      "started_at_run_us": 2795676,
+      "finished_at_unix_ms": 1785328597781,
+      "finished_at_run_us": 37131674,
+      "latency_us": 34335997,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-193",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563437,
+      "started_at_run_us": 2787852,
+      "finished_at_unix_ms": 1785328597781,
+      "finished_at_run_us": 37131756,
+      "latency_us": 34343904,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-213",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563443,
+      "started_at_run_us": 2793801,
+      "finished_at_unix_ms": 1785328597794,
+      "finished_at_run_us": 37145370,
+      "latency_us": 34351568,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-209",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563443,
+      "started_at_run_us": 2794248,
+      "finished_at_unix_ms": 1785328597794,
+      "finished_at_run_us": 37145394,
+      "latency_us": 34351146,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-223",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563444,
+      "started_at_run_us": 2794878,
+      "finished_at_unix_ms": 1785328597794,
+      "finished_at_run_us": 37145425,
+      "latency_us": 34350546,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-88",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563439,
+      "started_at_run_us": 2790202,
+      "finished_at_unix_ms": 1785328597794,
+      "finished_at_run_us": 37145455,
+      "latency_us": 34355252,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-163",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563456,
+      "started_at_run_us": 2806904,
+      "finished_at_unix_ms": 1785328597794,
+      "finished_at_run_us": 37145486,
+      "latency_us": 34338582,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-216",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563443,
+      "started_at_run_us": 2794497,
+      "finished_at_unix_ms": 1785328597794,
+      "finished_at_run_us": 37145564,
+      "latency_us": 34351067,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-178",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563446,
+      "started_at_run_us": 2797203,
+      "finished_at_unix_ms": 1785328597794,
+      "finished_at_run_us": 37145583,
+      "latency_us": 34348380,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-63",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563440,
+      "started_at_run_us": 2791310,
+      "finished_at_unix_ms": 1785328597814,
+      "finished_at_run_us": 37165110,
+      "latency_us": 34373799,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-217",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563443,
+      "started_at_run_us": 2794622,
+      "finished_at_unix_ms": 1785328597814,
+      "finished_at_run_us": 37165213,
+      "latency_us": 34370590,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-150",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563451,
+      "started_at_run_us": 2802247,
+      "finished_at_unix_ms": 1785328597814,
+      "finished_at_run_us": 37165251,
+      "latency_us": 34363003,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-130",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563456,
+      "started_at_run_us": 2806903,
+      "finished_at_unix_ms": 1785328597814,
+      "finished_at_run_us": 37165324,
+      "latency_us": 34358420,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-124",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563455,
+      "started_at_run_us": 2805706,
+      "finished_at_unix_ms": 1785328597814,
+      "finished_at_run_us": 37165357,
+      "latency_us": 34359651,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-45",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563446,
+      "started_at_run_us": 2796670,
+      "finished_at_unix_ms": 1785328597814,
+      "finished_at_run_us": 37165533,
+      "latency_us": 34368862,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-62",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563444,
+      "started_at_run_us": 2795431,
+      "finished_at_unix_ms": 1785328597823,
+      "finished_at_run_us": 37174210,
+      "latency_us": 34378778,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-10",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563443,
+      "started_at_run_us": 2794306,
+      "finished_at_unix_ms": 1785328597823,
+      "finished_at_run_us": 37174479,
+      "latency_us": 34380173,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-9",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563445,
+      "started_at_run_us": 2795929,
+      "finished_at_unix_ms": 1785328597823,
+      "finished_at_run_us": 37174500,
+      "latency_us": 34378570,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-31",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563445,
+      "started_at_run_us": 2796540,
+      "finished_at_unix_ms": 1785328597823,
+      "finished_at_run_us": 37174525,
+      "latency_us": 34377984,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-175",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563452,
+      "started_at_run_us": 2802963,
+      "finished_at_unix_ms": 1785328597830,
+      "finished_at_run_us": 37180743,
+      "latency_us": 34377779,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-227",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563438,
+      "started_at_run_us": 2788718,
+      "finished_at_unix_ms": 1785328597830,
+      "finished_at_run_us": 37180771,
+      "latency_us": 34392052,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-3",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563438,
+      "started_at_run_us": 2788839,
+      "finished_at_unix_ms": 1785328597831,
+      "finished_at_run_us": 37181769,
+      "latency_us": 34392930,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-36",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563453,
+      "started_at_run_us": 2804597,
+      "finished_at_unix_ms": 1785328597831,
+      "finished_at_run_us": 37181808,
+      "latency_us": 34377210,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-172",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563446,
+      "started_at_run_us": 2796953,
+      "finished_at_unix_ms": 1785328597835,
+      "finished_at_run_us": 37185898,
+      "latency_us": 34388945,
+      "outcome": "ok"
+    },
+    {
+      "request_id": "request-97",
+      "route": "/executor-pressure",
+      "kind": null,
+      "started_at_unix_ms": 1785328563449,
+      "started_at_run_us": 2799778,
+      "finished_at_unix_ms": 1785328597836,
+      "finished_at_run_us": 37186914,
+      "latency_us": 34387135,
+      "outcome": "ok"
+    }
+  ],
+  "stages": [],
+  "queues": [],
+  "inflight": [
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563435,
+      "at_run_us": 2785746,
+      "count": 1
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563436,
+      "at_run_us": 2786935,
+      "count": 16
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563437,
+      "at_run_us": 2788478,
+      "count": 32
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563438,
+      "at_run_us": 2789451,
+      "count": 47
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563440,
+      "at_run_us": 2791049,
+      "count": 63
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563441,
+      "at_run_us": 2792059,
+      "count": 78
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563443,
+      "at_run_us": 2793729,
+      "count": 94
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563444,
+      "at_run_us": 2794688,
+      "count": 109
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563445,
+      "at_run_us": 2795820,
+      "count": 125
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563446,
+      "at_run_us": 2796920,
+      "count": 140
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563447,
+      "at_run_us": 2797952,
+      "count": 156
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563448,
+      "at_run_us": 2799426,
+      "count": 171
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563451,
+      "at_run_us": 2801965,
+      "count": 186
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563452,
+      "at_run_us": 2803422,
+      "count": 202
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563454,
+      "at_run_us": 2805148,
+      "count": 217
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563456,
+      "at_run_us": 2806730,
+      "count": 233
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328563458,
+      "at_run_us": 2809073,
+      "count": 240
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597074,
+      "at_run_us": 36424774,
+      "count": 232
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597373,
+      "at_run_us": 36724615,
+      "count": 216
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597565,
+      "at_run_us": 36915902,
+      "count": 201
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597602,
+      "at_run_us": 36953224,
+      "count": 185
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597634,
+      "at_run_us": 36985348,
+      "count": 170
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597697,
+      "at_run_us": 37047905,
+      "count": 155
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597729,
+      "at_run_us": 37080560,
+      "count": 139
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597743,
+      "at_run_us": 37094164,
+      "count": 124
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597779,
+      "at_run_us": 37130503,
+      "count": 108
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597781,
+      "at_run_us": 37131655,
+      "count": 93
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597794,
+      "at_run_us": 37145414,
+      "count": 77
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597794,
+      "at_run_us": 37145576,
+      "count": 62
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597814,
+      "at_run_us": 37165322,
+      "count": 46
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597823,
+      "at_run_us": 37174470,
+      "count": 31
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597830,
+      "at_run_us": 37180769,
+      "count": 15
+    },
+    {
+      "gauge": "executor_pressure_inflight",
+      "at_unix_ms": 1785328597836,
+      "at_run_us": 37186906,
+      "count": 0
+    }
+  ],
+  "runtime_snapshots": [
+    {
+      "at_unix_ms": 1785328563434,
+      "at_run_us": 2784760,
+      "alive_tasks": 0,
+      "global_queue_depth": 0,
+      "local_queue_depth": 0,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 0
+    },
+    {
+      "at_unix_ms": 1785328567899,
+      "at_run_us": 7250348,
+      "alive_tasks": 1920,
+      "global_queue_depth": 1920,
+      "local_queue_depth": 42224,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 42224
+    },
+    {
+      "at_unix_ms": 1785328585076,
+      "at_run_us": 24426880,
+      "alive_tasks": 1920,
+      "global_queue_depth": 1920,
+      "local_queue_depth": 37928,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 37928
+    },
+    {
+      "at_unix_ms": 1785328595264,
+      "at_run_us": 34615242,
+      "alive_tasks": 1920,
+      "global_queue_depth": 1920,
+      "local_queue_depth": 15688,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 15688
+    },
+    {
+      "at_unix_ms": 1785328595652,
+      "at_run_us": 35002954,
+      "alive_tasks": 1912,
+      "global_queue_depth": 1912,
+      "local_queue_depth": 13472,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 13472
+    },
+    {
+      "at_unix_ms": 1785328597777,
+      "at_run_us": 37127988,
+      "alive_tasks": 880,
+      "global_queue_depth": 880,
+      "local_queue_depth": 512,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 512
+    },
+    {
+      "at_unix_ms": 1785328597778,
+      "at_run_us": 37129407,
+      "alive_tasks": 880,
+      "global_queue_depth": 880,
+      "local_queue_depth": 512,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 512
+    },
+    {
+      "at_unix_ms": 1785328597779,
+      "at_run_us": 37130531,
+      "alive_tasks": 840,
+      "global_queue_depth": 840,
+      "local_queue_depth": 496,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 496
+    },
+    {
+      "at_unix_ms": 1785328597781,
+      "at_run_us": 37131711,
+      "alive_tasks": 720,
+      "global_queue_depth": 720,
+      "local_queue_depth": 488,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 488
+    },
+    {
+      "at_unix_ms": 1785328597795,
+      "at_run_us": 37146495,
+      "alive_tasks": 488,
+      "global_queue_depth": 488,
+      "local_queue_depth": 296,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 296
+    },
+    {
+      "at_unix_ms": 1785328597796,
+      "at_run_us": 37147583,
+      "alive_tasks": 488,
+      "global_queue_depth": 488,
+      "local_queue_depth": 280,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 280
+    },
+    {
+      "at_unix_ms": 1785328597798,
+      "at_run_us": 37148744,
+      "alive_tasks": 488,
+      "global_queue_depth": 488,
+      "local_queue_depth": 272,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 272
+    },
+    {
+      "at_unix_ms": 1785328597799,
+      "at_run_us": 37149845,
+      "alive_tasks": 488,
+      "global_queue_depth": 488,
+      "local_queue_depth": 264,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 264
+    },
+    {
+      "at_unix_ms": 1785328597800,
+      "at_run_us": 37151000,
+      "alive_tasks": 480,
+      "global_queue_depth": 480,
+      "local_queue_depth": 256,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 256
+    },
+    {
+      "at_unix_ms": 1785328597801,
+      "at_run_us": 37152112,
+      "alive_tasks": 480,
+      "global_queue_depth": 480,
+      "local_queue_depth": 256,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 256
+    },
+    {
+      "at_unix_ms": 1785328597802,
+      "at_run_us": 37153254,
+      "alive_tasks": 480,
+      "global_queue_depth": 480,
+      "local_queue_depth": 256,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 256
+    },
+    {
+      "at_unix_ms": 1785328597803,
+      "at_run_us": 37154583,
+      "alive_tasks": 480,
+      "global_queue_depth": 480,
+      "local_queue_depth": 248,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 248
+    },
+    {
+      "at_unix_ms": 1785328597805,
+      "at_run_us": 37155695,
+      "alive_tasks": 480,
+      "global_queue_depth": 480,
+      "local_queue_depth": 248,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 248
+    },
+    {
+      "at_unix_ms": 1785328597806,
+      "at_run_us": 37156850,
+      "alive_tasks": 480,
+      "global_queue_depth": 480,
+      "local_queue_depth": 240,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 240
+    },
+    {
+      "at_unix_ms": 1785328597810,
+      "at_run_us": 37160783,
+      "alive_tasks": 464,
+      "global_queue_depth": 464,
+      "local_queue_depth": 184,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 184
+    },
+    {
+      "at_unix_ms": 1785328597811,
+      "at_run_us": 37161908,
+      "alive_tasks": 464,
+      "global_queue_depth": 464,
+      "local_queue_depth": 184,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 184
+    },
+    {
+      "at_unix_ms": 1785328597812,
+      "at_run_us": 37162999,
+      "alive_tasks": 464,
+      "global_queue_depth": 464,
+      "local_queue_depth": 168,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 168
+    },
+    {
+      "at_unix_ms": 1785328597813,
+      "at_run_us": 37164110,
+      "alive_tasks": 464,
+      "global_queue_depth": 464,
+      "local_queue_depth": 160,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 160
+    },
+    {
+      "at_unix_ms": 1785328597815,
+      "at_run_us": 37165823,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 152,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 152
+    },
+    {
+      "at_unix_ms": 1785328597816,
+      "at_run_us": 37166921,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 144,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 144
+    },
+    {
+      "at_unix_ms": 1785328597817,
+      "at_run_us": 37168029,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 136,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 136
+    },
+    {
+      "at_unix_ms": 1785328597818,
+      "at_run_us": 37169209,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 128,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 128
+    },
+    {
+      "at_unix_ms": 1785328597819,
+      "at_run_us": 37170308,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 120,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 120
+    },
+    {
+      "at_unix_ms": 1785328597820,
+      "at_run_us": 37171412,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 104,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 104
+    },
+    {
+      "at_unix_ms": 1785328597821,
+      "at_run_us": 37172554,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 104,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 104
+    },
+    {
+      "at_unix_ms": 1785328597823,
+      "at_run_us": 37173993,
+      "alive_tasks": 280,
+      "global_queue_depth": 280,
+      "local_queue_depth": 96,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 96
+    },
+    {
+      "at_unix_ms": 1785328597824,
+      "at_run_us": 37175229,
+      "alive_tasks": 184,
+      "global_queue_depth": 184,
+      "local_queue_depth": 88,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 88
+    },
+    {
+      "at_unix_ms": 1785328597825,
+      "at_run_us": 37176392,
+      "alive_tasks": 184,
+      "global_queue_depth": 184,
+      "local_queue_depth": 80,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 80
+    },
+    {
+      "at_unix_ms": 1785328597826,
+      "at_run_us": 37177537,
+      "alive_tasks": 184,
+      "global_queue_depth": 184,
+      "local_queue_depth": 72,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 72
+    },
+    {
+      "at_unix_ms": 1785328597827,
+      "at_run_us": 37178649,
+      "alive_tasks": 184,
+      "global_queue_depth": 184,
+      "local_queue_depth": 64,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 64
+    },
+    {
+      "at_unix_ms": 1785328597829,
+      "at_run_us": 37179733,
+      "alive_tasks": 184,
+      "global_queue_depth": 184,
+      "local_queue_depth": 48,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 48
+    },
+    {
+      "at_unix_ms": 1785328597830,
+      "at_run_us": 37180916,
+      "alive_tasks": 120,
+      "global_queue_depth": 120,
+      "local_queue_depth": 40,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 40
+    },
+    {
+      "at_unix_ms": 1785328597831,
+      "at_run_us": 37182126,
+      "alive_tasks": 40,
+      "global_queue_depth": 40,
+      "local_queue_depth": 32,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 32
+    },
+    {
+      "at_unix_ms": 1785328597832,
+      "at_run_us": 37183229,
+      "alive_tasks": 40,
+      "global_queue_depth": 40,
+      "local_queue_depth": 24,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 24
+    },
+    {
+      "at_unix_ms": 1785328597834,
+      "at_run_us": 37184727,
+      "alive_tasks": 40,
+      "global_queue_depth": 40,
+      "local_queue_depth": 16,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 16
+    },
+    {
+      "at_unix_ms": 1785328597835,
+      "at_run_us": 37185840,
+      "alive_tasks": 40,
+      "global_queue_depth": 40,
+      "local_queue_depth": 0,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 0
+    },
+    {
+      "at_unix_ms": 1785328597836,
+      "at_run_us": 37187490,
+      "alive_tasks": 0,
+      "global_queue_depth": 0,
+      "local_queue_depth": 0,
+      "blocking_queue_depth": 0,
+      "remote_schedule_count": 0
+    }
+  ],
+  "truncation": {
+    "limits_hit": false,
+    "dropped_requests": 0,
+    "dropped_stages": 0,
+    "dropped_queues": 0,
+    "dropped_inflight_snapshots": 0,
+    "dropped_runtime_snapshots": 0
+  }
+}

@@ -2,6 +2,38 @@
   "format": "tailtriage.analyzer-fixture-lock.v1",
   "fixtures": [
     {
+      "case_id": "blocking_sample",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/demo-runs/blocking-sample.json",
+      "sha256": "4a14f6b8898c98387e59b1d0309f5a2502379c8e66ca278053bd31caeea6161b",
+      "byte_length": 72598,
+      "shape": {
+        "request_count": 64,
+        "stage_count": 64,
+        "queue_count": 64,
+        "inflight_snapshot_count": 33,
+        "runtime_snapshot_count": 41,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 64
+        },
+        "requests_with_run_interval": 64,
+        "stages_with_run_interval": 64,
+        "queues_with_run_interval": 64,
+        "first_request_id": "request-0",
+        "last_request_id": "request-249",
+        "truncation": {
+          "limits_hit": false,
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 0,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0
+        }
+      }
+    },
+    {
       "case_id": "cancelled-request-with-partial-child",
       "artifact_type": "run_artifact",
       "artifact": "corpus/cancelled-request-with-partial-child.json",
@@ -24,6 +56,38 @@
         "queues_with_run_interval": 0,
         "first_request_id": "r0",
         "last_request_id": "r19",
+        "truncation": {
+          "limits_hit": false,
+          "dropped_requests": 0,
+          "dropped_stages": 0,
+          "dropped_queues": 0,
+          "dropped_inflight_snapshots": 0,
+          "dropped_runtime_snapshots": 0
+        }
+      }
+    },
+    {
+      "case_id": "executor_sample",
+      "artifact_type": "run_artifact",
+      "artifact": "corpus/demo-runs/executor-sample.json",
+      "sha256": "1320d1533c0c6800440ca7defc2a9d2eb5e094d00fb0008631d950763ed33085",
+      "byte_length": 35922,
+      "shape": {
+        "request_count": 64,
+        "stage_count": 0,
+        "queue_count": 0,
+        "inflight_snapshot_count": 33,
+        "runtime_snapshot_count": 42,
+        "partial_stage_count": 0,
+        "partial_queue_count": 0,
+        "outcomes": {
+          "ok": 64
+        },
+        "requests_with_run_interval": 64,
+        "stages_with_run_interval": 0,
+        "queues_with_run_interval": 0,
+        "first_request_id": "request-132",
+        "last_request_id": "request-97",
         "truncation": {
           "limits_hit": false,
           "dropped_requests": 0,

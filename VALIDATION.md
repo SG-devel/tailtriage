@@ -4,7 +4,7 @@
 
 The schema-version-2 deterministic corpus separates analyzer-executed cases, unique accuracy-eligible observations, and report-contract cases. Raw Runs are analyzed at benchmark execution; stable tracing JSONL is imported and then analyzed. Analyzer cases have typed success/failure contracts and may be execution-only. Multiple artifact encodings of one logical workload execute independently but count once for accuracy and must agree on ordered diagnosis visibility and confidence bucket.
 
-Pre-generated and synthetic Reports validate Report fields, warnings, evidence, next checks, confidence, routes, and temporal output without executing the analyzer. They never contribute to analyzer accuracy. Fixture ground truth is controlled fixture intent, not production truth or root-cause proof. Typed fixture generation is deferred to Prompt 18B; corpus expansion and exact demo replacements are deferred to Prompt 18C, and no demo is removed here.
+Pre-generated and synthetic Reports validate Report fields, warnings, evidence, next checks, confidence, routes, and temporal output without executing the analyzer. They never contribute to analyzer accuracy. Fixture ground truth is controlled fixture intent, not production truth or root-cause proof. Committed analyzer fixtures are integrity locked. Bounded demo-derived Runs provide deterministic analyzer coverage for blocking-pool and executor pressure, while complete and repeated demo execution remains a separate machine-scoped validation track. These bounded fixtures are controlled validation evidence, not universal production truth.
 
 ## Summary
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.

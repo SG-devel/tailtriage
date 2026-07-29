@@ -4,6 +4,8 @@
 
 ### Changed
 
+- The analyzer-executed diagnostic corpus now includes bounded committed blocking-pool and executor-pressure Runs derived from controlled baseline demos.
+
 - Committed analyzer fixtures now have a deterministic inventory, byte, formatting, and structural integrity lock checked before diagnostic execution.
 
 - Diagnostic validation now separates analyzer-executed accuracy observations from pre-generated Report-contract checks.
