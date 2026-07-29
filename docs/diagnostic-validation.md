@@ -10,8 +10,19 @@ Top-1 means the observation primary equals ground truth. Top-2 means ground trut
 ## Deterministic vs repeated-run validation
 Deterministic fixture validation is mandatory in normal CI; durable scorecards remain manual/tag snapshot outputs. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
 
-## Deferred corpus work
-Deterministic typed fixture generation is deferred to Prompt 18B. An expanded analyzer-executed corpus and exact demo replacements are deferred to Prompt 18C; no demo is removed here.
+## Validation responsibilities
+
+| Layer | Purpose | Mechanism | Execution |
+| --- | --- | --- | --- |
+| Analyzer rule correctness | Explicit evidence selects the intended diagnosis | Typed Rust tests | Normal CI |
+| Artifact pipeline regression | Representative committed artifacts pass through real intake and analyzer paths | Diagnostic corpus and integrity lock | Normal CI |
+| Live workload behavior | Real demos produce expected signals and preserve integration behavior | Bounded demo smoke/parity checks plus repeated-run and mitigation matrices | CI smoke/parity; local/manual repeated runs |
+
+The diagnostic manifest and benchmark own corpus classification and accounting. The analyzer fixture lock and integrity checker protect committed analyzer artifacts. Typed analyzer tests own diagnosis-rule coverage.
+
+The committed diagnostic corpus proves that representative Run and tracing artifacts pass through the real decoding, import, CLI, and analyzer paths. Its `analyzer_accuracy` field measures agreement against controlled committed observation labels. It does not estimate universal or production accuracy, and the corpus does not need one analyzer fixture for every diagnosis family.
+
+Real workloads are validated in two ways: bounded demo smoke and parity checks may run in CI, while repeated-run and mitigation matrices remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
 
 ## Confidence calibration
 The scorecard includes confidence-bucket accuracy summaries (low/medium/high buckets) as calibration hints, not probability guarantees.

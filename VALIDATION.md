@@ -4,7 +4,19 @@
 
 The schema-version-2 deterministic corpus separates analyzer-executed cases, unique accuracy-eligible observations, and report-contract cases. Raw Runs are analyzed at benchmark execution; stable tracing JSONL is imported and then analyzed. Analyzer cases have typed success/failure contracts and may be execution-only. Multiple artifact encodings of one logical workload execute independently but count once for accuracy and must agree on ordered diagnosis visibility and confidence bucket.
 
-Pre-generated and synthetic Reports validate Report fields, warnings, evidence, next checks, confidence, routes, and temporal output without executing the analyzer. They never contribute to analyzer accuracy. Fixture ground truth is controlled fixture intent, not production truth or root-cause proof. Typed fixture generation is deferred to Prompt 18B; corpus expansion and exact demo replacements are deferred to Prompt 18C, and no demo is removed here.
+Pre-generated and synthetic Reports validate Report fields, warnings, evidence, next checks, confidence, routes, and temporal output without executing the analyzer. They never contribute to analyzer accuracy. Fixture ground truth is controlled fixture intent, not production truth or root-cause proof.
+
+## Validation responsibilities
+
+| Layer | Purpose | Mechanism | Execution |
+| --- | --- | --- | --- |
+| Analyzer rule correctness | Explicit evidence selects the intended diagnosis | Typed Rust tests | Normal CI |
+| Artifact pipeline regression | Representative committed artifacts pass through real intake and analyzer paths | Diagnostic corpus and integrity lock | Normal CI |
+| Live workload behavior | Real demos produce expected signals and preserve integration behavior | Bounded demo smoke/parity checks plus repeated-run and mitigation matrices | CI smoke/parity; local/manual repeated runs |
+
+The diagnostic manifest and benchmark own corpus classification and accounting. The analyzer fixture lock and integrity checker protect committed analyzer artifacts. Typed analyzer tests own diagnosis-rule coverage.
+
+Real workloads are validated in two ways: bounded demo smoke and parity checks may run in CI, while repeated-run and mitigation matrices remain local/manual and machine-scoped. Generated Runs, Reports, summaries, and matrix outputs remain under `target/` and are not committed.
 
 ## Summary
 `tailtriage` is a triage tool, not root-cause proof. It produces evidence-ranked suspects and next checks, where suspects are leads and not causal certainty.
