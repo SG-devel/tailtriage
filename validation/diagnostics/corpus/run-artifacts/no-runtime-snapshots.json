@@ -45,7 +45,38 @@
       "finished_at_run_us": 2000150
     }
   ],
-  "stages": [],
+  "stages": [
+    {
+      "request_id": "r1",
+      "stage": "downstream",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40,
+      "success": true,
+      "started_at_run_us": 50,
+      "finished_at_run_us": 90
+    },
+    {
+      "request_id": "r2",
+      "stage": "downstream",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 35,
+      "success": true,
+      "started_at_run_us": 1000075,
+      "finished_at_run_us": 1000110
+    },
+    {
+      "request_id": "r3",
+      "stage": "downstream",
+      "started_at_unix_ms": 1,
+      "finished_at_unix_ms": 2,
+      "latency_us": 40,
+      "success": true,
+      "started_at_run_us": 2000100,
+      "finished_at_run_us": 2000140
+    }
+  ],
   "queues": [
     {
       "request_id": "r1",

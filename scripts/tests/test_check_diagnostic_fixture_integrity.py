@@ -56,9 +56,11 @@ class FixtureIntegrityTest(unittest.TestCase):
     def cases(self):
         return [
             {"id": "run", "validation_class": "analyzer_execution",
-             "artifact_type": "run_artifact", "artifact": "corpus/run.json"},
+             "artifact_type": "run_artifact", "artifact": "corpus/run.json",
+             "accuracy_eligible": True, "observation_id": "run"},
             {"id": "trace", "validation_class": "analyzer_execution",
-             "artifact_type": "tracing_span_jsonl", "artifact": "corpus/trace.jsonl"},
+             "artifact_type": "tracing_span_jsonl", "artifact": "corpus/trace.jsonl",
+             "accuracy_eligible": True, "observation_id": "trace"},
             {"id": "report", "validation_class": "report_contract",
              "artifact_type": "synthetic_analysis_report", "artifact": "ignored.json"},
         ]
@@ -92,6 +94,42 @@ class FixtureIntegrityTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("match the integrity lock", result.stdout)
 
+    def test_valid_lock_format_passes(self):
+        self.assertEqual(self.lock()["format"], "tailtriage.analyzer-fixture-lock.v1")
+        self.assertEqual(self.command().returncode, 0)
+
+    def test_missing_lock_format_is_rejected(self):
+        lock = self.lock()
+        del lock["format"]
+        self.write_lock(lock)
+        self.assert_failure("missing lock field: format")
+
+    def test_non_string_lock_format_is_rejected(self):
+        lock = self.lock()
+        lock["format"] = 1
+        self.write_lock(lock)
+        self.assert_failure("lock format must be a string")
+
+    def test_unsupported_lock_format_is_rejected(self):
+        lock = self.lock()
+        lock["format"] = "tailtriage.analyzer-fixture-lock.v2"
+        self.write_lock(lock)
+        self.assert_failure("unsupported lock format")
+
+    def test_legacy_schema_version_fields_are_rejected(self):
+        lock = self.lock()
+        lock.update(schema_version=1, manifest_schema_version=2)
+        self.write_lock(lock)
+        result = self.assert_failure("unknown lock field: schema_version")
+        self.assertIn("unknown lock field: manifest_schema_version", result.stderr)
+
+    def test_refresh_writes_only_new_format_marker(self):
+        lock = self.lock()
+        lock.update(schema_version=1, manifest_schema_version=2)
+        self.write_lock(lock)
+        self.assertEqual(self.command("--refresh").returncode, 0)
+        self.assertEqual(set(self.lock()), {"format", "fixtures"})
+
     def test_refresh_is_byte_deterministic(self):
         before = (self.diagnostics / "analyzer-fixtures.lock.json").read_bytes()
         self.assertEqual(self.command("--refresh").returncode, 0)
@@ -111,6 +149,77 @@ class FixtureIntegrityTest(unittest.TestCase):
         after = {p.relative_to(self.root): (p.stat().st_mtime_ns, p.read_bytes())
                  for p in self.root.rglob("*") if p.is_file()}
         self.assertEqual(before, after)
+
+    def mutate_entry(self, mutation):
+        lock = self.lock()
+        mutation(lock["fixtures"][0])
+        self.write_lock(lock)
+
+    def test_non_object_lock_entry_is_rejected(self):
+        for value in (None, "fixture", 42, []):
+            with self.subTest(value=value):
+                lock = self.lock()
+                lock["fixtures"].append(value)
+                self.write_lock(lock)
+                self.assert_failure("lock fixture 2 must be an object")
+                self.command("--refresh")
+
+    def test_missing_lock_entry_field_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.pop("artifact"))
+        self.assert_failure("lock fixture 0 missing field: artifact")
+
+    def test_unknown_lock_entry_field_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(extra=True))
+        self.assert_failure("lock fixture 0 unknown field: extra")
+
+    def test_empty_lock_case_id_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(case_id=""))
+        self.assert_failure("case_id must be a non-empty string")
+
+    def test_invalid_lock_artifact_type_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(artifact_type="report"))
+        self.assert_failure("artifact_type must be run_artifact or tracing_span_jsonl")
+
+    def test_empty_lock_artifact_path_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(artifact=""))
+        self.assert_failure("artifact must be a non-empty string")
+
+    def test_invalid_sha256_type_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(sha256=42))
+        self.assert_failure("sha256 must be a string")
+
+    def test_invalid_sha256_length_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(sha256="a" * 63))
+        self.assert_failure("sha256 must be exactly 64 lowercase hexadecimal characters")
+
+    def test_uppercase_sha256_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(sha256="A" * 64))
+        self.assert_failure("sha256 must be exactly 64 lowercase hexadecimal characters")
+
+    def test_non_hex_sha256_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(sha256="g" * 64))
+        self.assert_failure("sha256 must be exactly 64 lowercase hexadecimal characters")
+
+    def test_negative_byte_length_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(byte_length=-1))
+        self.assert_failure("byte_length must be a non-negative integer")
+
+    def test_boolean_byte_length_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(byte_length=True))
+        self.assert_failure("byte_length must be a non-negative integer")
+
+    def test_non_object_shape_is_rejected(self):
+        self.mutate_entry(lambda entry: entry.update(shape=[]))
+        self.assert_failure("shape must be an object")
+
+    def test_multiple_malformed_entries_are_stably_sorted(self):
+        lock = self.lock()
+        lock["fixtures"] = [None, {"case_id": ""}]
+        self.write_lock(lock)
+        lines = self.command().stderr.splitlines()
+        self.assertEqual(lines, sorted(lines))
+        self.assertIn("lock fixture 0 must be an object", lines)
+        self.assertIn("lock fixture 1 missing field: artifact", lines)
 
     def test_changed_bytes_are_detected(self):
         self.run_path.write_bytes(self.run_bytes(outcome="error"))
@@ -134,7 +243,9 @@ class FixtureIntegrityTest(unittest.TestCase):
 
     def test_unexpected_lock_entry_is_detected(self):
         lock = self.lock()
-        lock["fixtures"].append({"case_id": "old"})
+        old = dict(lock["fixtures"][0])
+        old["case_id"] = "old"
+        lock["fixtures"].append(old)
         self.write_lock(lock)
         self.assert_failure("unexpected lock entry: old")
 
@@ -161,6 +272,49 @@ class FixtureIntegrityTest(unittest.TestCase):
         cases[1]["artifact"] = "corpus/run.json"
         self.write_manifest(cases)
         self.assert_failure("duplicate manifest artifact path: corpus/run.json")
+
+    def duplicate_run_cases(self, first_observation="one", second_observation="two",
+                            accuracy_eligible=True):
+        duplicate = self.diagnostics / "corpus" / "run-copy.json"
+        duplicate.write_bytes(self.run_path.read_bytes())
+        return [
+            {"id": "a", "validation_class": "analyzer_execution",
+             "artifact_type": "run_artifact", "artifact": "corpus/run.json",
+             "accuracy_eligible": accuracy_eligible, "observation_id": first_observation},
+            {"id": "b", "validation_class": "analyzer_execution",
+             "artifact_type": "run_artifact", "artifact": "corpus/run-copy.json",
+             "accuracy_eligible": accuracy_eligible, "observation_id": second_observation},
+        ]
+
+    def test_distinct_accuracy_observations_cannot_share_bytes(self):
+        self.write_manifest(self.duplicate_run_cases())
+        self.assert_failure("identical analyzer artifact bytes are assigned to distinct accuracy observations")
+
+    def test_equivalent_cases_with_same_observation_id_may_share_bytes(self):
+        self.write_manifest(self.duplicate_run_cases(second_observation="one"))
+        self.assertEqual(self.command("--refresh").returncode, 0)
+        self.assertEqual(self.command().returncode, 0)
+
+    def test_non_accuracy_cases_may_share_bytes(self):
+        self.write_manifest(self.duplicate_run_cases(accuracy_eligible=False))
+        self.assertEqual(self.command("--refresh").returncode, 0)
+        self.assertEqual(self.command().returncode, 0)
+
+    def test_accuracy_case_requires_observation_id(self):
+        cases = self.cases()
+        cases[0].pop("observation_id")
+        self.write_manifest(cases)
+        self.assert_failure("non-empty observation_id required for accuracy-eligible analyzer run")
+
+    def test_duplicate_diagnostic_is_deterministic(self):
+        cases = self.duplicate_run_cases()
+        cases.reverse()
+        self.write_manifest(cases)
+        result = self.command()
+        digest = hashlib.sha256(self.run_path.read_bytes()).hexdigest()
+        expected = ("identical analyzer artifact bytes are assigned to distinct accuracy "
+                    f"observations: {digest}: a/one, b/two")
+        self.assertIn(expected, result.stderr.splitlines())
 
     def test_report_contract_is_excluded(self):
         self.assertEqual({entry["case_id"] for entry in self.lock()["fixtures"]}, {"run", "trace"})

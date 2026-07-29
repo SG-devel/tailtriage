@@ -11,7 +11,9 @@ import sys
 
 DIAGNOSTICS_ROOT = Path(__file__).resolve().parents[1] / "validation" / "diagnostics"
 LOCK_NAME = "analyzer-fixtures.lock.json"
+LOCK_FORMAT = "tailtriage.analyzer-fixture-lock.v1"
 ARTIFACT_TYPES = {"run_artifact", "tracing_span_jsonl"}
+LOCK_ENTRY_FIELDS = {"case_id", "artifact_type", "artifact", "sha256", "byte_length", "shape"}
 
 
 def read_json(path, description, failures):
@@ -41,6 +43,8 @@ def manifest_inventory(root, failures):
         case_id = case.get("id")
         artifact_type = case.get("artifact_type")
         artifact = case.get("artifact")
+        accuracy_eligible = case.get("accuracy_eligible") is True
+        observation_id = case.get("observation_id")
         label = case_id if isinstance(case_id, str) and case_id else f"case {number}"
         readable = True
         if not isinstance(case_id, str) or not case_id:
@@ -68,8 +72,12 @@ def manifest_inventory(root, failures):
                     if not resolved.is_file():
                         failures.append(f"artifact is not a regular file for {label}: {artifact}")
                         readable = False
+        if accuracy_eligible and (not isinstance(observation_id, str) or not observation_id):
+            failures.append(f"non-empty observation_id required for accuracy-eligible analyzer {label}")
         inventory.append({"case_id": case_id, "artifact_type": artifact_type,
-                          "artifact": artifact, "readable": readable})
+                          "artifact": artifact, "readable": readable,
+                          "accuracy_eligible": accuracy_eligible,
+                          "observation_id": observation_id})
 
     ids = Counter(item["case_id"] for item in inventory)
     paths = Counter(item["artifact"] for item in inventory)
@@ -209,27 +217,78 @@ def calculate_entries(root, inventory, failures):
         entries.append({key: item[key] for key in ("case_id", "artifact_type", "artifact")}
                        | {"sha256": hashlib.sha256(data).hexdigest(),
                           "byte_length": len(data), "shape": shape})
+    accuracy_by_hash = {}
+    for item, entry in ((item, entry) for item in inventory for entry in entries
+                        if item["case_id"] == entry["case_id"] and item["accuracy_eligible"]):
+        accuracy_by_hash.setdefault(entry["sha256"], []).append(
+            (item["case_id"], item["observation_id"]))
+    for digest, members in accuracy_by_hash.items():
+        if len({observation_id for _, observation_id in members}) > 1:
+            rendered = ", ".join(f"{case_id}/{observation_id}"
+                                 for case_id, observation_id in sorted(members))
+            failures.append("identical analyzer artifact bytes are assigned to distinct "
+                            f"accuracy observations: {digest}: {rendered}")
     return sorted(entries, key=lambda entry: entry["case_id"])
 
 
 def compare_lock(lock, entries, failures):
     if not isinstance(lock, dict):
+        failures.append("fixture lock must be an object")
         return
-    if lock.get("schema_version") != 1:
-        failures.append("lock schema_version must be 1")
-    if lock.get("manifest_schema_version") != 2:
-        failures.append("lock manifest_schema_version must be 2")
+    missing = {"format", "fixtures"} - set(lock)
+    unknown = set(lock) - {"format", "fixtures"}
+    for field in sorted(missing):
+        failures.append(f"missing lock field: {field}")
+    for field in sorted(unknown):
+        failures.append(f"unknown lock field: {field}")
+    if "format" in lock:
+        if not isinstance(lock["format"], str):
+            failures.append("lock format must be a string")
+        elif lock["format"] != LOCK_FORMAT:
+            failures.append(f"unsupported lock format: {lock['format']}")
     fixtures = lock.get("fixtures")
     if not isinstance(fixtures, list):
         failures.append("lock fixtures must be a list")
         return
-    case_ids = [entry.get("case_id") for entry in fixtures if isinstance(entry, dict)]
+    valid_entries = []
+    for number, entry in enumerate(fixtures):
+        label = f"lock fixture {number}"
+        if not isinstance(entry, dict):
+            failures.append(f"{label} must be an object")
+            continue
+        for field in sorted(LOCK_ENTRY_FIELDS - set(entry)):
+            failures.append(f"{label} missing field: {field}")
+        for field in sorted(set(entry) - LOCK_ENTRY_FIELDS):
+            failures.append(f"{label} unknown field: {field}")
+        case_id = entry.get("case_id")
+        artifact_type = entry.get("artifact_type")
+        artifact = entry.get("artifact")
+        sha256 = entry.get("sha256")
+        byte_length = entry.get("byte_length")
+        shape = entry.get("shape")
+        if not isinstance(case_id, str) or not case_id:
+            failures.append(f"{label} case_id must be a non-empty string")
+        if artifact_type not in ARTIFACT_TYPES:
+            failures.append(f"{label} artifact_type must be run_artifact or tracing_span_jsonl")
+        if not isinstance(artifact, str) or not artifact:
+            failures.append(f"{label} artifact must be a non-empty string")
+        if not isinstance(sha256, str):
+            failures.append(f"{label} sha256 must be a string")
+        elif len(sha256) != 64 or any(char not in "0123456789abcdef" for char in sha256):
+            failures.append(f"{label} sha256 must be exactly 64 lowercase hexadecimal characters")
+        if isinstance(byte_length, bool) or not isinstance(byte_length, int) or byte_length < 0:
+            failures.append(f"{label} byte_length must be a non-negative integer")
+        if not isinstance(shape, dict):
+            failures.append(f"{label} shape must be an object")
+        if set(entry) == LOCK_ENTRY_FIELDS and isinstance(case_id, str) and case_id:
+            valid_entries.append(entry)
+    case_ids = [entry["case_id"] for entry in valid_entries]
     for case_id, count in Counter(case_ids).items():
         if count > 1:
             failures.append(f"duplicate lock case ID: {case_id}")
     if case_ids != sorted(case_ids):
         failures.append("lock fixtures must be ordered by case ID")
-    locked = {entry.get("case_id"): entry for entry in fixtures if isinstance(entry, dict)}
+    locked = {entry["case_id"]: entry for entry in valid_entries}
     current = {entry["case_id"]: entry for entry in entries}
     for case_id in current.keys() - locked.keys():
         failures.append(f"missing lock entry: {case_id}")
@@ -264,7 +323,7 @@ def main(argv=None):
             for failure in sorted(set(failures)):
                 print(failure, file=sys.stderr)
             return 1
-        payload = {"schema_version": 1, "manifest_schema_version": 2, "fixtures": entries}
+        payload = {"format": LOCK_FORMAT, "fixtures": entries}
         lock_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print("diagnostic analyzer fixture lock refreshed")
         return 0

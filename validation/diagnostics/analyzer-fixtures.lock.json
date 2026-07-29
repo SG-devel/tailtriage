@@ -1,6 +1,5 @@
 {
-  "schema_version": 1,
-  "manifest_schema_version": 2,
+  "format": "tailtriage.analyzer-fixture-lock.v1",
   "fixtures": [
     {
       "case_id": "cancelled-request-with-partial-child",
@@ -217,11 +216,11 @@
       "case_id": "raw_no_runtime_snapshots",
       "artifact_type": "run_artifact",
       "artifact": "corpus/run-artifacts/no-runtime-snapshots.json",
-      "sha256": "d1894fdb62cb21ff835404c30b631de6b9bd2ac17a20ea6c918d562da5e11581",
-      "byte_length": 2126,
+      "sha256": "2b45c75b3639f7fb6b1e93faadf7d692676372e5d88e3cfaf3d6ee406d25b87a",
+      "byte_length": 2868,
       "shape": {
         "request_count": 3,
-        "stage_count": 0,
+        "stage_count": 3,
         "queue_count": 3,
         "inflight_snapshot_count": 3,
         "runtime_snapshot_count": 0,
@@ -231,7 +230,7 @@
           "ok": 3
         },
         "requests_with_run_interval": 3,
-        "stages_with_run_interval": 0,
+        "stages_with_run_interval": 3,
         "queues_with_run_interval": 3,
         "first_request_id": "r1",
         "last_request_id": "r3",
