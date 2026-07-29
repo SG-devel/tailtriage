@@ -393,6 +393,21 @@ class FixtureIntegrityTest(unittest.TestCase):
         self.write_manifest(cases)
         self.assert_failure("artifact path escapes diagnostics root")
 
+    def test_invalid_artifact_path_is_rejected_without_crashing(self):
+        cases = self.cases()
+        cases[0]["artifact"] = "corpus/\0invalid.json"
+        self.write_manifest(cases)
+        lock_before = (self.diagnostics / "analyzer-fixtures.lock.json").read_bytes()
+        for args in ((), ("--refresh",)):
+            with self.subTest(args=args):
+                result = self.assert_validation_failure("invalid artifact path for run", *args)
+                for exception in ("ValueError", "OSError", "RuntimeError"):
+                    self.assertNotIn(exception, result.stderr)
+        self.assertEqual(
+            lock_before,
+            (self.diagnostics / "analyzer-fixtures.lock.json").read_bytes(),
+        )
+
     def test_invalid_utf8_is_rejected(self):
         self.run_path.write_bytes(b"\xff\n")
         self.assert_failure("invalid UTF-8")
@@ -421,6 +436,44 @@ class FixtureIntegrityTest(unittest.TestCase):
         record = {"format": "wrong", "span": {"fields": {}}}
         self.trace_path.write_text(json.dumps(record) + "\n")
         self.assert_failure("wrong tracing format marker")
+
+    def test_non_string_tracing_kind_is_rejected_without_crashing(self):
+        for kind in ([], {}, 42, True):
+            for args in ((), ("--refresh",)):
+                with self.subTest(kind=kind, args=args):
+                    record = {
+                        "format": "tailtriage.tracing-span.v1",
+                        "span": {"fields": {"tt.kind": kind}},
+                    }
+                    self.trace_path.write_text(json.dumps(record) + "\n")
+                    lock_before = (
+                        self.diagnostics / "analyzer-fixtures.lock.json"
+                    ).read_bytes()
+                    result = self.assert_validation_failure(
+                        "span tt.kind must be a string on line 1", *args
+                    )
+                    self.assertEqual(
+                        lock_before,
+                        (self.diagnostics / "analyzer-fixtures.lock.json").read_bytes(),
+                    )
+
+    def test_missing_and_unknown_tracing_kinds_are_other(self):
+        records = [
+            {"format": "tailtriage.tracing-span.v1", "span": {"fields": {}}},
+            {
+                "format": "tailtriage.tracing-span.v1",
+                "span": {"fields": {"tt.kind": "custom"}},
+            },
+        ]
+        self.trace_path.write_text(
+            "\n".join(json.dumps(record) for record in records) + "\n"
+        )
+        self.assertEqual(self.command("--refresh").returncode, 0)
+        entry = next(
+            item for item in self.lock()["fixtures"] if item["case_id"] == "trace"
+        )
+        self.assertEqual(entry["shape"]["other_span_count"], 2)
+        self.assertEqual(self.command().returncode, 0)
 
     def test_run_shape_drift_is_detected(self):
         lock = self.lock()

@@ -57,21 +57,27 @@ def manifest_inventory(root, failures):
             failures.append(f"non-empty artifact path required for {label}")
             readable = False
         else:
-            candidate = Path(artifact)
-            if candidate.is_absolute():
-                failures.append(f"absolute artifact path rejected for {label}: {artifact}")
-                readable = False
-            else:
-                resolved = (root / candidate).resolve()
-                try:
-                    resolved.relative_to(root_resolved)
-                except ValueError:
-                    failures.append(f"artifact path escapes diagnostics root for {label}: {artifact}")
+            try:
+                candidate = Path(artifact)
+                if candidate.is_absolute():
+                    failures.append(f"absolute artifact path rejected for {label}: {artifact}")
                     readable = False
                 else:
-                    if not resolved.is_file():
-                        failures.append(f"artifact is not a regular file for {label}: {artifact}")
+                    resolved = (root / candidate).resolve()
+            except (OSError, RuntimeError, ValueError):
+                failures.append(f"invalid artifact path for {label}: {artifact}")
+                readable = False
+            else:
+                if not candidate.is_absolute():
+                    try:
+                        resolved.relative_to(root_resolved)
+                    except ValueError:
+                        failures.append(f"artifact path escapes diagnostics root for {label}: {artifact}")
                         readable = False
+                    else:
+                        if not resolved.is_file():
+                            failures.append(f"artifact is not a regular file for {label}: {artifact}")
+                            readable = False
         if accuracy_eligible and (not isinstance(observation_id, str) or not observation_id):
             failures.append(f"non-empty observation_id required for accuracy-eligible analyzer {label}")
         inventory.append({"case_id": case_id, "artifact_type": artifact_type,
@@ -187,6 +193,8 @@ def tracing_shape(text):
         span = require_object(record.get("span"), f"span on line {number}")
         fields = require_object(span.get("fields"), f"span.fields on line {number}")
         kind = fields.get("tt.kind")
+        if kind is not None and not isinstance(kind, str):
+            raise ValueError(f"span tt.kind must be a string on line {number}")
         category = kind if kind in {"request", "stage", "queue"} else "other"
         counts[category] += 1
         if category == "request":
