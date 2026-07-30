@@ -11,6 +11,7 @@ class Tests(unittest.TestCase):
   text=render_scorecard(metrics(),env())
   for h in ['## Analyzer execution','## Analyzer accuracy','## Report-contract validation','## Validated input paths','## Failed analyzer cases','## Failed report-contract cases','## Non-claims']:self.assertIn(h,text)
   self.assertIn('Unique accuracy observations: 1',text);self.assertIn('Executed artifact encodings: 1',text);self.assertIn('do not contribute to analyzer accuracy',text)
+  self.assertIn('The native/tracing equivalence contract is not an accuracy denominator.',text)
  def test_unavailable_accuracy_renders_na(self):
   text=render_scorecard(metrics(True),env());self.assertIn('Top-1 accuracy: n/a',text);self.assertIn('Top-2 recall: n/a',text)
  def test_environment_schema_two(self):

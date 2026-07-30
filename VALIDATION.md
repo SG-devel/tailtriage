@@ -67,7 +67,7 @@ The deterministic benchmark validates:
 - evidence-ranked suspect correctness against corpus labels
 - analyzer-path behavior on selected committed raw run-artifact fixtures (Run -> analyze_run())
 - completed tailtriage tracing JSONL import through `tailtriage import tracing-spans-jsonl`, followed by `tailtriage analyze` on the imported Run JSON
-- required top-2 visibility (`required_top2` appears in primary or first secondary)
+- required visible suspects (`required_visible_suspects`) appear as the primary or first secondary suspect
 - warning expectations (`expected_warnings` required; unexpected warnings rejected unless explicitly allowed)
 - required evidence substrings
 - required next-check substrings when required by a case

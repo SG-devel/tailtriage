@@ -201,7 +201,7 @@ def render_scorecard(metrics, env):
     parts.append("## Failed report-contract cases\n")
     parts.append(render_failed_cases(metrics.get("failed_report_contract_cases", [])))
     parts.append("## Non-claims\n")
-    parts.extend(["- This is not root-cause proof.", "- This is not universal production accuracy.", "- This is not universal production overhead.", "- This is not real-service validation.", "- Fixture labels are controlled intent, not production truth.","- Report-contract pass rates are not analyzer accuracy.","- Equivalent artifact encodings are not independent observations.","- Prompt 17 equivalence is not an accuracy denominator."])
+    parts.extend(["- This is not root-cause proof.", "- This is not universal production accuracy.", "- This is not universal production overhead.", "- This is not real-service validation.", "- Fixture labels are controlled intent, not production truth.","- Report-contract pass rates are not analyzer accuracy.","- Equivalent artifact encodings are not independent observations.","- The native/tracing equivalence contract is not an accuracy denominator."])
     return "\n".join(parts) + "\n"
 
 
