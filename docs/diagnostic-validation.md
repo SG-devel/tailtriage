@@ -54,7 +54,11 @@ The corpus supports `must_include_next_checks`, and selected adversarial cases u
 Next-check validation is substring-based rather than exact-output based. This keeps the diagnostic contract stable while allowing wording to improve.
 
 ## Future work
-Overhead integration, collector-limit integration, and expanded real-service validation are separate follow-on work.
+Future work is limited to:
+
+- deeper operational coverage;
+- broader workload coverage;
+- curated real-service validation.
 
 ## Mitigation matrix validation (manual/local)
 A manual mitigation matrix runner is available at `scripts/run_mitigation_matrix.py`. It compares degraded/baseline runs against targeted mitigated runs for controlled demos and summarizes whether expected latency/evidence movement occurs.
