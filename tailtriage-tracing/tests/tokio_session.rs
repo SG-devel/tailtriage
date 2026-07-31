@@ -168,6 +168,7 @@ async fn a1_bare_tokio_feature_session_rejects_manual_runtime_recording() {
             at_unix_ms: unix_time_ms(),
             at_run_us: None,
             alive_tasks: Some(10),
+            worker_count: None,
             global_queue_depth: Some(11),
             local_queue_depth: Some(12),
             blocking_queue_depth: Some(13),
@@ -195,6 +196,7 @@ async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
             at_unix_ms: 42,
             at_run_us: Some(7),
             alive_tasks: Some(1),
+            worker_count: Some(3),
             global_queue_depth: Some(2),
             local_queue_depth: Some(3),
             blocking_queue_depth: Some(4),
@@ -208,6 +210,7 @@ async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
     );
     assert_eq!(snapshot.run().runtime_snapshots.len(), 1);
     assert_eq!(snapshot.run().runtime_snapshots[0].at_unix_ms, 42);
+    assert_eq!(snapshot.run().runtime_snapshots[0].worker_count, Some(3));
     assert_eq!(snapshot.run().metadata.started_at_unix_ms, 42);
     assert!(snapshot.run().metadata.finalized_at_unix_ms.is_none());
 
@@ -216,6 +219,7 @@ async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
     let after_shutdown = unix_time_ms();
     assert_eq!(imported.run().runtime_snapshots.len(), 1);
     assert_eq!(imported.run().runtime_snapshots[0].at_unix_ms, 42);
+    assert_eq!(imported.run().runtime_snapshots[0].worker_count, Some(3));
     let finalized = imported
         .run()
         .metadata
@@ -254,6 +258,7 @@ async fn a3_sampler_interval_starts_background_and_retains_manual_snapshot() {
             at_unix_ms: 123_456,
             at_run_us: None,
             alive_tasks: Some(99),
+            worker_count: None,
             global_queue_depth: Some(98),
             local_queue_depth: Some(97),
             blocking_queue_depth: Some(96),

@@ -1385,9 +1385,87 @@ fn runtime_snapshot(
         global_queue_depth: global,
         local_queue_depth: local,
         alive_tasks: Some(20),
+        worker_count: None,
         blocking_queue_depth: blocking,
         remote_schedule_count: None,
     }
+}
+
+#[test]
+fn worker_count_does_not_change_analyzer_diagnosis_or_rendering() {
+    let mut historical = test_run();
+    historical.requests = (0..20).map(sample_request).collect();
+    historical.runtime_snapshots = vec![runtime_snapshot(Some(20), Some(0), Some(20)); 20];
+
+    let historical_report = analyze_run(&historical, AnalyzeOptions::default());
+    let mut positive = historical.clone();
+    for snapshot in &mut positive.runtime_snapshots {
+        snapshot.worker_count = Some(4);
+    }
+    let positive_report = analyze_run(&positive, AnalyzeOptions::default());
+    assert_eq!(positive_report, historical_report);
+    assert_eq!(
+        render_json(&positive_report).expect("positive report JSON"),
+        render_json(&historical_report).expect("historical report JSON")
+    );
+    assert_eq!(
+        render_text(&positive_report),
+        render_text(&historical_report)
+    );
+
+    let mut invalid = historical;
+    for snapshot in &mut invalid.runtime_snapshots {
+        snapshot.worker_count = Some(0);
+    }
+    let invalid_report = analyze_run(&invalid, AnalyzeOptions::default());
+    assert!(invalid_report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("invalid_worker_count")));
+    assert_eq!(
+        invalid_report.primary_suspect,
+        historical_report.primary_suspect
+    );
+    assert_eq!(
+        invalid_report.secondary_suspects,
+        historical_report.secondary_suspects
+    );
+    assert_eq!(
+        invalid_report.request_count,
+        historical_report.request_count
+    );
+    assert_eq!(
+        invalid_report.p50_latency_us,
+        historical_report.p50_latency_us
+    );
+    assert_eq!(
+        invalid_report.p95_latency_us,
+        historical_report.p95_latency_us
+    );
+    assert_eq!(
+        invalid_report.p99_latency_us,
+        historical_report.p99_latency_us
+    );
+    assert_eq!(
+        invalid_report.p95_queue_share_permille,
+        historical_report.p95_queue_share_permille
+    );
+    assert_eq!(
+        invalid_report.p95_service_share_permille,
+        historical_report.p95_service_share_permille
+    );
+    assert_eq!(
+        invalid_report.inflight_trend,
+        historical_report.inflight_trend
+    );
+    assert_eq!(
+        invalid_report.route_breakdowns,
+        historical_report.route_breakdowns
+    );
+    assert_eq!(
+        invalid_report.temporal_segments,
+        historical_report.temporal_segments
+    );
 }
 
 #[test]
@@ -3144,6 +3222,7 @@ fn runtime_partial_fields_cap_executor_or_blocking_confidence() {
             at_unix_ms: i,
             at_run_us: None,
             alive_tasks: Some(1),
+            worker_count: None,
             global_queue_depth: Some(5),
             local_queue_depth: Some(2),
             blocking_queue_depth: None,
@@ -3674,6 +3753,7 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
             global_queue_depth: Some(50),
             local_queue_depth: Some(50),
             alive_tasks: Some(100),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -3683,6 +3763,7 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             alive_tasks: Some(100),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -3749,6 +3830,7 @@ fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
             global_queue_depth: Some(50),
             local_queue_depth: Some(50),
             alive_tasks: Some(100),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -3758,6 +3840,7 @@ fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             alive_tasks: Some(100),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -3767,6 +3850,7 @@ fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             alive_tasks: Some(100),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -3832,6 +3916,7 @@ fn temporal_segments_fallback_for_older_artifacts_warns() {
             global_queue_depth: Some(50),
             local_queue_depth: Some(50),
             alive_tasks: Some(100),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -3841,6 +3926,7 @@ fn temporal_segments_fallback_for_older_artifacts_warns() {
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             alive_tasks: Some(100),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -4117,6 +4203,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             alive_tasks: Some(20),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -4126,6 +4213,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             alive_tasks: Some(20),
+            worker_count: None,
             blocking_queue_depth: Some(0),
             remote_schedule_count: None,
         },
@@ -4186,6 +4274,7 @@ fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segment
         global_queue_depth: Some(2),
         local_queue_depth: Some(1),
         alive_tasks: Some(5),
+        worker_count: None,
         blocking_queue_depth: Some(0),
         remote_schedule_count: None,
     }];

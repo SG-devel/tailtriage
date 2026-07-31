@@ -26,6 +26,7 @@ async fn tracing_tokio_facade_exposes_runtime_methods_and_async_shutdown() {
             at_unix_ms: 77,
             at_run_us: Some(11),
             alive_tasks: Some(2),
+            worker_count: Some(2),
             global_queue_depth: Some(3),
             local_queue_depth: Some(4),
             blocking_queue_depth: Some(5),
@@ -35,6 +36,7 @@ async fn tracing_tokio_facade_exposes_runtime_methods_and_async_shutdown() {
     let manual_run = manual.shutdown().await.expect("manual shutdown");
     assert_eq!(manual_run.run().runtime_snapshots.len(), 1);
     assert_eq!(manual_run.run().runtime_snapshots[0].at_unix_ms, 77);
+    assert_eq!(manual_run.run().runtime_snapshots[0].worker_count, Some(2));
 
     let sampled = tailtriage::tracing::TracingSession::builder("sampled-svc")
         .sampler_interval(std::time::Duration::from_millis(1))
@@ -45,6 +47,7 @@ async fn tracing_tokio_facade_exposes_runtime_methods_and_async_shutdown() {
             at_unix_ms: 88,
             at_run_us: None,
             alive_tasks: Some(12),
+            worker_count: None,
             global_queue_depth: Some(13),
             local_queue_depth: Some(14),
             blocking_queue_depth: Some(15),

@@ -84,6 +84,7 @@ async fn run_demo(
                     at_unix_ms: unix_time_ms(),
                     at_run_us: None,
                     alive_tasks: None,
+                    worker_count: None,
                     global_queue_depth: Some(0),
                     local_queue_depth: None,
                     blocking_queue_depth: Some(pending),

@@ -162,12 +162,16 @@ On successful sampler start, tailtriage records effective sampler configuration 
 When the sampler is running, the run artifact can include runtime snapshots such as:
 
 - `alive_tasks`
+- `worker_count` (the runtime's observed worker-thread count)
 - `global_queue_depth`
 - `local_queue_depth`
 - `blocking_queue_depth`
 - `remote_schedule_count`
 
-Some of these fields depend on Tokio build/runtime capabilities.
+Worker count is captured in ordinary builds: current-thread runtimes report one,
+and configured multi-thread runtimes report their configured worker count when it
+fits in `u32`. Some other fields depend on Tokio build/runtime capabilities.
+Worker count is optional evidence and is not yet used in analyzer scoring.
 
 ### Start with inherited mode defaults
 

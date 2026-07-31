@@ -4806,6 +4806,7 @@ mod tests {
                 at_unix_ms: tailtriage_core::unix_time_ms(),
                 at_run_us: Some(1_000),
                 alive_tasks: Some(2),
+                worker_count: None,
                 global_queue_depth: Some(3),
                 local_queue_depth: Some(4),
                 blocking_queue_depth: Some(5),
