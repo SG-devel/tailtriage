@@ -21,6 +21,9 @@ include = [
 tailtriage-core.workspace = true
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
 

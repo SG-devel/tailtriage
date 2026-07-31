@@ -48,6 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         at_unix_ms: unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(4),
+        worker_count: None,
         global_queue_depth: Some(1),
         local_queue_depth: Some(0),
         blocking_queue_depth: Some(0),

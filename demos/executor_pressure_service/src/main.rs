@@ -163,6 +163,7 @@ async fn run_request_cohort(
                     at_unix_ms: unix_time_ms(),
                     at_run_us: None,
                     alive_tasks: Some(amplified_global_depth),
+                    worker_count: None,
                     global_queue_depth: Some(amplified_global_depth),
                     local_queue_depth: Some(amplified_local_depth),
                     blocking_queue_depth: Some(0),

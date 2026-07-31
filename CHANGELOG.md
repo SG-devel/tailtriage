@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Runtime snapshots now carry optional Tokio worker-count evidence without changing schema version 2 or analyzer scoring. Older artifacts may omit it; strict validation rejects zero, while permissive normalization clears only the invalid field and retains the snapshot. Exhaustive Rust struct literals must add `worker_count: None` when unknown.
+
 - Diagnostic validation responsibilities are now documented as typed analyzer-rule tests, deterministic artifact-pipeline regression, and local/manual live-workload validation.
 
 - Committed analyzer fixtures now have a deterministic inventory, byte, formatting, and structural integrity lock checked before diagnostic execution.

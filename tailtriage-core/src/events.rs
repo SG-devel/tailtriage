@@ -469,6 +469,9 @@ pub struct RuntimeSnapshot {
     pub at_run_us: Option<u64>,
     /// Number of alive tasks.
     pub alive_tasks: Option<u64>,
+    /// Number of Tokio runtime worker threads observed for this snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_count: Option<u32>,
     /// Runtime global queue depth.
     pub global_queue_depth: Option<u64>,
     /// Aggregated runtime local queue depth across worker threads.

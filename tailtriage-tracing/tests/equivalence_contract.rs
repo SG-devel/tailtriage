@@ -354,6 +354,7 @@ fn completed_span_equivalence_rejects_run_only_runtime_and_inflight_evidence() {
         at_unix_ms: 1,
         at_run_us: None,
         alive_tasks: None,
+        worker_count: None,
         global_queue_depth: None,
         local_queue_depth: None,
         blocking_queue_depth: None,

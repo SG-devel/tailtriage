@@ -149,10 +149,16 @@ Important operational constraints:
 
 * runtime sampling must start inside an active Tokio runtime
 * runtime snapshots are bounded by capture limits
+* Tokio sampling records optional `worker_count` evidence directly from the runtime; current-thread runtimes report one
 * some runtime fields require `tokio_unstable`
 * runtime sampling increases event volume and artifact growth
 
 Start conservatively.
+
+Worker count remains optional in schema-v2 artifacts, so older artifacts may omit
+it. A zero value is invalid: strict validation rejects it, while permissive
+normalization clears only the invalid field and retains the runtime snapshot and
+typed validation finding. Worker count is not yet used in analyzer scoring.
 
 Prefer moderate intervals and bounded runs before increasing density.
 

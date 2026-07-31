@@ -119,6 +119,25 @@ fn serialized_completed_run_uses_schema_v2_finalization_shape() {
 }
 
 #[test]
+fn runtime_snapshot_worker_count_serde_is_optional_and_schema_v2_compatible() {
+    let json = r#"{"schema_version":2,"metadata":{"run_id":"r","service_name":"s","started_at_unix_ms":1,"finalized_at_unix_ms":2,"mode":"light"},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[{"at_unix_ms":1,"at_run_us":null,"alive_tasks":1,"global_queue_depth":0,"local_queue_depth":null,"blocking_queue_depth":null,"remote_schedule_count":null}]}"#;
+    let historical: crate::Run = serde_json::from_str(json).expect("historical schema-v2 run");
+    assert_eq!(historical.schema_version, 2);
+    assert_eq!(historical.runtime_snapshots[0].worker_count, None);
+    let historical_json = serde_json::to_value(&historical).expect("serialize historical run");
+    assert!(historical_json["runtime_snapshots"][0]
+        .get("worker_count")
+        .is_none());
+
+    let mut with_count = historical;
+    with_count.runtime_snapshots[0].worker_count = Some(4);
+    let value = serde_json::to_value(&with_count).expect("serialize worker count");
+    assert_eq!(value["runtime_snapshots"][0]["worker_count"], 4);
+    let round_trip: crate::Run = serde_json::from_value(value).expect("round trip");
+    assert_eq!(round_trip.runtime_snapshots[0].worker_count, Some(4));
+}
+
+#[test]
 fn serialized_run_has_no_metadata_finished_at_unix_ms() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
         .expect("builder")
@@ -568,6 +587,7 @@ fn capture_limits_apply_to_all_sections() {
         at_unix_ms: crate::unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(1),
+        worker_count: None,
         global_queue_depth: Some(1),
         local_queue_depth: None,
         blocking_queue_depth: None,
@@ -577,6 +597,7 @@ fn capture_limits_apply_to_all_sections() {
         at_unix_ms: crate::unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(2),
+        worker_count: None,
         global_queue_depth: Some(2),
         local_queue_depth: None,
         blocking_queue_depth: None,
@@ -783,6 +804,7 @@ fn saturation_preserves_exact_drop_counts_across_sections() {
             at_unix_ms: crate::unix_time_ms(),
             at_run_us: None,
             alive_tasks: Some(i),
+            worker_count: None,
             global_queue_depth: Some(i),
             local_queue_depth: None,
             blocking_queue_depth: None,
@@ -827,6 +849,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
         at_unix_ms: crate::unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(1),
+        worker_count: None,
         global_queue_depth: Some(1),
         local_queue_depth: None,
         blocking_queue_depth: None,
@@ -836,6 +859,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
         at_unix_ms: crate::unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(2),
+        worker_count: None,
         global_queue_depth: Some(2),
         local_queue_depth: None,
         blocking_queue_depth: None,
@@ -845,6 +869,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
         at_unix_ms: crate::unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(3),
+        worker_count: None,
         global_queue_depth: Some(3),
         local_queue_depth: None,
         blocking_queue_depth: None,
@@ -888,6 +913,7 @@ fn unsaturated_runs_keep_zero_truncation_counters() {
         at_unix_ms: crate::unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(1),
+        worker_count: None,
         global_queue_depth: Some(1),
         local_queue_depth: None,
         blocking_queue_depth: None,
@@ -1682,6 +1708,7 @@ fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
             at_unix_ms: 9,
             at_run_us: None,
             alive_tasks: Some(1),
+            worker_count: None,
             global_queue_depth: Some(2),
             local_queue_depth: Some(3),
             blocking_queue_depth: Some(4),
@@ -1693,6 +1720,7 @@ fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
             at_unix_ms: 10,
             at_run_us: None,
             alive_tasks: Some(2),
+            worker_count: None,
             global_queue_depth: Some(3),
             local_queue_depth: Some(4),
             blocking_queue_depth: Some(5),
@@ -1745,6 +1773,7 @@ fn run_builder_does_not_report_truncation_within_limits() {
             at_unix_ms: 12,
             at_run_us: None,
             alive_tasks: Some(1),
+            worker_count: None,
             global_queue_depth: Some(1),
             local_queue_depth: Some(1),
             blocking_queue_depth: Some(1),
@@ -1805,6 +1834,7 @@ fn run_builder_valid_pushes_return_ok() {
             at_unix_ms: 0,
             at_run_us: None,
             alive_tasks: None,
+            worker_count: None,
             global_queue_depth: None,
             local_queue_depth: None,
             blocking_queue_depth: None,
@@ -2044,6 +2074,7 @@ fn record_runtime_snapshot_stamps_run_relative_time_when_missing() {
         at_unix_ms: crate::unix_time_ms(),
         at_run_us: None,
         alive_tasks: Some(1),
+        worker_count: None,
         global_queue_depth: None,
         local_queue_depth: None,
         blocking_queue_depth: None,
@@ -2073,6 +2104,140 @@ mod run_validation_contract {
             unfinished_requests: UnfinishedRequests::default(),
             run_end_reason: None,
         })
+    }
+
+    #[test]
+    fn invalid_worker_count_is_rejected_strictly_and_cleared_permissively() {
+        let mut run = base_run();
+        let original = RuntimeSnapshot {
+            at_unix_ms: 1_234,
+            at_run_us: Some(234),
+            alive_tasks: Some(9),
+            worker_count: Some(0),
+            global_queue_depth: Some(8),
+            local_queue_depth: Some(7),
+            blocking_queue_depth: Some(6),
+            remote_schedule_count: Some(5),
+        };
+        run.runtime_snapshots.push(original.clone());
+
+        let report = inspect_run(&run);
+        assert_eq!(run.runtime_snapshots[0], original);
+        assert_eq!(report.issues.len(), 1);
+        let issue = &report.issues[0];
+        assert_eq!(issue.code, RunValidationIssueCode::InvalidWorkerCount);
+        assert_eq!(issue.code.as_str(), "invalid_worker_count");
+        assert_eq!(issue.severity, RunValidationSeverity::Error);
+        assert_eq!(issue.location.section, RunSection::RuntimeSnapshots);
+        assert_eq!(issue.location.index, Some(0));
+        assert_eq!(issue.location.field, Some("worker_count"));
+        assert_eq!(
+            issue.message,
+            "runtime snapshot worker_count must be greater than zero when present"
+        );
+        assert!(validate_run_strict(&run).is_err());
+
+        let normalized = normalize_run_permissive(&run);
+        assert_eq!(normalized.report, report);
+        let mut expected = original;
+        expected.worker_count = None;
+        assert_eq!(normalized.run.runtime_snapshots, vec![expected]);
+        assert!(matches!(
+            normalized.dispositions.last().map(|d| &d.disposition),
+            Some(RunEventDispositionKind::Retained { output_index: 0 })
+        ));
+        for summaries in [
+            summarize_run_validation(&normalized),
+            summarize_run_validation_lifecycle(&normalized),
+        ] {
+            assert_eq!(summaries.len(), 1);
+            assert!(summaries[0].contains("invalid optional worker-count evidence cleared"));
+            assert!(summaries[0].contains("each runtime snapshot was retained"));
+            assert!(!summaries[0].contains("excluded"));
+        }
+    }
+
+    #[test]
+    fn multiple_invalid_worker_counts_are_grouped_and_each_snapshot_is_retained() {
+        let mut run = base_run();
+        let originals = vec![
+            RuntimeSnapshot {
+                at_unix_ms: 1_234,
+                at_run_us: Some(234),
+                alive_tasks: Some(9),
+                worker_count: Some(0),
+                global_queue_depth: Some(8),
+                local_queue_depth: Some(7),
+                blocking_queue_depth: Some(6),
+                remote_schedule_count: Some(5),
+            },
+            RuntimeSnapshot {
+                at_unix_ms: 1_567,
+                at_run_us: Some(567),
+                alive_tasks: Some(19),
+                worker_count: Some(0),
+                global_queue_depth: Some(18),
+                local_queue_depth: Some(17),
+                blocking_queue_depth: Some(16),
+                remote_schedule_count: Some(15),
+            },
+        ];
+        run.runtime_snapshots = originals.clone();
+
+        let normalized = normalize_run_permissive(&run);
+        let mut expected = originals;
+        for snapshot in &mut expected {
+            snapshot.worker_count = None;
+        }
+        assert_eq!(normalized.run.runtime_snapshots, expected);
+
+        let runtime_dispositions = normalized
+            .dispositions
+            .iter()
+            .filter(|disposition| disposition.section == RunSection::RuntimeSnapshots)
+            .collect::<Vec<_>>();
+        assert_eq!(runtime_dispositions.len(), 2);
+        for (index, disposition) in runtime_dispositions.into_iter().enumerate() {
+            assert_eq!(disposition.input_index, index);
+            assert_eq!(
+                disposition.disposition,
+                RunEventDispositionKind::Retained {
+                    output_index: index
+                }
+            );
+        }
+
+        for summaries in [
+            summarize_run_validation(&normalized),
+            summarize_run_validation_lifecycle(&normalized),
+        ] {
+            assert_eq!(summaries.len(), 1);
+            assert!(summaries[0].contains("Run validation invalid_worker_count: 2"));
+            assert!(summaries[0].contains("each runtime snapshot was retained"));
+            assert!(!summaries[0].contains("excluded"));
+        }
+    }
+
+    #[test]
+    fn positive_and_absent_worker_counts_are_valid() {
+        for worker_count in [None, Some(1), Some(4)] {
+            let mut run = base_run();
+            run.runtime_snapshots.push(RuntimeSnapshot {
+                at_unix_ms: 1,
+                at_run_us: None,
+                alive_tasks: None,
+                worker_count,
+                global_queue_depth: None,
+                local_queue_depth: None,
+                blocking_queue_depth: None,
+                remote_schedule_count: None,
+            });
+            assert!(inspect_run(&run)
+                .issues
+                .iter()
+                .all(|issue| issue.code != RunValidationIssueCode::InvalidWorkerCount));
+            validate_run_strict(&run).expect("positive or absent worker count");
+        }
     }
 
     fn req(id: &str, start: Option<u64>, end: Option<u64>, latency_us: u64) -> RequestEvent {
@@ -2423,6 +2588,7 @@ mod run_validation_contract {
             at_unix_ms: 1_000,
             at_run_us: Some(1),
             alive_tasks: Some(1),
+            worker_count: None,
             global_queue_depth: Some(2),
             local_queue_depth: None,
             blocking_queue_depth: None,
@@ -2622,6 +2788,7 @@ mod run_validation_contract {
             at_unix_ms: 1_000,
             at_run_us: Some(1),
             alive_tasks: Some(1),
+            worker_count: None,
             global_queue_depth: Some(2),
             local_queue_depth: None,
             blocking_queue_depth: None,
@@ -2928,6 +3095,7 @@ fn sink_failure_is_terminal_and_late_mutations_are_inert() {
         at_unix_ms: 1,
         at_run_us: None,
         alive_tasks: Some(1),
+        worker_count: None,
         global_queue_depth: None,
         local_queue_depth: None,
         blocking_queue_depth: None,

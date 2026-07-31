@@ -696,10 +696,11 @@ impl ResolvedRuntimeSamplerConfig {
 #[must_use]
 pub fn capture_runtime_snapshot(handle: &Handle) -> RuntimeSnapshot {
     let metrics = handle.metrics();
+    let worker_count = metrics.num_workers();
+    let captured_worker_count = u32::try_from(worker_count).ok();
 
     #[cfg(tokio_unstable)]
     let local_queue_depth = {
-        let worker_count: usize = metrics.num_workers();
         (0..worker_count).try_fold(0_u64, |sum, worker| {
             let worker_depth: u64 = metrics.worker_local_queue_depth(worker).try_into().ok()?;
             sum.checked_add(worker_depth)
@@ -725,6 +726,7 @@ pub fn capture_runtime_snapshot(handle: &Handle) -> RuntimeSnapshot {
         at_unix_ms: unix_time_ms(),
         at_run_us: None,
         alive_tasks: u64::try_from(metrics.num_alive_tasks()).ok(),
+        worker_count: captured_worker_count,
         global_queue_depth: u64::try_from(metrics.global_queue_depth()).ok(),
         local_queue_depth,
         blocking_queue_depth,
@@ -798,6 +800,7 @@ mod tests {
 
         let first = &snapshot.runtime_snapshots[0];
         assert!(first.alive_tasks.is_some());
+        assert_eq!(first.worker_count, Some(1));
         assert!(first.global_queue_depth.is_some());
     }
 
@@ -1115,12 +1118,26 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn unavailable_runtime_metrics_are_recorded_as_none() {
         let snapshot = super::capture_runtime_snapshot(&tokio::runtime::Handle::current());
+        assert_eq!(snapshot.worker_count, Some(1));
 
         #[cfg(not(tokio_unstable))]
         {
             assert_eq!(snapshot.local_queue_depth, None);
             assert_eq!(snapshot.blocking_queue_depth, None);
             assert_eq!(snapshot.remote_schedule_count, None);
+        }
+    }
+
+    #[test]
+    fn configured_multithread_worker_counts_are_captured() {
+        for expected in [2_u32, 4] {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(expected as usize)
+                .enable_all()
+                .build()
+                .expect("runtime should build");
+            let snapshot = super::capture_runtime_snapshot(runtime.handle());
+            assert_eq!(snapshot.worker_count, Some(expected));
         }
     }
 

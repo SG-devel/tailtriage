@@ -43,6 +43,8 @@ pub enum RunValidationIssueCode {
     ChildIntervalOutsideRequest,
     /// Run-relative interval is absent so precise validation is unavailable.
     PreciseIntervalValidationUnavailable,
+    /// A present runtime worker count is zero.
+    InvalidWorkerCount,
 }
 
 impl RunValidationIssueCode {
@@ -61,6 +63,7 @@ impl RunValidationIssueCode {
             Self::ParentRequestExcluded => "parent_request_excluded",
             Self::ChildIntervalOutsideRequest => "child_interval_outside_request",
             Self::PreciseIntervalValidationUnavailable => "precise_interval_validation_unavailable",
+            Self::InvalidWorkerCount => "invalid_worker_count",
         }
     }
 }
@@ -292,6 +295,7 @@ pub fn summarize_normalized_run(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum SummaryAction {
     EvidenceExcluded,
+    OptionalWorkerCountClearedSnapshotRetained,
     OptionalOffsetsClearedDurationRetained,
     OptionalPrecisionUnavailableEvidenceUnchanged,
     MetadataFailedValidation,
@@ -301,6 +305,9 @@ impl SummaryAction {
     const fn as_str(self) -> &'static str {
         match self {
             Self::EvidenceExcluded => "were excluded from analysis.",
+            Self::OptionalWorkerCountClearedSnapshotRetained => {
+                "had invalid optional worker-count evidence cleared while each runtime snapshot was retained."
+            }
             Self::OptionalOffsetsClearedDurationRetained => {
                 "had optional run-relative offsets cleared while authoritative duration evidence was retained."
             }
@@ -314,7 +321,9 @@ impl SummaryAction {
     const fn changed_canonical_output(self) -> bool {
         matches!(
             self,
-            Self::EvidenceExcluded | Self::OptionalOffsetsClearedDurationRetained
+            Self::EvidenceExcluded
+                | Self::OptionalWorkerCountClearedSnapshotRetained
+                | Self::OptionalOffsetsClearedDurationRetained
         )
     }
 }
@@ -336,6 +345,9 @@ fn summary_action(normalized: &NormalizedRun, issue: &RunValidationIssue) -> Sum
         }
     }
     match issue.code {
+        RunValidationIssueCode::InvalidWorkerCount => {
+            SummaryAction::OptionalWorkerCountClearedSnapshotRetained
+        }
         RunValidationIssueCode::PartialRunRelativeInterval
         | RunValidationIssueCode::DurationMismatch => {
             SummaryAction::OptionalOffsetsClearedDurationRetained
@@ -601,6 +613,25 @@ fn normalize_inner(run: &Run, produce_run: bool) -> NormalizedRun {
     }
     add_disps(&mut dispositions, RunSection::Inflight, &inflight_invalid);
     let runtime_invalid = vec![BTreeSet::new(); run.runtime_snapshots.len()];
+    if produce_run {
+        for snapshot in &mut normalized.runtime_snapshots {
+            if snapshot.worker_count == Some(0) {
+                snapshot.worker_count = None;
+            }
+        }
+    }
+    for (index, snapshot) in run.runtime_snapshots.iter().enumerate() {
+        if snapshot.worker_count == Some(0) {
+            ctx.issue(
+                RunSection::RuntimeSnapshots,
+                Some(index),
+                Some("worker_count"),
+                RunValidationIssueCode::InvalidWorkerCount,
+                RunValidationSeverity::Error,
+                "runtime snapshot worker_count must be greater than zero when present",
+            );
+        }
+    }
     add_disps(
         &mut dispositions,
         RunSection::RuntimeSnapshots,

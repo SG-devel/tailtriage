@@ -134,6 +134,7 @@ mod tests {
             at_unix_ms: 50,
             at_run_us: Some(1),
             alive_tasks: Some(2),
+            worker_count: Some(3),
             global_queue_depth: None,
             local_queue_depth: None,
             blocking_queue_depth: None,
@@ -147,6 +148,7 @@ mod tests {
         assert_eq!(run.metadata.finalized_at_unix_ms, None);
         assert_eq!(run.runtime_snapshots.len(), 1);
         assert_eq!(run.runtime_snapshots[0].at_run_us, None);
+        assert_eq!(run.runtime_snapshots[0].worker_count, Some(3));
     }
 
     #[test]
@@ -157,6 +159,7 @@ mod tests {
             at_unix_ms: 150,
             at_run_us: None,
             alive_tasks: Some(2),
+            worker_count: None,
             global_queue_depth: None,
             local_queue_depth: None,
             blocking_queue_depth: None,
