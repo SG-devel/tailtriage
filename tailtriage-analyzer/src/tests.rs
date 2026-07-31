@@ -1418,53 +1418,50 @@ fn worker_count_does_not_change_analyzer_diagnosis_or_rendering() {
         snapshot.worker_count = Some(0);
     }
     let invalid_report = analyze_run(&invalid, AnalyzeOptions::default());
-    assert!(invalid_report
+    let invalid_worker_count_warnings = invalid_report
         .warnings
         .iter()
-        .any(|warning| warning.contains("invalid_worker_count")));
+        .filter(|warning| warning.contains("invalid_worker_count"))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(invalid_worker_count_warnings.len(), 1);
+    let invalid_worker_count_warning = &invalid_worker_count_warnings[0];
+    let mut invalid_without_worker_count_warning = invalid_report.clone();
+    let warning_count_before = invalid_without_worker_count_warning.warnings.len();
+    invalid_without_worker_count_warning
+        .warnings
+        .retain(|warning| warning != invalid_worker_count_warning);
     assert_eq!(
-        invalid_report.primary_suspect,
-        historical_report.primary_suspect
+        warning_count_before - invalid_without_worker_count_warning.warnings.len(),
+        1,
+        "expected exactly one invalid_worker_count warning"
+    );
+    let validation_limitation = format!("Validation limitation: {invalid_worker_count_warning}");
+    let limitation_count_before = invalid_without_worker_count_warning
+        .evidence_quality
+        .limitations
+        .len();
+    invalid_without_worker_count_warning
+        .evidence_quality
+        .limitations
+        .retain(|limitation| limitation != &validation_limitation);
+    assert_eq!(
+        limitation_count_before
+            - invalid_without_worker_count_warning
+                .evidence_quality
+                .limitations
+                .len(),
+        1,
+        "expected exactly one evidence-quality copy of the invalid_worker_count warning"
+    );
+    assert_eq!(invalid_without_worker_count_warning, historical_report);
+    assert_eq!(
+        render_json(&invalid_without_worker_count_warning).expect("invalid report JSON"),
+        render_json(&historical_report).expect("historical report JSON")
     );
     assert_eq!(
-        invalid_report.secondary_suspects,
-        historical_report.secondary_suspects
-    );
-    assert_eq!(
-        invalid_report.request_count,
-        historical_report.request_count
-    );
-    assert_eq!(
-        invalid_report.p50_latency_us,
-        historical_report.p50_latency_us
-    );
-    assert_eq!(
-        invalid_report.p95_latency_us,
-        historical_report.p95_latency_us
-    );
-    assert_eq!(
-        invalid_report.p99_latency_us,
-        historical_report.p99_latency_us
-    );
-    assert_eq!(
-        invalid_report.p95_queue_share_permille,
-        historical_report.p95_queue_share_permille
-    );
-    assert_eq!(
-        invalid_report.p95_service_share_permille,
-        historical_report.p95_service_share_permille
-    );
-    assert_eq!(
-        invalid_report.inflight_trend,
-        historical_report.inflight_trend
-    );
-    assert_eq!(
-        invalid_report.route_breakdowns,
-        historical_report.route_breakdowns
-    );
-    assert_eq!(
-        invalid_report.temporal_segments,
-        historical_report.temporal_segments
+        render_text(&invalid_without_worker_count_warning),
+        render_text(&historical_report)
     );
 }
 

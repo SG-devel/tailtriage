@@ -2152,7 +2152,68 @@ mod run_validation_contract {
         ] {
             assert_eq!(summaries.len(), 1);
             assert!(summaries[0].contains("invalid optional worker-count evidence cleared"));
-            assert!(summaries[0].contains("runtime snapshot was retained"));
+            assert!(summaries[0].contains("each runtime snapshot was retained"));
+            assert!(!summaries[0].contains("excluded"));
+        }
+    }
+
+    #[test]
+    fn multiple_invalid_worker_counts_are_grouped_and_each_snapshot_is_retained() {
+        let mut run = base_run();
+        let originals = vec![
+            RuntimeSnapshot {
+                at_unix_ms: 1_234,
+                at_run_us: Some(234),
+                alive_tasks: Some(9),
+                worker_count: Some(0),
+                global_queue_depth: Some(8),
+                local_queue_depth: Some(7),
+                blocking_queue_depth: Some(6),
+                remote_schedule_count: Some(5),
+            },
+            RuntimeSnapshot {
+                at_unix_ms: 1_567,
+                at_run_us: Some(567),
+                alive_tasks: Some(19),
+                worker_count: Some(0),
+                global_queue_depth: Some(18),
+                local_queue_depth: Some(17),
+                blocking_queue_depth: Some(16),
+                remote_schedule_count: Some(15),
+            },
+        ];
+        run.runtime_snapshots = originals.clone();
+
+        let normalized = normalize_run_permissive(&run);
+        let mut expected = originals;
+        for snapshot in &mut expected {
+            snapshot.worker_count = None;
+        }
+        assert_eq!(normalized.run.runtime_snapshots, expected);
+
+        let runtime_dispositions = normalized
+            .dispositions
+            .iter()
+            .filter(|disposition| disposition.section == RunSection::RuntimeSnapshots)
+            .collect::<Vec<_>>();
+        assert_eq!(runtime_dispositions.len(), 2);
+        for (index, disposition) in runtime_dispositions.into_iter().enumerate() {
+            assert_eq!(disposition.input_index, index);
+            assert_eq!(
+                disposition.disposition,
+                RunEventDispositionKind::Retained {
+                    output_index: index
+                }
+            );
+        }
+
+        for summaries in [
+            summarize_run_validation(&normalized),
+            summarize_run_validation_lifecycle(&normalized),
+        ] {
+            assert_eq!(summaries.len(), 1);
+            assert!(summaries[0].contains("Run validation invalid_worker_count: 2"));
+            assert!(summaries[0].contains("each runtime snapshot was retained"));
             assert!(!summaries[0].contains("excluded"));
         }
     }

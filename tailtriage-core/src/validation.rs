@@ -306,7 +306,7 @@ impl SummaryAction {
         match self {
             Self::EvidenceExcluded => "were excluded from analysis.",
             Self::OptionalWorkerCountClearedSnapshotRetained => {
-                "had invalid optional worker-count evidence cleared while the runtime snapshot was retained."
+                "had invalid optional worker-count evidence cleared while each runtime snapshot was retained."
             }
             Self::OptionalOffsetsClearedDurationRetained => {
                 "had optional run-relative offsets cleared while authoritative duration evidence was retained."
