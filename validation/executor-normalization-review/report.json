@@ -1,0 +1,3552 @@
+{
+  "boundary_realizability": [
+    {
+      "milli": 0,
+      "workers": {
+        "1": true,
+        "16": true,
+        "2": true,
+        "4": true,
+        "8": true
+      }
+    },
+    {
+      "milli": 499,
+      "workers": {
+        "1": false,
+        "16": false,
+        "2": false,
+        "4": false,
+        "8": false
+      }
+    },
+    {
+      "milli": 500,
+      "workers": {
+        "1": false,
+        "16": true,
+        "2": true,
+        "4": true,
+        "8": true
+      }
+    },
+    {
+      "milli": 999,
+      "workers": {
+        "1": false,
+        "16": false,
+        "2": false,
+        "4": false,
+        "8": false
+      }
+    },
+    {
+      "milli": 1000,
+      "workers": {
+        "1": true,
+        "16": true,
+        "2": true,
+        "4": true,
+        "8": true
+      }
+    },
+    {
+      "milli": 1999,
+      "workers": {
+        "1": false,
+        "16": false,
+        "2": false,
+        "4": false,
+        "8": false
+      }
+    },
+    {
+      "milli": 2000,
+      "workers": {
+        "1": true,
+        "16": true,
+        "2": true,
+        "4": true,
+        "8": true
+      }
+    },
+    {
+      "milli": 3999,
+      "workers": {
+        "1": false,
+        "16": false,
+        "2": false,
+        "4": false,
+        "8": false
+      }
+    },
+    {
+      "milli": 4000,
+      "workers": {
+        "1": true,
+        "16": true,
+        "2": true,
+        "4": true,
+        "8": true
+      }
+    },
+    {
+      "milli": 7999,
+      "workers": {
+        "1": false,
+        "16": false,
+        "2": false,
+        "4": false,
+        "8": false
+      }
+    },
+    {
+      "milli": 8000,
+      "workers": {
+        "1": true,
+        "16": true,
+        "2": true,
+        "4": true,
+        "8": true
+      }
+    }
+  ],
+  "boundary_table": [
+    {
+      "candidate": false,
+      "contribution": null,
+      "milli": 0,
+      "scores": [
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": null
+        }
+      ]
+    },
+    {
+      "candidate": false,
+      "contribution": null,
+      "milli": 499,
+      "scores": [
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": null
+        },
+        {
+          "initial_confidence": null,
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": null
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 5,
+      "milli": 500,
+      "scores": [
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 39
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 43
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 40
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 44
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 42
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 46
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 44
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 48
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 47
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 51
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 5,
+      "milli": 999,
+      "scores": [
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 39
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 43
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 40
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 44
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 42
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 46
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 44
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 48
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 47
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 51
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 15,
+      "milli": 1000,
+      "scores": [
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 49
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 53
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 50
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 54
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 52
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 56
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 54
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 58
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 57
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 61
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 15,
+      "milli": 1999,
+      "scores": [
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 49
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 53
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 50
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 54
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 52
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 56
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 54
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 58
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 57
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 61
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 25,
+      "milli": 2000,
+      "scores": [
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 59
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 63
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 60
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 64
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 62
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 66
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 64
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 68
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 67
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 71
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 25,
+      "milli": 3999,
+      "scores": [
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 59
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 63
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 60
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 64
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 62
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 66
+        },
+        {
+          "initial_confidence": "low",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 64
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 68
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 67
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 71
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 40,
+      "milli": 4000,
+      "scores": [
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 74
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 78
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 75
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 79
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 77
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 81
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 79
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 83
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 82
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 86
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 40,
+      "milli": 7999,
+      "scores": [
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 74
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 78
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 75
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 79
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 77
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 81
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 79
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 83
+        },
+        {
+          "initial_confidence": "medium",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 82
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 86
+        }
+      ]
+    },
+    {
+      "candidate": true,
+      "contribution": 55,
+      "milli": 8000,
+      "scores": [
+        {
+          "initial_confidence": "high",
+          "positive_growth": false,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 89
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": true,
+          "sample_bonus": 0,
+          "sample_count": 1,
+          "score": 93
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": false,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 90
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": true,
+          "sample_bonus": 1,
+          "sample_count": 8,
+          "score": 94
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": false,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 92
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": true,
+          "sample_bonus": 3,
+          "sample_count": 20,
+          "score": 96
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": false,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 94
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": true,
+          "sample_bonus": 5,
+          "sample_count": 40,
+          "score": 98
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": false,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 97
+        },
+        {
+          "initial_confidence": "high",
+          "positive_growth": true,
+          "sample_bonus": 8,
+          "sample_count": 100,
+          "score": 100
+        }
+      ]
+    }
+  ],
+  "cap_composition": [
+    {
+      "case": "dropped runtime",
+      "final": "medium",
+      "initial": "high",
+      "ordered_caps": [
+        "runtime truncation -> medium"
+      ]
+    },
+    {
+      "case": "zero requests",
+      "final": "low",
+      "initial": "high",
+      "ordered_caps": [
+        "weak quality -> medium",
+        "zero completed requests -> low"
+      ]
+    },
+    {
+      "case": "low requests",
+      "final": "medium",
+      "initial": "high",
+      "ordered_caps": [
+        "weak quality if applicable -> medium",
+        "low completed count -> medium"
+      ]
+    },
+    {
+      "case": "missing runtime key fields",
+      "final": "medium",
+      "initial": "high",
+      "ordered_caps": [
+        "partial runtime key fields -> medium"
+      ]
+    },
+    {
+      "case": "ambiguous worker and lower-bound local",
+      "final": "medium",
+      "initial": "high",
+      "ordered_caps": [
+        "existing caps",
+        "worker cap -> medium",
+        "local cap -> medium"
+      ]
+    },
+    {
+      "case": "ambiguity cluster",
+      "final": "medium",
+      "initial": "high",
+      "ordered_caps": [
+        "existing caps",
+        "raw-score cluster -> medium"
+      ]
+    }
+  ],
+  "commands": [
+    "cargo run --quiet --offline --manifest-path target/validation/executor-normalization/Cargo.toml > target/validation/executor-normalization/public-api.json",
+    "cargo run --quiet --locked --manifest-path target/validation/executor-normalization/Cargo.toml > target/validation/executor-normalization/public-api-locked.json",
+    "cmp target/validation/executor-normalization/public-api.json target/validation/executor-normalization/public-api-locked.json",
+    "python3 target/validation/executor-normalization/harness.py",
+    "cargo test --locked -p tailtriage-core invalid_worker_count_is_rejected_strictly_and_cleared_permissively",
+    "cargo test --locked -p tailtriage-analyzer"
+  ],
+  "competing_controls": [
+    {
+      "current_public_analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "medium",
+            "confidence_notes": [],
+            "kind": "blocking_pool_pressure",
+            "score": 79
+          },
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 39
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "blocking",
+      "projected_executor": {
+        "candidate": false,
+        "cap_trace": [],
+        "initial_confidence": null,
+        "milli": 250,
+        "score": null
+      },
+      "projected_false_high_executor_primary": false,
+      "projected_final_ordering_rule": "final confidence, raw score, stable kind rank",
+      "projection_label": "projection; analyze_run does not implement normalized scoring",
+      "typed_input": {
+        "blocking": 20,
+        "global": 1,
+        "local": 0,
+        "queue_wait_us": 0,
+        "requests": 45,
+        "runtime_samples": 40,
+        "stage_us": 0,
+        "workers": 4
+      }
+    },
+    {
+      "current_public_analyzer": {
+        "evidence_quality": "strong",
+        "public_output": [
+          {
+            "confidence": "high",
+            "confidence_notes": [],
+            "kind": "downstream_stage_dominates",
+            "score": 95
+          },
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 39
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+          "Run validation precise_interval_validation_unavailable: 45 stage event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "downstream",
+      "projected_executor": {
+        "candidate": true,
+        "cap_trace": [],
+        "initial_confidence": "low",
+        "milli": 500,
+        "score": 44
+      },
+      "projected_false_high_executor_primary": false,
+      "projected_final_ordering_rule": "final confidence, raw score, stable kind rank",
+      "projection_label": "projection; analyze_run does not implement normalized scoring",
+      "typed_input": {
+        "blocking": 0,
+        "global": 2,
+        "local": 0,
+        "queue_wait_us": 0,
+        "requests": 45,
+        "runtime_samples": 40,
+        "stage_us": 900,
+        "workers": 4
+      }
+    },
+    {
+      "current_public_analyzer": {
+        "evidence_quality": "strong",
+        "public_output": [
+          {
+            "confidence": "high",
+            "confidence_notes": [],
+            "kind": "application_queue_saturation",
+            "score": 95
+          },
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 39
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+          "Run validation precise_interval_validation_unavailable: 45 queue event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "app_queue",
+      "projected_executor": {
+        "candidate": true,
+        "cap_trace": [],
+        "initial_confidence": "low",
+        "milli": 500,
+        "score": 44
+      },
+      "projected_false_high_executor_primary": false,
+      "projected_final_ordering_rule": "final confidence, raw score, stable kind rank",
+      "projection_label": "projection; analyze_run does not implement normalized scoring",
+      "typed_input": {
+        "blocking": 0,
+        "global": 2,
+        "local": 0,
+        "queue_wait_us": 900,
+        "requests": 45,
+        "runtime_samples": 40,
+        "stage_us": 0,
+        "workers": 4
+      }
+    },
+    {
+      "current_public_analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 36
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sparse_runtime",
+      "projected_executor": {
+        "candidate": true,
+        "cap_trace": [],
+        "initial_confidence": "low",
+        "milli": 2000,
+        "score": 59
+      },
+      "projected_false_high_executor_primary": false,
+      "projected_final_ordering_rule": "final confidence, raw score, stable kind rank",
+      "projection_label": "projection; analyze_run does not implement normalized scoring",
+      "typed_input": {
+        "blocking": 0,
+        "global": 8,
+        "local": 0,
+        "queue_wait_us": 0,
+        "requests": 45,
+        "runtime_samples": 7,
+        "stage_us": 0,
+        "workers": 4
+      }
+    },
+    {
+      "current_public_analyzer": {
+        "evidence_quality": "strong",
+        "public_output": [
+          {
+            "confidence": "medium",
+            "confidence_notes": [
+              "Top suspects are close in score; confidence is capped by ambiguity."
+            ],
+            "kind": "application_queue_saturation",
+            "score": 95
+          },
+          {
+            "confidence": "medium",
+            "confidence_notes": [
+              "Top suspects are close in score; confidence is capped by ambiguity."
+            ],
+            "kind": "downstream_stage_dominates",
+            "score": 95
+          },
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 40
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+          "Run validation precise_interval_validation_unavailable: 45 stage event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+          "Run validation precise_interval_validation_unavailable: 45 queue event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+          "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks."
+        ]
+      },
+      "name": "mixed",
+      "projected_executor": {
+        "candidate": true,
+        "cap_trace": [],
+        "initial_confidence": "low",
+        "milli": 1000,
+        "score": 54
+      },
+      "projected_false_high_executor_primary": false,
+      "projected_final_ordering_rule": "final confidence, raw score, stable kind rank",
+      "projection_label": "projection; analyze_run does not implement normalized scoring",
+      "typed_input": {
+        "blocking": 0,
+        "global": 4,
+        "local": 0,
+        "queue_wait_us": 900,
+        "requests": 45,
+        "runtime_samples": 40,
+        "stage_us": 900,
+        "workers": 4
+      }
+    },
+    {
+      "current_public_analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 55
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "executor_extreme",
+      "projected_executor": {
+        "candidate": true,
+        "cap_trace": [],
+        "initial_confidence": "high",
+        "milli": 16000,
+        "score": 94
+      },
+      "projected_false_high_executor_primary": false,
+      "projected_final_ordering_rule": "final confidence, raw score, stable kind rank",
+      "projection_label": "projection; analyze_run does not implement normalized scoring",
+      "typed_input": {
+        "blocking": 0,
+        "global": 64,
+        "local": 0,
+        "queue_wait_us": 0,
+        "requests": 45,
+        "runtime_samples": 40,
+        "stage_us": 0,
+        "workers": 4
+      }
+    }
+  ],
+  "criteria": [
+    {
+      "criterion": 1,
+      "reason": "source constants match",
+      "result": "pass"
+    },
+    {
+      "criterion": 2,
+      "reason": "all direct boundaries match",
+      "result": "pass"
+    },
+    {
+      "criterion": 3,
+      "reason": "exact scale cases agree",
+      "result": "pass"
+    },
+    {
+      "criterion": 4,
+      "reason": "quantization explicitly reported",
+      "result": "pass"
+    },
+    {
+      "criterion": 5,
+      "reason": "depth monotonic",
+      "result": "pass"
+    },
+    {
+      "criterion": 6,
+      "reason": "worker scaling nonincreasing",
+      "result": "pass"
+    },
+    {
+      "criterion": 7,
+      "reason": "combined snapshot p95 rule verified",
+      "result": "pass"
+    },
+    {
+      "criterion": 8,
+      "reason": "75-bit maximum intermediate fits u128",
+      "result": "pass"
+    },
+    {
+      "criterion": 9,
+      "reason": "typed public legacy cases match expected path",
+      "result": "pass"
+    },
+    {
+      "criterion": 10,
+      "reason": "ambiguous modes capped medium",
+      "result": "pass"
+    },
+    {
+      "criterion": 11,
+      "reason": "relevant missing local capped medium",
+      "result": "pass"
+    },
+    {
+      "criterion": 12,
+      "reason": "caps compose conservatively",
+      "result": "pass"
+    },
+    {
+      "criterion": 13,
+      "reason": "first five controls have no false High executor primary",
+      "result": "pass"
+    },
+    {
+      "criterion": 14,
+      "reason": "complete extreme score is High",
+      "result": "pass"
+    },
+    {
+      "criterion": 15,
+      "reason": "two-run byte equality is checked externally",
+      "result": "pass"
+    },
+    {
+      "criterion": 16,
+      "reason": "Phase 1 clean tree is checked externally",
+      "result": "pass"
+    }
+  ],
+  "depth_monotonic_0_128": {
+    "1": true,
+    "16": true,
+    "2": true,
+    "4": true,
+    "8": true
+  },
+  "determinism_proof": "Two executions produce byte-identical report.json and report.md; external SHA256 and cmp inventory retained in README.",
+  "failed_cases": [],
+  "fixed_absolute_backlog": [
+    {
+      "depth": 0,
+      "values": [
+        {
+          "contribution": null,
+          "milli": 0,
+          "workers": 1
+        },
+        {
+          "contribution": null,
+          "milli": 0,
+          "workers": 2
+        },
+        {
+          "contribution": null,
+          "milli": 0,
+          "workers": 4
+        },
+        {
+          "contribution": null,
+          "milli": 0,
+          "workers": 8
+        },
+        {
+          "contribution": null,
+          "milli": 0,
+          "workers": 16
+        }
+      ]
+    },
+    {
+      "depth": 1,
+      "values": [
+        {
+          "contribution": 15,
+          "milli": 1000,
+          "workers": 1
+        },
+        {
+          "contribution": 5,
+          "milli": 500,
+          "workers": 2
+        },
+        {
+          "contribution": null,
+          "milli": 250,
+          "workers": 4
+        },
+        {
+          "contribution": null,
+          "milli": 125,
+          "workers": 8
+        },
+        {
+          "contribution": null,
+          "milli": 62,
+          "workers": 16
+        }
+      ]
+    },
+    {
+      "depth": 4,
+      "values": [
+        {
+          "contribution": 40,
+          "milli": 4000,
+          "workers": 1
+        },
+        {
+          "contribution": 25,
+          "milli": 2000,
+          "workers": 2
+        },
+        {
+          "contribution": 15,
+          "milli": 1000,
+          "workers": 4
+        },
+        {
+          "contribution": 5,
+          "milli": 500,
+          "workers": 8
+        },
+        {
+          "contribution": null,
+          "milli": 250,
+          "workers": 16
+        }
+      ]
+    },
+    {
+      "depth": 8,
+      "values": [
+        {
+          "contribution": 55,
+          "milli": 8000,
+          "workers": 1
+        },
+        {
+          "contribution": 40,
+          "milli": 4000,
+          "workers": 2
+        },
+        {
+          "contribution": 25,
+          "milli": 2000,
+          "workers": 4
+        },
+        {
+          "contribution": 15,
+          "milli": 1000,
+          "workers": 8
+        },
+        {
+          "contribution": 5,
+          "milli": 500,
+          "workers": 16
+        }
+      ]
+    },
+    {
+      "depth": 16,
+      "values": [
+        {
+          "contribution": 55,
+          "milli": 16000,
+          "workers": 1
+        },
+        {
+          "contribution": 55,
+          "milli": 8000,
+          "workers": 2
+        },
+        {
+          "contribution": 40,
+          "milli": 4000,
+          "workers": 4
+        },
+        {
+          "contribution": 25,
+          "milli": 2000,
+          "workers": 8
+        },
+        {
+          "contribution": 15,
+          "milli": 1000,
+          "workers": 16
+        }
+      ]
+    },
+    {
+      "depth": 32,
+      "values": [
+        {
+          "contribution": 55,
+          "milli": 32000,
+          "workers": 1
+        },
+        {
+          "contribution": 55,
+          "milli": 16000,
+          "workers": 2
+        },
+        {
+          "contribution": 55,
+          "milli": 8000,
+          "workers": 4
+        },
+        {
+          "contribution": 40,
+          "milli": 4000,
+          "workers": 8
+        },
+        {
+          "contribution": 25,
+          "milli": 2000,
+          "workers": 16
+        }
+      ]
+    }
+  ],
+  "harness_sha256": "dfde36b44b6e01ea3d26a38cb631153b06d57ea406a4550be61691da5e567f25",
+  "legacy_public_api": [
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "insufficient_evidence",
+            "score": 50
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "below_trigger",
+      "typed_input": {
+        "alive": 0,
+        "dropped_runtime_snapshots": 0,
+        "global": 0,
+        "growth": false,
+        "local": 0,
+        "samples": 1
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 51
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "ordinary",
+      "typed_input": {
+        "alive": 120,
+        "dropped_runtime_snapshots": 0,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 8
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "high",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 94
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "soft_cap",
+      "typed_input": {
+        "alive": 400,
+        "dropped_runtime_snapshots": 0,
+        "global": 139,
+        "growth": true,
+        "local": 60,
+        "samples": 40
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "high",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 100
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "clean_extreme",
+      "typed_input": {
+        "alive": 400,
+        "dropped_runtime_snapshots": 0,
+        "global": 150,
+        "growth": true,
+        "local": 60,
+        "samples": 40
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 39
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+          "Runtime snapshots are missing blocking_queue_depth or local_queue_depth; separating executor vs blocking pressure is limited."
+        ]
+      },
+      "name": "absent_optional",
+      "typed_input": {
+        "alive": null,
+        "dropped_runtime_snapshots": 0,
+        "global": 8,
+        "growth": false,
+        "local": null,
+        "samples": 20
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "medium",
+            "confidence_notes": [
+              "Capture truncation caps confidence because dropped evidence may affect ranking."
+            ],
+            "kind": "executor_pressure_suspected",
+            "score": 100
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4.",
+          "Capture limits were hit during this run; dropped evidence can reduce diagnosis completeness and confidence.",
+          "Capture truncated runtime snapshots: dropped 2 entries after reaching max_runtime_snapshots. This dropped evidence can reduce diagnosis completeness and confidence."
+        ]
+      },
+      "name": "truncated",
+      "typed_input": {
+        "alive": 400,
+        "dropped_runtime_snapshots": 2,
+        "global": 150,
+        "growth": true,
+        "local": 60,
+        "samples": 40
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 50
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_1",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 1
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 50
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_7",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 7
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 51
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_8",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 8
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 51
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_19",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 19
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 53
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_20",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 20
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 53
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_39",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 39
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 55
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_40",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 40
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 55
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_99",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 99
+      }
+    },
+    {
+      "analyzer": {
+        "evidence_quality": "partial",
+        "public_output": [
+          {
+            "confidence": "low",
+            "confidence_notes": [],
+            "kind": "executor_pressure_suspected",
+            "score": 58
+          }
+        ],
+        "warnings": [
+          "Run validation precise_interval_validation_unavailable: 45 request event(s) lack optional run-relative precision; legacy duration evidence was retained unchanged. sample: index 0, index 1, index 2, index 3, index 4."
+        ]
+      },
+      "name": "sample_boundary_100",
+      "typed_input": {
+        "alive": 120,
+        "global": 40,
+        "growth": false,
+        "local": 18,
+        "samples": 100
+      }
+    }
+  ],
+  "maximum_intermediate_bits": 75,
+  "missing_local": [
+    {
+      "cap": null,
+      "case": "all present",
+      "lower_bound": false,
+      "values": [
+        3000,
+        3000
+      ]
+    },
+    {
+      "cap": "medium",
+      "case": "all relevant absent",
+      "lower_bound": true,
+      "values": [
+        2000,
+        2000
+      ]
+    },
+    {
+      "cap": "medium",
+      "case": "one relevant absent",
+      "lower_bound": true,
+      "values": [
+        3000,
+        2000
+      ]
+    },
+    {
+      "cap": null,
+      "case": "absent only irrelevant",
+      "lower_bound": false,
+      "values": [
+        3000,
+        3000
+      ]
+    }
+  ],
+  "non_claims": [
+    "Projected normalized results are not current analyze_run behavior.",
+    "Suspects remain triage leads, not root-cause proof."
+  ],
+  "overflow": [
+    {
+      "case": "max_global",
+      "contribution": 55,
+      "fits_u128": true,
+      "multiply_bits": 74,
+      "quotient": 18446744073709551615000,
+      "quotient_bits": 74,
+      "runnable": 18446744073709551615,
+      "runnable_bits": 64,
+      "score_n100_growth": 100,
+      "times_1000": 18446744073709551615000,
+      "worker_count": 1
+    },
+    {
+      "case": "max_global",
+      "contribution": 55,
+      "fits_u128": true,
+      "multiply_bits": 74,
+      "quotient": 4294967297000,
+      "quotient_bits": 42,
+      "runnable": 18446744073709551615,
+      "runnable_bits": 64,
+      "score_n100_growth": 100,
+      "times_1000": 18446744073709551615000,
+      "worker_count": 4294967295
+    },
+    {
+      "case": "max_local",
+      "contribution": 55,
+      "fits_u128": true,
+      "multiply_bits": 74,
+      "quotient": 18446744073709551615000,
+      "quotient_bits": 74,
+      "runnable": 18446744073709551615,
+      "runnable_bits": 64,
+      "score_n100_growth": 100,
+      "times_1000": 18446744073709551615000,
+      "worker_count": 1
+    },
+    {
+      "case": "max_local",
+      "contribution": 55,
+      "fits_u128": true,
+      "multiply_bits": 74,
+      "quotient": 4294967297000,
+      "quotient_bits": 42,
+      "runnable": 18446744073709551615,
+      "runnable_bits": 64,
+      "score_n100_growth": 100,
+      "times_1000": 18446744073709551615000,
+      "worker_count": 4294967295
+    },
+    {
+      "case": "both_max",
+      "contribution": 55,
+      "fits_u128": true,
+      "multiply_bits": 75,
+      "quotient": 36893488147419103230000,
+      "quotient_bits": 75,
+      "runnable": 36893488147419103230,
+      "runnable_bits": 65,
+      "score_n100_growth": 100,
+      "times_1000": 36893488147419103230000,
+      "worker_count": 1
+    },
+    {
+      "case": "both_max",
+      "contribution": 55,
+      "fits_u128": true,
+      "multiply_bits": 75,
+      "quotient": 8589934594000,
+      "quotient_bits": 43,
+      "runnable": 36893488147419103230,
+      "runnable_bits": 65,
+      "score_n100_growth": 100,
+      "times_1000": 36893488147419103230000,
+      "worker_count": 4294967295
+    }
+  ],
+  "p95_cases": [
+    {
+      "candidate_uses": 2000,
+      "incorrect_sum_then_normalize": 4000,
+      "independent_global_p95": 8,
+      "independent_local_p95": 8,
+      "name": "short_noncoincident",
+      "normalized_milli": [
+        2000,
+        2000,
+        500
+      ],
+      "normalized_p95": 2000,
+      "runnable_depths": [
+        8,
+        8,
+        2
+      ],
+      "selected_index": 2,
+      "sorted_normalized": [
+        500,
+        2000,
+        2000
+      ],
+      "tuples": [
+        [
+          8,
+          0,
+          4
+        ],
+        [
+          0,
+          8,
+          4
+        ],
+        [
+          1,
+          1,
+          4
+        ]
+      ]
+    },
+    {
+      "candidate_uses": 2000,
+      "incorrect_sum_then_normalize": 4000,
+      "independent_global_p95": 8,
+      "independent_local_p95": 8,
+      "name": "index_transition_20",
+      "normalized_milli": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2000,
+        2000
+      ],
+      "normalized_p95": 2000,
+      "runnable_depths": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        8,
+        8
+      ],
+      "selected_index": 19,
+      "sorted_normalized": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2000,
+        2000
+      ],
+      "tuples": [
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          0,
+          0,
+          4
+        ],
+        [
+          8,
+          0,
+          4
+        ],
+        [
+          0,
+          8,
+          4
+        ]
+      ]
+    },
+    {
+      "candidate_uses": 1000,
+      "incorrect_sum_then_normalize": 2000,
+      "independent_global_p95": 4,
+      "independent_local_p95": 4,
+      "name": "ties",
+      "normalized_milli": [
+        1000,
+        1000,
+        1000,
+        1000,
+        1000
+      ],
+      "normalized_p95": 1000,
+      "runnable_depths": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "selected_index": 4,
+      "sorted_normalized": [
+        1000,
+        1000,
+        1000,
+        1000,
+        1000
+      ],
+      "tuples": [
+        [
+          4,
+          0,
+          4
+        ],
+        [
+          0,
+          4,
+          4
+        ],
+        [
+          2,
+          2,
+          4
+        ],
+        [
+          4,
+          0,
+          4
+        ],
+        [
+          0,
+          4,
+          4
+        ]
+      ]
+    }
+  ],
+  "questionable_cases": [
+    "Future implementation must carry typed invalid-worker provenance across permissive normalization; normalized worker_count=None alone is insufficient."
+  ],
+  "recommendation": "approve unchanged",
+  "representability": [
+    {
+      "nearest_lower": {
+        "contribution": null,
+        "depth": 0,
+        "milli": 0
+      },
+      "nearest_upper": {
+        "contribution": 15,
+        "depth": 1,
+        "milli": 1000
+      },
+      "representable": false,
+      "result": "not representable",
+      "target_per_worker": 0.5,
+      "worker_count": 1
+    },
+    {
+      "exact": {
+        "contribution": 15,
+        "milli": 1000,
+        "runnable_depth": 1,
+        "score_n40_no_growth": 54
+      },
+      "nearest_lower": {
+        "contribution": 15,
+        "depth": 1,
+        "milli": 1000
+      },
+      "nearest_upper": {
+        "contribution": 15,
+        "depth": 1,
+        "milli": 1000
+      },
+      "representable": true,
+      "target_per_worker": 1,
+      "worker_count": 1
+    },
+    {
+      "exact": {
+        "contribution": 25,
+        "milli": 2000,
+        "runnable_depth": 2,
+        "score_n40_no_growth": 64
+      },
+      "nearest_lower": {
+        "contribution": 25,
+        "depth": 2,
+        "milli": 2000
+      },
+      "nearest_upper": {
+        "contribution": 25,
+        "depth": 2,
+        "milli": 2000
+      },
+      "representable": true,
+      "target_per_worker": 2,
+      "worker_count": 1
+    },
+    {
+      "exact": {
+        "contribution": 40,
+        "milli": 4000,
+        "runnable_depth": 4,
+        "score_n40_no_growth": 79
+      },
+      "nearest_lower": {
+        "contribution": 40,
+        "depth": 4,
+        "milli": 4000
+      },
+      "nearest_upper": {
+        "contribution": 40,
+        "depth": 4,
+        "milli": 4000
+      },
+      "representable": true,
+      "target_per_worker": 4,
+      "worker_count": 1
+    },
+    {
+      "exact": {
+        "contribution": 55,
+        "milli": 8000,
+        "runnable_depth": 8,
+        "score_n40_no_growth": 94
+      },
+      "nearest_lower": {
+        "contribution": 55,
+        "depth": 8,
+        "milli": 8000
+      },
+      "nearest_upper": {
+        "contribution": 55,
+        "depth": 8,
+        "milli": 8000
+      },
+      "representable": true,
+      "target_per_worker": 8,
+      "worker_count": 1
+    },
+    {
+      "exact": {
+        "contribution": 5,
+        "milli": 500,
+        "runnable_depth": 1,
+        "score_n40_no_growth": 44
+      },
+      "nearest_lower": {
+        "contribution": 5,
+        "depth": 1,
+        "milli": 500
+      },
+      "nearest_upper": {
+        "contribution": 5,
+        "depth": 1,
+        "milli": 500
+      },
+      "representable": true,
+      "target_per_worker": 0.5,
+      "worker_count": 2
+    },
+    {
+      "exact": {
+        "contribution": 15,
+        "milli": 1000,
+        "runnable_depth": 2,
+        "score_n40_no_growth": 54
+      },
+      "nearest_lower": {
+        "contribution": 15,
+        "depth": 2,
+        "milli": 1000
+      },
+      "nearest_upper": {
+        "contribution": 15,
+        "depth": 2,
+        "milli": 1000
+      },
+      "representable": true,
+      "target_per_worker": 1,
+      "worker_count": 2
+    },
+    {
+      "exact": {
+        "contribution": 25,
+        "milli": 2000,
+        "runnable_depth": 4,
+        "score_n40_no_growth": 64
+      },
+      "nearest_lower": {
+        "contribution": 25,
+        "depth": 4,
+        "milli": 2000
+      },
+      "nearest_upper": {
+        "contribution": 25,
+        "depth": 4,
+        "milli": 2000
+      },
+      "representable": true,
+      "target_per_worker": 2,
+      "worker_count": 2
+    },
+    {
+      "exact": {
+        "contribution": 40,
+        "milli": 4000,
+        "runnable_depth": 8,
+        "score_n40_no_growth": 79
+      },
+      "nearest_lower": {
+        "contribution": 40,
+        "depth": 8,
+        "milli": 4000
+      },
+      "nearest_upper": {
+        "contribution": 40,
+        "depth": 8,
+        "milli": 4000
+      },
+      "representable": true,
+      "target_per_worker": 4,
+      "worker_count": 2
+    },
+    {
+      "exact": {
+        "contribution": 55,
+        "milli": 8000,
+        "runnable_depth": 16,
+        "score_n40_no_growth": 94
+      },
+      "nearest_lower": {
+        "contribution": 55,
+        "depth": 16,
+        "milli": 8000
+      },
+      "nearest_upper": {
+        "contribution": 55,
+        "depth": 16,
+        "milli": 8000
+      },
+      "representable": true,
+      "target_per_worker": 8,
+      "worker_count": 2
+    },
+    {
+      "exact": {
+        "contribution": 5,
+        "milli": 500,
+        "runnable_depth": 2,
+        "score_n40_no_growth": 44
+      },
+      "nearest_lower": {
+        "contribution": 5,
+        "depth": 2,
+        "milli": 500
+      },
+      "nearest_upper": {
+        "contribution": 5,
+        "depth": 2,
+        "milli": 500
+      },
+      "representable": true,
+      "target_per_worker": 0.5,
+      "worker_count": 4
+    },
+    {
+      "exact": {
+        "contribution": 15,
+        "milli": 1000,
+        "runnable_depth": 4,
+        "score_n40_no_growth": 54
+      },
+      "nearest_lower": {
+        "contribution": 15,
+        "depth": 4,
+        "milli": 1000
+      },
+      "nearest_upper": {
+        "contribution": 15,
+        "depth": 4,
+        "milli": 1000
+      },
+      "representable": true,
+      "target_per_worker": 1,
+      "worker_count": 4
+    },
+    {
+      "exact": {
+        "contribution": 25,
+        "milli": 2000,
+        "runnable_depth": 8,
+        "score_n40_no_growth": 64
+      },
+      "nearest_lower": {
+        "contribution": 25,
+        "depth": 8,
+        "milli": 2000
+      },
+      "nearest_upper": {
+        "contribution": 25,
+        "depth": 8,
+        "milli": 2000
+      },
+      "representable": true,
+      "target_per_worker": 2,
+      "worker_count": 4
+    },
+    {
+      "exact": {
+        "contribution": 40,
+        "milli": 4000,
+        "runnable_depth": 16,
+        "score_n40_no_growth": 79
+      },
+      "nearest_lower": {
+        "contribution": 40,
+        "depth": 16,
+        "milli": 4000
+      },
+      "nearest_upper": {
+        "contribution": 40,
+        "depth": 16,
+        "milli": 4000
+      },
+      "representable": true,
+      "target_per_worker": 4,
+      "worker_count": 4
+    },
+    {
+      "exact": {
+        "contribution": 55,
+        "milli": 8000,
+        "runnable_depth": 32,
+        "score_n40_no_growth": 94
+      },
+      "nearest_lower": {
+        "contribution": 55,
+        "depth": 32,
+        "milli": 8000
+      },
+      "nearest_upper": {
+        "contribution": 55,
+        "depth": 32,
+        "milli": 8000
+      },
+      "representable": true,
+      "target_per_worker": 8,
+      "worker_count": 4
+    },
+    {
+      "exact": {
+        "contribution": 5,
+        "milli": 500,
+        "runnable_depth": 4,
+        "score_n40_no_growth": 44
+      },
+      "nearest_lower": {
+        "contribution": 5,
+        "depth": 4,
+        "milli": 500
+      },
+      "nearest_upper": {
+        "contribution": 5,
+        "depth": 4,
+        "milli": 500
+      },
+      "representable": true,
+      "target_per_worker": 0.5,
+      "worker_count": 8
+    },
+    {
+      "exact": {
+        "contribution": 15,
+        "milli": 1000,
+        "runnable_depth": 8,
+        "score_n40_no_growth": 54
+      },
+      "nearest_lower": {
+        "contribution": 15,
+        "depth": 8,
+        "milli": 1000
+      },
+      "nearest_upper": {
+        "contribution": 15,
+        "depth": 8,
+        "milli": 1000
+      },
+      "representable": true,
+      "target_per_worker": 1,
+      "worker_count": 8
+    },
+    {
+      "exact": {
+        "contribution": 25,
+        "milli": 2000,
+        "runnable_depth": 16,
+        "score_n40_no_growth": 64
+      },
+      "nearest_lower": {
+        "contribution": 25,
+        "depth": 16,
+        "milli": 2000
+      },
+      "nearest_upper": {
+        "contribution": 25,
+        "depth": 16,
+        "milli": 2000
+      },
+      "representable": true,
+      "target_per_worker": 2,
+      "worker_count": 8
+    },
+    {
+      "exact": {
+        "contribution": 40,
+        "milli": 4000,
+        "runnable_depth": 32,
+        "score_n40_no_growth": 79
+      },
+      "nearest_lower": {
+        "contribution": 40,
+        "depth": 32,
+        "milli": 4000
+      },
+      "nearest_upper": {
+        "contribution": 40,
+        "depth": 32,
+        "milli": 4000
+      },
+      "representable": true,
+      "target_per_worker": 4,
+      "worker_count": 8
+    },
+    {
+      "exact": {
+        "contribution": 55,
+        "milli": 8000,
+        "runnable_depth": 64,
+        "score_n40_no_growth": 94
+      },
+      "nearest_lower": {
+        "contribution": 55,
+        "depth": 64,
+        "milli": 8000
+      },
+      "nearest_upper": {
+        "contribution": 55,
+        "depth": 64,
+        "milli": 8000
+      },
+      "representable": true,
+      "target_per_worker": 8,
+      "worker_count": 8
+    },
+    {
+      "exact": {
+        "contribution": 5,
+        "milli": 500,
+        "runnable_depth": 8,
+        "score_n40_no_growth": 44
+      },
+      "nearest_lower": {
+        "contribution": 5,
+        "depth": 8,
+        "milli": 500
+      },
+      "nearest_upper": {
+        "contribution": 5,
+        "depth": 8,
+        "milli": 500
+      },
+      "representable": true,
+      "target_per_worker": 0.5,
+      "worker_count": 16
+    },
+    {
+      "exact": {
+        "contribution": 15,
+        "milli": 1000,
+        "runnable_depth": 16,
+        "score_n40_no_growth": 54
+      },
+      "nearest_lower": {
+        "contribution": 15,
+        "depth": 16,
+        "milli": 1000
+      },
+      "nearest_upper": {
+        "contribution": 15,
+        "depth": 16,
+        "milli": 1000
+      },
+      "representable": true,
+      "target_per_worker": 1,
+      "worker_count": 16
+    },
+    {
+      "exact": {
+        "contribution": 25,
+        "milli": 2000,
+        "runnable_depth": 32,
+        "score_n40_no_growth": 64
+      },
+      "nearest_lower": {
+        "contribution": 25,
+        "depth": 32,
+        "milli": 2000
+      },
+      "nearest_upper": {
+        "contribution": 25,
+        "depth": 32,
+        "milli": 2000
+      },
+      "representable": true,
+      "target_per_worker": 2,
+      "worker_count": 16
+    },
+    {
+      "exact": {
+        "contribution": 40,
+        "milli": 4000,
+        "runnable_depth": 64,
+        "score_n40_no_growth": 79
+      },
+      "nearest_lower": {
+        "contribution": 40,
+        "depth": 64,
+        "milli": 4000
+      },
+      "nearest_upper": {
+        "contribution": 40,
+        "depth": 64,
+        "milli": 4000
+      },
+      "representable": true,
+      "target_per_worker": 4,
+      "worker_count": 16
+    },
+    {
+      "exact": {
+        "contribution": 55,
+        "milli": 8000,
+        "runnable_depth": 128,
+        "score_n40_no_growth": 94
+      },
+      "nearest_lower": {
+        "contribution": 55,
+        "depth": 128,
+        "milli": 8000
+      },
+      "nearest_upper": {
+        "contribution": 55,
+        "depth": 128,
+        "milli": 8000
+      },
+      "representable": true,
+      "target_per_worker": 8,
+      "worker_count": 16
+    }
+  ],
+  "required_commit": "1a083075a477d658cb6a581cb6c07c4e87935e42",
+  "sample_quality_growth": [
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "low",
+        "score": 43
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 39
+      },
+      "p95_milli": 500,
+      "sample_count": 1
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "low",
+        "score": 43
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 39
+      },
+      "p95_milli": 500,
+      "sample_count": 7
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "low",
+        "score": 44
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 40
+      },
+      "p95_milli": 500,
+      "sample_count": 8
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "low",
+        "score": 44
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 40
+      },
+      "p95_milli": 500,
+      "sample_count": 19
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "low",
+        "score": 46
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 42
+      },
+      "p95_milli": 500,
+      "sample_count": 20
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "low",
+        "score": 46
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 42
+      },
+      "p95_milli": 500,
+      "sample_count": 39
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "low",
+        "score": 48
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 44
+      },
+      "p95_milli": 500,
+      "sample_count": 40
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "low",
+        "score": 48
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 44
+      },
+      "p95_milli": 500,
+      "sample_count": 99
+    },
+    {
+      "bonus": 8,
+      "growth": {
+        "confidence": "low",
+        "score": 51
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 47
+      },
+      "p95_milli": 500,
+      "sample_count": 100
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "low",
+        "score": 53
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 49
+      },
+      "p95_milli": 1000,
+      "sample_count": 1
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "low",
+        "score": 53
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 49
+      },
+      "p95_milli": 1000,
+      "sample_count": 7
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "low",
+        "score": 54
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 50
+      },
+      "p95_milli": 1000,
+      "sample_count": 8
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "low",
+        "score": 54
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 50
+      },
+      "p95_milli": 1000,
+      "sample_count": 19
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "low",
+        "score": 56
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 52
+      },
+      "p95_milli": 1000,
+      "sample_count": 20
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "low",
+        "score": 56
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 52
+      },
+      "p95_milli": 1000,
+      "sample_count": 39
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "low",
+        "score": 58
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 54
+      },
+      "p95_milli": 1000,
+      "sample_count": 40
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "low",
+        "score": 58
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 54
+      },
+      "p95_milli": 1000,
+      "sample_count": 99
+    },
+    {
+      "bonus": 8,
+      "growth": {
+        "confidence": "low",
+        "score": 61
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 57
+      },
+      "p95_milli": 1000,
+      "sample_count": 100
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "low",
+        "score": 63
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 59
+      },
+      "p95_milli": 2000,
+      "sample_count": 1
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "low",
+        "score": 63
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 59
+      },
+      "p95_milli": 2000,
+      "sample_count": 7
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "low",
+        "score": 64
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 60
+      },
+      "p95_milli": 2000,
+      "sample_count": 8
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "low",
+        "score": 64
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 60
+      },
+      "p95_milli": 2000,
+      "sample_count": 19
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "medium",
+        "score": 66
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 62
+      },
+      "p95_milli": 2000,
+      "sample_count": 20
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "medium",
+        "score": 66
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 62
+      },
+      "p95_milli": 2000,
+      "sample_count": 39
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "medium",
+        "score": 68
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 64
+      },
+      "p95_milli": 2000,
+      "sample_count": 40
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "medium",
+        "score": 68
+      },
+      "no_growth": {
+        "confidence": "low",
+        "score": 64
+      },
+      "p95_milli": 2000,
+      "sample_count": 99
+    },
+    {
+      "bonus": 8,
+      "growth": {
+        "confidence": "medium",
+        "score": 71
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 67
+      },
+      "p95_milli": 2000,
+      "sample_count": 100
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "medium",
+        "score": 78
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 74
+      },
+      "p95_milli": 4000,
+      "sample_count": 1
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "medium",
+        "score": 78
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 74
+      },
+      "p95_milli": 4000,
+      "sample_count": 7
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "medium",
+        "score": 79
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 75
+      },
+      "p95_milli": 4000,
+      "sample_count": 8
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "medium",
+        "score": 79
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 75
+      },
+      "p95_milli": 4000,
+      "sample_count": 19
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "medium",
+        "score": 81
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 77
+      },
+      "p95_milli": 4000,
+      "sample_count": 20
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "medium",
+        "score": 81
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 77
+      },
+      "p95_milli": 4000,
+      "sample_count": 39
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "medium",
+        "score": 83
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 79
+      },
+      "p95_milli": 4000,
+      "sample_count": 40
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "medium",
+        "score": 83
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 79
+      },
+      "p95_milli": 4000,
+      "sample_count": 99
+    },
+    {
+      "bonus": 8,
+      "growth": {
+        "confidence": "high",
+        "score": 86
+      },
+      "no_growth": {
+        "confidence": "medium",
+        "score": 82
+      },
+      "p95_milli": 4000,
+      "sample_count": 100
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "high",
+        "score": 93
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 89
+      },
+      "p95_milli": 8000,
+      "sample_count": 1
+    },
+    {
+      "bonus": 0,
+      "growth": {
+        "confidence": "high",
+        "score": 93
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 89
+      },
+      "p95_milli": 8000,
+      "sample_count": 7
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "high",
+        "score": 94
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 90
+      },
+      "p95_milli": 8000,
+      "sample_count": 8
+    },
+    {
+      "bonus": 1,
+      "growth": {
+        "confidence": "high",
+        "score": 94
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 90
+      },
+      "p95_milli": 8000,
+      "sample_count": 19
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "high",
+        "score": 96
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 92
+      },
+      "p95_milli": 8000,
+      "sample_count": 20
+    },
+    {
+      "bonus": 3,
+      "growth": {
+        "confidence": "high",
+        "score": 96
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 92
+      },
+      "p95_milli": 8000,
+      "sample_count": 39
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "high",
+        "score": 98
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 94
+      },
+      "p95_milli": 8000,
+      "sample_count": 40
+    },
+    {
+      "bonus": 5,
+      "growth": {
+        "confidence": "high",
+        "score": 98
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 94
+      },
+      "p95_milli": 8000,
+      "sample_count": 99
+    },
+    {
+      "bonus": 8,
+      "growth": {
+        "confidence": "high",
+        "score": 100
+      },
+      "no_growth": {
+        "confidence": "high",
+        "score": 97
+      },
+      "p95_milli": 8000,
+      "sample_count": 100
+    }
+  ],
+  "scale_invariance": {
+    "exact_cases_equal": true,
+    "quantization_is_discrete_not_failure": true
+  },
+  "source_truth": [
+    {
+      "behavior": "legacy executor trigger, score, +4 growth, clean-extreme and 94 cap",
+      "location": "tailtriage-analyzer/src/scoring.rs:238-281",
+      "value": "global p95 >= 1; formula verified; clean extreme global>=140 and samples>=30"
+    },
+    {
+      "behavior": "sample quality",
+      "location": "tailtriage-analyzer/src/scoring.rs:5-8,601-611",
+      "value": "<8:0, 8..19:1, 20..39:3, 40..99:5, >=100:8"
+    },
+    {
+      "behavior": "percentile",
+      "location": "tailtriage-analyzer/src/lib.rs:1168-1188",
+      "value": "sorted index ceil((n-1)*numerator/denominator), bounded"
+    },
+    {
+      "behavior": "confidence thresholds and ambiguity defaults",
+      "location": "tailtriage-analyzer/src/options/mod.rs:133-155",
+      "value": "65 medium, 85 high, ambiguity min 60 gap 4"
+    },
+    {
+      "behavior": "caps and ambiguity cluster",
+      "location": "tailtriage-analyzer/src/confidence.rs:31-106,179-210",
+      "value": "conservative min; raw-score cluster"
+    },
+    {
+      "behavior": "confidence-first ordering",
+      "location": "tailtriage-analyzer/src/lib.rs:810-854",
+      "value": "final confidence, score, stable kind"
+    },
+    {
+      "behavior": "canonical invalid zero normalization",
+      "location": "tailtriage-core/src/validation.rs:20-68,142-184, tailtriage-core/src/tests.rs:2110-2160",
+      "value": "typed invalid_worker_count; strict error; retained snapshot with worker cleared"
+    }
+  ],
+  "typed_zero_validation": [
+    {
+      "field": "worker_count",
+      "issue_code": "invalid_worker_count",
+      "location_index": 0,
+      "other_fields_retained": true,
+      "section": "RuntimeSnapshots",
+      "snapshot_retained": true,
+      "strict_rejected": true,
+      "typed_provenance": true,
+      "worker_cleared": true,
+      "zero_index": 0
+    },
+    {
+      "field": "worker_count",
+      "issue_code": "invalid_worker_count",
+      "location_index": 2,
+      "other_fields_retained": true,
+      "section": "RuntimeSnapshots",
+      "snapshot_retained": true,
+      "strict_rejected": true,
+      "typed_provenance": true,
+      "worker_cleared": true,
+      "zero_index": 2
+    }
+  ],
+  "verified_commit": "1a083075a477d658cb6a581cb6c07c4e87935e42",
+  "worker_modes": [
+    {
+      "case": "all absent",
+      "mode": "historical compatibility"
+    },
+    {
+      "cap": "medium",
+      "case": "one relevant missing",
+      "mode": "ambiguous-worker fallback"
+    },
+    {
+      "cap": "medium",
+      "case": "inconsistent positive",
+      "mode": "ambiguous-worker fallback"
+    },
+    {
+      "cap": "medium",
+      "case": "zero first relevant",
+      "mode": "ambiguous-worker fallback"
+    },
+    {
+      "cap": "medium",
+      "case": "zero later relevant",
+      "mode": "ambiguous-worker fallback"
+    },
+    {
+      "case": "anomaly only irrelevant",
+      "mode": "complete normalized"
+    },
+    {
+      "case": "no relevant globals",
+      "mode": "no executor candidate"
+    }
+  ]
+}
