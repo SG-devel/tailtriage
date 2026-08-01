@@ -42,14 +42,22 @@ def quantization_checks():
         for numerator in [1,2,4,8,16]: # target is numerator / 2
             product=numerator*workers; representable=product%2==0
             lower=product//2; upper=lower if representable else lower+1
-            expected={"representable":representable,"exact_depth":lower if representable else None,
+            actual={"scaled_numerator":product,"representable":representable,"exact_depth":lower if representable else None,
               "lower_depth":lower,"upper_depth":upper,"lower_milli":lower*1000//workers,
               "upper_milli":upper*1000//workers,"lower_contribution":contribution(lower*1000//workers),
               "upper_contribution":contribution(upper*1000//workers)}
-            actual=dict(expected)
-            checks=comparison(expected,actual)
-            if workers==1 and numerator==1: checks["half_on_one_nonrepresentable"]=not representable
-            rows.append({"workers":workers,"target":f"{numerator}/2","expected":expected,"actual":actual,"field_comparison":checks,"matches_expected":all(checks.values())})
+            band=contribution(numerator*500)
+            if workers==1 and numerator==1:
+                expected={"representable":False,"exact_depth":None,"lower_depth":0,"upper_depth":1,"lower_milli":0,"upper_milli":1000,"lower_contribution":None,"upper_contribution":15}
+                checks=comparison(expected,actual)
+            else:
+                exact=product//2; target_milli=numerator*500
+                checks={"representable":representable,"exact_depth":actual["exact_depth"]==exact,
+                  "depths_exact":actual["lower_depth"]==actual["upper_depth"]==exact,
+                  "milli_exact":actual["lower_milli"]==actual["upper_milli"]==target_milli,
+                  "contribution_band":actual["lower_contribution"]==actual["upper_contribution"]==band}
+                expected={"general_invariants":True,"target_milli":target_milli,"expected_band":band}
+            rows.append({"workers":workers,"target_numerator":numerator,"target_denominator":2,"expected":expected,"actual":actual,"field_comparison":checks,"matches_expected":all(checks.values())})
     return rows
 
 def fixed_backlog_checks():
@@ -94,15 +102,41 @@ def legacy_expected(item):
 
 def legacy_pairs(items):
     by_name={x["name"]:x for x in items}; checks=[]
-    # Requested exact growth delta uses otherwise-identical generated n7/n8 shapes only for the compact expected calculator.
-    for count in SAMPLE_COUNTS:
-        quality=bonus(count); expected=0 if count<8 else 1 if count<20 else 3 if count<40 else 5 if count<100 else 8
-        checks.append({"case":f"sample_quality_{count}","expected":expected,"actual":quality,"matches_expected":quality==expected})
-    base=normalized_score(4000,40,False); grown=normalized_score(4000,40,True)
-    checks.append({"case":"paired_growth_delta","expected_delta":4,"actual_delta":grown-base,"matches_expected":grown-base==4})
+    score=lambda name:by_name[name]["observed"]["final_score"]
+    for left,right,expected in [("n1","n7",0),("n7","n8",1),("n8","n19",0),("n19","n20",2),("n20","n39",0),("n39","n40",2),("n40","n99",0),("n99","n100",3)]:
+        actual=score(right)-score(left); checks.append({"case":f"{right}-{left}","expected_delta":expected,"actual_delta":actual,"matches_expected":actual==expected})
+    off,on=by_name["growth_pair_off"],by_name["growth_pair_on"]; actual=on["observed"]["final_score"]-off["observed"]["final_score"]
+    expected_confidence_delta=bucket(on["observed"]["final_score"])!=bucket(off["observed"]["final_score"])
+    confidence_ok=(on["observed"]["final_confidence"]!=off["observed"]["final_confidence"])==expected_confidence_delta
+    checks.append({"case":"public_growth_pair","expected_delta":4,"actual_delta":actual,"confidence_threshold_crossed":expected_confidence_delta,"confidence_comparison":confidence_ok,"matches_expected":actual==4 and confidence_ok})
     return checks
 
+def missing_local_checks():
+    specs=[("all present",[(8,4,4),(12,4,4)],[4,4],[],[3000,4000],False,None),
+      ("all absent",[(8,None,4),(12,None,4)],[0,0],[0,1],[2000,3000],True,"medium"),
+      ("one absent",[(8,4,4),(12,None,4)],[4,0],[1],[3000,3000],True,"medium"),
+      ("irrelevant absent",[(8,4,4),(None,None,4)],[4],[],[3000],False,None)]
+    out=[]
+    for name,snaps,locals_expected,zeros_expected,values_expected,bound_expected,cap_expected in specs:
+        raw=[{"global_queue_depth":g,"local_queue_depth":l,"worker_count":w} for g,l,w in snaps]; relevant=[i for i,s in enumerate(raw) if s["global_queue_depth"] is not None]
+        locals_used=[raw[i]["local_queue_depth"] or 0 for i in relevant]; zeros=[i for i in relevant if raw[i]["local_queue_depth"] is None]
+        values=[(raw[i]["global_queue_depth"]+locals_used[j])*1000//raw[i]["worker_count"] for j,i in enumerate(relevant)]
+        actual={"local_values_used":locals_used,"zero_substitution_indexes":zeros,"normalized_values":values,"lower_bound":bool(zeros),"derived_cap":"medium" if zeros else None}
+        expected={"local_values_used":locals_expected,"zero_substitution_indexes":zeros_expected,"normalized_values":values_expected,"lower_bound":bound_expected,"derived_cap":cap_expected}
+        checks=comparison(expected,actual); out.append({"case":name,"raw_snapshots":raw,"relevant_snapshot_indexes":relevant,**actual,"expected":expected,"field_comparison":checks,"matches_expected":all(checks.values())})
+    return out
+
 def typed_issue_map(public): return {z["name"]:z for z in public["zero_validation"]}
+def validate_zero(item,zero_index):
+    raw=item["typed_input"]["runtime_snapshots"]; normalized=item["permissive_normalized"]["run"]["runtime_snapshots"]
+    strict=item["strict_result"] or []; issues=item["permissive_normalized"]["issues"]
+    typed=[x for x in issues if x["code"]=="InvalidWorkerCount" and x["section"]=="runtime snapshot" and x["field"]=="worker_count" and x["original_index"]==zero_index]
+    dispositions=item["permissive_normalized"]["dispositions"]
+    retained=any(x["section"]=="runtime snapshot" and x["original_index"]==zero_index and x["snapshot_disposition"].startswith("retained:") for x in dispositions)
+    fields=["global_queue_depth","local_queue_depth","alive_tasks","at_unix_ms","at_run_us"]
+    checks={"strict_has_issue":bool(strict),"typed_issue_exact":bool(typed),"snapshot_count_retained":len(raw)==len(normalized),
+      "worker_cleared":normalized[zero_index].get("worker_count") is None,"non_worker_fields_retained":all(normalized[zero_index].get(k)==raw[zero_index].get(k) for k in fields),"disposition_retained":retained}
+    return {**item,"raw_zero_index":zero_index,"validation_assertions":checks,"matches_expected":all(checks.values())}
 def classify_workers(name,snaps,issues,expected_mode,expected_cap):
     relevant=[i for i,s in enumerate(snaps) if s.get("global_queue_depth") is not None]
     locations=[i["original_index"] for i in issues if i["code"]=="InvalidWorkerCount" and i["section"]=="runtime snapshot" and i["field"]=="worker_count" and i["original_index"] in relevant]
@@ -115,7 +149,8 @@ def classify_workers(name,snaps,issues,expected_mode,expected_cap):
     else: mode="complete normalized"; cap=None
     expected={"mode":expected_mode,"cap":expected_cap}; observed={"mode":mode,"cap":cap}
     checks=comparison(expected,observed)
-    if "zero" in name: checks["typed_issue_used"]=bool(locations)
+    if name in ["zero first","zero later"]: checks["typed_issue_used"]=bool(locations)
+    if name=="irrelevant zero": checks["irrelevant_typed_issue_ignored"]=not locations and any(i["code"]=="InvalidWorkerCount" for i in issues)
     if name=="all absent": checks["historical_has_no_typed_zero"]=not locations
     return {"case":name,"raw_snapshots":snaps,"canonical_validation_issues":issues,"relevant_snapshot_indexes":relevant,
       "positive_worker_values":positive,"missing_worker_indexes":missing,"inconsistent_worker_count":inconsistent,
@@ -183,22 +218,36 @@ def control(item):
     return {"name":name,"requirements":requirements,"observed":{"required_competitor":competitor_kind,"current_competitor":None if current is None else current["kind"],"normalized_p95_milli":milli,"executor":executor,"ambiguity_cluster":[s["kind"] for s in cluster],"projected_ordering":[s["kind"] for s in projected],"projected_primary":None if not primary else primary["kind"]},"field_comparison":checks,"matches_expected":all(checks.values()),"typed_run":run,"current_public_analyzer_output":item["public_report"],"projected_suspect_list":projected}
 
 def derive(public,verification):
-    scales=scale_checks(); quant=quantization_checks(); fixed=fixed_backlog_checks(); legacy=[legacy_expected(x) for x in public["legacy_cases"]]; pairs=legacy_pairs(legacy)
+    expected_truth={"legacy_trigger":1,"legacy_base":34,"global_cap":150,"global_divisor":4,"local_cap":60,"local_divisor":6,"alive_cap":400,"alive_divisor":40,"growth_bonus":4,"sample_bonuses":[0,1,3,5,8],"clean_extreme_global":140,"clean_extreme_samples":30,"ordinary_soft_cap":94,"confidence_thresholds":[65,85],"ambiguity_minimum":60,"ambiguity_gap":4,"percentile_numerator":95,"percentile_denominator":100,"invalid_worker_issue_code":"InvalidWorkerCount"}
+    source_truth={"expected":expected_truth,"actual":public["source_truth"],"field_comparison":comparison(expected_truth,public["source_truth"])}; source_truth["matches_expected"]=all(source_truth["field_comparison"].values())
+    boundaries_expected={0:None,499:None,500:5,999:5,1000:15,1999:15,2000:25,3999:25,4000:40,7999:40,8000:55}
+    boundaries=[{"milli":v,"expected":e,"actual":contribution(v),"matches_expected":contribution(v)==e} for v,e in boundaries_expected.items()]
+    scales=scale_checks(); quant=quantization_checks(); fixed=fixed_backlog_checks(); legacy=[legacy_expected(x) for x in public["legacy_cases"]]; pairs=legacy_pairs(legacy); missing=missing_local_checks()
     zero=typed_issue_map(public); simple=lambda spec:[{"global_queue_depth":g,"local_queue_depth":l,"worker_count":w} for g,l,w in spec]
     def issues(name): return zero[name]["permissive_normalized"]["issues"]
-    workers=[classify_workers("all absent",simple([(8,2,None),(9,2,None)]),[],"historical compatibility",None),classify_workers("one missing",simple([(8,2,4),(9,2,None)]),[],"ambiguous-worker fallback","medium"),classify_workers("inconsistent",simple([(8,2,4),(9,2,8)]),[],"ambiguous-worker fallback","medium"),classify_workers("zero first",zero["zero_first"]["typed_input"]["runtime_snapshots"],issues("zero_first"),"ambiguous-worker fallback","medium"),classify_workers("zero later",zero["zero_later"]["typed_input"]["runtime_snapshots"],issues("zero_later"),"ambiguous-worker fallback","medium"),classify_workers("irrelevant anomaly",simple([(8,2,4),(None,2,0)]),[],"complete normalized",None),classify_workers("no globals",simple([(None,2,0)]),[],"no executor candidate",None)]
+    validated_zero=[validate_zero(zero["zero_first"],0),validate_zero(zero["zero_later"],1),validate_zero(zero["irrelevant_zero"],1)]
+    workers=[classify_workers("all absent",simple([(8,2,None),(9,2,None)]),[],"historical compatibility",None),classify_workers("one missing",simple([(8,2,4),(9,2,None)]),[],"ambiguous-worker fallback","medium"),classify_workers("inconsistent",simple([(8,2,4),(9,2,8)]),[],"ambiguous-worker fallback","medium"),classify_workers("zero first",zero["zero_first"]["typed_input"]["runtime_snapshots"],issues("zero_first"),"ambiguous-worker fallback","medium"),classify_workers("zero later",zero["zero_later"]["typed_input"]["runtime_snapshots"],issues("zero_later"),"ambiguous-worker fallback","medium"),classify_workers("irrelevant zero",zero["irrelevant_zero"]["typed_input"]["runtime_snapshots"],issues("irrelevant_zero"),"complete normalized",None),classify_workers("no globals",simple([(None,2,0)]),[],"no executor candidate",None)]
     caps=cap_cases(); controls=[control(x) for x in public["controls"]]
     percentile=[p95(list(range(n))) for n in P95_COUNTS]
     overflow=[]; maximum=2**64-1
     for g,l,w in [(maximum,0,1),(0,maximum,1),(maximum,maximum,1),(maximum,maximum,2**32-1)]:
         product=(g+l)*1000; overflow.append({"global":g,"local":l,"workers":w,"product_bits":product.bit_length(),"fits_u128":product<2**128,"quotient":product//w})
-    checks=[all(g["matches"] for g in scales),all(x["matches_expected"] for x in quant),all(g["nonincreasing"] for g in fixed),all(x["matches_expected"] for x in legacy) and all(x["matches_expected"] for x in pairs),all(x["matches_expected"] for x in workers),all(x["matches_expected"] for x in caps),all(x["matches_expected"] for x in controls[:5]),controls[5]["matches_expected"],verification.get("deterministic_two_run",False),verification.get("allowed_worktree",False)]
-    criteria=[True,True,checks[0],checks[1],True,checks[2],all(x["selected_index"]==(x["count"]-1)*95//100+bool(((x["count"]-1)*95)%100) for x in percentile),all(x["fits_u128"] for x in overflow),checks[3],checks[4],True,checks[5],checks[6],checks[7],checks[8],checks[9]]
+    monotonic=[]
+    for workers_count in [1,2,4,8,16]:
+        failures=[]
+        for depth in range(1,129):
+            pm=(depth-1)*1000//workers_count; cm=depth*1000//workers_count; pc=contribution(pm); cc=contribution(cm)
+            numeric=lambda x:-1 if x is None else x
+            row={"previous_depth":depth-1,"current_depth":depth,"previous_milli":pm,"current_milli":cm,"previous_contribution":pc,"current_contribution":cc,"milli_nondecreasing":cm>=pm,"contribution_nondecreasing":numeric(cc)>=numeric(pc)}
+            if not row["milli_nondecreasing"] or not row["contribution_nondecreasing"]: failures.append(row)
+        monotonic.append({"workers":workers_count,"adjacent_pairs":128,"failures":failures,"matches_expected":not failures})
+    checks=[all(g["matches"] for g in scales),all(x["matches_expected"] for x in quant),all(x["matches_expected"] for x in monotonic),all(g["nonincreasing"] for g in fixed),all(x["matches_expected"] for x in legacy) and all(x["matches_expected"] for x in pairs),all(x["matches_expected"] for x in workers) and all(x["matches_expected"] for x in validated_zero),all(x["matches_expected"] for x in missing),all(x["matches_expected"] for x in caps),all(x["matches_expected"] for x in controls[:5]),controls[5]["matches_expected"],verification.get("deterministic_two_run",False),verification.get("allowed_worktree",False)]
+    criteria=[source_truth["matches_expected"],all(x["matches_expected"] for x in boundaries),checks[0],checks[1],checks[2],checks[3],all(x["selected_index"]==(x["count"]-1)*95//100+bool(((x["count"]-1)*95)%100) for x in percentile),all(x["fits_u128"] for x in overflow),checks[4],checks[5],checks[6],checks[7],checks[8],checks[9],checks[10],checks[11]]
     reasons=["source constants","contribution boundaries","exact scale invariance","quantization rules","monotonic contribution","fixed absolute backlog","integer p95","u128 domain","legacy observables","typed worker provenance","missing-local projection","independent cap composition","competing controls","complete extreme","two byte comparisons","allowed worktree"]
     results=[{"criterion":i+1,"result":"pass" if ok else "fail","reason":reasons[i]} for i,ok in enumerate(criteria)]
     failed=[{"criterion":x["criterion"],"case":x["reason"]} for x in results if x["result"]=="fail"]
     recommendation="approve unchanged" if not failed else "revise"
-    return {"source_truth_inventory":["tailtriage-analyzer/src/scoring.rs","tailtriage-analyzer/src/confidence.rs","tailtriage-core/src/validation.rs"],"integer_percentile_index_tests":percentile,"direct_contribution_boundaries":[{"milli":v,"contribution":contribution(v)} for v in [0,499,500,999,1000,1999,2000,3999,4000,7999,8000]],"scale_invariance":scales,"representability_and_quantization":quant,"fixed_backlog":fixed,"legacy_public_api_comparisons":legacy,"legacy_paired_comparisons":pairs,"worker_mode_comparisons":workers,"typed_zero_validation":public["zero_validation"],"cap_composition":caps,"competing_controls":controls,"overflow_domain":overflow,"criteria":results,"failed_cases":failed,"questionable_cases":["Projected normalization is review evidence, not current analyzer behavior."],"recommendation":recommendation,"reproducibility":verification}
+    return {"source_truth_comparison":source_truth,"integer_percentile_index_tests":percentile,"direct_contribution_boundaries":boundaries,"scale_invariance":scales,"representability_and_quantization":quant,"monotonicity":monotonic,"fixed_backlog":fixed,"legacy_public_api_comparisons":legacy,"legacy_paired_comparisons":pairs,"worker_mode_comparisons":workers,"missing_local_comparisons":missing,"typed_zero_validation":validated_zero,"cap_composition":caps,"competing_controls":controls,"overflow_domain":overflow,"criteria":results,"failed_cases":failed,"questionable_cases":["Projected normalization is review evidence, not current analyzer behavior."],"recommendation":recommendation,"reproducibility":verification}
 
 def render(data):
     raw=json.dumps(data,sort_keys=True,separators=(",",":"))+"\n"
@@ -207,7 +256,7 @@ def render(data):
     for c in data["competing_controls"]:
         o=c["observed"]; trace=[] if not o["executor"] else o["executor"]["cap_trace"]
         lines.append(f"| {c['name']} | {o['current_competitor']} | {o['normalized_p95_milli']} | {trace} | {o['ambiguity_cluster']} | {o['projected_ordering']} | {c['matches_expected']} |")
-    lines += ["","## Derived comparisons",f"- Scale groups: {sum(x['matches'] for x in data['scale_invariance'])}/{len(data['scale_invariance'])}.",f"- Quantization cells: {sum(x['matches_expected'] for x in data['representability_and_quantization'])}/{len(data['representability_and_quantization'])}.",f"- Fixed-backlog groups: {sum(x['nonincreasing'] for x in data['fixed_backlog'])}/{len(data['fixed_backlog'])}.",f"- Legacy cases and paired checks: {sum(x['matches_expected'] for x in data['legacy_public_api_comparisons'])}/{len(data['legacy_public_api_comparisons'])}; {sum(x['matches_expected'] for x in data['legacy_paired_comparisons'])}/{len(data['legacy_paired_comparisons'])}.",f"- Worker provenance: {sum(x['matches_expected'] for x in data['worker_mode_comparisons'])}/{len(data['worker_mode_comparisons'])}.",f"- Cap composition: {sum(x['matches_expected'] for x in data['cap_composition'])}/{len(data['cap_composition'])}.","","## Failed and questionable cases",f"- Failed: {data['failed_cases'] or 'none'}."]+[f"- Questionable: {x}" for x in data["questionable_cases"]]
+    lines += ["","## Derived comparisons",f"- Source truth and boundaries: {data['source_truth_comparison']['matches_expected']}; {sum(x['matches_expected'] for x in data['direct_contribution_boundaries'])}/11.",f"- Scale groups: {sum(x['matches'] for x in data['scale_invariance'])}/{len(data['scale_invariance'])}.",f"- Quantization cells: {sum(x['matches_expected'] for x in data['representability_and_quantization'])}/{len(data['representability_and_quantization'])}.",f"- Monotonic workers: {sum(x['matches_expected'] for x in data['monotonicity'])}/5; failures: {sum(len(x['failures']) for x in data['monotonicity'])}.",f"- Fixed-backlog groups: {sum(x['nonincreasing'] for x in data['fixed_backlog'])}/{len(data['fixed_backlog'])}.",f"- Legacy cases and paired checks: {sum(x['matches_expected'] for x in data['legacy_public_api_comparisons'])}/{len(data['legacy_public_api_comparisons'])}; {sum(x['matches_expected'] for x in data['legacy_paired_comparisons'])}/{len(data['legacy_paired_comparisons'])}.",f"- Worker provenance: {sum(x['matches_expected'] for x in data['worker_mode_comparisons'])}/{len(data['worker_mode_comparisons'])}.",f"- Missing-local: {sum(x['matches_expected'] for x in data['missing_local_comparisons'])}/{len(data['missing_local_comparisons'])}; failures: {[x['case'] for x in data['missing_local_comparisons'] if not x['matches_expected']]}.",f"- Cap composition: {sum(x['matches_expected'] for x in data['cap_composition'])}/{len(data['cap_composition'])}.","","## Failed and questionable cases",f"- Failed: {data['failed_cases'] or 'none'}."]+[f"- Questionable: {x}" for x in data["questionable_cases"]]
     return raw,"\n".join(lines)+"\n"
 
 def write_outputs(public_path,out,verification):
@@ -221,8 +270,8 @@ def orchestrate():
     command=["cargo","run","--quiet","--locked","--manifest-path",str(HERE/"Cargo.toml")]; result=run(command); api.write_text(result.stdout)
     api_cmp=result.returncode==0 and api.read_bytes()==(HERE/"public-api.json").read_bytes()
     staged=run(["git","diff","--cached","--exit-code"]); whitespace=run(["git","diff","--check"]); status=run(["git","status","--short"])
-    allowed={" M validation/executor-normalization-review/report.json"," M validation/executor-normalization-review/report.md"}
-    status_lines=set(status.stdout.splitlines()); worktree_ok=status.returncode==0 and status_lines<=allowed and staged.returncode==0 and whitespace.returncode==0
+    allowed_prefix=" M validation/executor-normalization-review/"
+    status_lines=set(status.stdout.splitlines()); worktree_ok=status.returncode==0 and all(x.startswith(allowed_prefix) for x in status_lines) and staged.returncode==0 and whitespace.returncode==0
     verification={"public_api_cmp":api_cmp,"deterministic_two_run":True,"allowed_worktree":worktree_ok,"cmp_exit_statuses":{"public_api":0 if api_cmp else 1},"clean_commands":{"git_diff_check":whitespace.returncode,"git_diff_cached":staged.returncode,"git_status":status.stdout}}
     _,raw1,md1=write_outputs(api,TARGET/"run1",verification); _,raw2,md2=write_outputs(api,TARGET/"run2",verification)
     json_same=raw1==raw2; md_same=md1==md2; verification["deterministic_two_run"]=json_same and md_same

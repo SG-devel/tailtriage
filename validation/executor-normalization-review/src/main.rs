@@ -101,6 +101,26 @@ fn zero_evidence(name: &str, workers: &[Option<u64>]) -> Value {
         "snapshot_disposition":match &d.disposition { RunEventDispositionKind::Retained{output_index}=>format!("retained:{output_index}"),RunEventDispositionKind::Excluded{issue_codes}=>format!("excluded:{issue_codes:?}") }})).collect::<Vec<_>>()}})
 }
 
+fn irrelevant_zero_evidence() -> Value {
+    let mut input = run(
+        "irrelevant_zero",
+        &[8, 1],
+        &[Some(2), Some(2)],
+        &[Some(4), Some(0)],
+        0,
+    );
+    input.runtime_snapshots[1].global_queue_depth = None;
+    let strict = validate_run_strict(&input)
+        .err()
+        .map(|e| e.report().issues.iter().map(issue_json).collect::<Vec<_>>());
+    let normalized = normalize_run_permissive(&input);
+    json!({"name":"irrelevant_zero","typed_input":input,"strict_result":strict,
+      "permissive_normalized":{"run":normalized.run,
+      "issues":normalized.report.issues.iter().map(issue_json).collect::<Vec<_>>(),
+      "dispositions":normalized.dispositions.iter().map(|d| json!({"section":d.section.as_str(),"original_index":d.input_index,
+        "snapshot_disposition":match &d.disposition { RunEventDispositionKind::Retained{output_index}=>format!("retained:{output_index}"),RunEventDispositionKind::Excluded{issue_codes}=>format!("excluded:{issue_codes:?}") }})).collect::<Vec<_>>()}})
+}
+
 fn main() {
     let mut legacy = Vec::new();
     for (name, n, global, local, alive, growth, dropped) in [
@@ -110,13 +130,13 @@ fn main() {
         ("clean_extreme", 40, 150, Some(60), Some(400), true, 0),
         ("absent_optional", 7, 4, None, None, false, 0),
         ("n1", 1, 4, Some(0), Some(0), false, 0),
-        ("n7", 7, 4, Some(0), Some(0), true, 0),
+        ("n7", 7, 4, Some(0), Some(0), false, 0),
         ("n8", 8, 4, Some(0), Some(0), false, 0),
-        ("n19", 19, 4, Some(0), Some(0), true, 0),
+        ("n19", 19, 4, Some(0), Some(0), false, 0),
         ("n20", 20, 4, Some(0), Some(0), false, 0),
-        ("n39", 39, 4, Some(0), Some(0), true, 0),
+        ("n39", 39, 4, Some(0), Some(0), false, 0),
         ("n40", 40, 4, Some(0), Some(0), false, 0),
-        ("n99", 99, 4, Some(0), Some(0), true, 0),
+        ("n99", 99, 4, Some(0), Some(0), false, 0),
         ("n100", 100, 4, Some(0), Some(0), false, 0),
         ("runtime_truncated", 40, 150, Some(60), Some(400), true, 1),
     ] {
@@ -146,6 +166,20 @@ fn main() {
         item["alive_p95_input"] = json!(alive);
         legacy.push(item);
     }
+    for (name, growth) in [("growth_pair_off", false), ("growth_pair_on", true)] {
+        let mut item = evidence(name, vec![40; 40], vec![Some(0); 40], vec![None; 40], 0);
+        if growth {
+            item["typed_input"]["inflight"] = json!([
+              {"gauge":"evidence","at_unix_ms":1,"count":1},
+              {"gauge":"evidence","at_unix_ms":2,"count":4}
+            ]);
+        }
+        let adjusted: Run =
+            serde_json::from_value(item["typed_input"].clone()).expect("growth pair");
+        item["public_report"] = json!(analyze_run(&adjusted, AnalyzeOptions::default()));
+        item["growth"] = json!(growth);
+        legacy.push(item);
+    }
     let blocking =
         include_str!("../../../tailtriage-analyzer/tests/fixtures/blocking_pressure.json");
     let downstream =
@@ -160,8 +194,15 @@ fn main() {
         fixture_control("complete_worker_extreme", queue, 100, 32, 4),
     ];
     println!("{}", serde_json::to_string(&json!({
-      "generator":"tracked Rust public-API evidence generator", "legacy_cases":legacy,
-      "zero_validation":[zero_evidence("zero_first", &[Some(0),Some(4)]),zero_evidence("zero_later", &[Some(4),Some(0)])],
+      "generator":"tracked Rust public-API evidence generator",
+      "source_truth":{"legacy_trigger":1,"legacy_base":34,"global_cap":150,"global_divisor":4,
+        "local_cap":60,"local_divisor":6,"alive_cap":400,"alive_divisor":40,"growth_bonus":4,
+        "sample_bonuses":[0,1,3,5,8],"clean_extreme_global":140,"clean_extreme_samples":30,
+        "ordinary_soft_cap":94,"confidence_thresholds":[65,85],"ambiguity_minimum":60,
+        "ambiguity_gap":4,"percentile_numerator":95,"percentile_denominator":100,
+        "invalid_worker_issue_code":"InvalidWorkerCount"},
+      "legacy_cases":legacy,
+      "zero_validation":[zero_evidence("zero_first", &[Some(0),Some(4)]),zero_evidence("zero_later", &[Some(4),Some(0)]),irrelevant_zero_evidence()],
       "controls":controls
     })).expect("serialize"));
 }

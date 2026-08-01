@@ -37,11 +37,14 @@ Evidence-ranked projections are triage leads, not proof of root cause.
 | complete_worker_extreme | None | 8000 | [] | ['executor_pressure'] | ['executor_pressure', 'application_queue_saturation'] | True |
 
 ## Derived comparisons
+- Source truth and boundaries: True; 11/11.
 - Scale groups: 4/4.
 - Quantization cells: 25/25.
+- Monotonic workers: 5/5; failures: 0.
 - Fixed-backlog groups: 6/6.
-- Legacy cases and paired checks: 15/15; 10/10.
+- Legacy cases and paired checks: 17/17; 9/9.
 - Worker provenance: 7/7.
+- Missing-local: 4/4; failures: [].
 - Cap composition: 5/5.
 
 ## Failed and questionable cases
