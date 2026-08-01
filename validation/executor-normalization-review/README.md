@@ -1,49 +1,21 @@
-# Prompt 20 evidence export
+# Prompt 20 executor-normalization evidence (draft)
 
-Verified starting SHA: `1a083075a477d658cb6a581cb6c07c4e87935e42`.
+This directory is an **evidence-only draft PR** export. It must not be merged and may be closed after review. No production or behavior-affecting file changed.
 
-Original Prompt 20 recommendation: **approve unchanged**.
+The tracked Rust micro-crate uses repository path dependencies and public APIs only. Its canonical `public-api.json` output and the derived Python harness make the review reproducible from a clean checkout. Generated scratch output belongs under `target/validation/executor-normalization/`.
 
-| Criterion | Result |
-| ---: | :---: |
-| 1 | Pass |
-| 2 | Pass |
-| 3 | Pass |
-| 4 | Pass |
-| 5 | Pass |
-| 6 | Pass |
-| 7 | Pass |
-| 8 | Pass |
-| 9 | Pass |
-| 10 | Pass |
-| 11 | Pass |
-| 12 | Pass |
-| 13 | Pass |
-| 14 | Pass |
-| 15 | Pass |
-| 16 | Pass |
-
-Phase 1 commands:
-
-```text
-cargo run --quiet --offline --manifest-path target/validation/executor-normalization/Cargo.toml > target/validation/executor-normalization/public-api.json
-cargo run --quiet --locked --manifest-path target/validation/executor-normalization/Cargo.toml > target/validation/executor-normalization/public-api-locked.json
-cmp target/validation/executor-normalization/public-api.json target/validation/executor-normalization/public-api-locked.json
-python3 target/validation/executor-normalization/harness.py
-cargo test --locked -p tailtriage-core invalid_worker_count_is_rejected_strictly_and_cleared_permissively
-cargo test --locked -p tailtriage-analyzer
+```sh
+mkdir -p target/validation/executor-normalization
+cargo run --quiet --locked --manifest-path validation/executor-normalization-review/Cargo.toml > target/validation/executor-normalization/public-api.generated.json
+cmp validation/executor-normalization-review/public-api.json target/validation/executor-normalization/public-api.generated.json
+python3 validation/executor-normalization-review/harness.py --public-api validation/executor-normalization-review/public-api.json --output-dir target/validation/executor-normalization/run1 --verification target/validation/executor-normalization/verification.json
+python3 validation/executor-normalization-review/harness.py --public-api validation/executor-normalization-review/public-api.json --output-dir target/validation/executor-normalization/run2 --verification target/validation/executor-normalization/verification.json
+cmp target/validation/executor-normalization/run1/report.json target/validation/executor-normalization/run2/report.json
+cmp target/validation/executor-normalization/run1/report.md target/validation/executor-normalization/run2/report.md
 ```
 
-Two-run determinism: `report.json` and `report.md` were byte-identical under `cmp` after two harness executions. Hashes: harness `dfde36b44b6e01ea3d26a38cb631153b06d57ea406a4550be61691da5e567f25`; report.json `56b6b69d2e9149b18804532392aabc44f202838a79da16af0a320f9387abdc1a`; report.md `ce22b4e29a2adb7959a5590644881e711490c6a025eb3b825494e5c10dab921a`.
+The verification JSON is deterministic orchestration input: it records successful generator comparison, two-run comparisons, hashes, and clean-tree exit statuses before final tracked reports are rendered. Review findings are derived from structured comparisons; a failed mandatory check is recorded in `failed_cases`, exits nonzero, and changes the recommendation to `revise` (or `reject` only for a contradictory/unusable formula).
 
-Source/copy comparisons: `harness.py`: `cmp` passed; `report.json`: `cmp` passed; `report.md`: `cmp` passed.
+The public docs-contract validator intentionally rejects this unindexed evidence directory. Public documentation and indexes are outside this evidence-only scope and must not be changed merely to satisfy that validator.
 
-This export preserves the durable evidence used to falsify the candidate executor worker-normalization formula.
-
-The analysis completed before this branch was created.
-
-The tracked artifacts are byte-identical copies of the generated ignored artifacts.
-
-No production or behavior-affecting repository file changed.
-
-This draft PR is evidence-only, must not be merged, and may be closed after review.
+Suspects and projections are triage leads, not proof of root cause. Projected normalized behavior is review evidence, not current production analyzer behavior.
