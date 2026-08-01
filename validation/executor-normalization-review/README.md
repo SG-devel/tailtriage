@@ -1,21 +1,31 @@
-# Prompt 20 executor-normalization evidence (draft)
+# Executor-normalization review evidence
 
-This directory is an **evidence-only draft PR** export. It must not be merged and may be closed after review. No production or behavior-affecting file changed.
+This directory is an evidence-only draft review package. It changes no production or behavior-affecting file. The evidence PR must not be merged; it may be closed after review.
 
-The tracked Rust micro-crate uses repository path dependencies and public APIs only. Its canonical `public-api.json` output and the derived Python harness make the review reproducible from a clean checkout. Generated scratch output belongs under `target/validation/executor-normalization/`.
+## One-command reproduction
 
-```sh
-mkdir -p target/validation/executor-normalization
-cargo run --quiet --locked --manifest-path validation/executor-normalization-review/Cargo.toml > target/validation/executor-normalization/public-api.generated.json
-cmp validation/executor-normalization-review/public-api.json target/validation/executor-normalization/public-api.generated.json
-python3 validation/executor-normalization-review/harness.py --public-api validation/executor-normalization-review/public-api.json --output-dir target/validation/executor-normalization/run1 --verification target/validation/executor-normalization/verification.json
-python3 validation/executor-normalization-review/harness.py --public-api validation/executor-normalization-review/public-api.json --output-dir target/validation/executor-normalization/run2 --verification target/validation/executor-normalization/verification.json
-cmp target/validation/executor-normalization/run1/report.json target/validation/executor-normalization/run2/report.json
-cmp target/validation/executor-normalization/run1/report.md target/validation/executor-normalization/run2/report.md
+From a clean checkout at the evidence commit, run:
+
+```bash
+python3 validation/executor-normalization-review/harness.py --orchestrate
 ```
 
-The verification JSON is deterministic orchestration input: it records successful generator comparison, two-run comparisons, hashes, and clean-tree exit statuses before final tracked reports are rendered. Review findings are derived from structured comparisons; a failed mandatory check is recorded in `failed_cases`, exits nonzero, and changes the recommendation to `revise` (or `reject` only for a contradictory/unusable formula).
+The command builds the locked Rust public-API generator, checks its canonical JSON, derives both reports twice, verifies byte identity and the allowed Git state, writes target-only verification evidence, and refreshes the tracked reports. Scratch output is under `target/validation/executor-normalization/`.
 
-The public docs-contract validator intentionally rejects this unindexed evidence directory. Public documentation and indexes are outside this evidence-only scope and must not be changed merely to satisfy that validator.
+Confirm the tracked/generated artifacts explicitly:
 
-Suspects and projections are triage leads, not proof of root cause. Projected normalized behavior is review evidence, not current production analyzer behavior.
+```bash
+cmp validation/executor-normalization-review/public-api.json target/validation/executor-normalization/public-api.generated.json
+cmp validation/executor-normalization-review/report.json target/validation/executor-normalization/report-run1.json
+cmp validation/executor-normalization-review/report.json target/validation/executor-normalization/report-run2.json
+cmp validation/executor-normalization-review/report.md target/validation/executor-normalization/report-run1.md
+cmp validation/executor-normalization-review/report.md target/validation/executor-normalization/report-run2.md
+```
+
+Canonical JSON files use sorted, deterministic single-line encoding with one trailing newline.
+
+The repository docs-contract validator is expected to reject this intentionally unindexed evidence directory. Do not add public documentation links to bypass that limitation.
+
+GitHub draft state and PR metadata must be managed manually by the user. No `gh` command or GitHub API operation is part of this workflow. This package does not create, update, or merge a PR.
+
+The projected normalized executor candidate is review evidence only. Evidence-ranked suspects and next checks remain triage leads, not proof of root cause.
