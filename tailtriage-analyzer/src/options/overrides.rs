@@ -73,6 +73,7 @@ mod tests {
         "blocking.strong_nonzero_share_permille",
         "blocking.strong_min_samples",
         "executor.min_global_queue_p95_for_signal",
+        "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
         "downstream.min_stage_samples",
         "downstream.blocking_correlated_stage_patterns",
         "downstream.blocking_correlation_score_margin",
@@ -291,7 +292,7 @@ mod tests {
     fn registry_paths_are_unique_and_exact() {
         let paths = AnalyzeOptions::valid_override_paths();
         let unique: HashSet<_> = paths.iter().copied().collect();
-        assert_eq!(paths.len(), 29);
+        assert_eq!(paths.len(), 30);
         assert_eq!(paths.len(), unique.len());
         assert_eq!(paths, EXPECTED_PATHS);
     }
@@ -405,6 +406,11 @@ mod tests {
             ("blocking.strong_nonzero_share_permille", "700", "u64"),
             ("blocking.strong_min_samples", "30", "usize"),
             ("executor.min_global_queue_p95_for_signal", "1", "u64"),
+            (
+                "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
+                "500",
+                "u64",
+            ),
             ("downstream.min_stage_samples", "3", "usize"),
             (
                 "downstream.blocking_correlated_stage_patterns",

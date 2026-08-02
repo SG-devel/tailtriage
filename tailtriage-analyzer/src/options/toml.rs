@@ -36,6 +36,7 @@ struct BlockingOptionsToml {
 #[serde(deny_unknown_fields)]
 struct ExecutorOptionsToml {
     min_global_queue_p95_for_signal: Option<u64>,
+    min_runnable_queue_per_worker_p95_milli_for_signal: Option<u64>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -170,6 +171,12 @@ fn collect_updates(config: &AnalyzerTomlConfig, updates: &mut Vec<(&'static str,
             updates,
             "executor.min_global_queue_p95_for_signal",
             p.min_global_queue_p95_for_signal.map(OptionValue::U64),
+        );
+        push_update(
+            updates,
+            "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
+            p.min_runnable_queue_per_worker_p95_milli_for_signal
+                .map(OptionValue::U64),
         );
     }
     if let Some(p) = &config.downstream {

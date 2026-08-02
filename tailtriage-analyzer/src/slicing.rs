@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use tailtriage_core::Run;
 
 use super::{
-    analyze_run_internal, AnalyzeOptions, EvidenceQuality, Report, RouteBreakdown, Suspect,
-    TemporalSegment,
+    analyze_run_internal, scoring::WorkerEvidenceStatus, AnalyzeOptions, EvidenceQuality, Report,
+    RouteBreakdown, Suspect, TemporalSegment,
 };
 
 #[derive(Clone, Copy)]
@@ -100,11 +100,12 @@ pub(super) fn analyze_slice(
     source: &Run,
     request_ids: &[String],
     global_evidence: GlobalEvidencePolicy,
+    worker_status: Option<WorkerEvidenceStatus>,
     options: &AnalyzeOptions,
 ) -> ScopedAnalysis {
     let sliced = slice_run(source, request_ids, global_evidence);
     ScopedAnalysis {
-        report: analyze_run_internal(&sliced.run, options).into(),
+        report: analyze_run_internal(&sliced.run, worker_status, options).into(),
         used_unix_fallback: sliced.used_unix_fallback,
     }
 }
@@ -254,7 +255,11 @@ mod tests {
     #[test]
     fn scoped_projection_matches_internal_report_fields_exactly() {
         let source = fixture(include_str!("../tests/fixtures/queue_saturation.json"));
-        let mut report = analyze_run_internal(&source, &AnalyzeOptions::default());
+        let mut report = analyze_run_internal(
+            &source,
+            crate::scoring::classify_worker_evidence(&source),
+            &AnalyzeOptions::default(),
+        );
         report.request_count = 37;
         report.p50_latency_us = Some(101);
         report.p95_latency_us = Some(202);

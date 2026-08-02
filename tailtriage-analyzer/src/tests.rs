@@ -165,6 +165,7 @@ fn literal_scored(
     super::partial_evidence::ScoredSuspect {
         suspect,
         basis: super::partial_evidence::EvidenceBasis::Completed,
+        executor_limitation: None,
     }
 }
 
@@ -1392,77 +1393,30 @@ fn runtime_snapshot(
 }
 
 #[test]
-fn worker_count_does_not_change_analyzer_diagnosis_or_rendering() {
+fn worker_count_enables_normalized_executor_scoring() {
     let mut historical = test_run();
     historical.requests = (0..20).map(sample_request).collect();
     historical.runtime_snapshots = vec![runtime_snapshot(Some(20), Some(0), Some(20)); 20];
-
     let historical_report = analyze_run(&historical, AnalyzeOptions::default());
-    let mut positive = historical.clone();
-    for snapshot in &mut positive.runtime_snapshots {
+    let mut normalized = historical.clone();
+    for snapshot in &mut normalized.runtime_snapshots {
         snapshot.worker_count = Some(4);
     }
-    let positive_report = analyze_run(&positive, AnalyzeOptions::default());
-    assert_eq!(positive_report, historical_report);
-    assert_eq!(
-        render_json(&positive_report).expect("positive report JSON"),
-        render_json(&historical_report).expect("historical report JSON")
-    );
-    assert_eq!(
-        render_text(&positive_report),
-        render_text(&historical_report)
-    );
-
-    let mut invalid = historical;
-    for snapshot in &mut invalid.runtime_snapshots {
-        snapshot.worker_count = Some(0);
-    }
-    let invalid_report = analyze_run(&invalid, AnalyzeOptions::default());
-    let invalid_worker_count_warnings = invalid_report
-        .warnings
+    let normalized_report = analyze_run(&normalized, AnalyzeOptions::default());
+    let historical_executor = std::iter::once(&historical_report.primary_suspect)
+        .chain(&historical_report.secondary_suspects)
+        .find(|s| s.kind == DiagnosisKind::ExecutorPressureSuspected)
+        .unwrap();
+    let normalized_executor = std::iter::once(&normalized_report.primary_suspect)
+        .chain(&normalized_report.secondary_suspects)
+        .find(|s| s.kind == DiagnosisKind::ExecutorPressureSuspected)
+        .unwrap();
+    assert_eq!(historical_executor.score, 42);
+    assert_eq!(normalized_executor.score, 77);
+    assert!(normalized_executor
+        .evidence
         .iter()
-        .filter(|warning| warning.contains("invalid_worker_count"))
-        .cloned()
-        .collect::<Vec<_>>();
-    assert_eq!(invalid_worker_count_warnings.len(), 1);
-    let invalid_worker_count_warning = &invalid_worker_count_warnings[0];
-    let mut invalid_without_worker_count_warning = invalid_report.clone();
-    let warning_count_before = invalid_without_worker_count_warning.warnings.len();
-    invalid_without_worker_count_warning
-        .warnings
-        .retain(|warning| warning != invalid_worker_count_warning);
-    assert_eq!(
-        warning_count_before - invalid_without_worker_count_warning.warnings.len(),
-        1,
-        "expected exactly one invalid_worker_count warning"
-    );
-    let validation_limitation = format!("Validation limitation: {invalid_worker_count_warning}");
-    let limitation_count_before = invalid_without_worker_count_warning
-        .evidence_quality
-        .limitations
-        .len();
-    invalid_without_worker_count_warning
-        .evidence_quality
-        .limitations
-        .retain(|limitation| limitation != &validation_limitation);
-    assert_eq!(
-        limitation_count_before
-            - invalid_without_worker_count_warning
-                .evidence_quality
-                .limitations
-                .len(),
-        1,
-        "expected exactly one evidence-quality copy of the invalid_worker_count warning"
-    );
-    assert_eq!(invalid_without_worker_count_warning, historical_report);
-    assert_eq!(
-        render_json(&invalid_without_worker_count_warning).expect("invalid report JSON"),
-        render_json(&historical_report).expect("historical report JSON")
-    );
-    assert_eq!(
-        render_text(&invalid_without_worker_count_warning),
-        render_text(&historical_report)
-    );
+        .any(|e| e.contains("5000 milli-tasks per worker")));
 }
 
 #[test]
@@ -3605,7 +3559,11 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
 fn route_breakdowns_do_not_change_global_primary_suspect() {
     let mut run = test_run();
     run.runtime_snapshots = vec![runtime_snapshot(Some(300), Some(250), Some(200))];
-    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
+    let global = analyze_run_internal(
+        &run,
+        crate::scoring::classify_worker_evidence(&run),
+        &AnalyzeOptions::default(),
+    );
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
@@ -4144,7 +4102,11 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
             completed: true,
         });
     }
-    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
+    let global = analyze_run_internal(
+        &run,
+        crate::scoring::classify_worker_evidence(&run),
+        &AnalyzeOptions::default(),
+    );
     let report = analyze_run(&run, AnalyzeOptions::default());
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
@@ -4323,7 +4285,11 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
         count: 1,
     }];
 
-    let global = analyze_run_internal(&run, &AnalyzeOptions::default());
+    let global = analyze_run_internal(
+        &run,
+        crate::scoring::classify_worker_evidence(&run),
+        &AnalyzeOptions::default(),
+    );
     let report = analyze_run(&run, AnalyzeOptions::default());
 
     assert_eq!(report.temporal_segments.len(), 2);
@@ -4722,6 +4688,7 @@ fn descriptors_have_unique_and_exact_v1_paths() {
         "blocking.strong_nonzero_share_permille",
         "blocking.strong_min_samples",
         "executor.min_global_queue_p95_for_signal",
+        "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
         "downstream.min_stage_samples",
         "downstream.blocking_correlated_stage_patterns",
         "downstream.blocking_correlation_score_margin",
@@ -4782,6 +4749,12 @@ fn descriptor_defaults_match_analyze_options_defaults() {
         (
             "executor.min_global_queue_p95_for_signal",
             opts.executor.min_global_queue_p95_for_signal.to_string(),
+        ),
+        (
+            "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
+            opts.executor
+                .min_runnable_queue_per_worker_p95_milli_for_signal
+                .to_string(),
         ),
         (
             "downstream.min_stage_samples",

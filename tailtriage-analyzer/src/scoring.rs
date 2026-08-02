@@ -11,6 +11,80 @@ const SAMPLE_QUALITY_MEDIUM_SAMPLE_COUNT: usize = 40;
 const SAMPLE_QUALITY_LOW_SAMPLE_COUNT: usize = 20;
 const SAMPLE_QUALITY_MIN_NONZERO_SAMPLE_COUNT: usize = 8;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WorkerEvidenceStatus {
+    HistoricalAbsent,
+    Complete {
+        worker_count: u32,
+        local_complete: bool,
+    },
+    Partial,
+    Inconsistent,
+    InvalidZero,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExecutorConfidenceLimitation {
+    AmbiguousWorkers(WorkerEvidenceStatus),
+    MissingLocalDepth,
+}
+
+pub(super) fn classify_worker_evidence(run: &Run) -> Option<WorkerEvidenceStatus> {
+    let relevant = run
+        .runtime_snapshots
+        .iter()
+        .filter(|snapshot| snapshot.global_queue_depth.is_some())
+        .collect::<Vec<_>>();
+    if relevant.is_empty() {
+        return None;
+    }
+    if relevant
+        .iter()
+        .any(|snapshot| snapshot.worker_count == Some(0))
+    {
+        return Some(WorkerEvidenceStatus::InvalidZero);
+    }
+    let mut counts = relevant
+        .iter()
+        .filter_map(|snapshot| snapshot.worker_count)
+        .collect::<Vec<_>>();
+    counts.sort_unstable();
+    counts.dedup();
+    Some(match counts.as_slice() {
+        [] => WorkerEvidenceStatus::HistoricalAbsent,
+        [_] if relevant
+            .iter()
+            .any(|snapshot| snapshot.worker_count.is_none()) =>
+        {
+            WorkerEvidenceStatus::Partial
+        }
+        [worker_count] => WorkerEvidenceStatus::Complete {
+            worker_count: *worker_count,
+            local_complete: relevant
+                .iter()
+                .all(|snapshot| snapshot.local_queue_depth.is_some()),
+        },
+        _ => WorkerEvidenceStatus::Inconsistent,
+    })
+}
+
+fn queue_per_worker_milli(global: u64, local: Option<u64>, workers: u32) -> u64 {
+    let runnable = u128::from(global) + u128::from(local.unwrap_or(0));
+    u64::try_from(((runnable * 1000) / u128::from(workers)).min(u128::from(u64::MAX)))
+        .expect("normalized queue value is clamped to u64")
+}
+
+fn normalized_queue_contribution(p95: u64) -> u64 {
+    match p95 {
+        0..=499 => 0,
+        500..=999 => 5,
+        1000..=1999 => 15,
+        2000..=3999 => 25,
+        4000..=7999 => 40,
+        _ => 55,
+    }
+}
+
 fn suspect(
     kind: DiagnosisKind,
     score: u8,
@@ -140,6 +214,7 @@ fn queue_candidate(
         } else {
             EvidenceBasis::ObservedLowerBound
         },
+        executor_limitation: None,
     })
 }
 
@@ -235,31 +310,32 @@ pub(super) fn blocking_pressure_suspect(run: &Run, options: &AnalyzeOptions) -> 
     ))
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn executor_pressure_suspect(
     run: &Run,
+    worker_status: Option<WorkerEvidenceStatus>,
     inflight_trend: Option<&InflightCandidate>,
     options: &AnalyzeOptions,
-) -> Option<Suspect> {
+) -> Option<(Suspect, Option<ExecutorConfidenceLimitation>)> {
     let global = runtime_metric_series(&run.runtime_snapshots, |s| s.global_queue_depth);
     let p95_global = percentile(&global, 95, 100)?;
-    if p95_global < options.executor.min_global_queue_p95_for_signal {
-        return None;
-    }
     let local = runtime_metric_series(&run.runtime_snapshots, |s| s.local_queue_depth);
     let alive = runtime_metric_series(&run.runtime_snapshots, |s| s.alive_tasks);
     let growth_bonus = inflight_trend
         .filter(|t| t.known_positive_growth())
         .map_or(0, |_| 4);
-    let clean_extreme = p95_global >= 140 && global.len() >= 30;
-    let score = cap_unless_clean_evidence(
-        34 + (p95_global.min(150) / 4)
-            + (percentile(&local, 95, 100).unwrap_or(0).min(60) / 6)
-            + (percentile(&alive, 95, 100).unwrap_or(0).min(400) / 40)
-            + growth_bonus
-            + u64::from(score_sample_quality(global.len())),
-        clean_extreme,
-        94,
-    );
+    let legacy_score = || {
+        let clean_extreme = p95_global >= 140 && global.len() >= 30;
+        cap_unless_clean_evidence(
+            34 + (p95_global.min(150) / 4)
+                + (percentile(&local, 95, 100).unwrap_or(0).min(60) / 6)
+                + (percentile(&alive, 95, 100).unwrap_or(0).min(400) / 40)
+                + growth_bonus
+                + u64::from(score_sample_quality(global.len())),
+            clean_extreme,
+            94,
+        )
+    };
     let mut evidence = vec![format!(
         "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
     )];
@@ -272,15 +348,79 @@ pub(super) fn executor_pressure_suspect(
     if let Some(trend) = inflight_trend.filter(|trend| trend.known_positive_growth()) {
         evidence.push(inflight_growth_evidence(trend));
     }
-    Some(suspect(
-        DiagnosisKind::ExecutorPressureSuspected,
-        score,
-        evidence,
-        vec![
-            "Check for long polls without yielding and uneven task fan-out.".to_string(),
-            "Compare with per-stage timings to isolate overloaded async stages.".to_string(),
-        ],
-        options,
+    let (score, limitation) = match worker_status? {
+        WorkerEvidenceStatus::Complete {
+            worker_count,
+            local_complete,
+        } => {
+            let normalized = run
+                .runtime_snapshots
+                .iter()
+                .filter_map(|snapshot| {
+                    Some(queue_per_worker_milli(
+                        snapshot.global_queue_depth?,
+                        snapshot.local_queue_depth,
+                        worker_count,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            let p95 = percentile(&normalized, 95, 100)?;
+            if p95
+                < options
+                    .executor
+                    .min_runnable_queue_per_worker_p95_milli_for_signal
+            {
+                return None;
+            }
+            let contribution = normalized_queue_contribution(p95);
+            evidence.push(format!(
+                "Runnable queue depth p95 is {p95} milli-tasks per worker across {} samples with worker_count={worker_count}.",
+                normalized.len()
+            ));
+            if !local_complete {
+                evidence.push("Runnable queue normalization is a lower bound because missing local queue depths were treated as zero.".to_string());
+            }
+            (
+                clamp_score(
+                    34 + contribution
+                        + growth_bonus
+                        + u64::from(score_sample_quality(normalized.len())),
+                ),
+                (!local_complete).then_some(ExecutorConfidenceLimitation::MissingLocalDepth),
+            )
+        }
+        WorkerEvidenceStatus::HistoricalAbsent => {
+            if p95_global < options.executor.min_global_queue_p95_for_signal {
+                return None;
+            }
+            evidence.push("Worker normalization was unavailable because this historical artifact has no worker-count evidence; legacy absolute-depth scoring was used.".to_string());
+            (legacy_score(), None)
+        }
+        status @ (WorkerEvidenceStatus::Partial
+        | WorkerEvidenceStatus::Inconsistent
+        | WorkerEvidenceStatus::InvalidZero) => {
+            if p95_global < options.executor.min_global_queue_p95_for_signal {
+                return None;
+            }
+            evidence.push(format!("Worker-count evidence is {status:?}; legacy absolute-depth scoring was used without inferring a worker count."));
+            (
+                legacy_score(),
+                Some(ExecutorConfidenceLimitation::AmbiguousWorkers(status)),
+            )
+        }
+    };
+    Some((
+        suspect(
+            DiagnosisKind::ExecutorPressureSuspected,
+            score,
+            evidence,
+            vec![
+                "Check for long polls without yielding and uneven task fan-out.".to_string(),
+                "Compare with per-stage timings to isolate overloaded async stages.".to_string(),
+            ],
+            options,
+        ),
+        limitation,
     ))
 }
 
@@ -453,6 +593,7 @@ pub(super) fn downstream_stage_suspect(
             options,
         ),
         basis: best.basis,
+        executor_limitation: None,
     })
 }
 
@@ -527,5 +668,94 @@ fn cap_unless_clean_evidence(score: u64, clean: bool, soft_cap: u8) -> u8 {
         clamp_score(score)
     } else {
         clamp_score(score.min(u64::from(soft_cap)))
+    }
+}
+
+#[cfg(test)]
+mod worker_normalized_tests {
+    use super::*;
+
+    fn run_with(counts: &[Option<u32>], locals: &[Option<u64>]) -> Run {
+        let mut run: Run =
+            serde_json::from_str(include_str!("../tests/fixtures/executor_pressure.json"))
+                .expect("fixture");
+        let template = run.runtime_snapshots[0].clone();
+        run.runtime_snapshots = counts
+            .iter()
+            .enumerate()
+            .map(|(index, count)| {
+                let mut snapshot = template.clone();
+                snapshot.global_queue_depth = Some(1);
+                snapshot.worker_count = *count;
+                snapshot.local_queue_depth = locals.get(index).copied().unwrap_or(Some(0));
+                snapshot
+            })
+            .collect();
+        run
+    }
+
+    #[test]
+    fn classifies_all_worker_evidence_statuses() {
+        assert_eq!(
+            classify_worker_evidence(&run_with(&[None, None], &[Some(0); 2])),
+            Some(WorkerEvidenceStatus::HistoricalAbsent)
+        );
+        assert_eq!(
+            classify_worker_evidence(&run_with(&[Some(4), Some(4)], &[Some(0), None])),
+            Some(WorkerEvidenceStatus::Complete {
+                worker_count: 4,
+                local_complete: false
+            })
+        );
+        assert_eq!(
+            classify_worker_evidence(&run_with(&[Some(4), None], &[Some(0); 2])),
+            Some(WorkerEvidenceStatus::Partial)
+        );
+        assert_eq!(
+            classify_worker_evidence(&run_with(&[Some(2), Some(4)], &[Some(0); 2])),
+            Some(WorkerEvidenceStatus::Inconsistent)
+        );
+        assert_eq!(
+            classify_worker_evidence(&run_with(&[None, Some(0)], &[Some(0); 2])),
+            Some(WorkerEvidenceStatus::InvalidZero)
+        );
+    }
+
+    #[test]
+    fn normalized_contribution_boundaries_are_exact() {
+        for (p95, expected) in [
+            (499, 0),
+            (500, 5),
+            (999, 5),
+            (1000, 15),
+            (1999, 15),
+            (2000, 25),
+            (3999, 25),
+            (4000, 40),
+            (7999, 40),
+            (8000, 55),
+        ] {
+            assert_eq!(normalized_queue_contribution(p95), expected, "p95={p95}");
+        }
+    }
+
+    #[test]
+    fn normalization_floors_scales_and_clamps_with_u128_intermediates() {
+        assert_eq!(queue_per_worker_milli(1, None, 3), 333);
+        assert_eq!(queue_per_worker_milli(4, Some(4), 4), 2000);
+        assert_eq!(queue_per_worker_milli(8, Some(8), 8), 2000);
+        assert_eq!(
+            queue_per_worker_milli(u64::MAX, Some(u64::MAX), 1),
+            u64::MAX
+        );
+    }
+
+    #[test]
+    fn percentile_combines_each_snapshots_global_and_local_depth_first() {
+        let combined = [
+            queue_per_worker_milli(10, Some(0), 2),
+            queue_per_worker_milli(0, Some(10), 2),
+        ];
+        assert_eq!(percentile(&combined, 95, 100), Some(5000));
     }
 }

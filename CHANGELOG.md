@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Runtime snapshots now carry optional Tokio worker-count evidence without changing schema version 2 or analyzer scoring. Older artifacts may omit it; strict validation rejects zero, while permissive normalization clears only the invalid field and retains the snapshot. Exhaustive Rust struct literals must add `worker_count: None` when unknown.
+- Executor-pressure scoring now normalizes runnable queue depth by Tokio worker count when complete worker evidence is available. Historical artifacts retain exact legacy scoring, while partial, inconsistent, or invalid worker evidence uses a confidence-capped legacy fallback.
 
 - Diagnostic validation responsibilities are now documented as typed analyzer-rule tests, deterministic artifact-pipeline regression, and local/manual live-workload validation.
 
