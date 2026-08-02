@@ -336,9 +336,7 @@ pub(super) fn executor_pressure_suspect(
             94,
         )
     };
-    let mut evidence = vec![format!(
-        "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
-    )];
+    let mut evidence = vec![format!("Runtime global queue depth p95 is {p95_global}.")];
     if let Some(lp95) = percentile(&local, 95, 100) {
         evidence.push(format!("Runtime local queue depth p95 is {lp95}."));
     }
@@ -393,6 +391,9 @@ pub(super) fn executor_pressure_suspect(
             if p95_global < options.executor.min_global_queue_p95_for_signal {
                 return None;
             }
+            evidence[0] = format!(
+                "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
+            );
             evidence.push("Worker normalization was unavailable because this historical artifact has no worker-count evidence; legacy absolute-depth scoring was used.".to_string());
             (legacy_score(), None)
         }
@@ -402,6 +403,9 @@ pub(super) fn executor_pressure_suspect(
             if p95_global < options.executor.min_global_queue_p95_for_signal {
                 return None;
             }
+            evidence[0] = format!(
+                "Runtime global queue depth p95 is {p95_global}, suggesting scheduler contention."
+            );
             evidence.push(format!("Worker-count evidence is {status:?}; legacy absolute-depth scoring was used without inferring a worker count."));
             (
                 legacy_score(),

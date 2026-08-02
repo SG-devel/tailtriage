@@ -83,6 +83,7 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
             &mut cap,
             &mut notes,
         );
+        let has_executor_limitation = scored.executor_limitation.is_some();
         if let Some(limitation) = scored.executor_limitation {
             cap = cap.min(Confidence::Medium);
             notes.push(match limitation {
@@ -104,7 +105,11 @@ pub(super) fn apply_evidence_aware_confidence_caps_scored(
             note == PARTIAL_QUEUE_CONFIDENCE_NOTE || note == PARTIAL_STAGE_CONFIDENCE_NOTE
         });
         stable_dedup(&mut notes);
-        if cap_changed_bucket || ambiguity_capped || has_material_partial_note {
+        if cap_changed_bucket
+            || ambiguity_capped
+            || has_material_partial_note
+            || has_executor_limitation
+        {
             suspect.confidence_notes = notes;
         } else {
             suspect.confidence_notes.clear();

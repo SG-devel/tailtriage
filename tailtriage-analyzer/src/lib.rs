@@ -675,8 +675,7 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
         report.warnings.push(ROUTE_DIVERGENCE_WARNING.to_string());
     }
     report.route_breakdowns = route_context.breakdowns;
-    report.temporal_segments =
-        temporal::temporal_segments(analysis_run, worker_status, &mut report.warnings, options);
+    report.temporal_segments = temporal::temporal_segments(run, &mut report.warnings, options);
     stable_dedup(&mut report.warnings);
     let overrides = options.non_default_overrides();
     report.analyzer_config = if overrides.is_empty() {

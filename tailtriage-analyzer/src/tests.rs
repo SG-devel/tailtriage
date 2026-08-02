@@ -1392,6 +1392,206 @@ fn runtime_snapshot(
     }
 }
 
+fn executor_suspect(report: &Report) -> &Suspect {
+    std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .find(|suspect| suspect.kind == DiagnosisKind::ExecutorPressureSuspected)
+        .expect("executor suspect")
+}
+
+fn worker_test_run() -> Run {
+    let mut run = test_run();
+    run.requests = (0..20)
+        .map(|index| RequestEvent {
+            request_id: format!("worker-{index}"),
+            route: "/worker".into(),
+            kind: None,
+            started_at_unix_ms: 1_000 + index * 10,
+            started_at_run_us: Some(index * 10_000),
+            finished_at_unix_ms: 1_001 + index * 10,
+            finished_at_run_us: Some(index * 10_000 + if index < 10 { 1_000 } else { 3_000 }),
+            latency_us: if index < 10 { 1_000 } else { 3_000 },
+            outcome: "ok".into(),
+        })
+        .collect();
+    run.runtime_snapshots = (0..20)
+        .map(|index| RuntimeSnapshot {
+            at_unix_ms: 1_000 + index * 10,
+            at_run_us: Some(index * 10_000),
+            global_queue_depth: Some(if index < 10 { 64 } else { 128 }),
+            local_queue_depth: Some(0),
+            alive_tasks: Some(400),
+            worker_count: Some(if index < 10 { 4 } else { 8 }),
+            blocking_queue_depth: Some(0),
+            remote_schedule_count: None,
+        })
+        .collect();
+    run
+}
+
+fn temporal_worker_report(run: &Run) -> Report {
+    analyze_run(
+        run,
+        AnalyzeOptions::default().with_temporal(|options| {
+            options.min_request_count = 20;
+            options.min_segment_request_count = 10;
+        }),
+    )
+}
+
+#[test]
+fn temporal_worker_evidence_is_classified_within_each_original_window() {
+    let report = temporal_worker_report(&worker_test_run());
+    assert_eq!(report.temporal_segments.len(), 2);
+    for (segment, worker_count) in report.temporal_segments.iter().zip([4, 8]) {
+        let segment_report = Report {
+            primary_suspect: segment.primary_suspect.clone(),
+            secondary_suspects: segment.secondary_suspects.clone(),
+            ..report.clone()
+        };
+        let suspect = executor_suspect(&segment_report);
+        assert!(suspect.evidence.iter().any(|evidence| {
+            evidence.contains(&format!("worker_count={worker_count}"))
+                && evidence.contains("16000 milli-tasks per worker")
+        }));
+        assert!(!suspect
+            .evidence
+            .iter()
+            .any(|evidence| evidence.contains("legacy absolute-depth scoring")));
+    }
+}
+
+#[test]
+fn temporal_partial_invalid_and_missing_local_limit_only_the_affected_window() {
+    for (name, mutate, expected) in [
+        (
+            "partial",
+            10_usize,
+            "Worker-count evidence is Partial; legacy absolute-depth scoring",
+        ),
+        (
+            "invalid-zero",
+            11_usize,
+            "Worker-count evidence is InvalidZero; legacy absolute-depth scoring",
+        ),
+        (
+            "missing-local",
+            12_usize,
+            "Runnable queue normalization is a lower bound",
+        ),
+    ] {
+        let mut run = worker_test_run();
+        match name {
+            "partial" => run.runtime_snapshots[mutate].worker_count = None,
+            "invalid-zero" => run.runtime_snapshots[mutate].worker_count = Some(0),
+            "missing-local" => run.runtime_snapshots[mutate].local_queue_depth = None,
+            _ => unreachable!(),
+        }
+        let report = temporal_worker_report(&run);
+        let early_report = Report {
+            primary_suspect: report.temporal_segments[0].primary_suspect.clone(),
+            secondary_suspects: report.temporal_segments[0].secondary_suspects.clone(),
+            ..report.clone()
+        };
+        let late_report = Report {
+            primary_suspect: report.temporal_segments[1].primary_suspect.clone(),
+            secondary_suspects: report.temporal_segments[1].secondary_suspects.clone(),
+            ..report.clone()
+        };
+        let early = executor_suspect(&early_report);
+        let late = executor_suspect(&late_report);
+        assert!(early.evidence.iter().any(|e| e.contains("worker_count=4")));
+        assert!(early
+            .confidence_notes
+            .iter()
+            .all(|note| !note.contains("worker-count") && !note.contains("local queue depth")));
+        assert!(late.evidence.iter().any(|e| e.contains(expected)));
+        assert_ne!(late.confidence, Confidence::High);
+    }
+}
+
+#[test]
+fn ambiguous_worker_fallbacks_match_historical_score_and_explain_the_cap() {
+    let mut historical = worker_test_run();
+    historical.runtime_snapshots.truncate(10);
+    for snapshot in &mut historical.runtime_snapshots {
+        snapshot.worker_count = None;
+    }
+    let historical_report = analyze_run(&historical, AnalyzeOptions::default());
+    let historical_executor = executor_suspect(&historical_report);
+    let historical_score = historical_executor.score;
+    assert!(historical_executor.evidence.iter().any(|e| e.contains(
+        "historical artifact has no worker-count evidence; legacy absolute-depth scoring was used"
+    )));
+    assert!(historical_executor
+        .confidence_notes
+        .iter()
+        .all(|note| !note.contains("worker-count")));
+
+    for (expected, counts) in [
+        ("Partial", vec![Some(4), None]),
+        ("Inconsistent", vec![Some(4), Some(8)]),
+        ("InvalidZero", vec![Some(4), Some(0)]),
+    ] {
+        let mut run = historical.clone();
+        for (index, snapshot) in run.runtime_snapshots.iter_mut().enumerate() {
+            snapshot.worker_count = counts[index % counts.len()];
+        }
+        let report = analyze_run(&run, AnalyzeOptions::default());
+        let suspect = executor_suspect(&report);
+        assert_eq!(suspect.score, historical_score, "{expected}");
+        assert_ne!(suspect.confidence, Confidence::High, "{expected}");
+        assert!(suspect.evidence.iter().any(|e| e.contains(&format!(
+            "Worker-count evidence is {expected}; legacy absolute-depth scoring was used"
+        ))));
+        assert!(suspect.confidence_notes.iter().any(|note| {
+            note.contains(&format!("Ambiguous worker-count evidence ({expected})"))
+        }));
+    }
+}
+
+#[test]
+fn missing_local_depth_remains_normalized_lower_bound() {
+    let mut run = worker_test_run();
+    run.runtime_snapshots.truncate(10);
+    run.runtime_snapshots[0].global_queue_depth = Some(0);
+    run.runtime_snapshots[0].local_queue_depth = None;
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let suspect = executor_suspect(&report);
+    assert!(suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("missing local queue depths were treated as zero")));
+    assert!(suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("worker_count=4")));
+    assert!(!suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("legacy absolute-depth scoring")));
+    assert_ne!(suspect.confidence, Confidence::High);
+}
+
+#[test]
+fn normalized_local_queue_signal_does_not_attribute_contention_to_zero_global_depth() {
+    let mut run = worker_test_run();
+    run.runtime_snapshots.truncate(10);
+    for snapshot in &mut run.runtime_snapshots {
+        snapshot.global_queue_depth = Some(0);
+        snapshot.local_queue_depth = Some(64);
+    }
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let suspect = executor_suspect(&report);
+    assert!(suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("16000 milli-tasks per worker")));
+    assert!(!suspect.evidence.iter().any(|e| {
+        e.contains("global queue depth p95 is 0") && e.contains("suggesting scheduler contention")
+    }));
+}
+
 #[test]
 fn worker_count_enables_normalized_executor_scoring() {
     let mut historical = test_run();

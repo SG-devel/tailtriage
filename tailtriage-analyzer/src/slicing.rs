@@ -2,9 +2,11 @@ use std::collections::HashSet;
 
 use tailtriage_core::Run;
 
+use crate::scoring;
+
 use super::{
-    analyze_run_internal, scoring::WorkerEvidenceStatus, AnalyzeOptions, EvidenceQuality, Report,
-    RouteBreakdown, Suspect, TemporalSegment,
+    analyze_run_internal, AnalyzeOptions, EvidenceQuality, Report, RouteBreakdown, Suspect,
+    TemporalSegment,
 };
 
 #[derive(Clone, Copy)]
@@ -100,12 +102,16 @@ pub(super) fn analyze_slice(
     source: &Run,
     request_ids: &[String],
     global_evidence: GlobalEvidencePolicy,
-    worker_status: Option<WorkerEvidenceStatus>,
     options: &AnalyzeOptions,
 ) -> ScopedAnalysis {
     let sliced = slice_run(source, request_ids, global_evidence);
+    let worker_status = match global_evidence {
+        GlobalEvidencePolicy::Exclude => None,
+        GlobalEvidencePolicy::Window(_) => scoring::classify_worker_evidence(&sliced.run),
+    };
+    let normalized = tailtriage_core::normalize_run_permissive(&sliced.run);
     ScopedAnalysis {
-        report: analyze_run_internal(&sliced.run, worker_status, options).into(),
+        report: analyze_run_internal(&normalized.run, worker_status, options).into(),
         used_unix_fallback: sliced.used_unix_fallback,
     }
 }
