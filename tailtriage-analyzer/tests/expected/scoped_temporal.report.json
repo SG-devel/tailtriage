@@ -46,7 +46,8 @@
       "Runtime global queue depth p95 is 20, suggesting scheduler contention.",
       "Runtime local queue depth p95 is 20.",
       "Runtime alive_tasks p95 is 100.",
-      "In-flight gauge 'requests' latest active episode grew by 6 across 2 samples (p95=8, peak=8, run-relative rate=600000 milli-counts/sec)."
+      "In-flight gauge 'requests' latest active episode grew by 6 across 2 samples (p95=8, peak=8, run-relative rate=600000 milli-counts/sec).",
+      "Worker normalization was unavailable because this historical artifact has no worker-count evidence; legacy absolute-depth scoring was used."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",
@@ -97,7 +98,8 @@
         "evidence": [
           "Runtime global queue depth p95 is 20, suggesting scheduler contention.",
           "Runtime local queue depth p95 is 20.",
-          "Runtime alive_tasks p95 is 100."
+          "Runtime alive_tasks p95 is 100.",
+          "Worker normalization was unavailable because this historical artifact has no worker-count evidence; legacy absolute-depth scoring was used."
         ],
         "next_checks": [
           "Check for long polls without yielding and uneven task fan-out.",
@@ -151,7 +153,8 @@
         "evidence": [
           "Runtime global queue depth p95 is 1, suggesting scheduler contention.",
           "Runtime local queue depth p95 is 1.",
-          "Runtime alive_tasks p95 is 100."
+          "Runtime alive_tasks p95 is 100.",
+          "Worker normalization was unavailable because this historical artifact has no worker-count evidence; legacy absolute-depth scoring was used."
         ],
         "next_checks": [
           "Check for long polls without yielding and uneven task fan-out.",

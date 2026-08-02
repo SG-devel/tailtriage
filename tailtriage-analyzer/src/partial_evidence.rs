@@ -63,4 +63,5 @@ pub(super) enum EvidenceBasis {
 pub(super) struct ScoredSuspect {
     pub(super) suspect: Suspect,
     pub(super) basis: EvidenceBasis,
+    pub(super) executor_limitation: Option<crate::scoring::ExecutorConfidenceLimitation>,
 }

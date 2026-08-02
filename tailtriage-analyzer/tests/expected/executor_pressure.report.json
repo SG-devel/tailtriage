@@ -42,7 +42,8 @@
     "confidence": "low",
     "evidence": [
       "Runtime global queue depth p95 is 8, suggesting scheduler contention.",
-      "Runtime alive_tasks p95 is 22."
+      "Runtime alive_tasks p95 is 22.",
+      "Worker normalization was unavailable because this historical artifact has no worker-count evidence; legacy absolute-depth scoring was used."
     ],
     "next_checks": [
       "Check for long polls without yielding and uneven task fan-out.",

@@ -655,10 +655,11 @@ impl Analyzer {
 }
 
 fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
+    let worker_status = scoring::classify_worker_evidence(run);
     let normalized = normalize_run_permissive(run);
     let analysis_run = &normalized.run;
     let profile = PartialEvidenceProfile::from_run(analysis_run);
-    let mut report = analyze_run_internal(analysis_run, options);
+    let mut report = analyze_run_internal(analysis_run, worker_status, options);
     if profile.has_partial() {
         push_unique(&mut report.warnings, partial_evidence::PARTIAL_WARNING);
     }
@@ -675,7 +676,7 @@ fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {
     }
     report.route_breakdowns = route_context.breakdowns;
     report.temporal_segments =
-        temporal::temporal_segments(analysis_run, &mut report.warnings, options);
+        temporal::temporal_segments(analysis_run, run, &mut report.warnings, options);
     stable_dedup(&mut report.warnings);
     let overrides = options.non_default_overrides();
     report.analyzer_config = if overrides.is_empty() {
@@ -706,7 +707,11 @@ fn stable_dedup(values: &mut Vec<String>) {
     *values = deduped;
 }
 
-fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
+fn analyze_run_internal(
+    run: &Run,
+    worker_status: Option<scoring::WorkerEvidenceStatus>,
+    options: &AnalyzeOptions,
+) -> Report {
     let request_latencies = run
         .requests
         .iter()
@@ -740,15 +745,18 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
         suspects.push(ScoredSuspect {
             suspect: blocking_suspect,
             basis: EvidenceBasis::Completed,
+            executor_limitation: None,
         });
     }
 
     if let Some(executor_suspect) =
-        scoring::executor_pressure_suspect(run, inflight_candidate.as_ref(), options)
+        scoring::executor_pressure_suspect(run, worker_status, inflight_candidate.as_ref(), options)
     {
+        let (executor_suspect, executor_limitation) = executor_suspect;
         suspects.push(ScoredSuspect {
             suspect: executor_suspect,
             basis: EvidenceBasis::Completed,
+            executor_limitation,
         });
     }
 
@@ -769,7 +777,7 @@ fn analyze_run_internal(run: &Run, options: &AnalyzeOptions) -> Report {
                 "Enable RuntimeSampler during the run to capture runtime pressure signals."
                     .to_string(),
             ],
-        ), basis: EvidenceBasis::Completed });
+        ), basis: EvidenceBasis::Completed, executor_limitation: None });
     }
 
     let evidence_quality = evidence::evidence_quality(run, options);

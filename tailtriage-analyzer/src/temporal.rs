@@ -66,14 +66,15 @@ fn segment_unix_window(requests: &[RequestEvent]) -> Option<(u64, u64)> {
 }
 
 pub(super) fn temporal_segments(
-    run: &Run,
+    canonical_run: &Run,
+    original_runtime_source: &Run,
     global_warnings: &mut Vec<String>,
     options: &AnalyzeOptions,
 ) -> Vec<TemporalSegment> {
-    if run.requests.len() < options.temporal.min_request_count {
+    if canonical_run.requests.len() < options.temporal.min_request_count {
         return vec![];
     }
-    let mut requests = run.requests.clone();
+    let mut requests = canonical_run.requests.clone();
     sort_requests_for_temporal_segments(&mut requests);
     let split = requests.len() / 2;
     let (early, late) = requests.split_at(split);
@@ -85,7 +86,13 @@ pub(super) fn temporal_segments(
     let build = |name: &str, seg: &[RequestEvent]| {
         let ids: Vec<String> = seg.iter().map(|r| r.request_id.clone()).collect();
         let Some((unix_start, unix_finish)) = segment_unix_window(seg) else {
-            let analyzed = analyze_slice(run, &ids, GlobalEvidencePolicy::Exclude, options);
+            let analyzed = analyze_slice(
+                canonical_run,
+                original_runtime_source,
+                &ids,
+                GlobalEvidencePolicy::Exclude,
+                options,
+            );
             return analyzed
                 .report
                 .into_temporal_segment(name.to_string(), None, None);
@@ -98,7 +105,13 @@ pub(super) fn temporal_segments(
             unix_finish,
             run_relative: run_relative_window,
         };
-        let analyzed = analyze_slice(run, &ids, GlobalEvidencePolicy::Window(window), options);
+        let analyzed = analyze_slice(
+            canonical_run,
+            original_runtime_source,
+            &ids,
+            GlobalEvidencePolicy::Window(window),
+            options,
+        );
         let used_snapshot_unix_fallback = analyzed.used_unix_fallback;
         let mut analyzed = analyzed.report;
         if run_relative_window.is_none() || used_snapshot_unix_fallback {

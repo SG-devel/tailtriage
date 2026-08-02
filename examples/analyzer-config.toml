@@ -12,7 +12,10 @@ strong_nonzero_share_permille = 700
 strong_min_samples = 30
 
 [analyzer.executor]
+# Historical or ambiguous artifacts without complete worker-count evidence only.
 min_global_queue_p95_for_signal = 1
+# 500 milli-tasks is 0.5 runnable tasks per worker at p95.
+min_runnable_queue_per_worker_p95_milli_for_signal = 500
 
 [analyzer.downstream]
 # Patterns are substring matches used for blocking-correlation heuristics.

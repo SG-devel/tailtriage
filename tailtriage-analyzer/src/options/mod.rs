@@ -94,12 +94,15 @@ impl Default for BlockingOptions {
 pub struct ExecutorOptions {
     /// Minimum runtime global-queue p95 needed before executor-pressure suspect ranking can trigger.
     pub min_global_queue_p95_for_signal: u64,
+    /// Minimum p95 runnable-queue depth per worker, in milli-tasks, for normalized evidence.
+    pub min_runnable_queue_per_worker_p95_milli_for_signal: u64,
 }
 
 impl Default for ExecutorOptions {
     fn default() -> Self {
         Self {
             min_global_queue_p95_for_signal: 1,
+            min_runnable_queue_per_worker_p95_milli_for_signal: 500,
         }
     }
 }
