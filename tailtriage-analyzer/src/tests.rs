@@ -1462,6 +1462,72 @@ fn temporal_worker_evidence_is_classified_within_each_original_window() {
 }
 
 #[test]
+fn excluded_requests_do_not_change_canonical_temporal_segments() {
+    let baseline = worker_test_run();
+    let mut with_duplicate = baseline.clone();
+    let mut duplicate = baseline.requests[0].clone();
+    duplicate.request_id = "ambiguous-extreme".into();
+    duplicate.started_at_unix_ms = 1_000_000;
+    duplicate.finished_at_unix_ms = 1_000_001;
+    duplicate.started_at_run_us = Some(1_000_000_000);
+    duplicate.finished_at_run_us = Some(1_000_001_000);
+    with_duplicate.requests.push(duplicate.clone());
+    with_duplicate.requests.push(duplicate);
+
+    let baseline_report = temporal_worker_report(&baseline);
+    let duplicate_report = temporal_worker_report(&with_duplicate);
+
+    assert_eq!(
+        duplicate_report.temporal_segments,
+        baseline_report.temporal_segments
+    );
+    assert!(duplicate_report.warnings.iter().any(|warning| {
+        warning.contains("duplicate_completed_request_id") && warning.contains("request_id")
+    }));
+    assert_eq!(
+        duplicate_report
+            .temporal_segments
+            .iter()
+            .map(|segment| segment.evidence_quality.runtime_snapshot_count)
+            .collect::<Vec<_>>(),
+        [10, 10]
+    );
+}
+
+#[test]
+fn cleared_optional_request_timing_defines_temporal_order_and_windows() {
+    let mut invalid = worker_test_run();
+    invalid.requests[9].started_at_run_us = Some(900_000_000);
+    invalid.requests[9].finished_at_run_us = Some(1);
+    let mut manually_cleared = invalid.clone();
+    manually_cleared.requests[9].started_at_run_us = None;
+    manually_cleared.requests[9].finished_at_run_us = None;
+
+    let invalid_report = temporal_worker_report(&invalid);
+    let cleared_report = temporal_worker_report(&manually_cleared);
+
+    assert_eq!(
+        invalid_report.temporal_segments,
+        cleared_report.temporal_segments
+    );
+    assert!(invalid_report
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("inverted_interval")));
+    for segment in &invalid_report.temporal_segments {
+        assert_eq!(segment.evidence_quality.runtime_snapshot_count, 10);
+    }
+    assert!(invalid_report.temporal_segments[0]
+        .warnings
+        .iter()
+        .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+    assert!(!invalid_report.temporal_segments[1]
+        .warnings
+        .iter()
+        .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
+}
+
+#[test]
 fn temporal_partial_invalid_and_missing_local_limit_only_the_affected_window() {
     for (name, mutate, expected) in [
         (

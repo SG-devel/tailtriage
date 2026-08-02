@@ -46,8 +46,14 @@ pub(super) fn route_breakdowns(
 
     let mut candidates = Vec::new();
     for (route, request_ids) in eligible {
-        let mut analyzed =
-            analyze_slice(run, &request_ids, GlobalEvidencePolicy::Exclude, options).report;
+        let mut analyzed = analyze_slice(
+            run,
+            run,
+            &request_ids,
+            GlobalEvidencePolicy::Exclude,
+            options,
+        )
+        .report;
         analyzed
             .warnings
             .push(ROUTE_RUNTIME_ATTRIBUTION_WARNING.to_string());

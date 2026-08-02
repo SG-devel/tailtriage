@@ -99,12 +99,18 @@ impl ScopedReportProjection {
 }
 
 pub(super) fn analyze_slice(
-    source: &Run,
+    canonical_source: &Run,
+    original_runtime_source: &Run,
     request_ids: &[String],
     global_evidence: GlobalEvidencePolicy,
     options: &AnalyzeOptions,
 ) -> ScopedAnalysis {
-    let sliced = slice_run(source, request_ids, global_evidence);
+    let sliced = slice_run(
+        canonical_source,
+        original_runtime_source,
+        request_ids,
+        global_evidence,
+    );
     let worker_status = match global_evidence {
         GlobalEvidencePolicy::Exclude => None,
         GlobalEvidencePolicy::Window(_) => scoring::classify_worker_evidence(&sliced.run),
@@ -122,12 +128,13 @@ struct SlicedRun {
 }
 
 fn slice_run(
-    source: &Run,
+    canonical_source: &Run,
+    original_runtime_source: &Run,
     request_ids: &[String],
     global_evidence: GlobalEvidencePolicy,
 ) -> SlicedRun {
     let request_ids: HashSet<&str> = request_ids.iter().map(String::as_str).collect();
-    let mut run = source.clone();
+    let mut run = canonical_source.clone();
     run.requests
         .retain(|request| request_ids.contains(request.request_id.as_str()));
     run.stages
@@ -142,6 +149,9 @@ fn slice_run(
             false
         }
         GlobalEvidencePolicy::Window(window) => {
+            run.runtime_snapshots
+                .clone_from(&original_runtime_source.runtime_snapshots);
+            run.inflight.clone_from(&original_runtime_source.inflight);
             let mut used_unix_fallback = false;
             run.runtime_snapshots.retain(|sample| {
                 let (retained, used_fallback) =
@@ -177,12 +187,20 @@ fn retain_sample(at_unix_ms: u64, at_run_us: Option<u64>, window: SampleWindow) 
 
 #[cfg(test)]
 mod tests {
-    use super::{slice_run, GlobalEvidencePolicy, SampleWindow, ScopedReportProjection};
+    use super::{slice_run, GlobalEvidencePolicy, SampleWindow, ScopedReportProjection, SlicedRun};
     use crate::{analyze_run_internal, AnalyzeOptions};
     use tailtriage_core::Run;
 
     fn fixture(contents: &str) -> Run {
         serde_json::from_str(contents).expect("fixture should deserialize")
+    }
+
+    fn slice_same_source(
+        source: &Run,
+        request_ids: &[String],
+        global_evidence: GlobalEvidencePolicy,
+    ) -> SlicedRun {
+        slice_run(source, source, request_ids, global_evidence)
     }
 
     #[test]
@@ -221,7 +239,7 @@ mod tests {
         let expected_metadata = source.metadata.clone();
         let expected_truncation = source.truncation.clone();
         let selected = vec!["selected-a".to_string(), "selected-b".to_string()];
-        let sliced = slice_run(&source, &selected, GlobalEvidencePolicy::Exclude);
+        let sliced = slice_same_source(&source, &selected, GlobalEvidencePolicy::Exclude);
 
         assert_eq!(
             sliced
@@ -372,7 +390,7 @@ mod tests {
                 sample
             })
             .collect();
-        let negative = slice_run(
+        let negative = slice_same_source(
             &source,
             &selected,
             GlobalEvidencePolicy::Window(SampleWindow {
@@ -418,7 +436,7 @@ mod tests {
         })
         .collect();
 
-        let sliced = slice_run(
+        let sliced = slice_same_source(
             &source,
             &selected,
             GlobalEvidencePolicy::Window(SampleWindow {
