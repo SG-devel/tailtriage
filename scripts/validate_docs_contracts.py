@@ -887,8 +887,26 @@ def validate_cli_not_presented_as_library_analyzer_api() -> None:
         raise ValueError("CLI/library analyzer contract violation:\n" + "\n".join(hits))
 
 
+def validate_published_crate_readmes_are_self_contained(paths: tuple[Path, ...]) -> None:
+    """Reject repository-only documentation links from published crate READMEs."""
+    failures = []
+    for path in paths:
+        if "../docs/" in path.read_text(encoding="utf-8"):
+            rel = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
+            failures.append(str(rel))
+    if failures:
+        raise ValueError(
+            "published crate READMEs must not use repository-relative ../docs/ links: "
+            + ", ".join(failures)
+        )
+
+
 def validate_analyzer_cli_docs_split_contract() -> None:
-    analyzer_text = (REPO_ROOT / "tailtriage-analyzer" / "README.md").read_text(encoding="utf-8")
+    analyzer_readme = REPO_ROOT / "tailtriage-analyzer" / "README.md"
+    cli_readme = REPO_ROOT / "tailtriage-cli" / "README.md"
+    validate_published_crate_readmes_are_self_contained((analyzer_readme, cli_readme))
+
+    analyzer_text = analyzer_readme.read_text(encoding="utf-8")
     analyzer_lower = analyzer_text.lower()
     analyzer_required = (
         "in-process",
@@ -911,13 +929,6 @@ def validate_analyzer_cli_docs_split_contract() -> None:
 
     if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
         raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")
-
-    unsupported_docs_links = analyzer_text.replace("../docs/analyzer-guide.md", "")
-    if "../docs/" in unsupported_docs_links:
-        raise ValueError(
-            "tailtriage-analyzer README may link to ../docs/analyzer-guide.md but must not "
-            "use other ../docs/ links for crates.io interpretation guidance"
-        )
 
     if "## How to interpret a report" not in analyzer_text:
         raise ValueError("tailtriage-analyzer README must include heading: ## How to interpret a report")
@@ -942,7 +953,7 @@ def validate_analyzer_cli_docs_split_contract() -> None:
                 f"{token}"
             )
 
-    cli_text = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8")
+    cli_text = cli_readme.read_text(encoding="utf-8")
     cli_lower = cli_text.lower()
     cli_required_patterns = (
         ("saved/run artifact loading", r"(saved|captured|on-disk|persisted|run).{0,120}artifact"),
