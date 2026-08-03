@@ -31,6 +31,7 @@ Use these docs when wiring `tailtriage` into a service or interpreting output. A
 - [Operations guide](operations.md) — primary production operations guidance for rollout path, capture-mode selection, runtime sampling decisions, artifact sizing, truncation/capture-limit handling, weak-signal troubleshooting, and current operational limits.
 - [Analyzer guide](analyzer-guide.md) — concise first path for interpreting a report, choosing a next check, and comparing a rerun.
 - [Diagnostics guide](diagnostics.md) — detailed analyzer behavior, report fields, evidence semantics, and tuning guardrails.
+- [Analyzer rationale](analyzer-rationale.md) — maintainer catalog of why major analyzer policies exist, who proves them, and what evidence would justify revision.
 - [Analyzer README (`tailtriage-analyzer`)](../tailtriage-analyzer/README.md) — typed in-process report contract and rendering API.
 - [CLI README (`tailtriage-cli`)](../tailtriage-cli/README.md) — saved-artifact loading, schema validation, and text/JSON output.
 
