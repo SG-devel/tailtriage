@@ -97,27 +97,41 @@ numeric calibration remains unknown.
 
 ## Percentiles and attribution
 
-### AN-PCTL-001 — Nearest-rank-style percentiles and p95 tail signals
+### AN-PCTL-001 — Deterministic non-interpolated percentiles
 
 - **Rule or default:** Percentiles select the documented ceiling index without
-  interpolation, and tail-oriented analyzer signals use p95; see
+  interpolation; see
   [percentiles and units](diagnostics.md#percentiles-and-units).
-- **Classification:** Calibrated heuristic.
-- **Problem addressed:** Small integer samples need a deterministic definition,
-  and median-only analysis would hide tail pressure while p99 is unstable in
-  small captures.
-- **Why this shape:** Present-purpose inference: p95 is a pragmatic tail signal
-  for bounded captures and the integer selection rule avoids invented values.
-- **Tradeoff:** Stepwise results on small series and less extreme-tail
-  sensitivity than p99, in exchange for simple reproducibility.
+- **Classification:** Hard contract.
+- **Problem addressed:** Integer samples need one reproducible arithmetic rule;
+  interpolation would invent values not present in a capture.
+- **Why this shape:** Present-purpose inference: direct selection keeps report
+  arithmetic simple and deterministic.
+- **Tradeoff:** Results move in steps on small series.
 - **Proof owner:** Percentile unit tests in
   `tailtriage-analyzer/src/scoring.rs` and boundary tests in
   `tailtriage-analyzer/tests/boundary_thresholds.rs`.
-- **Revision criteria:** Require representative capture-size analysis showing a
-  different estimator improves stable diagnosis, plus fixture and output-impact
-  review. Do not change the definition silently.
+- **Revision criteria:** Require an explicit arithmetic compatibility decision,
+  fixture inventory, and report-output impact analysis.
 - **Provenance:** Present-purpose inference; historical reason for the exact
-  estimator and p95 choice is unknown.
+  estimator is unknown.
+
+### AN-PCTL-002 — p95 tail-signal selection
+
+- **Rule or default:** Tail-oriented analyzer signals use p95; mechanics remain
+  owned by [percentiles and units](diagnostics.md#percentiles-and-units).
+- **Classification:** Calibrated heuristic.
+- **Problem addressed:** Median-only analysis can hide tail pressure, while a
+  more extreme percentile can be unstable in bounded captures.
+- **Why this shape:** Present-purpose inference: p95 is a pragmatic tail signal.
+- **Tradeoff:** It is less sensitive to the most extreme tail than p99.
+- **Proof owner:** Signal and boundary tests in
+  `tailtriage-analyzer/src/tests.rs` and
+  `tailtriage-analyzer/tests/boundary_thresholds.rs`.
+- **Revision criteria:** Require representative capture-size analysis and
+  diagnostic calibration showing another percentile improves useful ranking.
+- **Provenance:** Present-purpose inference for the policy; exact p95 selection
+  has unknown provenance.
 
 ### AN-ATTR-001 — Overlap-safe bounded attribution
 
@@ -262,28 +276,25 @@ numeric calibration remains unknown.
 - **Provenance:** Present-purpose inference; exact persistence default and score
   weights have unknown provenance.
 
-### AN-BLOCK-002 — Strong blocking only controls correlation
+### AN-BLOCK-002 — Strong-blocking calibration
 
-- **Rule or default:** Configured strong-blocking thresholds do not change the
-  blocking score; together they only limit a blocking-named downstream stage;
+- **Rule or default:** Configured thresholds define when blocking-pool evidence
+  is independently strong for downstream correlation; they do not change the
+  blocking score;
   see [blocking-pool pressure](diagnostics.md#blocking-pool-pressure) and
   [downstream dominance](diagnostics.md#downstream-stage-dominance).
-- **Classification:** Conservative policy.
-- **Problem addressed:** The same runtime evidence must not be counted twice to
-  inflate blocking while a wrapper-like stage outranks the likely pressure
-  family.
-- **Why this shape:** Present-purpose inference: strong thresholds answer the
-  narrow attribution/correlation question, while the ordinary blocking formula
-  already ranks blocking evidence.
-- **Tradeoff:** Stage-name correlation is intentionally narrow and pattern
-  dependent; an unrecognized wrapper is not limited.
-- **Proof owner:** Blocking-correlation threshold, margin, and non-double-count
-  tests in `tailtriage-analyzer/src/tests.rs`.
-- **Revision criteria:** Require evidence that correlation is useful beyond
-  naming or that the thresholds harm rankings; any broader relationship model
-  needs explicit semantics and false-correlation tests.
-- **Provenance:** Present-purpose inference; exact strong thresholds have
-  unknown provenance.
+- **Classification:** Calibrated heuristic.
+- **Problem addressed:** Ordinary blocking eligibility is too weak to justify
+  constraining a separately observed stage.
+- **Why this shape:** Present-purpose inference: require independently material
+  runtime evidence without adding it to the blocking score.
+- **Tradeoff:** True relationships below either boundary are not correlated.
+- **Proof owner:** Strong-blocking boundary tests in
+  `tailtriage-analyzer/src/tests.rs`.
+- **Revision criteria:** Require representative blocking captures and
+  false-correlation cases demonstrating better strong-evidence boundaries.
+- **Provenance:** Present-purpose inference for the policy; exact thresholds
+  have unknown provenance.
 
 ## Executor diagnosis and compatibility
 
@@ -311,30 +322,47 @@ numeric calibration remains unknown.
 - **Provenance:** Recorded intent in focused tests and diagnostics; exact
   milli-task scale is a present-purpose choice.
 
-### AN-EXEC-002 — Normalized trigger, bands, and descriptive alive tasks
+### AN-EXEC-002 — Normalized executor evidence model
 
-- **Rule or default:** Normalized p95 owns eligibility and banded queue
-  contribution. `alive_tasks` and separate global/local p95 values are
+- **Rule or default:** Normalized p95 owns runnable-pressure evidence.
+  `alive_tasks` and separate global/local p95 values are
   descriptive, not independent normalized score terms; see
   [worker-normalized mode](diagnostics.md#worker-normalized-mode).
-- **Classification:** Calibrated heuristic.
+- **Classification:** Hard contract.
 - **Problem addressed:** Task population and queue redistribution can correlate
   with workload size without proving runnable pressure, and counting component
   queues again would double-count the normalized signal.
-- **Why this shape:** Recorded intent for excluding independent `alive_tasks`
-  and redistribution contributions; present-purpose inference for the band
-  boundaries, which reduce sensitivity to tiny numeric changes.
-- **Tradeoff:** Bands discard fine-grained ordering and alive-task surges cannot
-  independently raise the normalized score.
+- **Why this shape:** Recorded intent: capacity-normalized contemporaneous depth
+  is the pressure model, so correlated population and component views must not
+  be counted again.
+- **Tradeoff:** Alive-task surges and queue redistribution cannot independently
+  raise the normalized score.
 - **Proof owner:**
   `normalized_executor_score_ignores_alive_tasks_and_queue_redistribution`,
-  normalized boundary, and worker-count tests in
+  worker normalization mode tests in `tailtriage-analyzer/src/tests.rs`.
+- **Revision criteria:** Require an explicit replacement evidence model,
+  double-counting analysis, and compatibility review for normalized reports.
+- **Provenance:** Recorded intent for capacity normalization and exclusions.
+
+### AN-EXEC-006 — Normalized executor trigger and contribution bands
+
+- **Rule or default:** Configured normalized-p95 boundaries control eligibility
+  and banded score contribution; see
+  [AN-EXEC-002](#an-exec-002--normalized-executor-evidence-model) and
+  [worker-normalized mode](diagnostics.md#worker-normalized-mode).
+- **Classification:** Calibrated heuristic.
+- **Problem addressed:** Material runnable pressure must be separated from
+  ordinary scheduler activity without overreacting to tiny numeric changes.
+- **Why this shape:** Present-purpose inference: discrete bands provide stable
+  ranking regions on the normalized capacity scale.
+- **Tradeoff:** Nearby values on opposite sides of a boundary score differently,
+  while values within a band lose fine-grained ordering.
+- **Proof owner:** Normalized trigger and band boundary tests in
   `tailtriage-analyzer/src/tests.rs`.
 - **Revision criteria:** Require labeled executor-pressure captures showing
-  materially better discrimination, with safeguards against workload-size and
-  double-counting confounds.
-- **Provenance:** Recorded intent for exclusions; exact trigger and bands have
-  unknown provenance.
+  better discrimination and before/after diagnostic calibration.
+- **Provenance:** Present-purpose inference for banding; exact trigger and bands
+  have unknown provenance.
 
 ### AN-EXEC-003 — Exact no-worker legacy compatibility
 
@@ -429,29 +457,43 @@ numeric calibration remains unknown.
 - **Provenance:** Present-purpose inference; exact minimum and weights have
   unknown provenance.
 
-### AN-DOWN-002 — Deterministic stage selection and blocking limit
+### AN-DOWN-002 — Deterministic stage selection
 
 - **Rule or default:** Stage candidates tie-break by score, tail share,
-  cumulative share, completed over lower-bound evidence, then name. A
-  blocking-pattern stage stays below independently strong blocking-pool
-  evidence; see
+  cumulative share, completed over lower-bound evidence, then name; see
+  [downstream-stage dominance](diagnostics.md#downstream-stage-dominance).
+- **Classification:** Hard contract.
+- **Problem addressed:** Iteration order must not select a stage, and partial
+  evidence should not win an otherwise exact tie.
+- **Why this shape:** Present-purpose inference: prioritize explanatory strength
+  and evidence completeness, then use lexical order solely for determinism.
+- **Tradeoff:** Lexical order is arbitrary at a complete tie.
+- **Proof owner:** Stage candidate tie tests in
+  `tailtriage-analyzer/src/tests.rs`.
+- **Revision criteria:** Require a more meaningful stable identity, deterministic
+  adversarial tests, and report-output compatibility analysis.
+- **Provenance:** Present-purpose inference; the exact tie sequence has unknown
+  historical provenance.
+
+### AN-DOWN-003 — Blocking-correlated stage limit
+
+- **Rule or default:** A stage matching configured blocking patterns stays below
+  independently strong blocking-pool evidence by the configured score margin;
+  see [AN-BLOCK-002](#an-block-002--strong-blocking-calibration) and
   [downstream-stage dominance](diagnostics.md#downstream-stage-dominance).
 - **Classification:** Conservative policy.
-- **Problem addressed:** Iteration order must not select a stage, partial
-  evidence should not win an otherwise exact tie, and wrapper-like blocking
-  stages should not outrank the runtime family they mirror.
-- **Why this shape:** Present-purpose inference: prioritize explanatory strength
-  and evidence completeness, then use lexical order solely for determinism;
-  preserve blocking as the actionable family when independently corroborated.
-- **Tradeoff:** Lexical order is arbitrary at a complete tie, and configured
-  name matching can correlate unrelated stages or miss renamed wrappers.
-- **Proof owner:** Stage candidate tie and blocking-correlation tests in
+- **Problem addressed:** A wrapper-like stage should not outrank strong runtime
+  evidence that it mirrors.
+- **Why this shape:** Present-purpose inference: pattern correlation preserves
+  blocking as the actionable family only when it is independently corroborated.
+- **Tradeoff:** Name matching can correlate unrelated stages or miss renamed
+  wrappers, and the margin can constrain a genuinely dominant stage.
+- **Proof owner:** Blocking-pattern, strong-evidence, and score-margin tests in
   `tailtriage-analyzer/src/tests.rs`.
-- **Revision criteria:** Require a more meaningful stable identity/relationship
-  signal or evidence of incorrect pattern correlation, plus deterministic
-  adversarial tests.
-- **Provenance:** Present-purpose inference; exact margin and tie sequence have
-  unknown historical provenance.
+- **Revision criteria:** Require relationship evidence beyond naming or focused
+  false-correlation cases, plus ranking and margin calibration analysis.
+- **Provenance:** Present-purpose inference for correlation; exact patterns and
+  margin have unknown provenance.
 
 ## Confidence and evidence policy
 
@@ -477,27 +519,43 @@ numeric calibration remains unknown.
 - **Provenance:** Unknown provenance for exact values; present-purpose inference
   for the three-bucket model.
 
-### AN-CONF-002 — Low completed-request threshold and conservative caps
+### AN-CONF-002 — Low completed-request threshold
 
-- **Rule or default:** Low completed-request counts reduce evidence quality and
-  candidate confidence; all applicable caps compose by taking the lowest; see
+- **Rule or default:** Completed-request counts below the configured threshold
+  reduce evidence quality and candidate confidence; see
   [confidence](diagnostics.md#confidence-ambiguity-and-final-ordering) and
   [evidence quality](diagnostics.md#warnings-confidence-notes-and-evidence-quality).
-- **Classification:** Conservative policy.
-- **Problem addressed:** Sparse evidence can produce extreme percentiles, and a
-  later or less severe limitation must never undo a stronger downgrade.
-- **Why this shape:** Recorded intent for conservative composition;
-  present-purpose inference that the default count is a practical warning line,
-  not a statistical sufficiency guarantee.
+- **Classification:** Calibrated heuristic.
+- **Problem addressed:** Sparse evidence can produce extreme percentiles that
+  appear better supported than they are.
+- **Why this shape:** Present-purpose inference: the default count is a practical
+  warning line, not a statistical sufficiency guarantee.
 - **Tradeoff:** Small services and short incident windows may remain Medium/Low
   even when their retained evidence is accurate.
-- **Proof owner:** Evidence-cap composition, zero/low request, truncation, and
-  ambiguity tests in `tailtriage-analyzer/src/tests.rs`.
+- **Proof owner:** Zero/low-request boundary and custom-threshold tests in
+  `tailtriage-analyzer/src/tests.rs`.
 - **Revision criteria:** Require sample-size studies across representative
-  distributions and proof that any new composition cannot raise confidence in
-  the presence of a stricter limitation.
-- **Provenance:** Recorded policy; exact low-request default has unknown
+  distributions and diagnostic calibration at candidate thresholds.
+- **Provenance:** Present-purpose inference; the exact default has unknown
   provenance.
+
+### AN-CONF-003 — Lowest applicable confidence cap wins
+
+- **Rule or default:** All applicable confidence caps compose by selecting the
+  lowest confidence; see
+  [confidence](diagnostics.md#confidence-ambiguity-and-final-ordering).
+- **Classification:** Conservative policy.
+- **Problem addressed:** A later or less severe limitation must never undo a
+  stronger evidence downgrade.
+- **Why this shape:** Recorded intent: independent limitations accumulate
+  conservatively rather than depending on evaluation order.
+- **Tradeoff:** Multiple limitations cannot offset one another even when their
+  evidence is correlated.
+- **Proof owner:** Evidence-cap composition, truncation, ambiguity, and
+  evaluation-order tests in `tailtriage-analyzer/src/tests.rs`.
+- **Revision criteria:** Require proof that a replacement remains order
+  independent and cannot raise confidence while a stricter limitation applies.
+- **Provenance:** Recorded intent in focused confidence-cap tests.
 
 ### AN-EVID-002 — Limitations apply at candidate and report scopes
 
@@ -566,48 +624,82 @@ numeric calibration remains unknown.
   warnings and global ownership.
 - **Provenance:** Recorded intent in focused route tests and diagnostics.
 
-### AN-ROUTE-002 — Conservative route emission and bounded output
+### AN-ROUTE-002 — Route emission calibration and bounded output
 
 - **Rule or default:** Breakdowns emit only for configured suspect or material
-  p95 divergence, use deterministic ordering, and stop at the configured limit;
+  p95 divergence and stop at the configured limit;
   see [route breakdowns](diagnostics.md#route-breakdowns).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Always emitting every route creates noisy, potentially
   huge reports and encourages interpretation of sampling variation.
 - **Why this shape:** Present-purpose inference: require a visible reason to
-  inspect route context and bound report size while retaining the slowest,
-  broadest routes deterministically.
+  inspect route context and bound report size.
 - **Tradeoff:** Modest or low-volume route differences can be hidden, and the
   output limit may omit a meaningful route.
-- **Proof owner:** Route threshold, equality, ordering, omission-warning, and
-  limit tests in `tailtriage-analyzer/src/route.rs` and analyzer typed tests.
+- **Proof owner:** Route threshold, equality, omission-warning, and limit tests
+  in `tailtriage-analyzer/src/route.rs` and analyzer typed tests.
 - **Revision criteria:** Require route-volume/report-size evidence and labeled
-  divergence cases showing better signal/noise; preserve deterministic bounds.
+  divergence cases showing better signal/noise and an appropriate output bound.
 - **Provenance:** Present-purpose inference; exact ratios, minimum, and limit
   have unknown provenance.
 
-### AN-TEMP-001 — Balanced early/late segments and material movement
+### AN-ROUTE-003 — Deterministic route ordering
 
-- **Rule or default:** Temporal analysis requires minimum total and per-half
-  completed counts, splits ordered requests early/late, and emits only on
-  configured suspect, p95, or share movement; see
+- **Rule or default:** Emitted route breakdowns use the documented stable
+  ordering before the configured output limit is applied; see
+  [route breakdowns](diagnostics.md#route-breakdowns).
+- **Classification:** Hard contract.
+- **Problem addressed:** Map or collection order must not change report content,
+  especially which routes survive a bound.
+- **Why this shape:** Recorded intent: the same artifact and options produce the
+  same ordered route context.
+- **Tradeoff:** Stable tie-breakers impose an arbitrary final preference.
+- **Proof owner:** Route ordering and tied-route limit tests in
+  `tailtriage-analyzer/src/route.rs`.
+- **Revision criteria:** Require deterministic replacement tests and report
+  output/compatibility analysis for reordered or newly omitted routes.
+- **Provenance:** Recorded intent in focused route tests; exact tie order has
+  unknown provenance.
+
+### AN-TEMP-001 — Temporal eligibility and movement calibration
+
+- **Rule or default:** Temporal analysis requires configured minimum total and
+  per-half completed counts and emits only on configured suspect, p95, or share
+  movement; see
   [temporal segments](diagnostics.md#temporal-segments).
 - **Classification:** Calibrated heuristic.
 - **Problem addressed:** Tiny phases and ordinary sample variation can produce
   dramatic-looking changes; unconstrained segmentation invites post-hoc
   narratives.
-- **Why this shape:** Present-purpose inference: two deterministic balanced
-  windows provide a simple drift hint without becoming a change-point engine.
+- **Why this shape:** Present-purpose inference: minimum populations and material
+  movement provide a simple drift hint without becoming a change-point engine.
 - **Tradeoff:** Short, middle-of-run, or multi-phase incidents can be diluted or
   missed.
-- **Proof owner:** Split, minimum-count, movement-boundary, deterministic order,
-  and suppression tests in `tailtriage-analyzer/src/temporal.rs` and scoped
-  temporal fixture tests.
-- **Revision criteria:** Require representative phase-change captures showing
-  improved precision/recall from different segmentation or thresholds, without
-  expanding into a statistical diagnosis engine.
+- **Proof owner:** Minimum-count, movement-boundary, and suppression tests in
+  `tailtriage-analyzer/src/temporal.rs` and scoped temporal fixture tests.
+- **Revision criteria:** Require representative temporal captures showing
+  improved signal/noise from different eligibility or movement thresholds.
 - **Provenance:** Present-purpose inference; exact counts and movement defaults
   have unknown provenance.
+
+### AN-TEMP-003 — Deterministic early/late segmentation
+
+- **Rule or default:** Requests use the documented deterministic ordering and
+  balanced early/late split; see
+  [temporal segments](diagnostics.md#temporal-segments).
+- **Classification:** Hard contract.
+- **Problem addressed:** Input collection order must not change segment
+  membership, and the same request must not drift between reruns.
+- **Why this shape:** Recorded intent: one fixed two-window segmentation keeps
+  temporal context reproducible and bounded.
+- **Tradeoff:** A balanced split can dilute short, middle-of-run, or multi-phase
+  incidents and imposes a deterministic tie preference.
+- **Proof owner:** Request-order, equal-timestamp, and early/late split tests in
+  `tailtriage-analyzer/src/temporal.rs`.
+- **Revision criteria:** Require deterministic replacement tests and analysis of
+  segment-membership and report-output compatibility.
+- **Provenance:** Recorded intent for deterministic segmentation; historical
+  reason for the exact balanced split is unknown.
 
 ### AN-TEMP-002 — Timestamp provenance and sparse-runtime restraint
 
@@ -678,7 +770,7 @@ numeric calibration remains unknown.
 ### AN-CONFIG-002 — Only non-default configuration is reported
 
 - **Rule or default:** Default reports omit `analyzer_config`; non-default
-  overrides are listed deterministically; see
+  overrides are included; see
   [analyzer tuning](diagnostics.md#analyzer-tuning-and-configuration-transparency).
 - **Classification:** Compatibility obligation.
 - **Problem addressed:** Adding configuration transparency must not churn the
@@ -688,13 +780,30 @@ numeric calibration remains unknown.
   make deviations reproducible without serializing the full defaults table.
 - **Tradeoff:** A default report does not embed the analyzer defaults/version,
   so exact later reproduction also depends on the analyzer version.
-- **Proof owner:** `analyzer_config_transparency_default_report_omits_config`,
-  `analyzer_config_transparency_non_default_report_includes_config`, and exact
-  render tests in `tailtriage-analyzer/src/tests.rs`.
+- **Proof owner:** `analyzer_config_transparency_default_report_omits_config`
+  and `analyzer_config_transparency_non_default_report_includes_config` in
+  `tailtriage-analyzer/src/tests.rs`.
 - **Revision criteria:** Require an explicit report-versioning and reproducibility
-  decision with JSON compatibility analysis; deterministic ordering remains
-  mandatory.
+  decision with JSON compatibility analysis.
 - **Provenance:** Recorded intent (`SPEC.md` and focused tests).
+
+### AN-CONFIG-004 — Deterministic reported override order
+
+- **Rule or default:** Reported non-default analyzer overrides use stable
+  deterministic ordering; see
+  [analyzer tuning](diagnostics.md#analyzer-tuning-and-configuration-transparency).
+- **Classification:** Hard contract.
+- **Problem addressed:** Registry or map iteration must not churn otherwise
+  identical report output.
+- **Why this shape:** Recorded intent: tuned interpretation remains reproducible
+  and exact rendering stays stable.
+- **Tradeoff:** The fixed order is presentation policy rather than semantic
+  priority.
+- **Proof owner:** Exact analyzer-config render and registry-order tests in
+  `tailtriage-analyzer/src/tests.rs`.
+- **Revision criteria:** Require deterministic replacement ordering and explicit
+  JSON output/compatibility analysis.
+- **Provenance:** Recorded intent in exact rendering tests.
 
 ### AN-API-001 — Checked and panicking entry points validate identically
 
