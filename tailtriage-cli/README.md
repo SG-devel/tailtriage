@@ -143,6 +143,8 @@ Run artifact JSON remains CLI input. Report JSON remains analyzer/CLI output. An
 
 ## How to read the result
 
+For the concise interpretation and rerun workflow, see the [analyzer guide](../docs/analyzer-guide.md).
+
 Read output in this order:
 
 1. `primary_suspect.kind`

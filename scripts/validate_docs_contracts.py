@@ -912,8 +912,12 @@ def validate_analyzer_cli_docs_split_contract() -> None:
     if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
         raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")
 
-    if "../docs/" in analyzer_text:
-        raise ValueError("tailtriage-analyzer README must not link to ../docs/ for crates.io interpretation guidance")
+    unsupported_docs_links = analyzer_text.replace("../docs/analyzer-guide.md", "")
+    if "../docs/" in unsupported_docs_links:
+        raise ValueError(
+            "tailtriage-analyzer README may link to ../docs/analyzer-guide.md but must not "
+            "use other ../docs/ links for crates.io interpretation guidance"
+        )
 
     if "## How to interpret a report" not in analyzer_text:
         raise ValueError("tailtriage-analyzer README must include heading: ## How to interpret a report")
