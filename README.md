@@ -117,58 +117,21 @@ In short:
 
 ## What you get from the output
 
-### Four bottleneck families
+A report ranks evidence for four suspect families: application queueing, blocking-pool pressure, executor pressure, and downstream-stage latency. It identifies a primary lead, possible secondary leads, supporting evidence, confidence and evidence-quality limits, warnings, and concrete next checks. These are triage leads, not proof of root cause.
 
-1. **Application queueing**: work waits before execution.
-2. **Blocking-pool pressure**: `spawn_blocking` backlog inflates tails.
-3. **Executor pressure**: scheduler contention delays runnable work.
-4. **Downstream stage latency**: a dependency dominates request time.
-
-### How to read results
-
-Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence, then unchanged raw score, then a stable suspect-kind rank; raw-score proximity still drives ambiguity warnings, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
-- Treat `primary_suspect` as the best lead, not proof.
-- Use `evidence[]` to choose one targeted experiment.
-- Re-run and compare p95 shares plus suspect evidence.
+Start with the [analyzer guide](docs/analyzer-guide.md) to turn a report into one controlled next check. Use the [analyzer behavior reference](docs/diagnostics.md) only when you need exact fields, scoring, ordering, configuration, or evidence-limit mechanics.
 
 ## Primary entry points
 
-From `tailtriage`:
-
-- `tailtriage::Tailtriage` — direct capture lifecycle
-- `tailtriage::controller::TailtriageController` — repeated arm/disarm bounded capture windows for long-lived services
+- `tailtriage::Tailtriage` — one direct capture lifecycle
+- `tailtriage::controller::TailtriageController` — repeated bounded capture windows for long-lived services
 - `tailtriage::tokio` _(default-enabled)_ — runtime-pressure sampling
-- `tailtriage::axum` _(optional feature)_ — Axum middleware/extractor ergonomics
-- `tailtriage::tracing` _(optional feature)_ — tracing intake bridge for `tt.*` span JSONL import, live recording, and optional Tokio-coupled tracing sessions
+- `tailtriage::axum` _(optional)_ — Axum integration
+- `tailtriage::tracing` _(optional)_ — tracing intake
+- `tailtriage-analyzer` — typed in-process analysis and rendering
+- `tailtriage-cli` — strict loading and command-line analysis of saved Run artifacts
 
-## When to choose the controller
-
-Use `tailtriage::controller::TailtriageController` when your service must stay up and you need repeated capture windows over time:
-
-- arm
-- collect
-- disarm
-- re-arm
-
-> The controller is designed to be easy to start with and configurable when you need more control.
-
-You can begin with straightforward builder defaults, then move to a TOML-backed capture template when you want repeatable operational settings across environments.
-
-### Controller TOML config
-
-TOML config is useful when you want to:
-
-- keep startup simple in development, but use standardized capture settings in shared environments
-- control run identity, artifact output paths, and retention defaults without rebuilding the service
-- define runtime sampler template settings when enabled
-- refresh future capture generations with `reload_config()` while leaving the active generation unchanged
-
-See [`tailtriage-controller/README.md`](tailtriage-controller/README.md) for the TOML field reference, expanded TOML example, and reload semantics.
-For a runnable TOML-backed startup path, see the public example `controller_toml_startup` in `tailtriage-controller/examples/`.
-
-## Minimal examples
-
-### Single, immediate capture
+## Minimal capture and analysis
 
 ```rust,no_run
 use tailtriage::Tailtriage;
@@ -177,166 +140,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let run = Tailtriage::builder("checkout-service")
         .output("tailtriage-run.json")
         .build()?;
-
     let started = run.begin_request("/checkout");
     started.completion.finish_ok();
-
     run.shutdown()?;
     Ok(())
 }
 ```
 
-### Controller capture window with TOML config
+Analyze the saved **Run artifact** at the command line:
 
-```rust,no_run
-use tailtriage::controller::TailtriageController;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let controller = TailtriageController::builder("checkout-service")
-        .initially_enabled(false)
-        .config_path("tailtriage-controller.toml")
-        .build()?;
-
-    let _generation = controller.enable()?;
-    let started = controller.begin_request("/checkout");
-    started.completion.finish_ok();
-    let _ = controller.disable()?;
-
-    Ok(())
-}
+```bash
+tailtriage analyze tailtriage-run.json
 ```
 
-### In-process analysis (library)
+Or analyze a completed `Run` in process and obtain a typed **Report**:
 
 ```rust
-use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
-
+use tailtriage_analyzer::{try_analyze_run, AnalyzeOptions};
 # use tailtriage::Run;
 # fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
-let report = analyze_run(&run, AnalyzeOptions::default());
-let text = render_text(&report);
-let json = render_json_pretty(&report)?;
-# let _ = (text, json);
+let report = try_analyze_run(&run, AnalyzeOptions::default())?;
+# let _ = report;
 # Ok(())
 # }
 ```
 
-You can avoid JSON output entirely by using `MemorySink` and the typed `Report`, then call `render_json` / `render_json_pretty` only when you need Report JSON.
+The Run artifact is captured evidence and CLI input; Report JSON is analyzer output. For package-local usage details, see [`tailtriage-cli/README.md`](tailtriage-cli/README.md) or [`tailtriage-analyzer/README.md`](tailtriage-analyzer/README.md).
 
-```rust,no_run
-use tailtriage::{MemorySink, Tailtriage};
-use tailtriage_analyzer::{analyze_run, render_json_pretty, AnalyzeOptions};
+## Controller capture windows
 
-# fn example() -> Result<(), Box<dyn std::error::Error>> {
-let sink = MemorySink::new();
-let run = Tailtriage::builder("checkout-service")
-    .sink(sink.clone())
-    .build()?;
+Choose `TailtriageController` when a long-lived service needs repeated arm, collect, disarm, and re-arm windows. Start with builder defaults; use TOML when operational settings must be repeatable. The [controller README](tailtriage-controller/README.md) owns its configuration and reload contract, while the [operations guide](docs/operations.md) owns production capture choices.
 
-let started = run.begin_request("/checkout");
-started.completion.finish_ok();
-run.shutdown()?;
+## Operations and validation
 
-if let Some(finalized_run) = sink.take_run() {
-    let report = analyze_run(&finalized_run, AnalyzeOptions::default());
-    let report_json = render_json_pretty(&report)?;
-    let _ = report_json;
-}
-# Ok(())
-# }
-```
-
-### Analyze artifact (CLI)
-
-```bash
-tailtriage analyze tailtriage-run.json --format json
-```
-
-Import completed tailtriage tracing span JSONL into a Run artifact first when needed:
-
-```bash
-tailtriage import tracing-spans-jsonl completed-spans.jsonl --service checkout --output tailtriage-run.json
-```
-
-`tailtriage import tracing-spans-jsonl` imports completed tailtriage tracing span JSONL and writes **Run JSON** (capture artifact and CLI input), not Report JSON. Tracing-specific source parsing and retention happen before core normalization; private provenance joins retained core evidence back to original `SpanRecord` values. Completed-span JSONL contains only retained original source records, preserving source order, source names, IDs, parent IDs, fields, Unix-ms bounds, optional run-relative offsets, and optional explicit duration. Replay is equivalent to direct conversion for normalized request/stage/queue evidence that JSONL can represent; it does not encode Run-only metadata, runtime/in-flight snapshots, lifecycle warnings, truncation or raw-drop counters, source file/line context, omitted-source diagnostics, or output-path failures. Run JSON remains the complete persisted triage artifact. Use `--strict` to fail on malformed/incomplete `tt.*` spans; without `--strict`, malformed `tt.*` spans are skipped and surfaced as `warning: ...` lines on stderr. Arbitrary `tracing_subscriber::fmt().json()` log JSON is not imported, and timing is not guessed from line receive time: completed spans must include explicit Unix-ms start/end timestamps; complete run-relative monotonic offsets are optional and, when present, are preferred for elapsed-duration derivation and validation. Persisted Run JSON intended for `tailtriage analyze` must include at least one completed request event; in-process library snapshots may still be zero-request for inspection.
-Tracing-only imports can provide request/stage/queue evidence outside Tokio runtimes, but they do not fabricate runtime-pressure snapshots.
-
-Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyzer]` with `schema_version = 1`), and CLI (`--analyzer-config` / `--analyzer-set`). Start with defaults first, then tune after representative runs. See [docs/diagnostics.md](docs/diagnostics.md), [docs/operations.md](docs/operations.md), and [`examples/analyzer-config.toml`](examples/analyzer-config.toml).
-
-#### Example output (representative JSON)
-
-```json
-{
-  "request_count": 250,
-  "p50_latency_us": 782227,
-  "p95_latency_us": 1468239,
-  "p99_latency_us": 1518551,
-  "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 267,
-  "inflight_trend": {
-    "gauge": "queue_service_inflight",
-    "sample_count": 500,
-    "peak_count": 234,
-    "p95_count": 225,
-    "growth_delta": 0,
-    "growth_per_sec_milli": 0
-  },
-  "warnings": [],
-  "evidence_quality": {
-    "request_count": 250,
-    "queue_event_count": 250,
-    "stage_event_count": 250,
-    "runtime_snapshot_count": 500,
-    "inflight_snapshot_count": 500,
-    "requests": "present",
-    "queues": "present",
-    "stages": "present",
-    "runtime_snapshots": "present",
-    "inflight_snapshots": "present",
-    "truncated": false,
-    "dropped_requests": 0,
-    "dropped_stages": 0,
-    "dropped_queues": 0,
-    "dropped_inflight_snapshots": 0,
-    "dropped_runtime_snapshots": 0,
-    "quality": "strong",
-    "limitations": []
-  },
-  "primary_suspect": {
-    "kind": "application_queue_saturation",
-    "score": 90,
-    "confidence": "high",
-    "evidence": ["Queue wait at p95 consumes 98.2% of request time."],
-    "next_checks": ["Inspect queue admission limits and producer burst patterns."],
-    "confidence_notes": []
-  },
-  "secondary_suspects": [
-    {
-      "kind": "downstream_stage_dominates",
-      "score": 55,
-      "confidence": "low",
-      "evidence": ["Stage 'simulated_work' has p95 latency 26566 us across 250 samples."],
-      "next_checks": ["Inspect downstream dependency behind stage 'simulated_work'."]
-    }
-  ],
-  "route_breakdowns": [],
-  "temporal_segments": []
-}
-```
-
-For a concise report-to-next-check workflow, start with [`docs/analyzer-guide.md`](docs/analyzer-guide.md). For detailed report-field interpretation, see [`docs/diagnostics.md`](docs/diagnostics.md) and [`tailtriage-cli/README.md`](tailtriage-cli/README.md).
-
-`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks find material signal movement (for example, different early/late primary suspects or a large early/late p95 shift). The global `primary_suspect` remains the primary full-run triage lead. Temporal segments are supporting within-run hints only and do not prove a phase-specific root cause. A temporal p95 warning means early/late latency changed materially in that run. Runtime and in-flight phase attribution is timestamp-filtered to each segment window and can be limited when those segment-filtered samples are sparse; with overlapping early/late request windows under concurrency, timestamp-filtered runtime/in-flight attribution is approximate.
-
-## Operations guidance and overhead
-
-For validation scope, claims, and current diagnostic scorecard, see [VALIDATION.md](VALIDATION.md).
-
-For production rollout, capture-mode selection, runtime-sampling decisions, artifact sizing, truncation handling, weak-signal troubleshooting, and current operational limits, start with [`docs/operations.md`](docs/operations.md).
-
-`tailtriage` includes repo-local measurement paths for both runtime-overhead attribution and sustained collector-stress behavior. These are based on synthetic, controlled tests in this repository and should be treated as machine- and workload-scoped guidance, not universal production guarantees.
-
-For overhead attribution and measurement workflow, see [`docs/runtime-cost.md`](docs/runtime-cost.md). For sustained-load behavior, truncation onset, artifact-size growth, and memory trends under stress-shaped workloads, see [`docs/collector-limits.md`](docs/collector-limits.md).
+The [operations guide](docs/operations.md) covers rollout, capture modes, runtime sampling, retention, truncation, artifact sizing, and controlled reruns. [VALIDATION.md](VALIDATION.md) describes what repository validation does and does not support; measurements remain machine-, workload-, and profile-scoped rather than universal production guarantees.
 
 ## What this is not
 

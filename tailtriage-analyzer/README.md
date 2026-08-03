@@ -14,20 +14,6 @@ Use this crate when you already have a completed `tailtriage_core::Run` in memor
 
 Suspects are investigation leads, not proof of root cause.
 
-### In-flight activity episodes
-
-`inflight_trend` summarizes the selected gauge's latest retained activity episode, not its
-full history. A positive sample starts an episode, the first retained zero closes it, and a
-later positive sample starts a new episode. Active latest episodes outrank closed historical
-episodes; sample count, peak, p95, and delta are episode-local.
-
-Complete run-relative microsecond timestamps are the only basis for
-`growth_per_sec_milli`. If any timestamp is missing, Unix milliseconds provide only a coarse
-ordering fallback and the rate is `null`. A `null` rate otherwise means a precise rate was
-unavailable. With one sample, direction is unknown even though `growth_delta` is represented
-as `0` for compatibility. Truncation can hide a zero; the analyzer does not invent closure.
-Growth is supporting triage evidence, not root-cause proof.
-
 `tailtriage-analyzer` accepts any `tailtriage_core::Run` value. It is intended for completed/finalized captures or stable snapshots; callers that require finalized artifacts should validate that separately.
 
 ## Installation
@@ -51,11 +37,11 @@ Typical flow:
 ## In-process API
 
 ```rust
-use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text, AnalyzeOptions};
+use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run, AnalyzeOptions};
 use tailtriage_core::Run;
 
 fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
-    let report = analyze_run(run, AnalyzeOptions::default());
+    let report = try_analyze_run(run, AnalyzeOptions::default())?;
     let text = render_text(&report);
     let json = render_json_pretty(&report)?;
     Ok(format!("{text}\n\n{json}"))
@@ -64,18 +50,15 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 
 ## Report contract
 
-- `analyze_run` currently returns `Report` directly and is currently infallible
-- `AnalyzeOptions::default()` is the normal path today and leaves room for future analyzer options
+- `try_analyze_run` validates `AnalyzeOptions` and returns `AnalyzeConfigError` when they are semantically invalid
+- `analyze_run` performs the same validation but panics on invalid options; it is convenient when options are known-valid, including `AnalyzeOptions::default()`
+- `Analyzer::try_analyze_run` and `Analyzer::analyze_run` provide the same checked-versus-panicking distinction for a reusable analyzer
+- `AnalyzeOptions` is the supported configuration model for current analyzer behavior
 - `Report` is the typed analyzer output model and should be your primary integration surface
 - `render_text` is for human-readable triage output
 - `render_json` and `render_json_pretty` are canonical Report JSON renderers
 - `analyze_run_json` and `analyze_run_json_pretty` combine analysis + canonical JSON rendering
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
-- queue share uses overlap-safe interval union when every retained queue event for a request has complete run-relative timing; if any retained queue event lacks complete run-relative precision, queue attribution falls back to a capped sum of authoritative queue durations and is approximate
-- service share is the request remainder after attributed queue time; queue and service shares are individually bounded to 0..1000 permille
-- downstream stages are attributed per `(stage name, request_id)`: complete run-relative microsecond intervals use overlap-safe union, disjoint repeated same-name events remain additive, and a request-stage group with incomplete run-relative precision falls back to a capped sum of authoritative stage durations
-- downstream stage p95, cumulative share, tail share, sample quality, and eligibility use one attributed duration per distinct completed request with retained evidence for that stage; `downstream.min_stage_samples` counts distinct requests, not raw stage events
-- different stage names are attributed independently, even when their intervals overlap within the same request; downstream suspects remain triage leads, not proof of root cause
 - analyzer library default analysis is permissive: it analyzes core-normalized evidence and surfaces stable core issue-code warnings for excluded, repaired, or precision-limited completed-Run evidence; strict artifact validation APIs reject error-level generic core integrity failures. The saved-artifact CLI independently enforces strict validation by default.
 
 ## Request ID contract
@@ -148,7 +131,6 @@ Report transparency behavior:
 
 ## How to interpret a report
 
-Suspect ranking selects the primary only after every eligible candidate receives final evidence-aware confidence. The deterministic order is final confidence, then unchanged raw score, then a stable suspect-kind rank; raw-score proximity still drives ambiguity warnings, and a lower raw-score suspect may be promoted when stronger evidence leaves it at higher final confidence. These rankings remain triage leads, not proof of root cause.
 - `primary_suspect` is the strongest triage lead for the analyzed run, not proof of root cause.
 - `secondary_suspects` are lower-ranked leads worth checking when evidence is close or the primary lead does not explain the incident.
 - `evidence[]` explains why a suspect was ranked.

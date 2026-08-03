@@ -10,6 +10,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
@@ -250,6 +251,29 @@ def markdown_links(markdown: str) -> set[str]:
     return set(re.findall(r"\[[^\]]+\]\(([^)]+)\)", markdown))
 
 
+def resolve_local_markdown_destination(
+    document: Path, destination: str, *, repo_root: Path = REPO_ROOT
+) -> Path | None:
+    """Resolve a local Markdown destination, returning None for non-file schemes."""
+    path_text = destination.split("#", 1)[0]
+    if not path_text:
+        return document.resolve()
+
+    parsed = urlsplit(path_text)
+    if parsed.scheme:
+        return None
+
+    root = repo_root.resolve()
+    resolved = (document.parent / path_text).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise ValueError(
+            f"{document} Markdown destination escapes repository root: {destination}"
+        ) from error
+    return resolved
+
+
 def has_markdown_heading(markdown: str, heading_pattern: str) -> bool:
     return (
         re.search(rf"^\s*#+\s+{heading_pattern}\s*$", markdown, flags=re.IGNORECASE | re.MULTILINE)
@@ -341,41 +365,61 @@ def validate_governance_pending_state_contract() -> None:
     if re.search(r"(?m)^\s*all live (?:bookkeeping|state) (?:is|are) (?:capture-limited|bounded by capture limits)", lower_text):
         raise ValueError("DESIGN_NOTES.md must not claim all live bookkeeping is capture-limited")
 
-def validate_readme_analyzer_example() -> None:
-    readme_text = README_PATH.read_text(encoding="utf-8")
+def validate_analyzer_ownership_navigation(
+    *,
+    required_links: dict[Path, tuple[str, ...]] | None = None,
+    repo_root: Path = REPO_ROOT,
+) -> None:
+    """Protect document ownership and navigation without freezing explanatory prose."""
+    required = required_links or {
+        DOCS_INDEX_PATH: (
+            "user-guide.md",
+            "operations.md",
+            "analyzer-guide.md",
+            "diagnostics.md",
+            "analyzer-rationale.md",
+            "../tailtriage-cli/README.md",
+            "../tailtriage-analyzer/README.md",
+            "../SPEC.md",
+            "../VALIDATION.md",
+        ),
+        README_PATH: (
+            "docs/README.md",
+            "docs/analyzer-guide.md",
+            "docs/diagnostics.md",
+            "docs/operations.md",
+        ),
+        REPO_ROOT / "docs" / "analyzer-guide.md": (
+            "diagnostics.md",
+            "analyzer-rationale.md",
+            "operations.md",
+            "../tailtriage-cli/README.md",
+            "../tailtriage-analyzer/README.md",
+        ),
+        OPERATIONS_PATH: ("analyzer-guide.md", "diagnostics.md"),
+        USER_GUIDE_PATH: ("analyzer-guide.md", "diagnostics.md"),
+    }
+    for path, expected in required.items():
+        links = markdown_links(path.read_text(encoding="utf-8"))
+        destinations: set[Path] = set()
+        for link in links:
+            if not link.split("#", 1)[0].lower().endswith(".md"):
+                continue
+            destination = resolve_local_markdown_destination(path, link, repo_root=repo_root)
+            if destination is None:
+                continue
+            destinations.add(destination)
 
-    anchors = (
-        "### Example output (representative JSON)",
-        "### Example output (JSON)",
-    )
-
-    snippet = None
-    for anchor in anchors:
-        if anchor in readme_text:
-            snippet = extract_fenced_block(readme_text, fence="json", anchor=anchor)
-            break
-    if snippet is None:
-        raise ValueError(f"README analyzer example anchor missing; tried: {anchors}")
-
-    readme_json = json.loads(snippet)
-    if not isinstance(readme_json, dict):
-        raise ValueError("README analyzer example must be a top-level JSON object")
-
-    fixture = json.loads(ANALYSIS_FIXTURE_PATH.read_text(encoding="utf-8"))
-    if not isinstance(fixture, dict):
-        raise ValueError("analysis fixture must be a top-level JSON object")
-
-    assert_same_object_shape(name="README report", actual=readme_json, expected=fixture)
-
-    primary = readme_json.get("primary_suspect")
-    fixture_primary = fixture.get("primary_suspect")
-    if not isinstance(primary, dict) or not isinstance(fixture_primary, dict):
-        raise ValueError("primary_suspect must be an object")
-    assert_same_object_shape(
-        name="README primary_suspect",
-        actual=primary,
-        expected=fixture_primary,
-    )
+        missing = []
+        for link in expected:
+            destination = resolve_local_markdown_destination(path, link, repo_root=repo_root)
+            if destination is None or destination not in destinations:
+                missing.append(link)
+            elif not destination.is_file():
+                raise ValueError(f"{path} Markdown destination is not an existing file: {link}")
+        if missing:
+            display_path = path.relative_to(repo_root) if path.is_relative_to(repo_root) else path
+            raise ValueError(f"{display_path} missing analyzer ownership links: {missing}")
 
 
 def extract_run_end_policy_kinds_from_source() -> set[str]:
@@ -841,23 +885,6 @@ def validate_analyzer_tuning_tokens_contract() -> None:
     if "not proof" not in diagnostics_lower:
         raise ValueError("docs/diagnostics.md must include bounded wording that suspects are not proof")
 
-    operations_lower = OPERATIONS_PATH.read_text(encoding="utf-8").lower()
-    if "analyzer config" not in operations_lower and "analyzer tuning" not in operations_lower:
-        raise ValueError("docs/operations.md missing analyzer config/tuning guidance")
-    for token in ("representative runs", "truncation"):
-        if token not in operations_lower:
-            raise ValueError(f"docs/operations.md missing required analyzer-operations token: {token}")
-    if (
-        "same analyzer config" not in operations_lower
-        and re.search(r"analyzer config\s+is\s+the\s+same", operations_lower) is None
-    ):
-        raise ValueError("docs/operations.md must mention using the same analyzer config across comparisons")
-
-    user_guide_lower = USER_GUIDE_PATH.read_text(encoding="utf-8").lower()
-    for token in ("[analyzer]", "schema_version = 1", "--analyzer-config", "--analyzer-set", "try_analyze_run"):
-        if token not in user_guide_lower:
-            raise ValueError(f"docs/user-guide.md missing required analyzer token: {token}")
-
     cli_lower = (REPO_ROOT / "tailtriage-cli" / "README.md").read_text(encoding="utf-8").lower()
     for token in ("--analyzer-config", "--analyzer-set", "--help-analyzer-options", "report json"):
         if token not in cli_lower:
@@ -981,14 +1008,10 @@ def validate_analyzer_cli_docs_split_contract() -> None:
 
     analyzer_interpretation_tokens = (
         "primary_suspect",
-        "secondary_suspects",
         "evidence[]",
         "next_checks[]",
-        "score",
         "confidence",
         "evidence_quality",
-        "route_breakdowns",
-        "temporal_segments",
         "Report JSON",
         "Run artifact JSON",
     )
@@ -1562,7 +1585,7 @@ def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
     validate_governance_pending_state_contract()
-    validate_readme_analyzer_example()
+    validate_analyzer_ownership_navigation()
     validate_crate_rustdocs_include_readmes()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
