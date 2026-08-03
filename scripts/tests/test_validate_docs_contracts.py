@@ -389,6 +389,12 @@ Ignore file names like docs/operations.md, foo.bar, and include queuing.trigger_
         validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs()
         validate_docs_contracts.validate_analyzer_override_paths_contract()
 
+    def test_worker_normalized_executor_option_is_a_valid_documented_path(self) -> None:
+        self.assertIn(
+            "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
+            validate_docs_contracts.ANALYZER_V1_VALID_PATHS,
+        )
+
     def test_analyzer_no_root_level_docs_rejects_root_level_table_header(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)

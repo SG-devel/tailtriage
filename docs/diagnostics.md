@@ -1,194 +1,443 @@
-# Diagnostics guide
+# Analyzer behavior reference
 
-This guide explains analyzer report interpretation for both `tailtriage_analyzer::analyze_run` and `tailtriage analyze`.
+This page is the detailed reference for the current `tailtriage-analyzer`
+behavior. Start with the concise [analyzer guide](analyzer-guide.md) when the
+goal is simply to turn a report into a next check. This page instead records
+the contracts needed to review scoring and interpretation changes. It records
+behavior, not the rationale for the numeric defaults.
 
-Terminology: Run artifact JSON is capture output and CLI input. Report JSON is analyzer/CLI output. Typed `Report` is analyzer in-process output. Text rendering is `render_text`.
+Suspects are deterministic, evidence-ranked triage leads. Scores are not
+probabilities, and suspects are **not proof** of root cause.
 
-## Read one report quickly
+## Scope, inputs, and sources of truth
 
-1. Check `primary_suspect.kind`.
-2. Read `primary_suspect.evidence[]`.
-3. Read `primary_suspect.next_checks[]`.
-4. Use p95 share fields as directional context.
-5. Run one targeted check, then re-run and compare.
+| Term | Meaning |
+| --- | --- |
+| Run artifact JSON | Persisted capture input. The CLI validates its schema and lifecycle requirements before analysis. |
+| typed `Run` | `tailtriage_core::Run`, accepted directly by the in-process analyzer. |
+| typed `Report` | The analyzer result and source for text or JSON rendering. |
+| Report JSON | Serialization of `Report`; it is output, not a reusable Run artifact. |
 
-Ranking is rule-based triage guidance. Suspects are leads, not proof of root cause.
+`Analyzer::analyze_run` and `analyze_run` permissively normalize request-scoped
+evidence. Invalid or orphaned events are discarded or canonicalized and the
+result carries validation warnings. `AnalyzeOptions` are still semantically
+validated: the free and reusable `analyze_run` entry points panic on invalid
+options, while the free and reusable `try_analyze_run` entry points return
+`AnalyzeConfigError`. `validate_artifact_strict` and
+`try_analyze_run_strict_artifact` additionally reject invalid artifact
+relationships. Saved-artifact CLI analysis is strict
+by default and emits loader/lifecycle notices on stderr; see the
+[`tailtriage-cli` README](../tailtriage-cli/README.md) for command and schema
+mechanics.
 
-## Artifact schema contract
+Run JSON schema version 2 is current. `metadata.finalized_at_unix_ms` is the
+sole run-level finalization timestamp (an active in-memory snapshot may contain
+`null`, while a persisted CLI artifact requires numeric finalization). Schema-v1 Run JSON is
+rejected by the CLI and must be regenerated. Event-level completion timestamps remain unchanged.
 
-`tailtriage-cli` requires top-level `schema_version`.
+Completed request, queue, and stage events form the ordinary distributions.
+An incomplete queue or stage observation can additionally enter a labeled
+**observed lower-bound** candidate: observation ended at Drop, which does not
+establish that the underlying operation completed, failed, or stopped.
 
-- missing `schema_version` is rejected
-- non-integer `schema_version` is rejected
-- unsupported `schema_version` is rejected
+Implementation and typed tests are authoritative for behavior. Public Rustdoc
+owns item-level API details; this document owns analyzer interpretation.
 
-Run JSON schema version 2 is current for Run artifacts. `metadata.finalized_at_unix_ms` is the sole run-level finalization timestamp. Active in-memory snapshots may use `metadata.finalized_at_unix_ms: null`, but persisted CLI artifacts require numeric finalization. Schema-v1 Run JSON is rejected and must be regenerated with a current tailtriage version. Event-level completion timestamps remain unchanged.
+## Field reference: percentiles, attribution, and shared units
 
-## Report contents
+### Percentiles and units
 
-Analyzer reports (from `analyze_run` or `tailtriage analyze <run.json>`) include:
+For a nonempty ascending series of length `n`, percentile `p/q` selects index
+`ceil((n - 1) * p / q)`, clamped to `n - 1`. Empty input produces no
+percentile. Thus all p95 values below use `ceil((n - 1) * 95 / 100)`; this is
+not interpolation.
 
-- request count
-- request latency percentiles (`p50`, `p95`, `p99`)
-- p95 queue/service share summaries
-- optional in-flight trend summary
-- warnings (analyzer/report warnings, especially truncation-related)
-- evidence_quality (structured coverage/completeness/interpretability summary)
-- ranked suspects (primary + secondary)
+| Unit | Use |
+| --- | --- |
+| microseconds (`*_us`) | request, queue, stage, and attributed durations |
+| permille (`0..=1000`) | per-request queue/service shares and aggregate stage shares; integer division floors |
+| counts | queue depths, task counts, samples, and events |
+| milli-tasks per worker | normalized runnable depth; `1000` means one runnable task per worker |
 
-Each suspect includes:
+The public queue and service share distributions are completed-only. For each
+nonzero-latency completed request, attributed completed queue wait is capped at
+request latency. Queue share is `floor(wait * 1000 / latency)` and service share
+is `floor((latency - wait) * 1000 / latency)`, each capped at 1000. Their
+separately selected p95 values need not sum to 1000.
 
-- `kind`
-- `score`
-- `confidence`
-- `evidence[]`
-- `next_checks[]`
-- `confidence_notes[]` (present and empty unless confidence is capped by evidence limits or explicit ambiguity applies)
+Queue attribution unions complete run-relative intervals, so duplicates,
+nested intervals, touching intervals, and overlaps do not double count. If any
+input for a request lacks a complete run-relative interval, attribution instead
+saturating-sums authoritative durations and caps the result at request latency.
 
-`p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`.
+Stage attribution first groups by `(stage name, request_id)`. Within each group
+it uses the same interval-union or capped-duration fallback and produces one
+duration per distinct completed request. Stage names remain independent.
+`request_samples` is therefore a distinct-request count, not a raw event count.
+The cumulative share divides summed attributed stage duration by all completed
+request latency. Tail share divides attributed duration for requests whose
+latency is at least request p95 by total latency of those tail requests.
 
-## Field reference (stable report shape)
+Observed lower-bound queue candidates include completed and partial queue
+events. Observed lower-bound stage summaries likewise include both kinds.
+Public queue/service distributions remain completed-only.
 
-- `request_count`: number of requests observed in the run artifact.
-- `p50_latency_us` / `p95_latency_us` / `p99_latency_us`: request latency percentiles in microseconds.
-- `p95_queue_share_permille`: p95 attributed queue-time share per request (0..1000 scale). Complete run-relative queue intervals use overlap-safe interval union. If any retained queue event for a request lacks complete run-relative precision, attribution falls back to a capped sum of authoritative queue durations and is approximate.
-- `p95_service_share_permille`: p95 non-queue service-time share per request (0..1000 scale). Service share is the request remainder after attributed queue time. Queue and service shares are individually bounded to 0..1000 permille.
-- `warnings[]`: analyzer/report warnings, especially truncation-related warnings from captured-data limits. Loader/lifecycle warnings (including unfinished-request warnings) are emitted separately by the CLI loader to stderr before the report output.
-- `evidence_quality`: structured signal coverage status, truncation counters, and overall evidence quality (`strong`/`partial`/`weak`).
-- `primary_suspect`: highest-ranked suspect with evidence and next checks.
-- `secondary_suspects[]`: additional ranked suspects.
-- `inflight_trend` (optional): the selected gauge's latest retained activity-episode summary.
-  Positive samples open or continue an episode, the first retained zero closes it, and a later
-  positive sample starts a new episode. Active latest episodes outrank closed historical ones.
-  `sample_count` (including a terminal zero), peak, p95, and `growth_delta` are episode-local.
-  One sample has unknown direction even though `growth_delta` is represented as `0` for
-  compatibility. `growth_per_sec_milli` uses only valid run-relative microsecond timing;
-  `null` means a precise rate was unavailable. Unix milliseconds are only a coarse ordering
-  fallback and never produce a rate. Truncation can hide a zero transition, so analysis does
-  not fabricate closure. Growth remains supporting triage evidence, not root-cause proof.
-- `route_breakdowns`: always present and usually empty. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal (for example, different route-level primary suspects or a large route p95 latency spread). Route breakdowns are supporting context only; global `primary_suspect` remains the primary full-run triage lead. Route breakdowns use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals and are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
-- `temporal_segments`: always present and usually empty. It is populated only when conservative within-run early/late checks detect material signal movement (for example suspect-kind shifts or large p95 movement). Temporal segments are supporting within-run hints only; global `primary_suspect` remains the full-run triage lead. A temporal p95 warning means early/late request latency changed materially within the run. Temporal segments do not prove phase-specific root cause. Runtime and in-flight phase attribution is timestamp-filtered to each segment window and is limited when segment-filtered samples are sparse; when early/late windows overlap under concurrent requests, timestamp-filtered runtime/in-flight attribution is approximate.
+### Shared sample-quality contribution
 
-## Suspect kinds
+All score formulas use integer arithmetic and floor division. The common
+sample contribution is:
 
-- `application_queue_saturation`
-- `blocking_pool_pressure`
-- `executor_pressure_suspected`
-- `downstream_stage_dominates`
-- `insufficient_evidence`
+| Series length | Contribution |
+| --- | ---: |
+| `0..=7` | 0 |
+| `8..=19` | 1 |
+| `20..=39` | 3 |
+| `40..=99` | 5 |
+| `100+` | 8 |
 
-## Proportional ranking model
+## Candidate eligibility and scoring
 
-Ranking is proportional and evidence-weighted, not fixed suspect precedence.
+Every formula is finally clamped to `0..=100`. A “soft cap” is applied before
+that clamp unless the stated clean-extreme condition holds.
 
-- Queue, blocking, executor, and downstream suspects each score from observed evidence strength.
-- Strong downstream tail-request contribution can rank above weak blocking/runtime pressure.
-- Strong queue pressure still ranks high when queue-share/depth signals are materially dominant.
+### Application queue saturation
 
-Treat score as within-report ordering guidance, not an absolute SLA or certainty metric.
+The analyzer builds completed-only and observed-lower-bound p95 queue-share
+candidates. A candidate is eligible when its p95 share is at least
+`queueing.trigger_permille` (default 300). Let `Q` be that p95 share, `D` the
+maximum retained `depth_at_start` among the candidate's queue events, `G=5`
+when the selected in-flight episode has at least two samples and positive net
+growth (otherwise 0), and `S` the shared contribution:
 
-## How the analyzer ranks suspects
+```text
+score = 22 + floor(min(Q, 1000) / 14)
+           + floor(min(D, 40) * 2 / 3) + G + S
+```
 
-The analyzer is deterministic and rule-based. It does not use probabilistic or ML inference.
+The score is soft-capped at 95. The cap is removed when `Q >= 985`, `D >= 12`,
+there are at least 20 share samples, and positive in-flight growth is known.
+When both bases qualify, the higher score is selected; a tie keeps completed
+evidence. Evidence states the p95 share, maximum sampled depth, positive growth,
+and whether the selected value is a lower bound. Next checks target admission,
+producer bursts, and a controlled parallelism comparison. Selecting the
+lower-bound candidate caps confidence at Medium.
 
-- `score` is a **relative evidence-ranking score within one report**.
-- `score` is **not** a probability and **not** absolute severity across different captures.
-- `confidence` starts from score bands and is then capped by evidence quality limits (sparse/missing/truncated/ambiguous evidence); it reflects triage ranking confidence, not causal certainty.
+### Blocking-pool pressure
 
-Signal families used for scoring:
+The evidence series is present `blocking_queue_depth` values. Let `P` be p95,
+`K` peak, `N` nonzero samples, `T` total samples, `Z=floor(N*1000/T)`, and `S`
+the shared contribution. The candidate is eligible if a percentile exists and
+either `P > 0` or `N >= blocking.min_nonzero_samples_for_signal` (default 2).
 
-- **Queue saturation**: p95 queue-share, queue-depth signal, in-flight growth (when present), and sample quality.
-- **Blocking pool pressure**: p95/peak blocking queue depth, nonzero blocking-sample coverage, and sample quality.
-- **Executor pressure**: global queue depth, local queue depth, alive-task signal (when present), in-flight growth, and sample quality.
-- **Downstream dominance**: eligible stage samples, cumulative stage share, tail-request contribution, with stage p95 reported as supporting evidence.
+```text
+score = 32 + min(P, 24) + floor(min(K, 24) / 2)
+           + floor(Z / 80) + S
+```
 
-Downstream stage attribution groups retained normalized events by `(stage name, request ID)`. For each group, complete run-relative microsecond intervals use overlap-safe union, so repeated, nested, touching, duplicate, or overlapping same-name events cannot inflate one request beyond elapsed covered time; disjoint repeated events remain additive. If any event in that request-stage group lacks complete run-relative precision, attribution falls back to a capped sum of authoritative `latency_us` values for that group. Stage p95 is calculated from one attributed duration per stage-bearing request, cumulative and tail shares sum those per-request attributed durations, and `downstream.min_stage_samples` means distinct completed requests with retained evidence for that stage rather than raw event count. Different stage names are attributed independently and are not subtracted from each other. Suspects remain triage leads, not proof.
+The score is soft-capped at 94 unless `P >= 16`, `K >= 24`, and `Z >= 900`.
+Evidence reports p95, peak, and `N/T`; next checks audit synchronous hot-path
+work and `spawn_blocking` call sites. The configurable “strong blocking” test
+requires all of `blocking.strong_p95_threshold`, `strong_peak_threshold`,
+`strong_nonzero_share_permille`, and `strong_min_samples`. It does not alter
+the blocking score; it controls correlation with blocking-looking downstream
+stage names.
 
-Downstream candidate selection filters out very low-sample stages before ranking. That keeps sparse stage noise from outranking better-supported leads.
+Runtime truncation or missing/partial key runtime fields can cap confidence.
 
-Blocking-looking stage names (for example `spawn_blocking`-style paths) can corroborate blocking-pool pressure when runtime blocking signals are strong; they are not always treated as independent downstream root-cause leads.
+### Executor pressure
 
-Warnings show interpretation limits (missing signal families, sparse coverage, ambiguous close scores, truncation). Warnings are additive and do not claim root cause.
+Only snapshots containing `global_queue_depth` are relevant to worker evidence.
+No such series means no executor candidate.
 
-As always: suspects are leads for next checks, not proof.
+| Worker evidence classification | Exact condition | Scoring and confidence behavior |
+| --- | --- | --- |
+| historical absence | every relevant snapshot lacks `worker_count` | exact legacy compatibility scoring; no worker-related cap |
+| complete | every relevant snapshot has the same nonzero count | normalized scoring |
+| complete, local lower bound | complete worker count but any relevant snapshot lacks `local_queue_depth` | normalized scoring; missing local contributes zero for that snapshot; Medium cap |
+| partial | nonzero counts and missing counts are mixed | legacy scoring; Medium cap |
+| inconsistent | more than one nonzero count occurs | legacy scoring; Medium cap |
+| invalid zero | any relevant snapshot supplies zero | legacy scoring; Medium cap |
 
-## Analyzer tuning
+#### Worker-normalized mode
 
-Start with defaults (`AnalyzeOptions::default()` or no analyzer overrides in CLI/TOML).
+For every relevant snapshot:
 
-Tune only after representative runs under comparable workload. First validate that capture evidence is usable (enough requests, relevant queue/stage instrumentation, and acceptable truncation state), then adjust analyzer thresholds if ranking behavior needs tighter workload fit.
+```text
+runnable_queue_depth = global_queue_depth + local_queue_depth_or_zero
+queue_per_worker_milli = floor(runnable_queue_depth * 1000 / worker_count)
+```
 
-Analyzer option groups:
+The implementation performs addition and multiplication in `u128`, divides
+there, clamps the result to `u64::MAX`, then converts to `u64`. Global and local
+depth are combined per snapshot **before** selecting p95. Missing local depth is
+zero only for that snapshot and labels the series a lower bound.
 
-- **queueing**: queue-share and queue-pressure thresholds for queue saturation leads
-- **blocking**: blocking-pool queue-depth/coverage thresholds
-- **executor**: runtime queue-depth thresholds for executor-pressure leads
-- **downstream**: stage eligibility and blocking-correlation heuristics
-- **confidence**: score bands and ambiguity boundaries for confidence labeling
-- **evidence**: low-evidence thresholds that shape evidence-quality interpretation
-- **route**: conservative route-breakdown emission thresholds
-- **temporal**: conservative within-run segment emission thresholds
+Eligibility is normalized p95 `R` at least
+`executor.min_runnable_queue_per_worker_p95_milli_for_signal` (default 500).
 
-When non-default options are used, report JSON includes `analyzer_config` with the active non-default overrides. Default analyzer behavior omits `analyzer_config` from report JSON.
+| Normalized p95 `R` | Queue contribution |
+| --- | ---: |
+| `0..=499` | 0 |
+| `500..=999` | 5 |
+| `1000..=1999` | 15 |
+| `2000..=3999` | 25 |
+| `4000..=7999` | 40 |
+| `8000+` | 55 |
 
-Use tuning as interpretation control, not data repair: tuning cannot recover missing instrumentation and cannot compensate for truncation or dropped evidence.
+```text
+score = 34 + normalized_queue_contribution(R) + G + S
+```
 
-Suspects remain evidence-ranked leads, not proof. `confidence` is ranking confidence under observed evidence and limits; it is not causal certainty.
+Here `G=4` for known positive in-flight growth and otherwise 0; `S` uses the
+number of normalized snapshots. There is no soft cap. `alive_tasks` and the
+separate global/local p95 values can appear as descriptive evidence, but do not
+add independent normalized contributions.
 
-For the complete option list and valid override paths, use:
+#### Legacy compatibility mode
 
-- `tailtriage analyze --help-analyzer-options`
-- `examples/analyzer-config.toml`
+Eligibility is global queue p95 `P` at least
+`executor.min_global_queue_p95_for_signal` (default 1). Let `L` be p95 of all
+present local depths (or zero), `A` p95 of present `alive_tasks` (or zero),
+`G=4` for known positive in-flight growth, and `S` the sample-quality
+contribution for the global series:
 
-## Warning semantics
+```text
+score = 34 + floor(min(P, 150) / 4)
+           + floor(min(L, 60) / 6)
+           + floor(min(A, 400) / 40) + G + S
+```
 
-`warnings[]` is additive and can include multiple classes together:
+The score is soft-capped at 94 unless `P >= 140` and there are at least 30
+global samples. Historical absence deliberately preserves this formula without
+a worker-related cap. Partial, inconsistent, and invalid-zero worker evidence
+uses the same formula without inventing a worker count, but caps confidence at
+Medium. Evidence names the scoring mode and relevant limitation. Next checks
+target long non-yielding polls, fanout, and stage isolation.
 
-- evidence-quality warnings (sparse requests, missing queue/stage/runtime signals, runtime field gaps)
-- ambiguity warnings when top suspect scores are close
-- truncation warnings when capture limits dropped events
+### Downstream-stage dominance
 
-Warnings lower interpretation confidence; they do not automatically invalidate suspect ranking.
+Each completed or observed-lower-bound stage summary is eligible when its
+distinct-request count is at least `downstream.min_stage_samples` (default 3).
+Let `T` be tail-request share permille, `C` cumulative share permille, and `S`
+the shared contribution for distinct request samples:
 
-## Evidence quality semantics
+```text
+score = 24 + floor(min(T, 1000) / 11) + floor(C / 35) + S
+```
 
-`evidence_quality` describes capture completeness and interpretation limits. It does **not** claim causal certainty, and suspects remain evidence-ranked leads, not proof.
+The score is soft-capped at 95 unless `T >= 960`, `C >= 920`, and there are at
+least 20 samples. Stage p95 is supporting evidence; `T`, `C`, and coverage drive
+the score. Candidate selection is deterministic: score, then tail share, then
+cumulative share, then completed evidence over lower-bound evidence, then stage
+name ascending.
 
-- `requests`: `missing`, `partial`, `truncated`, or `present` based on completed-request count and request drops.
-- `queues`, `stages`, `runtime_snapshots`, `inflight_snapshots`: per-family coverage status.
-- `quality`:
-  - `weak`: sparse/missing request evidence, request truncation, or no explanatory evidence families.
-  - `partial`: non-request truncation or major evidence-family limitations.
-  - `strong`: enough request evidence, queue or stage evidence present, no truncation limits active.
+If the selected stage name case-insensitively contains a configured
+`downstream.blocking_correlated_stage_patterns` entry and runtime blocking
+evidence meets every configured strong threshold, its final score is limited to
+at most `blocking_score - downstream.blocking_correlation_score_margin`
+(saturating at zero). Evidence
+states the correlation so blocking pressure stays prioritized. Otherwise next
+checks target the named dependency, retries, and its SLO. Selecting a partial
+stage path caps confidence at Medium.
 
-Runtime snapshots are optional input. Missing runtime snapshots add a limitation for executor/blocking interpretation, but they do not by themselves force `quality` to `partial` when queue/stage evidence is otherwise strong.
-When runtime snapshots are present but queue-depth fields are absent, runtime partialness is reflected in evidence quality and may appear in confidence notes when it affects confidence.
+## Confidence, ambiguity, and final ordering
 
-## Runtime-pressure caveat
+The pipeline order is contractual:
 
-On stable Tokio, the runtime sampler always attempts to populate `alive_tasks` and `global_queue_depth`.
-Fields such as `local_queue_depth`, `blocking_queue_depth`, and `remote_schedule_count` require `tokio_unstable` and may be `None`.
+1. compute each candidate's raw score;
+2. assign initial Low/Medium/High confidence using
+   `confidence.medium_score_threshold` and `confidence.high_score_threshold`;
+3. find ambiguity membership from raw scores;
+4. apply evidence-aware confidence caps;
+5. sort the visible candidates.
 
-That can reduce separation confidence between blocking-pool and executor suspects.
+An ambiguity cluster exists when the highest raw score is at least
+`confidence.ambiguity_min_score` and at least two candidates also meet that
+minimum and fall within `confidence.ambiguity_score_gap` of the highest raw
+score. Cluster members are capped at Medium.
 
-## Truncation interpretation
+Caps compose conservatively (the lowest wins). Current cap families cover weak
+overall evidence quality; zero completed requests (Low) or counts below
+`evidence.low_completed_request_threshold` (Medium); dropped requests and the
+candidate's queue, stage, or runtime family; missing queue/stage instrumentation;
+missing runtime snapshots or partial key runtime fields; selected partial queue
+or stage lower bounds; missing-local normalized executor evidence; ambiguous
+worker counts; and raw-score ambiguity. Candidate-specific notes are emitted
+when a bucket changed or when ambiguity, partial evidence, or an executor
+limitation is material. Notes are stable and deduplicated.
 
-If truncation counters are non-zero, treat the diagnosis as partial-data triage. Increase limits and re-run before making stronger conclusions.
+Final ordering puts eligible diagnosis candidates before
+`insufficient_evidence`, then orders by final confidence descending, raw score
+descending, and this stable kind tie order:
 
-## Practical loop
+1. `application_queue_saturation`
+2. `blocking_pool_pressure`
+3. `executor_pressure_suspected`
+4. `downstream_stage_dominates`
 
-1. Capture one run.
-2. Analyze.
-3. Follow one next check.
-4. Change one thing.
-5. Re-run under comparable load.
-6. Compare suspect movement and p95 shares.
+Raw-score ambiguity intentionally uses different input from final visible
+ordering; a lower raw score can appear first if it retains higher confidence.
 
+## Warnings, confidence notes, and evidence quality
 
-## Partial queue/stage evidence
+| Surface | Scope |
+| --- | --- |
+| `confidence_notes[]` | candidate-specific reasons that confidence was limited |
+| `warnings[]` | additive global, route, or temporal interpretation cautions |
+| `evidence_quality` | structured counts, per-family coverage, drops, overall quality, and limitations |
 
-Completed queue and stage distributions exclude partial observations. Partial durations are observed lower bounds: tailtriage observed the helper from first poll until Drop, not proof that the underlying operation completed, failed, or stopped. Partial evidence remains visible in event totals, evidence-quality limitations, top-level warnings, and suspect evidence.
+Warnings are additive and stably deduplicated. Global warnings can cover
+permissive normalization, partial observations, truncation, low request count,
+missing runtime distinction fields, close raw scores, route divergence, and
+temporal movement. Route warnings include their deliberate runtime/in-flight
+exclusion and low-volume omitted routes. Temporal warnings cover wall-clock
+fallback, sparse filtered runtime evidence, and overlapping windows. Artifact
+loader and capture-lifecycle notices—including unfinished-request notices—stay
+on CLI stderr rather than becoming analyzer report warnings.
 
-Queue/service public p95 fields remain completed-only. A queue or downstream-stage suspect materially relying on an observed-lower-bound path cannot exceed medium confidence; partial evidence that does not affect selected eligibility or score does not automatically cap a completed candidate. Partial stage `success = false` is not interpreted as a completed operation failure.
+Coverage values are `missing`, `partial`, `truncated`, or `present` for requests,
+queues, stages, runtime snapshots, and in-flight snapshots. Counts and drop
+counters remain explicit. Overall quality is:
 
-Global, route, and temporal projections share this policy. Tracing imports remain completed-only. Completed-only Report JSON and text remain unchanged; mixed or partial Runs may change scores or ranking only when explicitly labeled lower-bound evidence is selected and qualified. Suspects remain triage leads, not root-cause proof.
+- **weak** for no/low completed requests, dropped requests, or no explanatory
+  queue/stage/runtime family;
+- **partial** for non-request truncation, no queue and stage evidence, partial
+  runtime key coverage, or any partial queue/stage observation;
+- **strong** otherwise.
+
+Missing runtime snapshots add a limitation but alone do not lower otherwise
+strong queue/stage evidence. `evidence_quality` describes retained evidence; it
+does not certify correctness or causality.
+
+## Global, route, and temporal analysis
+
+The global report owns the primary full-run diagnosis. Route and temporal
+sections are supporting context and never displace that ownership.
+
+### Route breakdowns
+
+Requests are grouped by route. A route needs `route.min_request_count` completed
+requests, and at least two routes must qualify. Each slice retains requests,
+queues, and stages belonging to those request IDs. Global runtime snapshots and
+in-flight gauges are deliberately excluded because they cannot be attributed to
+a route.
+
+Breakdowns are emitted only when eligible routes have divergent primary kinds
+(and `route.emit_on_divergent_suspects` is enabled), the slowest/fastest p95
+meets the configured ratio, or slowest/global p95 meets its configured ratio.
+Comparisons use cross-multiplication and `>=`. Output orders p95 descending,
+request count descending, then route ascending; it truncates to
+`route.breakdown_limit`. A route-scoped warning notes low-volume omitted routes.
+The global divergence warning considers only emitted breakdowns.
+
+### Temporal segments
+
+Temporal analysis needs `temporal.min_request_count` completed requests and at
+least `temporal.min_segment_request_count` in both halves. Requests sort by
+run-relative start, Unix-ms start, then request ID when every start has
+run-relative time; otherwise by Unix-ms start then request ID. The split is
+`floor(n/2)`: that many requests are early and the remainder late.
+
+Request, queue, and stage evidence comes from the permissively normalized
+canonical Run. Runtime and in-flight evidence is filtered from the original
+Run, preserving its timestamp provenance. Segment windows prefer complete
+run-relative request start/finish bounds; missing precision uses Unix-ms bounds.
+Snapshots use run-relative timestamps where possible and Unix-ms fallback
+otherwise.
+
+Segments emit only for enabled suspect-kind movement, a p95 ratio movement, or
+queue/service p95 share movement. P95 ratios use configured numerator and
+denominator with `>=`; shares use absolute difference at least
+`temporal.share_shift_permille`. By default, a runtime-dependent kind shift is
+suppressed when runtime or in-flight segment coverage is sparse and there is no
+supporting p95, queue-share, or service-share movement. Large p95 and enabled
+suspect shifts add global warnings. Unix fallback, sparse runtime-dependent
+interpretation, and concurrent early/late window overlap add segment warnings;
+overlap makes timestamp attribution approximate.
+
+## Analyzer tuning and configuration transparency
+
+Start with `AnalyzeOptions::default()`. The Rust builder exposes matching
+`with_queueing`, `with_blocking`, `with_executor`, `with_downstream`,
+`with_confidence`, `with_evidence`, `with_route`, and `with_temporal` groups.
+TOML nests the same groups under `[analyzer.<group>]`, as shown in
+[`examples/analyzer-config.toml`](../examples/analyzer-config.toml). The CLI
+loads `--analyzer-config` first, then applies repeated `--analyzer-set
+PATH=VALUE` overrides in argument order, so later repeated paths win.
+
+This inventory is mechanically owned by the analyzer option registry and is
+also printed by `tailtriage analyze --help-analyzer-options`:
+
+| Option path | Default | Unit/type | Behavioral ownership |
+| --- | --- | --- | --- |
+| `queueing.trigger_permille` | 300 | permille | queue candidate trigger |
+| `blocking.min_nonzero_samples_for_signal` | 2 | samples | zero-p95 blocking eligibility |
+| `blocking.strong_p95_threshold` | 12 | depth | blocking-correlation strength |
+| `blocking.strong_peak_threshold` | 20 | depth | blocking-correlation strength |
+| `blocking.strong_nonzero_share_permille` | 700 | permille | blocking-correlation strength |
+| `blocking.strong_min_samples` | 30 | samples | blocking-correlation strength |
+| `executor.min_global_queue_p95_for_signal` | 1 | depth | legacy executor trigger |
+| `executor.min_runnable_queue_per_worker_p95_milli_for_signal` | 500 | milli-tasks/worker | normalized executor trigger |
+| `downstream.min_stage_samples` | 3 | distinct requests | stage eligibility |
+| `downstream.blocking_correlated_stage_patterns` | `spawn_blocking, blocking_path, blocking` | string list | stage/blocking correlation |
+| `downstream.blocking_correlation_score_margin` | 2 | score points | correlated-stage score limit |
+| `confidence.medium_score_threshold` | 65 | score | initial Medium boundary |
+| `confidence.high_score_threshold` | 85 | score | initial High boundary |
+| `confidence.ambiguity_min_score` | 60 | score | ambiguity eligibility |
+| `confidence.ambiguity_score_gap` | 4 | score points | ambiguity proximity |
+| `evidence.low_completed_request_threshold` | 20 | requests | quality warnings and caps |
+| `route.min_request_count` | 3 | requests/route | route eligibility |
+| `route.breakdown_limit` | 10 | entries | route output limit |
+| `route.emit_on_divergent_suspects` | true | bool | divergence emission/warning |
+| `route.slowest_to_fastest_p95_ratio_numerator` | 3 | ratio numerator | route p95 movement |
+| `route.slowest_to_fastest_p95_ratio_denominator` | 2 | ratio denominator | route p95 movement |
+| `route.slowest_to_global_p95_ratio_numerator` | 5 | ratio numerator | route/global movement |
+| `route.slowest_to_global_p95_ratio_denominator` | 4 | ratio denominator | route/global movement |
+| `temporal.min_request_count` | 20 | requests | global temporal eligibility |
+| `temporal.min_segment_request_count` | 8 | requests/segment | segment eligibility |
+| `temporal.share_shift_permille` | 200 | permille | queue/service movement |
+| `temporal.p95_shift_ratio_numerator` | 3 | ratio numerator | temporal p95 movement |
+| `temporal.p95_shift_ratio_denominator` | 2 | ratio denominator | temporal p95 movement |
+| `temporal.emit_on_suspect_shift` | true | bool | kind-shift emission/warning |
+| `temporal.suppress_runtime_sparse_suspect_shift_without_supporting_movement` | true | bool | sparse shift suppression |
+
+Semantic validation requires permille values to be at most 1000; confidence
+thresholds, ambiguity values, and score margin to be at most 100; Medium not to
+exceed High; nonempty, nonblank stage patterns; nonzero route limit; nonzero
+ratio components with numerator at least denominator; nonzero temporal segment
+minimum; and twice that segment minimum not to exceed the global temporal
+minimum.
+
+Tuning changes interpretation; it cannot repair missing or truncated evidence.
+Default options omit `analyzer_config`. Non-default options include schema
+version 1 and only non-default path/value summaries, sorted by path.
+
+## Determinism and rendering guarantees
+
+- Candidate selection, final suspect ordering, route ordering, and temporal
+  early/late ordering are deterministic for the same normalized input/options.
+- `Report` serialization has stable named fields; `route_breakdowns` and
+  `temporal_segments` are always present, including when empty.
+- `analyzer_config` is absent at defaults and present only for non-defaults.
+- `analyze_run_json` and `analyze_run_json_pretty` are the canonical compact and
+  pretty serializers of the typed `Report`; their `try_` forms return option
+  validation errors.
+- `render_text(&Report)` renders the typed report. CLI JSON output serializes the
+  same report model; text output uses the text renderer.
+
+Representative prose inside text evidence is not a general byte-for-byte
+contract beyond behavior explicitly protected by tests.
+
+## Non-claims and known limitations
+
+- Scores rank evidence only within one report; they are not cross-run severity.
+- Confidence is ranking confidence under retained evidence, not causal certainty.
+- Tuning cannot recover missing instrumentation or truncated events.
+- Route and temporal sections are supporting context, not independent diagnoses.
+- Unix-ms fallback and overlapping windows reduce temporal attribution precision.
+- Partial queue and stage durations are observed lower bounds.
+- Runtime field availability depends on sampler and Tokio build/runtime
+  capabilities.
+- Worker-normalized executor evidence is exact only to retained global/local
+  queue inputs and worker counts; missing local depth makes it a lower bound.
+- Even complete retained evidence supports next checks, not root-cause proof.
