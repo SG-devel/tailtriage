@@ -257,44 +257,9 @@ External correlation or distributed trace IDs may repeat across retries, fanout 
 
 Current analyzer semantics are completed-run or stable-snapshot batch analysis, not live streaming analysis.
 
-### Analyzer tuning examples
+### Analyzer tuning
 
-Start from defaults, then tune only what you need.
-
-Rust (checked API):
-
-```rust
-use tailtriage::Run;
-use tailtriage_analyzer::{try_analyze_run, AnalyzeOptions};
-
-fn analyze_with_tuning(run: &Run) -> Result<(), Box<dyn std::error::Error>> {
-    let options = AnalyzeOptions::default()
-        .with_queueing(|o| o.trigger_permille = 450);
-    let report = try_analyze_run(run, options)?;
-    let _ = report;
-    Ok(())
-}
-```
-
-TOML (`[analyzer]` schema):
-
-```toml
-[analyzer]
-schema_version = 1
-
-[analyzer.queueing]
-trigger_permille = 450
-```
-
-CLI:
-
-```bash
-tailtriage analyze tailtriage-run.json \
-  --analyzer-config examples/analyzer-config.toml \
-  --analyzer-set queueing.trigger_permille=450
-```
-
-Use `tailtriage analyze --help-analyzer-options` to list supported override paths and value formats.
+Start with defaults. When representative runs justify tuning, use the option paths and precedence documented in the [analyzer behavior reference](diagnostics.md); keep the same analyzer configuration across a controlled rerun. Rust users should prefer checked `try_analyze_run`, while CLI users can inspect supported paths with `tailtriage analyze --help-analyzer-options`.
 
 ## 4) Request lifecycle contract (required)
 
@@ -466,6 +431,7 @@ Semantics notes:
 ## 11) Next docs
 
 - [Documentation index](README.md)
+- [Analyzer guide](analyzer-guide.md) for the shortest report-to-next-check path
 - [Diagnostics guide](diagnostics.md)
 - [Getting started demos](getting-started-demo.md)
 - [Architecture](architecture.md)

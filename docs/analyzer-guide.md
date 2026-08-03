@@ -30,7 +30,7 @@ Keep these limits in mind:
 
 ## Interpret ranking and evidence limits
 
-`score` ranks evidence strength **within the current report**. Final `confidence` can be reduced when the evidence supporting a candidate is limited. The visible order uses final confidence first, then unchanged raw score, then a stable suspect-kind tie order. Ambiguity, however, is determined by close raw scores. Therefore, a lower-score candidate can appear first when it retains stronger final confidence, and secondary suspects remain useful alternatives rather than discarded explanations.
+`score` ranks evidence strength **within the current report**. `confidence` can be reduced when supporting evidence is limited, so read both before choosing a lead. Secondary suspects remain useful alternatives rather than discarded explanations. The [behavior reference](diagnostics.md#confidence-ambiguity-and-final-ordering) owns the exact ordering and ambiguity mechanics.
 
 Use the limitation fields at the right scope:
 
@@ -40,9 +40,7 @@ Use the limitation fields at the right scope:
 
 Truncation or weak evidence should usually lead to a better capture before a strong operational conclusion. Partial queue and stage durations are observed lower bounds: tailtriage observed the helper only from first poll until Drop. Drop does not prove that the underlying operation completed, failed, or stopped.
 
-### Executor worker evidence
-
-Complete, consistent worker evidence lets the analyzer interpret runnable queue pressure per Tokio worker. Historical artifacts without worker counts, or captures with ambiguous worker evidence, use a conservative compatibility path. Missing local queue depth can make normalized runnable pressure a lower bound. Read an executor suspect's `confidence_notes` before treating executor pressure as a strong lead.
+For executor leads, read `confidence_notes` before acting: incomplete worker evidence can limit interpretation. The [executor-pressure reference](diagnostics.md#executor-pressure) owns normalization and fallback details.
 
 ## Use route and temporal context carefully
 

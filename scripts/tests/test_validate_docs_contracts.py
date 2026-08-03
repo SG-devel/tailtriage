@@ -321,8 +321,19 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                     validate_docs_contracts.validate_crate_rustdocs_include_readmes()
 
     def test_markdown_examples_validate_against_contract(self) -> None:
-        validate_docs_contracts.validate_readme_analyzer_example()
         validate_docs_contracts.validate_controller_readme_toml()
+
+    def test_analyzer_ownership_navigation(self) -> None:
+        validate_docs_contracts.validate_analyzer_ownership_navigation()
+
+    def test_analyzer_ownership_navigation_rejects_missing_link(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "README.md"
+            path.write_text("# Documentation\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"missing analyzer ownership links"):
+                validate_docs_contracts.validate_analyzer_ownership_navigation(
+                    required_links={path: ("analyzer-guide.md",)}
+                )
 
     def test_docs_index_contract(self) -> None:
         validate_docs_contracts.validate_docs_index_contract()

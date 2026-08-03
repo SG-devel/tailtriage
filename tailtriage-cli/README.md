@@ -151,69 +151,9 @@ Read output in this order:
 
 Then run one targeted check, change one thing, and re-run under comparable load.
 
-## Representative output shape
-
-```json
-{
-  "request_count": 250,
-  "p50_latency_us": 782227,
-  "p95_latency_us": 1468239,
-  "p99_latency_us": 1518551,
-  "p95_queue_share_permille": 982,
-  "p95_service_share_permille": 267,
-  "inflight_trend": null,
-  "warnings": [],
-  "evidence_quality": {
-    "request_count": 250,
-    "queue_event_count": 250,
-    "stage_event_count": 250,
-    "runtime_snapshot_count": 0,
-    "inflight_snapshot_count": 0,
-    "requests": "present",
-    "queues": "present",
-    "stages": "present",
-    "runtime_snapshots": "missing",
-    "inflight_snapshots": "missing",
-    "truncated": false,
-    "dropped_requests": 0,
-    "dropped_stages": 0,
-    "dropped_queues": 0,
-    "dropped_inflight_snapshots": 0,
-    "dropped_runtime_snapshots": 0,
-    "quality": "strong",
-    "limitations": ["Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."]
-  },
-  "primary_suspect": {
-    "kind": "application_queue_saturation",
-    "score": 90,
-    "confidence": "high",
-    "evidence": ["Queue wait at p95 consumes 98.2% of request time."],
-    "next_checks": ["Inspect queue admission limits and producer burst patterns."],
-    "confidence_notes": []
-  },
-  "secondary_suspects": [],
-  "route_breakdowns": [],
-  "temporal_segments": []
-}
-```
-
-`inflight_trend` may be `null` when no in-flight gauges were captured.
-
-`route_breakdowns` is always present in JSON output and is usually an empty array. It is populated only when at least two captured routes have enough completed requests and route-level context adds signal, such as different route-level primary suspects or a large route p95 latency spread. The global `primary_suspect` remains the primary full-run triage lead. Route breakdowns are supporting context only. They use route-attributed request, queue, and stage events. Runtime snapshots and in-flight gauges are global signals, so they are intentionally not attributed to individual routes. Route-level summaries do not prove per-route root cause.
-
-`temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks detect material signal movement. The global `primary_suspect` remains global and unchanged by segment generation. Temporal segments are within-run hints, not proof of phase-specific root cause. Report warnings can explicitly call out large early/late p95 movement. Temporal segments prefer run-relative monotonic offsets when present. Older or imported artifacts without complete run-relative offsets fall back to Unix-ms timestamp windows. Runtime and in-flight attribution remains approximate when samples are sparse or early/late windows overlap under concurrency.
-
 ## What the report contains
 
-A report can include:
-
-- request count
-- request latency percentiles (`p50`, `p95`, `p99`)
-- p95 queue/service share summaries
-- optional in-flight trend summary
-- report warnings from analysis/report generation (for example truncation-related)
-- structured evidence quality coverage/status summary
-- primary and secondary suspects
+A report summarizes request latency and retained evidence, then provides a primary suspect, possible secondary suspects, `evidence[]`, `next_checks[]`, `confidence`, warnings, and `evidence_quality`. Optional route and temporal sections are supporting context; they do not replace the global primary lead.
 
 `tailtriage analyze` also prints loader/lifecycle warnings to stderr before the report. Those warnings are surfaced separately; they are not merged into the report `warnings` field.
 
@@ -254,34 +194,6 @@ Loader, parse, validation, and render errors return a non-zero process exit thro
 - unfinished lifecycle warnings printed by the CLI indicate some requests were not completed cleanly
 - `p95_queue_share_permille` and `p95_service_share_permille` are independent percentile summaries and do not need to sum to `1000`
 
-
-## Scoring and warning behavior
-
-Suspect ranking uses deterministic, proportional, evidence-aware scoring (0-100), not fixed suspect priority.
-
-- Scores rank suspects **inside one report**; they are not probabilities.
-- Confidence is score-derived ranking strength and may be evidence-quality capped; it is not causal certainty.
-- `confidence_notes[]` explain caps, including sparse samples, truncation, missing instrumentation, ambiguous top scores, and partial-vs-missing runtime snapshot limits.
-- Strong downstream tail-stage contribution can outrank weak blocking/runtime signals.
-- Strong queue pressure remains a high-confidence lead when queue share/depth evidence is dominant.
-
-How to read before/after runs:
-
-- Compare p95 latency movement first.
-- Confirm primary suspect kind/rank and evidence direction.
-- Use score movement as supporting context, not a standalone pass/fail rule.
-
-Why a score can stay flat or rise after mitigation:
-
-- Scores are relative to the evidence mix in each capture.
-- If total latency drops but the remaining tail is still dominated by one suspect family, that suspect score can remain high or increase.
-- This does not by itself mean mitigation failed when p95 and relevant evidence improve.
-
-`warnings[]` may include:
-
-- evidence-quality warnings (for example low request counts or missing signal families)
-- ambiguity warnings when top suspects are genuinely close after calibration
-- additive truncation warnings when capture limits drop events
 
 ## Suspect kinds
 
