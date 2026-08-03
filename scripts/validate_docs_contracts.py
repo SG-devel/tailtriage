@@ -188,6 +188,7 @@ ANALYZER_V1_VALID_PATHS = {
     "blocking.strong_nonzero_share_permille",
     "blocking.strong_min_samples",
     "executor.min_global_queue_p95_for_signal",
+    "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
     "downstream.blocking_correlated_stage_patterns",
     "downstream.min_stage_samples",
     "downstream.blocking_correlation_score_margin",
