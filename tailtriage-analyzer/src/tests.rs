@@ -5297,6 +5297,61 @@ fn try_analyze_run_rejects_invalid_options() {
 }
 
 #[test]
+#[should_panic(
+    expected = "invalid analyzer options passed to Analyzer::analyze_run: invalid config value at 'queueing.trigger_permille': must be <= 1000"
+)]
+fn reusable_analyze_run_rejects_invalid_queueing_options() {
+    let analyzer = crate::Analyzer::new(
+        AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 1001),
+    );
+    let _ = analyzer.analyze_run(&test_run());
+}
+
+#[test]
+fn reusable_try_analyze_run_returns_config_error() {
+    let analyzer = crate::Analyzer::new(
+        AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 1001),
+    );
+    assert!(matches!(
+        analyzer.try_analyze_run(&test_run()),
+        Err(AnalyzeConfigError::InvalidConfigValue {
+            path: "queueing.trigger_permille",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn reusable_analyzer_rejects_invalid_confidence_relationship() {
+    let analyzer = crate::Analyzer::new(AnalyzeOptions::default().with_confidence(|o| {
+        o.medium_score_threshold = 90;
+        o.high_score_threshold = 80;
+    }));
+    assert!(matches!(
+        analyzer.try_analyze_run(&test_run()),
+        Err(AnalyzeConfigError::InvalidConfigValue {
+            path: "confidence.medium_score_threshold",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn reusable_analysis_matches_free_functions_and_is_deterministic() {
+    let run = test_run();
+    let options = AnalyzeOptions::default();
+    let analyzer = crate::Analyzer::new(options.clone());
+    let first = analyzer.analyze_run(&run);
+    let second = analyzer
+        .try_analyze_run(&run)
+        .expect("default options should validate");
+
+    assert_eq!(first, second);
+    assert_eq!(first, analyze_run(&run, options.clone()));
+    assert_eq!(first, crate::try_analyze_run(&run, options).unwrap());
+}
+
+#[test]
 fn analyze_run_still_works_with_default_options() {
     let run = test_run();
     let report = analyze_run(&run, AnalyzeOptions::default());

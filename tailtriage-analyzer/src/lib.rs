@@ -527,9 +527,6 @@ pub struct RouteBreakdown {
 /// Panics if `options` fails semantic validation. Use [`try_analyze_run`] to handle invalid options as errors.
 #[must_use]
 pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
-    if let Err(err) = options.validate() {
-        panic!("invalid AnalyzeOptions passed to analyze_run: {err}");
-    }
     Analyzer::new(options).analyze_run(run)
 }
 
@@ -539,8 +536,7 @@ pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
 ///
 /// Returns an error when options fail semantic validation.
 pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, AnalyzeConfigError> {
-    options.validate()?;
-    Ok(Analyzer::new(options).analyze_run(run))
+    Analyzer::new(options).try_analyze_run(run)
 }
 
 /// Renders analyzer [`Report`] JSON in compact form.
@@ -648,9 +644,26 @@ impl Analyzer {
     }
 
     /// Analyzes one completed [`Run`] (or stable snapshot equivalent) and returns a triage report.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stored options fail semantic validation. Use
+    /// [`Analyzer::try_analyze_run`] to handle invalid options as errors.
     #[must_use]
     pub fn analyze_run(&self, run: &Run) -> Report {
-        analyze_run_with_options(run, &self.options)
+        self.try_analyze_run(run).unwrap_or_else(|err| {
+            panic!("invalid analyzer options passed to Analyzer::analyze_run: {err}")
+        })
+    }
+
+    /// Analyzes one completed [`Run`] after validating the stored options.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AnalyzeConfigError`] when the stored options fail semantic validation.
+    pub fn try_analyze_run(&self, run: &Run) -> Result<Report, AnalyzeConfigError> {
+        self.options.validate()?;
+        Ok(analyze_run_with_options(run, &self.options))
     }
 }
 

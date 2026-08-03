@@ -21,9 +21,11 @@ probabilities, and suspects are **not proof** of root cause.
 `Analyzer::analyze_run` and `analyze_run` permissively normalize request-scoped
 evidence. Invalid or orphaned events are discarded or canonicalized and the
 result carries validation warnings. `AnalyzeOptions` are still semantically
-validated (`analyze_run` panics on invalid options; `try_analyze_run` returns an
-error). `validate_artifact_strict` and `try_analyze_run_strict_artifact` also
-reject invalid artifact relationships. Saved-artifact CLI analysis is strict
+validated: the free and reusable `analyze_run` entry points panic on invalid
+options, while the free and reusable `try_analyze_run` entry points return
+`AnalyzeConfigError`. `validate_artifact_strict` and
+`try_analyze_run_strict_artifact` additionally reject invalid artifact
+relationships. Saved-artifact CLI analysis is strict
 by default and emits loader/lifecycle notices on stderr; see the
 [`tailtriage-cli` README](../tailtriage-cli/README.md) for command and schema
 mechanics.
