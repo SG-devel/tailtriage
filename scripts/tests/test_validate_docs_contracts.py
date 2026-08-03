@@ -19,6 +19,56 @@ import validate_docs_contracts  # noqa: E402
 
 class ValidateDocsContractsTests(unittest.TestCase):
 
+    def test_analyzer_rationale_contract_accepts_structure_and_index_link(self) -> None:
+        rationale = """# Analyzer rationale
+
+Classification uses recorded intent, present-purpose inference, and unknown provenance.
+[Mechanics](diagnostics.md#candidate-eligibility-and-scoring).
+
+### AN-TEST-001 — Rule
+
+**Rule or default:** rule
+**Classification:** hard contract
+**Problem addressed:** problem
+**Why this shape:** reason
+**Tradeoff:** cost
+**Proof owner:** test
+**Revision criteria:** evidence
+**Provenance:** recorded
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            rationale_path = root / "analyzer-rationale.md"
+            index_path = root / "README.md"
+            rationale_path.write_text(rationale, encoding="utf-8")
+            index_path.write_text("[Rationale](analyzer-rationale.md)\n", encoding="utf-8")
+            validate_docs_contracts.validate_analyzer_rationale_contract(
+                rationale_path=rationale_path, docs_index_path=index_path
+            )
+
+    def test_analyzer_rationale_contract_rejects_missing_revision_criteria(self) -> None:
+        rationale = """Classification: recorded intent; present-purpose inference; unknown provenance.
+[Mechanics](diagnostics.md).
+### AN-TEST-001 — Rule
+**Rule or default:** rule
+**Classification:** hard contract
+**Problem addressed:** problem
+**Why this shape:** reason
+**Tradeoff:** cost
+**Proof owner:** test
+**Provenance:** recorded
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            rationale_path = root / "analyzer-rationale.md"
+            index_path = root / "README.md"
+            rationale_path.write_text(rationale, encoding="utf-8")
+            index_path.write_text("[Rationale](analyzer-rationale.md)\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Revision criteria"):
+                validate_docs_contracts.validate_analyzer_rationale_contract(
+                    rationale_path=rationale_path, docs_index_path=index_path
+                )
+
     def test_run_schema_v2_public_contract_rejects_stale_current_run_v1_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "README.md"

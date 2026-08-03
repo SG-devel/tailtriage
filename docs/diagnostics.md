@@ -6,6 +6,9 @@ goal is simply to turn a report into a next check. This page instead records
 the contracts needed to review scoring and interpretation changes. It records
 behavior, not the rationale for the numeric defaults.
 
+For why major policies exist, their tradeoffs and proof owners, and the evidence
+required to revise them, see the [analyzer rationale catalog](analyzer-rationale.md).
+
 Suspects are deterministic, evidence-ranked triage leads. Scores are not
 probabilities, and suspects are **not proof** of root cause.
 

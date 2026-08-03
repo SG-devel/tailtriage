@@ -18,6 +18,7 @@ DESIGN_NOTES_PATH = REPO_ROOT / "DESIGN_NOTES.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
+ANALYZER_RATIONALE_PATH = REPO_ROOT / "docs" / "analyzer-rationale.md"
 OPERATIONS_PATH = REPO_ROOT / "docs" / "operations.md"
 ANALYZER_CONFIG_EXAMPLE_PATH = REPO_ROOT / "examples" / "analyzer-config.toml"
 ANALYZER_DOC_PATHS = (
@@ -621,6 +622,50 @@ def validate_docs_index_contract() -> None:
     missing = sorted(required - linked)
     if missing:
         raise ValueError(f"docs index missing required Markdown links: {missing}")
+
+
+def validate_analyzer_rationale_contract(
+    *,
+    rationale_path: Path = ANALYZER_RATIONALE_PATH,
+    docs_index_path: Path = DOCS_INDEX_PATH,
+) -> None:
+    """Protect rationale ownership and structure without freezing catalog prose."""
+    rationale = rationale_path.read_text(encoding="utf-8")
+    index_links = markdown_links(docs_index_path.read_text(encoding="utf-8"))
+
+    if "analyzer-rationale.md" not in index_links:
+        raise ValueError("docs/README.md must link to analyzer-rationale.md")
+
+    required_concepts = (
+        "classification",
+        "recorded intent",
+        "present-purpose inference",
+        "unknown provenance",
+    )
+    missing = [concept for concept in required_concepts if concept.lower() not in rationale.lower()]
+    if missing:
+        raise ValueError(f"analyzer rationale missing required structural concepts: {missing}")
+
+    entry_fields = (
+        "**Rule or default:**",
+        "**Classification:**",
+        "**Problem addressed:**",
+        "**Why this shape:**",
+        "**Tradeoff:**",
+        "**Proof owner:**",
+        "**Revision criteria:**",
+        "**Provenance:**",
+    )
+    entries = re.findall(r"^###\s+AN-[^\n]+\n(.*?)(?=^###\s+AN-|^##\s+|\Z)", rationale, re.MULTILINE | re.DOTALL)
+    if not entries:
+        raise ValueError("analyzer rationale must contain stable AN-* catalog entries")
+    for index, entry in enumerate(entries, start=1):
+        missing = [field for field in entry_fields if field.lower() not in entry.lower()]
+        if missing:
+            raise ValueError(f"analyzer rationale entry {index} missing required fields: {missing}")
+
+    if not any(link.startswith("diagnostics.md") for link in markdown_links(rationale)):
+        raise ValueError("analyzer rationale must link mechanics to docs/diagnostics.md")
 
 
 def validate_root_readme_docs_link() -> None:
@@ -1522,6 +1567,7 @@ def main() -> int:
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()
+    validate_analyzer_rationale_contract()
     validate_root_readme_docs_link()
     validate_user_guide_contract()
     validate_operations_guide_contract()
