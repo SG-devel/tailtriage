@@ -1,6 +1,6 @@
 use tailtriage_core::{
-    CaptureMode, EffectiveCoreConfig, QueueEvent, RequestEvent, Run, RunMetadata, RuntimeSnapshot,
-    StageEvent, SCHEMA_VERSION,
+    CaptureMode, EffectiveCoreConfig, InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata,
+    RuntimeSnapshot, StageEvent, SCHEMA_VERSION,
 };
 
 use super::temporal::{
@@ -1683,6 +1683,165 @@ fn worker_count_enables_normalized_executor_scoring() {
         .evidence
         .iter()
         .any(|e| e.contains("5000 milli-tasks per worker")));
+}
+
+fn executor_arithmetic_run(samples: usize, global: u64, local: u64, alive: u64) -> Run {
+    let mut run = test_run();
+    run.requests = (0..20).map(sample_request).collect();
+    run.runtime_snapshots = (0..samples)
+        .map(|_| {
+            let mut snapshot = runtime_snapshot(Some(global), Some(local), Some(0));
+            snapshot.alive_tasks = Some(alive);
+            snapshot
+        })
+        .collect();
+    run
+}
+
+#[test]
+fn historical_executor_arithmetic_boundaries_are_exact() {
+    let no_signal = executor_arithmetic_run(20, 0, 60, 400);
+    let report = analyze_run(&no_signal, AnalyzeOptions::default());
+    assert!(std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .all(|suspect| suspect.kind != DiagnosisKind::ExecutorPressureSuspected));
+
+    for (samples, expected) in [
+        (7, 39),
+        (8, 40),
+        (19, 40),
+        (20, 42),
+        (39, 42),
+        (40, 44),
+        (99, 44),
+        (100, 47),
+    ] {
+        let report = analyze_run(
+            &executor_arithmetic_run(samples, 20, 0, 0),
+            AnalyzeOptions::default(),
+        );
+        assert_eq!(
+            executor_suspect(&report).score,
+            expected,
+            "samples={samples}"
+        );
+    }
+
+    for (local, expected) in [(59, 51), (60, 52)] {
+        let report = analyze_run(
+            &executor_arithmetic_run(20, 20, local, 0),
+            AnalyzeOptions::default(),
+        );
+        assert_eq!(executor_suspect(&report).score, expected, "local={local}");
+    }
+    for (alive, expected) in [(399, 51), (400, 52)] {
+        let report = analyze_run(
+            &executor_arithmetic_run(20, 20, 0, alive),
+            AnalyzeOptions::default(),
+        );
+        assert_eq!(executor_suspect(&report).score, expected, "alive={alive}");
+    }
+}
+
+#[test]
+fn historical_clean_extreme_requires_thirty_samples_and_absence_has_no_worker_cap() {
+    for (samples, expected_score) in [(29, 94), (30, 96)] {
+        let mut run = executor_arithmetic_run(samples, 140, 60, 400);
+        run.inflight = vec![
+            InFlightSnapshot {
+                at_unix_ms: 1,
+                at_run_us: Some(1),
+                gauge: "executor".into(),
+                count: 1,
+            },
+            InFlightSnapshot {
+                at_unix_ms: 2,
+                at_run_us: Some(2),
+                gauge: "executor".into(),
+                count: 2,
+            },
+        ];
+        let report = analyze_run(&run, AnalyzeOptions::default());
+        let suspect = executor_suspect(&report);
+        assert_eq!(suspect.score, expected_score, "samples={samples}");
+        assert_eq!(suspect.confidence, Confidence::High);
+        assert!(suspect
+            .confidence_notes
+            .iter()
+            .all(|note| !note.contains("worker-count")));
+    }
+}
+
+#[test]
+fn normalized_executor_score_ignores_alive_tasks_and_queue_redistribution() {
+    let mut baseline = executor_arithmetic_run(20, 32, 32, 1);
+    for snapshot in &mut baseline.runtime_snapshots {
+        snapshot.worker_count = Some(4);
+    }
+    let baseline_score = executor_suspect(&analyze_run(&baseline, AnalyzeOptions::default())).score;
+
+    let mut changed_alive = baseline.clone();
+    for snapshot in &mut changed_alive.runtime_snapshots {
+        snapshot.alive_tasks = Some(u64::MAX);
+    }
+    let alive_score =
+        executor_suspect(&analyze_run(&changed_alive, AnalyzeOptions::default())).score;
+
+    let mut redistributed = baseline.clone();
+    for snapshot in &mut redistributed.runtime_snapshots {
+        snapshot.global_queue_depth = Some(16);
+        snapshot.local_queue_depth = Some(48);
+    }
+    let redistributed_score =
+        executor_suspect(&analyze_run(&redistributed, AnalyzeOptions::default())).score;
+    assert_eq!(baseline_score, alive_score);
+    assert_eq!(baseline_score, redistributed_score);
+}
+
+#[test]
+fn worker_confidence_limits_compose_with_existing_caps_without_duplicate_notes() {
+    let mut ambiguous = executor_arithmetic_run(20, 140, 60, 400);
+    ambiguous.runtime_snapshots[0].worker_count = Some(4);
+    ambiguous.truncation.limits_hit = true;
+    ambiguous.truncation.dropped_runtime_snapshots = 1;
+    let report = analyze_run(&ambiguous, AnalyzeOptions::default());
+    let suspect = executor_suspect(&report);
+    assert_eq!(suspect.confidence, Confidence::Medium);
+    for fragment in [
+        "Ambiguous worker-count evidence",
+        "Capture truncation caps confidence",
+    ] {
+        assert_eq!(
+            suspect
+                .confidence_notes
+                .iter()
+                .filter(|note| note.contains(fragment))
+                .count(),
+            1,
+            "{fragment}"
+        );
+    }
+
+    let mut lower_bound = executor_arithmetic_run(20, 64, 0, 0);
+    lower_bound.requests.clear();
+    for snapshot in &mut lower_bound.runtime_snapshots {
+        snapshot.worker_count = Some(4);
+        snapshot.local_queue_depth = None;
+    }
+    let report = analyze_run(&lower_bound, AnalyzeOptions::default());
+    let suspect = executor_suspect(&report);
+    assert_eq!(suspect.confidence, Confidence::Low);
+    for fragment in ["Missing local queue depth", "Low completed-request count"] {
+        assert_eq!(
+            suspect
+                .confidence_notes
+                .iter()
+                .filter(|note| note.contains(fragment))
+                .count(),
+            1,
+            "{fragment}"
+        );
+    }
 }
 
 #[test]

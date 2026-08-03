@@ -762,4 +762,57 @@ mod worker_normalized_tests {
         ];
         assert_eq!(percentile(&combined, 95, 100), Some(5000));
     }
+
+    #[test]
+    fn normalized_pressure_is_monotonic_and_scale_invariant() {
+        for workers in 1..=12 {
+            let mut previous = 0;
+            for runnable in 0..=64 {
+                let current = queue_per_worker_milli(runnable, Some(0), workers);
+                assert!(
+                    current >= previous,
+                    "runnable={runnable}, workers={workers}"
+                );
+                previous = current;
+            }
+        }
+
+        for runnable in 0..=64 {
+            let mut previous = u64::MAX;
+            for workers in 1..=12 {
+                let current = queue_per_worker_milli(runnable, Some(0), workers);
+                assert!(
+                    current <= previous,
+                    "runnable={runnable}, workers={workers}"
+                );
+                previous = current;
+            }
+        }
+
+        for runnable in 0..=32 {
+            for workers in 1..=8 {
+                for factor in 1..=4 {
+                    assert_eq!(
+                        queue_per_worker_milli(runnable, Some(0), workers),
+                        queue_per_worker_milli(
+                            runnable * u64::from(factor),
+                            Some(0),
+                            workers * factor,
+                        ),
+                        "runnable={runnable}, workers={workers}, factor={factor}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn normalized_contribution_is_monotonic() {
+        let mut previous = 0;
+        for p95 in 0..=10_000 {
+            let current = normalized_queue_contribution(p95);
+            assert!(current >= previous, "p95={p95}");
+            previous = current;
+        }
+    }
 }
