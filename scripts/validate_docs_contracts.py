@@ -10,6 +10,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
@@ -250,6 +251,29 @@ def markdown_links(markdown: str) -> set[str]:
     return set(re.findall(r"\[[^\]]+\]\(([^)]+)\)", markdown))
 
 
+def resolve_local_markdown_destination(
+    document: Path, destination: str, *, repo_root: Path = REPO_ROOT
+) -> Path | None:
+    """Resolve a local Markdown destination, returning None for non-file schemes."""
+    path_text = destination.split("#", 1)[0]
+    if not path_text:
+        return document.resolve()
+
+    parsed = urlsplit(path_text)
+    if parsed.scheme:
+        return None
+
+    root = repo_root.resolve()
+    resolved = (document.parent / path_text).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise ValueError(
+            f"{document} Markdown destination escapes repository root: {destination}"
+        ) from error
+    return resolved
+
+
 def has_markdown_heading(markdown: str, heading_pattern: str) -> bool:
     return (
         re.search(rf"^\s*#+\s+{heading_pattern}\s*$", markdown, flags=re.IGNORECASE | re.MULTILINE)
@@ -342,7 +366,9 @@ def validate_governance_pending_state_contract() -> None:
         raise ValueError("DESIGN_NOTES.md must not claim all live bookkeeping is capture-limited")
 
 def validate_analyzer_ownership_navigation(
-    *, required_links: dict[Path, tuple[str, ...]] | None = None
+    *,
+    required_links: dict[Path, tuple[str, ...]] | None = None,
+    repo_root: Path = REPO_ROOT,
 ) -> None:
     """Protect document ownership and navigation without freezing explanatory prose."""
     required = required_links or {
@@ -375,9 +401,24 @@ def validate_analyzer_ownership_navigation(
     }
     for path, expected in required.items():
         links = markdown_links(path.read_text(encoding="utf-8"))
-        missing = [link for link in expected if not any(item.startswith(link) for item in links)]
+        destinations: set[Path] = set()
+        for link in links:
+            if not link.split("#", 1)[0].lower().endswith(".md"):
+                continue
+            destination = resolve_local_markdown_destination(path, link, repo_root=repo_root)
+            if destination is None:
+                continue
+            destinations.add(destination)
+
+        missing = []
+        for link in expected:
+            destination = resolve_local_markdown_destination(path, link, repo_root=repo_root)
+            if destination is None or destination not in destinations:
+                missing.append(link)
+            elif not destination.is_file():
+                raise ValueError(f"{path} Markdown destination is not an existing file: {link}")
         if missing:
-            display_path = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
+            display_path = path.relative_to(repo_root) if path.is_relative_to(repo_root) else path
             raise ValueError(f"{display_path} missing analyzer ownership links: {missing}")
 
 

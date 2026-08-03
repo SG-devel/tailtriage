@@ -328,11 +328,75 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
 
     def test_analyzer_ownership_navigation_rejects_missing_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path = Path(tmp_dir) / "README.md"
+            repo_root = Path(tmp_dir)
+            path = repo_root / "README.md"
             path.write_text("# Documentation\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, r"missing analyzer ownership links"):
                 validate_docs_contracts.validate_analyzer_ownership_navigation(
-                    required_links={path: ("analyzer-guide.md",)}
+                    required_links={path: ("analyzer-guide.md",)}, repo_root=repo_root
+                )
+
+    def test_analyzer_ownership_navigation_accepts_exact_relative_link(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            source = repo_root / "docs" / "guide.md"
+            target = repo_root / "docs" / "diagnostics.md"
+            source.parent.mkdir()
+            source.write_text("[Diagnostics](diagnostics.md)\n", encoding="utf-8")
+            target.write_text("# Diagnostics\n", encoding="utf-8")
+
+            validate_docs_contracts.validate_analyzer_ownership_navigation(
+                required_links={source: ("diagnostics.md",)}, repo_root=repo_root
+            )
+
+    def test_analyzer_ownership_navigation_accepts_fragment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            source = repo_root / "guide.md"
+            target = repo_root / "diagnostics.md"
+            source.write_text("[Confidence](diagnostics.md#confidence)\n", encoding="utf-8")
+            target.write_text("# Diagnostics\n", encoding="utf-8")
+
+            validate_docs_contracts.validate_analyzer_ownership_navigation(
+                required_links={source: ("diagnostics.md",)}, repo_root=repo_root
+            )
+
+    def test_analyzer_ownership_navigation_rejects_prefix_lookalike(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            source = repo_root / "guide.md"
+            lookalike = repo_root / "diagnostics.md-old"
+            source.write_text("[Wrong](diagnostics.md-old)\n", encoding="utf-8")
+            lookalike.write_text("not the destination\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"missing analyzer ownership links"):
+                validate_docs_contracts.validate_analyzer_ownership_navigation(
+                    required_links={source: ("diagnostics.md",)}, repo_root=repo_root
+                )
+
+    def test_analyzer_ownership_navigation_rejects_missing_local_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            source = repo_root / "guide.md"
+            source.write_text("[Missing](diagnostics.md)\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"not an existing file"):
+                validate_docs_contracts.validate_analyzer_ownership_navigation(
+                    required_links={source: ("diagnostics.md",)}, repo_root=repo_root
+                )
+
+    def test_analyzer_ownership_navigation_rejects_repository_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            repo_root = workspace / "repo"
+            repo_root.mkdir()
+            source = repo_root / "guide.md"
+            (workspace / "outside.md").write_text("# Outside\n", encoding="utf-8")
+            source.write_text("[Outside](../outside.md)\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"escapes repository root"):
+                validate_docs_contracts.validate_analyzer_ownership_navigation(
+                    required_links={source: ("../outside.md",)}, repo_root=repo_root
                 )
 
     def test_docs_index_contract(self) -> None:

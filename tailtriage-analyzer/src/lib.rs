@@ -572,6 +572,10 @@ pub fn render_json_pretty(report: &Report) -> Result<String, serde_json::Error> 
 /// # Errors
 ///
 /// Returns any serialization error from [`render_json`].
+///
+/// # Panics
+///
+/// Panics if `options` fails semantic validation through [`analyze_run`].
 #[must_use = "The rendered JSON string should be used for output or transport."]
 pub fn analyze_run_json(
     run: &tailtriage_core::Run,
@@ -605,6 +609,10 @@ pub fn try_analyze_run_json(
 /// # Errors
 ///
 /// Returns any serialization error from [`render_json_pretty`].
+///
+/// # Panics
+///
+/// Panics if `options` fails semantic validation through [`analyze_run`].
 #[must_use = "The rendered JSON string should be used for output or transport."]
 pub fn analyze_run_json_pretty(
     run: &tailtriage_core::Run,
