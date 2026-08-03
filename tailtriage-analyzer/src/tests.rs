@@ -1399,6 +1399,228 @@ fn executor_suspect(report: &Report) -> &Suspect {
         .expect("executor suspect")
 }
 
+fn competing_executor_run(
+    global_depth: u64,
+    local_depth: u64,
+    blocking_depth: u64,
+    queue: Option<(u64, u64)>,
+    stage_latency: Option<u64>,
+) -> Run {
+    let mut run = test_run();
+    run.requests = (0..45)
+        .map(|index| {
+            let id = format!("competing-{index}");
+            let start = index * 2_000;
+            RequestEvent {
+                request_id: id,
+                route: "/competing".into(),
+                kind: None,
+                started_at_unix_ms: index,
+                started_at_run_us: Some(start),
+                finished_at_unix_ms: index + 1,
+                finished_at_run_us: Some(start + 1_000),
+                latency_us: 1_000,
+                outcome: "ok".into(),
+            }
+        })
+        .collect();
+    run.queues = Some(queue.unwrap_or((0, 0))).map_or_else(Vec::new, |(wait_us, depth)| {
+        (0..45)
+            .map(|index| {
+                let start = index * 2_000;
+                let mut event = precise_queue(
+                    &format!("competing-{index}"),
+                    start,
+                    start + wait_us,
+                    wait_us,
+                );
+                event.depth_at_start = Some(depth);
+                event
+            })
+            .collect()
+    });
+    run.stages = Some(stage_latency.unwrap_or(0)).map_or_else(Vec::new, |latency_us| {
+        (0..45)
+            .map(|index| {
+                let start = index * 2_000;
+                precise_stage(
+                    &format!("competing-{index}"),
+                    "database",
+                    Some(start),
+                    Some(start + latency_us),
+                    latency_us,
+                )
+            })
+            .collect()
+    });
+    run.runtime_snapshots = (0..45)
+        .map(|index| RuntimeSnapshot {
+            at_unix_ms: index,
+            at_run_us: Some(index * 2_000),
+            global_queue_depth: Some(global_depth),
+            local_queue_depth: Some(local_depth),
+            alive_tasks: Some(40),
+            worker_count: Some(4),
+            blocking_queue_depth: Some(blocking_depth),
+            remote_schedule_count: None,
+        })
+        .collect();
+    run.inflight = (0..45)
+        .map(|index| InFlightSnapshot {
+            at_unix_ms: index,
+            at_run_us: Some(index * 2_000),
+            gauge: "requests".into(),
+            count: 1,
+        })
+        .collect();
+    run
+}
+
+fn suspect_position(report: &Report, kind: &DiagnosisKind) -> usize {
+    std::iter::once(&report.primary_suspect)
+        .chain(&report.secondary_suspects)
+        .position(|suspect| &suspect.kind == kind)
+        .unwrap_or_else(|| panic!("missing expected suspect {kind:?}"))
+}
+
+#[test]
+fn normalized_executor_remains_secondary_to_strong_blocking_pressure() {
+    let report = analyze_run(
+        &competing_executor_run(8, 0, 24, None, None),
+        AnalyzeOptions::default(),
+    );
+    let executor = executor_suspect(&report);
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::BlockingPoolPressure
+    );
+    assert_eq!(report.primary_suspect.confidence, Confidence::High);
+    assert_eq!(executor.confidence, Confidence::Low);
+    assert!(
+        suspect_position(&report, &DiagnosisKind::BlockingPoolPressure)
+            < suspect_position(&report, &DiagnosisKind::ExecutorPressureSuspected)
+    );
+    assert!(executor
+        .evidence
+        .iter()
+        .any(|e| { e.contains("2000 milli-tasks per worker") && e.contains("worker_count=4") }));
+}
+
+#[test]
+fn normalized_executor_remains_secondary_to_strong_downstream_stage() {
+    let report = analyze_run(
+        &competing_executor_run(8, 0, 0, None, Some(970)),
+        AnalyzeOptions::default(),
+    );
+    let executor = executor_suspect(&report);
+    let downstream = downstream_suspect(&report);
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_eq!(downstream.confidence, Confidence::High);
+    assert_eq!(executor.confidence, Confidence::Low);
+    assert!(
+        suspect_position(&report, &DiagnosisKind::DownstreamStageDominates)
+            < suspect_position(&report, &DiagnosisKind::ExecutorPressureSuspected)
+    );
+    assert!(downstream
+        .evidence
+        .iter()
+        .any(|e| e.contains("Stage 'database' has p95 latency 970 us across 45 samples")));
+}
+
+#[test]
+fn application_queue_controls_preserve_normalized_executor_visibility_and_order() {
+    let cases = [
+        (990, 20, 8, DiagnosisKind::ApplicationQueueSaturation),
+        (600, 4, 16, DiagnosisKind::ExecutorPressureSuspected),
+    ];
+    for (wait_us, depth, global_depth, expected_primary) in cases {
+        let report = analyze_run(
+            &competing_executor_run(global_depth, 0, 0, Some((wait_us, depth)), None),
+            AnalyzeOptions::default(),
+        );
+        let queue = std::iter::once(&report.primary_suspect)
+            .chain(&report.secondary_suspects)
+            .find(|suspect| suspect.kind == DiagnosisKind::ApplicationQueueSaturation)
+            .expect("application queue suspect");
+        let executor = executor_suspect(&report);
+        assert_eq!(report.primary_suspect.kind, expected_primary);
+        assert!(suspect_position(&report, &DiagnosisKind::ApplicationQueueSaturation) < 2);
+        assert!(suspect_position(&report, &DiagnosisKind::ExecutorPressureSuspected) < 2);
+        if wait_us == 600 {
+            assert_eq!(
+                (executor.score, executor.confidence),
+                (79, Confidence::Medium)
+            );
+            assert_eq!((queue.score, queue.confidence), (71, Confidence::Medium));
+            assert!(executor.score > queue.score);
+        } else {
+            assert_eq!(queue.confidence, Confidence::High);
+            assert_eq!(executor.confidence, Confidence::Low);
+        }
+    }
+}
+
+#[test]
+fn clear_normalized_executor_remains_primary_against_weak_competing_signals() {
+    let report = analyze_run(
+        &competing_executor_run(32, 0, 0, Some((10, 1)), Some(10)),
+        AnalyzeOptions::default(),
+    );
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::ExecutorPressureSuspected
+    );
+    assert_eq!(report.primary_suspect.confidence, Confidence::High);
+    assert!(report
+        .primary_suspect
+        .evidence
+        .iter()
+        .any(|e| e.contains("8000 milli-tasks per worker")));
+    assert!(report
+        .secondary_suspects
+        .iter()
+        .all(|suspect| suspect.score < report.primary_suspect.score));
+}
+
+#[test]
+fn normalized_lower_bound_cap_keeps_higher_score_executor_below_high_confidence_stage() {
+    let mut run = competing_executor_run(140, 60, 0, None, Some(500));
+    for snapshot in &mut run.runtime_snapshots {
+        snapshot.local_queue_depth = None;
+    }
+    let report = analyze_run(&run, AnalyzeOptions::default());
+    let executor = executor_suspect(&report);
+    let downstream = downstream_suspect(&report);
+    assert_eq!(
+        report.primary_suspect.kind,
+        DiagnosisKind::DownstreamStageDominates
+    );
+    assert_eq!(
+        (downstream.score, downstream.confidence),
+        (88, Confidence::High)
+    );
+    assert_eq!(
+        (executor.score, executor.confidence),
+        (94, Confidence::Medium)
+    );
+    assert!(executor.score > downstream.score);
+    assert!(
+        suspect_position(&report, &DiagnosisKind::DownstreamStageDominates)
+            < suspect_position(&report, &DiagnosisKind::ExecutorPressureSuspected)
+    );
+    assert_eq!(
+        executor
+            .confidence_notes
+            .iter()
+            .filter(|note| note.contains("Missing local queue depth"))
+            .count(),
+        1
+    );
+}
+
 fn worker_test_run() -> Run {
     let mut run = test_run();
     run.requests = (0..20)
