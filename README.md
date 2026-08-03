@@ -324,7 +324,7 @@ Analyzer thresholds can be tuned through Rust (`AnalyzeOptions`), TOML (`[analyz
 }
 ```
 
-For full report-field interpretation, see [`docs/diagnostics.md`](docs/diagnostics.md) and [`tailtriage-cli/README.md`](tailtriage-cli/README.md).
+For a concise report-to-next-check workflow, start with [`docs/analyzer-guide.md`](docs/analyzer-guide.md). For detailed report-field interpretation, see [`docs/diagnostics.md`](docs/diagnostics.md) and [`tailtriage-cli/README.md`](tailtriage-cli/README.md).
 
 `temporal_segments` is always present in JSON output and is usually an empty array. It is populated only when conservative within-run early/late checks find material signal movement (for example, different early/late primary suspects or a large early/late p95 shift). The global `primary_suspect` remains the primary full-run triage lead. Temporal segments are supporting within-run hints only and do not prove a phase-specific root cause. A temporal p95 warning means early/late latency changed materially in that run. Runtime and in-flight phase attribution is timestamp-filtered to each segment window and can be limited when those segment-filtered samples are sparse; with overlapping early/late request windows under concurrency, timestamp-filtered runtime/in-flight attribution is approximate.
 

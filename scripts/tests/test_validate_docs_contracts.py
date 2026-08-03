@@ -688,7 +688,7 @@ Rust in-process users should use tailtriage-analyzer.
                     validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
 
-    def test_analyzer_readme_contract_fails_when_repo_relative_docs_link_present(self) -> None:
+    def test_published_analyzer_readmes_reject_repo_relative_docs_links(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
 Use analyze_run(run, AnalyzeOptions::default()) for the standard entry point.
@@ -697,7 +697,6 @@ Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty
 This crate is not streaming and references tailtriage-cli.
 ## How to interpret a report
 primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
-See ../docs/diagnostics.md
 """
         cli_text = """
 tailtriage-cli loads saved run artifacts from disk, performs schema validation,
@@ -711,12 +710,25 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
             cli_readme = repo_root / "tailtriage-cli" / "README.md"
             analyzer_readme.parent.mkdir(parents=True, exist_ok=True)
             cli_readme.parent.mkdir(parents=True, exist_ok=True)
-            analyzer_readme.write_text(analyzer_text, encoding="utf-8")
-            cli_readme.write_text(cli_text, encoding="utf-8")
-
             with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
-                with self.assertRaisesRegex(ValueError, r"must not link to ../docs/"):
-                    validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
+                for readme in (analyzer_readme, cli_readme):
+                    with self.subTest(readme=readme.parent.name):
+                        analyzer_readme.write_text(analyzer_text, encoding="utf-8")
+                        cli_readme.write_text(cli_text, encoding="utf-8")
+                        readme.write_text(
+                            readme.read_text(encoding="utf-8") + "\nSee ../docs/analyzer-guide.md\n",
+                            encoding="utf-8",
+                        )
+                        with self.assertRaisesRegex(ValueError, r"must not use.*\.\./docs/"):
+                            validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
+
+    def test_repository_navigation_links_to_analyzer_guide_resolve(self) -> None:
+        for path in (validate_docs_contracts.README_PATH, validate_docs_contracts.DOCS_INDEX_PATH):
+            with self.subTest(path=path):
+                links = validate_docs_contracts.markdown_links(path.read_text(encoding="utf-8"))
+                guide_links = [link for link in links if link.endswith("analyzer-guide.md")]
+                self.assertEqual(len(guide_links), 1)
+                self.assertTrue((path.parent / guide_links[0]).resolve().is_file())
 
     def test_analyzer_readme_contract_fails_when_interpret_heading_missing(self) -> None:
         analyzer_text = """
