@@ -123,7 +123,7 @@ Other product crates declare no named features. Facade compile-surface tests in 
 
 | Surface | File and symbol | Public entry style | Validation/failure behavior | Delegates to | Compatibility notes |
 |---|---|---|---|---|---|
-| commands | `tailtriage-cli/src/main.rs::{Cli,Commands,run}` (crate-private binary boundary) | Clap binary | IO/config/import/analyze errors become command failure | artifact, tracing, analyzer | permissive saved-artifact flag |
+| commands | `tailtriage-cli/src/main.rs::{Cli,Command,run}` (crate-private binary boundary) | Clap binary | IO/config/import/analyze errors become command failure | artifact, tracing, analyzer | permissive saved-artifact flag |
 | artifact load | `tailtriage-cli/src/artifact.rs::{load_run_artifact,decode_run_artifact}` | checked public library functions | schema/decode errors; canonical normalization | core | preserves original and normalized candidate |
 | analyzer configuration | `tailtriage-cli/src/lib.rs::{build_analyze_options,analyzer_options_help_text}` | checked builder and help renderer | build returns typed CLI/analyzer configuration errors | analyzer defaults, optional TOML, ordered CLI overrides, analyzer descriptors | library surface shared by CLI command handling and consumers |
 
@@ -163,7 +163,7 @@ Stable JSONL `tailtriage-tracing/src/jsonl.rs::{import_jsonl_reader, import_json
 | controller | `TailtriageControllerTemplate`, `ControllerActivationTemplate` | builder/runtime defaults | private `Controller*Toml` | none | `resolve_controller_template`; loaded activation replaces activation fields | build/load/reload/enable | controller status + Run |
 | tracing import/session | `ImportOptions`, `RecorderLimits`, `TracingSessionBuilder` | constructors/constants/mode defaults | stable JSONL is evidence input, not config | import flags | full limits else field override; setters | import/session build + core validation | warnings, Run metadata/artifacts |
 | analyzer | `AnalyzeOptions`, `AnalyzeConfigError`, `AnalyzeOptionDescriptor`, `analyze_option_descriptors`, and eight nested option types (`tailtriage-analyzer/src/lib.rs`, `tailtriage-analyzer/src/options/`) | `Default` impls | `AnalyzerTomlConfig` patch | `tailtriage-cli::build_analyze_options` owns defaults -> optional TOML -> ordered `--analyzer-set` overrides; `tailtriage-cli::analyzer_options_help_text` renders descriptor-backed help (`tailtriage-cli/src/lib.rs`) | analyzer TOML/override methods and CLI library builder | `AnalyzeOptions::validate` | `AnalyzerConfigSummary`, non-default overrides, descriptor-backed CLI help |
-| CLI output/artifact | Clap `Commands` fields | Clap defaults | analyzer config path | CLI | CLI command dispatch | CLI path/format and delegated validation | stdout/stderr/files |
+| CLI output/artifact | Clap `Cli`/`Command` fields | Clap defaults | analyzer config path | CLI | CLI command dispatch | CLI path/format and delegated validation | stdout/stderr/files |
 
 No environment-variable configuration handler was found by the targeted searches. Analyzer TOML uses `deny_unknown_fields`; controller TOML does not declare it at the inspected private structs.
 
