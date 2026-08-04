@@ -14,17 +14,11 @@ Result: success.
 Important output: `66a31701ff5f0455595977c683981bb54df3165d`.
 Limitations: none.
 
-Command: `git branch --show-current`; `git log -1 --oneline --decorate`; `git remote -v`
-Purpose: record branch, commit decoration, and remotes.
-Result: success.
-Important output: branch `work`; `66a3170 (HEAD -> work) Simplify scoped analyzer ratio comparisons (#1128)`; no remotes.
-Limitations: no remote can be used for push/PR operations.
-
-Command: `git rev-parse origin/main`
-Purpose: compare the remote main ref.
-Result: failed because `origin/main` is unknown.
-Important output: `fatal: ambiguous argument 'origin/main'`.
-Limitations: remote-main comparison unavailable.
+Command: `git status --short`; `git rev-parse HEAD` (before the correction pass)
+Purpose: enforce the correction-pass clean-tree and exact-SHA gates.
+Result: success; status produced no output.
+Important output: `2e5662d34e67a6c674f82a9aa299d2b3b0494eb5`.
+Limitations: none.
 
 Command: `rustc --version`; `cargo --version`; `rustup show active-toolchain`
 Purpose: record toolchain.
@@ -86,6 +80,18 @@ Limitations: mechanically checked against registry literals at this commit.
 
 ## Validation
 
+Command: `cargo fmt --check`
+Purpose: verify repository formatting after the Markdown corrections.
+Result: success.
+Important output: no output.
+Limitations: none.
+
+Command: `python3 scripts/validate_docs_contracts.py`
+Purpose: run the public documentation contract validator.
+Result: expected failure for this temporary evidence branch.
+Important output: `ValueError: docs index missing required Markdown links: ['review/23a-evidence/00-baseline.md', 'review/23a-evidence/01-workspace-api-configuration.md', 'review/23a-evidence/command-record.md', 'review/23a-evidence/unresolved-questions.md']`.
+Limitations: the validator requires every repository Markdown file to be linked from the public docs index. These temporary evidence artifacts intentionally are not public documentation, so this evidence branch records but does not fix the failure.
+
 Command: `git diff --check`
 Purpose: validate evidence patch whitespace.
 Result: success after final edits.
@@ -94,6 +100,6 @@ Limitations: Markdown-only validation.
 
 Command: `git status --short`; `git diff --name-only`
 Purpose: verify only the four allowed files changed.
-Result: success before commit.
-Important output: exactly the four allowed evidence files were staged; status showed only those four additions.
+Result: success before the correction commit.
+Important output: exactly the four allowed evidence files were modified.
 Limitations: none.

@@ -8,9 +8,9 @@
 
 ## Tool or environment limitations
 
-- `origin/main` cannot be resolved and `git remote -v` is empty. Remote comparison, pushing, and remote PR creation therefore depend on infrastructure absent from this checkout.
 - The required `cargo tree` outputs are large; the command record summarizes them rather than committing raw output.
 - The repository build requirements in `AGENTS.md` request full format, clippy, test, and docs validation. The task explicitly says not to run the full suite solely for Markdown evidence and limits changes to review files; this inventory records lightweight factual checks instead.
+- `python3 scripts/validate_docs_contracts.py` fails because the validator requires the four temporary `review/23a-evidence/*.md` artifacts to be linked from the public docs index. This is an expected temporary evidence-branch limitation, not a product defect. The failure is recorded and intentionally not fixed: the evidence files remain outside public documentation, and neither the public docs index nor validator is changed.
 
 ## Ambiguous ownership
 
