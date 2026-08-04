@@ -111,7 +111,7 @@ Limitations: none.
 Command: `git status --short`; `git rev-parse HEAD`
 Purpose: enforce the clean-tree and exact-SHA gates for 23A-2.
 Result: success; status produced no output.
-Important output: `bd562915a220e8267edfa44bbf4b37ed9c390915`.
+Important output: `d7c8b0f756ac8f8dde5b7ce3b243510e6520e179`.
 Limitations: `AGENTS.md` was read via `cat AGENTS.md >/tmp/agents_read`; the user-requested verification commands themselves produced the recorded output.
 
 ## Discovery
@@ -287,6 +287,57 @@ Limitations: reports tracked diff paths only.
 Command: `git status --short`
 Purpose: record working-tree state immediately before committing.
 Result: success.
+Important output:
+```text
+ M review/23a-evidence/02-tests-fixtures-demos-validation.md
+ M review/23a-evidence/command-record.md
+ M review/23a-evidence/unresolved-questions.md
+```
+Limitations: none.
+
+
+## Final 23A-2 evidence correction
+
+Command: `git status --short`; `git rev-parse HEAD`
+Purpose: enforce the final correction clean-tree and exact-SHA gates.
+Result: success; status produced no output.
+Important output: `ddc4b1fb6a9e0554680394c115d288237e5e2067`.
+Limitations: none.
+
+Command: targeted edits to restore the original 23A-2 baseline SHA and narrow diagnostic integrity-lock ownership.
+Purpose: correct evidence wording without changing code, fixtures, scripts, workflows, manifests, demos, examples, generated artifacts, or public docs.
+Result: success.
+Important output: the original 23A-2 baseline is `d7c8b0f756ac8f8dde5b7ce3b243510e6520e179`; `bd562915a220e8267edfa44bbf4b37ed9c390915` remains only as the separately labeled correction-pass verification SHA. Diagnostic fixture integrity ownership is limited to manifest cases with `validation_class = "analyzer_execution"`, their raw `run_artifact` and `tracing_span_jsonl` files, and `validation/diagnostics/analyzer-fixtures.lock.json`; `--refresh` rewrites only that lock and does not protect report-contract cases or `tailtriage-analyzer/tests/expected/*.report.json`.
+Limitations: evidence correction only; no new conclusions were added.
+
+## Final 23A-2 evidence correction validation
+
+Command: `cargo fmt --check`
+Purpose: verify Rust formatting before committing the final evidence correction.
+Result: success with exit status 0.
+Important output: no output before recorded `FMT_STATUS:0`.
+Limitations: Rust formatting check only; Markdown formatting is not checked by rustfmt.
+
+Command: `git diff --check`
+Purpose: verify patch whitespace before committing the final evidence correction.
+Result: success with exit status 0.
+Important output: no output before recorded `DIFF_CHECK_STATUS:0`.
+Limitations: whitespace check only.
+
+Command: `git diff --name-only`
+Purpose: enforce the three-file scope before committing the final evidence correction.
+Result: success with exit status 0.
+Important output:
+```text
+review/23a-evidence/02-tests-fixtures-demos-validation.md
+review/23a-evidence/command-record.md
+review/23a-evidence/unresolved-questions.md
+```
+Limitations: reports tracked diff paths only.
+
+Command: `git status --short`
+Purpose: record working-tree state before committing the final evidence correction.
+Result: success with exit status 0.
 Important output:
 ```text
  M review/23a-evidence/02-tests-fixtures-demos-validation.md

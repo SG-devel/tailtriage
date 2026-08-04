@@ -36,14 +36,14 @@
 
 ## Test and fixture ownership gaps
 
-- The repository evidence inspected in 23A-2 does not establish authoritative generator commands for `tailtriage-analyzer/tests/expected/*.report.json` or `tailtriage-tracing/tests/expected/equivalence/*.json`.
+- The repository evidence inspected in 23A-2 does not establish authoritative generator commands for report-contract cases, `tailtriage-analyzer/tests/expected/*.report.json`, or `tailtriage-tracing/tests/expected/equivalence/*.json`.
 - `scripts/check_demo_fixture_drift.py --profile dev` and `--refresh` establish drift-check/regeneration ownership for demo fixture paths enumerated by `_scenario_specs()`; ownership for committed demo fixture files outside that enumerated set remains not established by repository evidence.
 - Several semantically similar scenario families are present in analyzer fixtures, validation corpus files, tracing equivalence inputs, and demo fixtures; repository evidence establishes consumption but not a single source-of-truth relationship.
 
 
 ## Resolved by 23A-2 correction pass
 
-- `validation/diagnostics/analyzer-fixtures.lock.json` drift-check ownership is established: `python3 scripts/check_diagnostic_fixture_integrity.py`; regeneration is `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`.
+- `validation/diagnostics/analyzer-fixtures.lock.json` drift-check ownership is established only for diagnostics manifest cases with `validation_class = "analyzer_execution"`: protected inputs are those cases' raw `run_artifact` and `tracing_span_jsonl` files plus the lock; regeneration is `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`, which rewrites only that lock.
 - Demo fixture drift/regeneration ownership is established only for paths enumerated by `scripts/check_demo_fixture_drift.py::_scenario_specs()`: drift check `python3 scripts/check_demo_fixture_drift.py --profile dev`; regeneration `python3 scripts/check_demo_fixture_drift.py --profile dev --refresh`.
 - Product-crate inline test surfaces are established for `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, and `tailtriage-axum`; remaining uncertainty is external feature/use coverage, not absence of inline tests.
 
