@@ -141,7 +141,7 @@ Other product crates declare no named features. Facade compile-surface tests in 
 
 ### Tracing import
 
-Stable JSONL `tailtriage-tracing/src/jsonl.rs::import_jsonl_reader/path` -> wrapper parsing into `SpanRecord` -> `run_from_span_records` / provenance conversion -> optional `validate_run_strict`, always `normalize_run_permissive` -> `ImportedRun` retaining warnings and source provenance -> CLI/library analyzer -> Report renderer.
+Stable JSONL `tailtriage-tracing/src/jsonl.rs::{import_jsonl_reader, import_jsonl_path}` -> wrapper parsing into `SpanRecord` -> `run_from_span_records` / provenance conversion -> optional `validate_run_strict`, always `normalize_run_permissive` -> `ImportedRun` retaining warnings and source provenance -> CLI/library analyzer -> Report renderer.
 
 ### Live tracing
 
@@ -201,27 +201,27 @@ Mechanical path: `AnalyzeOptions::default` -> 30 `OPTION_ENTRIES` in `tailtriage
 | Run schema version | CLI decoder rejects unsupported version | `tailtriage-cli/src/artifact.rs` | CLI boundary/schema tests | unknown |
 | strict vs permissive Run | strict returns findings as error; permissive repairs/filters with warnings | `tailtriage-core/src/validation.rs` | extensive core/CLI/tracing tests | unknown |
 | analyzer strict compatibility | checked strict artifact functions coexist with permissive default analysis | `tailtriage-analyzer/src/lib.rs` | public API contract/tests/rustdoc | unknown |
-| missing worker count | executor evidence falls back to non-worker-normalized signals | analyzer/core event model | analyzer tests | unknown |
-| invalid/partial worker evidence | generic validation reports/repairs invalid count; analyzer bounds evidence | core validation, analyzer evidence/scoring | core/analyzer tests | unknown |
-| missing optional precision | partial/run-relative intervals produce warnings/exclusions according to validation | core validation | core/CLI/tracing parity tests | unknown |
+| missing worker count | executor evidence falls back to non-worker-normalized signals | `tailtriage-core/src/events.rs::RuntimeSnapshot::worker_count`; `tailtriage-analyzer/src/scoring.rs::{classify_worker_evidence, executor_pressure_suspect}` | analyzer tests | unknown |
+| invalid/partial worker evidence | generic validation reports/repairs invalid count; analyzer bounds evidence | `tailtriage-core/src/validation.rs::{normalize_inner, RunValidationIssueCode::InvalidWorkerCount}`; `tailtriage-analyzer/src/scoring.rs::{classify_worker_evidence, executor_pressure_suspect}` | core/analyzer tests | unknown |
+| missing optional precision | partial/run-relative intervals produce warnings/exclusions according to validation | `tailtriage-core/src/validation.rs::{normalize_inner, RunValidationIssueCode::PartialRunRelativeInterval, RunValidationIssueCode::PreciseIntervalValidationUnavailable, RunValidationIssueCode::DurationMismatch}` | core/CLI/tracing parity tests | unknown |
 | stable tracing JSONL wrapper | importer requires stable wrapper/record shape and rejects malformed records | `tailtriage-tracing/src/jsonl.rs` | tracing/CLI import tests and README contract | unknown |
-| strict/non-strict tracing source | strict fails malformed tagged source; non-strict skips with retained warnings | tracing conversion | tracing equivalence tests | unknown |
-| facade/direct crates | facade aliases optional crates; direct dependencies remain public packages | facade manifest/lib | facade compile tests/readmes | unknown |
-| panicking/checked analyzer | convenience APIs panic only on invalid options; `try_*` returns error | analyzer lib | public API tests | unknown |
-| Axum unmatched route | raw URI path used when `MatchedPath` absent | Axum lib | adapter/unit tests | unknown |
-| deprecated APIs | targeted `deprecated` search found no significant public deprecation attribute | workspace Rust search | command record | unknown |
+| strict/non-strict tracing source | strict fails malformed tagged source; non-strict skips with retained warnings | `tailtriage-tracing/src/lib.rs::{run_from_span_records, convert_span_records_with_provenance, strict_or_warn}` | tracing equivalence tests | unknown |
+| facade/direct crates | facade aliases optional crates; direct dependencies remain public packages | `tailtriage/Cargo.toml`; `tailtriage/src/lib.rs`; component crate manifests | facade compile tests/readmes | unknown |
+| panicking/checked analyzer | convenience APIs panic only on invalid options; `try_*` returns error | `tailtriage-analyzer/src/lib.rs::{analyze_run, try_analyze_run}`; `tailtriage-analyzer/src/lib.rs::Analyzer::{analyze_run, try_analyze_run}` | public API tests | unknown |
+| Axum unmatched route | raw URI path used when `MatchedPath` absent | `tailtriage-axum/src/lib.rs::{middleware, request_route_label}` | adapter/unit tests | unknown |
+| deprecated APIs | targeted `deprecated` search found no significant public deprecation attribute | No code owner found; workspace-wide `deprecated` search recorded in `review/23a-evidence/command-record.md` | command record | unknown |
 
 ## 12. Repeated and parallel surfaces
 
 | Exact files/symbols | Shared | Difference | Tested/documented? | Necessity established? |
 |---|---|---|---|---|
 | `tailtriage-core/src/config.rs::TailtriageBuilder`; `tailtriage-core/src/run_builder.rs::RunBuilder`; `tailtriage-controller/src/lib.rs::TailtriageControllerBuilder`; `tailtriage-tracing/src/recorder.rs::TracingSessionBuilder`; `tailtriage-tokio/src/lib.rs::RuntimeSamplerBuilder` | fluent construction | live capture, completed assembly, lifecycle control, tracing, sampling responsibilities | rustdoc/examples/tests | no; distinct mechanics are established |
-| `Tailtriage::builder` and builder `new` patterns; `RuntimeSampler::{builder,start}` | construct same owned type | direct convenience versus configurable builder | tests/docs | no |
+| `tailtriage-core/src/collector.rs::Tailtriage::builder`; `tailtriage-core/src/config.rs::TailtriageBuilder::new`; `tailtriage-tokio/src/lib.rs::RuntimeSampler::{builder, start}` | construct same owned type | direct convenience versus configurable builder | tests/docs | no |
 | `tailtriage-analyzer/src/lib.rs::{analyze_run,try_analyze_run,Analyzer}` | same options and analysis implementation | reusable stored options versus per-call options | public API tests | no |
-| analyzer `try_*` and non-`try_*` | same successful report | returned config error versus panic | tests/rustdoc | no |
-| compact/pretty JSON and text render | Report input | serialization formatting/schema | render/schema tests | no |
-| facade aliases and direct crates | same component implementation | import path and feature activation | compile tests/docs | no |
-| core, controller, tracing builders/templates | mode/limits/strict fields | owner and lifecycle/application time | unit/integration docs/tests | no |
+| `tailtriage-analyzer/src/lib.rs::{analyze_run, try_analyze_run}`; `tailtriage-analyzer/src/lib.rs::Analyzer::{analyze_run, try_analyze_run}` | same successful report | returned config error versus panic | tests/rustdoc | no |
+| `tailtriage-analyzer/src/render.rs::render_text`; `tailtriage-analyzer/src/lib.rs::{render_json, render_json_pretty}` | Report input | serialization formatting/schema | render/schema tests | no |
+| `tailtriage/Cargo.toml`; `tailtriage/src/lib.rs`; root `Cargo.toml` workspace component dependencies | same component implementation | import path and feature activation | compile tests/docs | no |
+| `tailtriage-core/src/config.rs::{TailtriageBuilder, CaptureLimitsOverride}`; `tailtriage-controller/src/lib.rs::{TailtriageControllerBuilder, TailtriageControllerTemplate}`; `tailtriage-tracing/src/types.rs::ImportOptions`; `tailtriage-tracing/src/recorder.rs::{TracingSessionBuilder, RecorderLimits}` | mode/limits/strict fields | owner and lifecycle/application time | unit/integration docs/tests | no |
 | `tailtriage-core/src/validation.rs`; adapters in `tailtriage-tracing/src/lib.rs`, `tailtriage-analyzer/src/lib.rs`, and `tailtriage-cli/src/artifact.rs` | same core integrity functions | boundary-specific persistence/command policy | parity/boundary tests | no |
 | `tailtriage-core/src/collector.rs::Tailtriage::{snapshot,shutdown}`; `tailtriage-tracing/src/recorder.rs::TracingSession::{snapshot_run,shutdown}`; `tailtriage-controller/src/lib.rs::TailtriageController::shutdown` | artifact/lifecycle vocabulary | terminal ownership and return types | tests/rustdoc | no |
 | `tailtriage-analyzer/src/options/{registry,descriptors}.rs`; `tailtriage-analyzer/src/lib.rs::AnalyzerConfigSummary` | same 30 option paths | runtime values versus display/help/report representation | descriptor/config tests | no |
@@ -254,7 +254,7 @@ What repository evidence establishes: parity and failure semantics are tested.
 What repository evidence does not establish: downstream dependence on every form.
 
 **OBS-23A1-003**
-Observed state: Generic Run normalization is invoked at core assembly, tracing conversion, analyzer, and CLI artifact boundaries.
+Observed state: Generic Run normalization is invoked at core assembly, conversion of tracing data, analyzer, and CLI artifact boundaries.
 Evidence: `tailtriage-core/src/run_builder.rs`, `tailtriage-tracing/src/lib.rs`, `tailtriage-analyzer/src/lib.rs`, `tailtriage-cli/src/artifact.rs`.
 Difference or repetition: core algorithm is shared; warnings/provenance/command policy differ.
 What repository evidence establishes: normalized-evidence parity is tested.
@@ -262,7 +262,7 @@ What repository evidence does not establish: historical placement rationale.
 
 **OBS-23A1-004**
 Observed state: Analyzer option representation spans nested defaults, a 30-entry registry, TOML patches, CLI overrides, and report summaries.
-Evidence: `tailtriage-analyzer/src/options/{mod,registry,toml,overrides,descriptors}.rs`; `tailtriage-cli/src/main.rs`.
+Evidence: `tailtriage-analyzer/src/options/{mod,registry,toml,overrides,descriptors}.rs`; `tailtriage-cli/src/lib.rs::{build_analyze_options, analyzer_options_help_text}`; `tailtriage-cli/src/main.rs` for command-line flag wiring.
 Difference or repetition: paths are registry-owned while runtime defaults are `Default`-owned.
 What repository evidence establishes: consistency and transactional application are tested.
 What repository evidence does not establish: whether external tooling consumes descriptors.
