@@ -37,12 +37,19 @@
 ## Test and fixture ownership gaps
 
 - The repository evidence inspected in 23A-2 does not establish authoritative generator commands for `tailtriage-analyzer/tests/expected/*.report.json` or `tailtriage-tracing/tests/expected/equivalence/*.json`.
-- Service demo fixture files are consumed by smoke/drift/mitigation surfaces, but the exact producer and regeneration command for each committed demo fixture family could not be mechanically established without guessing.
-- Several semantically similar scenario families appear in analyzer fixtures, validation corpus files, tracing equivalence inputs, and demo fixtures; repository evidence establishes consumption but not a single source-of-truth relationship.
+- `scripts/check_demo_fixture_drift.py --profile dev` and `--refresh` establish drift-check/regeneration ownership for demo fixture paths enumerated by `_scenario_specs()`; ownership for committed demo fixture files outside that enumerated set remains not established by repository evidence.
+- Several semantically similar scenario families are present in analyzer fixtures, validation corpus files, tracing equivalence inputs, and demo fixtures; repository evidence establishes consumption but not a single source-of-truth relationship.
+
+
+## Resolved by 23A-2 correction pass
+
+- `validation/diagnostics/analyzer-fixtures.lock.json` drift-check ownership is established: `python3 scripts/check_diagnostic_fixture_integrity.py`; regeneration is `python3 scripts/check_diagnostic_fixture_integrity.py --refresh`.
+- Demo fixture drift/regeneration ownership is established only for paths enumerated by `scripts/check_demo_fixture_drift.py::_scenario_specs()`: drift check `python3 scripts/check_demo_fixture_drift.py --profile dev`; regeneration `python3 scripts/check_demo_fixture_drift.py --profile dev --refresh`.
+- Product-crate inline test surfaces are established for `tailtriage-core`, `tailtriage-controller`, `tailtriage-tokio`, and `tailtriage-axum`; remaining uncertainty is external feature/use coverage, not absence of inline tests.
 
 ## Coverage and environment limitations
 
-- `cargo test --workspace --all-features -- --list` compiled and listed test targets but did not execute test bodies; this was intentional for the evidence-only inventory.
+- `cargo test --workspace --all-features -- --list > /tmp/23a2-test-list-rerun.txt 2>&1` exited 0 and compiled/listed test targets but did not execute test bodies; this was intentional for the evidence-only inventory.
 - Empirical `runtime_cost` and stress `collector_stress` workloads were not run; their evidence remains machine/workload/profile scoped based on scripts, scorecards, and tests inspected.
 - External persisted Run/JSONL schema populations and downstream non-default facade/tracing feature combinations remain unknown from this checkout alone.
 - `python3 scripts/validate_docs_contracts.py` fails because temporary `review/23a-evidence/*.md` evidence files are not linked from the public documentation index. This remains an expected evidence-branch limitation and was intentionally not fixed.
