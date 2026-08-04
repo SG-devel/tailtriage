@@ -280,3 +280,56 @@ pub(super) fn has_material_p95_shift(
         options.temporal.p95_shift_ratio_denominator,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::has_material_p95_shift;
+    use crate::AnalyzeOptions;
+
+    fn options_with_ratio(numerator: u64, denominator: u64) -> AnalyzeOptions {
+        let mut options = AnalyzeOptions::default();
+        options.temporal.p95_shift_ratio_numerator = numerator;
+        options.temporal.p95_shift_ratio_denominator = denominator;
+        options
+    }
+
+    #[test]
+    fn p95_shift_is_inclusive_and_distinguishes_adjacent_values() {
+        let options = options_with_ratio(3, 2);
+        assert!(has_material_p95_shift(Some(20), Some(30), &options));
+        assert!(!has_material_p95_shift(Some(20), Some(29), &options));
+        assert!(has_material_p95_shift(Some(20), Some(31), &options));
+    }
+
+    #[test]
+    fn p95_shift_orders_values_symmetrically() {
+        let options = options_with_ratio(3, 2);
+        assert!(has_material_p95_shift(Some(20), Some(30), &options));
+        assert!(has_material_p95_shift(Some(30), Some(20), &options));
+        assert!(!has_material_p95_shift(Some(29), Some(20), &options));
+        assert!(!has_material_p95_shift(Some(20), Some(29), &options));
+    }
+
+    #[test]
+    fn p95_shift_rejects_zero_and_missing_baselines() {
+        let options = options_with_ratio(3, 2);
+        assert!(!has_material_p95_shift(Some(0), Some(30), &options));
+        assert!(!has_material_p95_shift(None, Some(30), &options));
+        assert!(!has_material_p95_shift(Some(30), None, &options));
+    }
+
+    #[test]
+    fn p95_shift_uses_exact_arithmetic_near_u64_max() {
+        let options = options_with_ratio(3, 2);
+        assert!(!has_material_p95_shift(
+            Some(u64::MAX - 1),
+            Some(u64::MAX),
+            &options
+        ));
+        assert!(has_material_p95_shift(
+            Some(u64::MAX / 2),
+            Some(u64::MAX),
+            &options
+        ));
+    }
+}

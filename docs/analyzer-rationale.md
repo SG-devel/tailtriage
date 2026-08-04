@@ -875,11 +875,11 @@ numeric calibration remains unknown.
 ## Deferred simplification candidates
 
 The focused simplification review resolved the duplicated route/temporal ratio
-arithmetic: one private checked comparison now owns inclusive boundaries, a
-zero baseline, and saturating multiplication. Route and temporal call sites
-continue to own which signals qualify as movement, their distinct emission
-knobs, and their attribution limits. This structural change does not alter
-reports or option paths.
+arithmetic: one private checked comparison now owns inclusive boundaries,
+zero-baseline rejection, and exact `u128` cross-multiplication. Route and
+temporal call sites continue to own which signals qualify as movement, their
+distinct emission knobs, and their attribution limits. This structural change
+does not alter reports or option paths.
 
 The remaining questions require broader evidence and stay inputs to the
 holistic review, not rationales or proposed behavior:
