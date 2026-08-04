@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tailtriage_core::Run;
 
 use super::{AnalyzeOptions, Report, RouteBreakdown, ROUTE_RUNTIME_ATTRIBUTION_WARNING};
+use crate::ratio::meets_ratio;
 use crate::slicing::{analyze_slice, GlobalEvidencePolicy};
 
 pub(super) struct RouteBreakdownContext {
@@ -115,15 +116,61 @@ fn should_emit_route_breakdowns(
     }
     let slowest = *p95s.iter().max().unwrap_or(&0);
     let fastest = *p95s.iter().min().unwrap_or(&0);
-    (fastest > 0
-        && slowest.saturating_mul(options.route.slowest_to_fastest_p95_ratio_denominator)
-            >= fastest.saturating_mul(options.route.slowest_to_fastest_p95_ratio_numerator))
-        || match global.p95_latency_us {
-            Some(global_p95) if global_p95 > 0 => {
-                slowest.saturating_mul(options.route.slowest_to_global_p95_ratio_denominator)
-                    >= global_p95
-                        .saturating_mul(options.route.slowest_to_global_p95_ratio_numerator)
-            }
-            _ => false,
-        }
+    has_material_route_p95_ratio(slowest, fastest, global.p95_latency_us, options)
+}
+
+fn has_material_route_p95_ratio(
+    slowest: u64,
+    fastest: u64,
+    global_p95: Option<u64>,
+    options: &AnalyzeOptions,
+) -> bool {
+    meets_ratio(
+        slowest,
+        fastest,
+        options.route.slowest_to_fastest_p95_ratio_numerator,
+        options.route.slowest_to_fastest_p95_ratio_denominator,
+    ) || match global_p95 {
+        Some(global_p95) => meets_ratio(
+            slowest,
+            global_p95,
+            options.route.slowest_to_global_p95_ratio_numerator,
+            options.route.slowest_to_global_p95_ratio_denominator,
+        ),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_material_route_p95_ratio;
+    use crate::AnalyzeOptions;
+
+    #[test]
+    fn slowest_to_fastest_ratio_uses_its_boundary_and_baseline() {
+        let mut options = AnalyzeOptions::default();
+        options.route.emit_on_divergent_suspects = false;
+        options.route.slowest_to_fastest_p95_ratio_numerator = 3;
+        options.route.slowest_to_fastest_p95_ratio_denominator = 2;
+        options.route.slowest_to_global_p95_ratio_numerator = u64::MAX;
+        options.route.slowest_to_global_p95_ratio_denominator = 1;
+
+        assert!(has_material_route_p95_ratio(30, 20, Some(1), &options));
+        assert!(!has_material_route_p95_ratio(29, 20, Some(1), &options));
+        assert!(has_material_route_p95_ratio(31, 20, Some(1), &options));
+    }
+
+    #[test]
+    fn slowest_to_global_ratio_uses_its_boundary_and_baseline() {
+        let mut options = AnalyzeOptions::default();
+        options.route.emit_on_divergent_suspects = false;
+        options.route.slowest_to_fastest_p95_ratio_numerator = u64::MAX;
+        options.route.slowest_to_fastest_p95_ratio_denominator = 1;
+        options.route.slowest_to_global_p95_ratio_numerator = 3;
+        options.route.slowest_to_global_p95_ratio_denominator = 2;
+
+        assert!(has_material_route_p95_ratio(30, 1, Some(20), &options));
+        assert!(!has_material_route_p95_ratio(29, 1, Some(20), &options));
+        assert!(has_material_route_p95_ratio(31, 1, Some(20), &options));
+    }
 }
