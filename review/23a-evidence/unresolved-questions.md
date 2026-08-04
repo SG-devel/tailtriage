@@ -31,3 +31,22 @@
 - Release artifact/schema telemetry or an artifact corpus, if one exists externally.
 - Issue/PR discussion for API compatibility motives not captured by the checked-out commit.
 - CI/release matrices outside the checkout that exercise consumer feature combinations.
+
+# 23A-2 Unresolved Questions
+
+## Test and fixture ownership gaps
+
+- The repository evidence inspected in 23A-2 does not establish authoritative generator commands for `tailtriage-analyzer/tests/expected/*.report.json` or `tailtriage-tracing/tests/expected/equivalence/*.json`.
+- Service demo fixture files are consumed by smoke/drift/mitigation surfaces, but the exact producer and regeneration command for each committed demo fixture family could not be mechanically established without guessing.
+- Several semantically similar scenario families appear in analyzer fixtures, validation corpus files, tracing equivalence inputs, and demo fixtures; repository evidence establishes consumption but not a single source-of-truth relationship.
+
+## Coverage and environment limitations
+
+- `cargo test --workspace --all-features -- --list` compiled and listed test targets but did not execute test bodies; this was intentional for the evidence-only inventory.
+- Empirical `runtime_cost` and stress `collector_stress` workloads were not run; their evidence remains machine/workload/profile scoped based on scripts, scorecards, and tests inspected.
+- External persisted Run/JSONL schema populations and downstream non-default facade/tracing feature combinations remain unknown from this checkout alone.
+- `python3 scripts/validate_docs_contracts.py` fails because temporary `review/23a-evidence/*.md` evidence files are not linked from the public documentation index. This remains an expected evidence-branch limitation and was intentionally not fixed.
+
+## Documentation-contract limitation details
+
+- Exact 23A-2 docs-contract failure: `ValueError: docs index missing required Markdown links: ['review/23a-evidence/00-baseline.md', 'review/23a-evidence/01-workspace-api-configuration.md', 'review/23a-evidence/02-tests-fixtures-demos-validation.md', 'review/23a-evidence/command-record.md', 'review/23a-evidence/unresolved-questions.md']`.
