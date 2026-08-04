@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tailtriage_core::Run;
 
 use super::{AnalyzeOptions, Report, RouteBreakdown, ROUTE_RUNTIME_ATTRIBUTION_WARNING};
+use crate::ratio::meets_ratio;
 use crate::slicing::{analyze_slice, GlobalEvidencePolicy};
 
 pub(super) struct RouteBreakdownContext {
@@ -115,15 +116,18 @@ fn should_emit_route_breakdowns(
     }
     let slowest = *p95s.iter().max().unwrap_or(&0);
     let fastest = *p95s.iter().min().unwrap_or(&0);
-    (fastest > 0
-        && slowest.saturating_mul(options.route.slowest_to_fastest_p95_ratio_denominator)
-            >= fastest.saturating_mul(options.route.slowest_to_fastest_p95_ratio_numerator))
-        || match global.p95_latency_us {
-            Some(global_p95) if global_p95 > 0 => {
-                slowest.saturating_mul(options.route.slowest_to_global_p95_ratio_denominator)
-                    >= global_p95
-                        .saturating_mul(options.route.slowest_to_global_p95_ratio_numerator)
-            }
-            _ => false,
-        }
+    meets_ratio(
+        slowest,
+        fastest,
+        options.route.slowest_to_fastest_p95_ratio_numerator,
+        options.route.slowest_to_fastest_p95_ratio_denominator,
+    ) || match global.p95_latency_us {
+        Some(global_p95) => meets_ratio(
+            slowest,
+            global_p95,
+            options.route.slowest_to_global_p95_ratio_numerator,
+            options.route.slowest_to_global_p95_ratio_denominator,
+        ),
+        _ => false,
+    }
 }

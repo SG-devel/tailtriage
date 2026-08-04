@@ -10,6 +10,7 @@ mod confidence;
 mod evidence;
 mod options;
 mod partial_evidence;
+mod ratio;
 mod route;
 mod scoring;
 mod slicing;

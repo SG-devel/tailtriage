@@ -1,6 +1,7 @@
 use tailtriage_core::{RequestEvent, Run};
 
 use super::{AnalyzeOptions, DiagnosisKind, SignalCoverageStatus, TemporalSegment};
+use crate::ratio::meets_ratio;
 use crate::slicing::{analyze_slice, GlobalEvidencePolicy, SampleWindow};
 
 const TEMPORAL_RUNTIME_ATTRIBUTION_WARNING: &str = "Runtime and in-flight evidence is sparse in this segment after timestamp filtering; executor/blocking attribution is limited.";
@@ -272,9 +273,10 @@ pub(super) fn has_material_p95_shift(
     };
     let lower = a.min(b);
     let higher = a.max(b);
-    if lower == 0 {
-        return false;
-    }
-    higher.saturating_mul(options.temporal.p95_shift_ratio_denominator)
-        >= lower.saturating_mul(options.temporal.p95_shift_ratio_numerator)
+    meets_ratio(
+        higher,
+        lower,
+        options.temporal.p95_shift_ratio_numerator,
+        options.temporal.p95_shift_ratio_denominator,
+    )
 }

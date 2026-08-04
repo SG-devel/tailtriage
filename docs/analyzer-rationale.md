@@ -874,25 +874,34 @@ numeric calibration remains unknown.
 
 ## Deferred simplification candidates
 
-No narrow production or API inconsistency found during this review had a clear,
-compatibility-safe correction, so this catalog does not change analyzer
-behavior. The following broader questions are concrete inputs to Prompt 22E or
-the holistic review, not rationales or proposed behavior:
+The focused simplification review resolved the duplicated route/temporal ratio
+arithmetic: one private checked comparison now owns inclusive boundaries, a
+zero baseline, and saturating multiplication. Route and temporal call sites
+continue to own which signals qualify as movement, their distinct emission
+knobs, and their attribution limits. This structural change does not alter
+reports or option paths.
 
-1. **Soft-cap consistency:** assess whether family-specific clean-extreme
-   exceptions can share a general policy without scoring recalibration or
-   fixture regressions. This requires corpus-wide comparison, not prose cleanup.
-2. **Confidence limitation ownership:** inspect repeated construction of
-   limitation text across candidate notes, warnings, and structured quality for
-   a single typed limitation model. Preserve the distinct public scopes in
-   AN-EVID-003 and treat JSON changes as schema work.
-3. **Dual executor modes:** inventory the actual historical-artifact population
-   and release obligations before considering legacy-mode retirement or a
-   unified score. AN-EXEC-003 remains binding until that compatibility decision.
-4. **Route/temporal option symmetry:** review whether the different emission
-   knobs express meaningful domain differences or avoidably duplicate movement
-   policy. Any consolidation must retain their distinct attribution limits and
-   pass focused scoped fixtures.
+The remaining questions require broader evidence and stay inputs to the
+holistic review, not rationales or proposed behavior:
+
+1. **Soft-cap calibration:** cap application is already mechanical through one
+   helper, while each clean-extreme predicate represents family-specific
+   evidence requirements. Any further consolidation risks changing exact scores
+   or eligibility and requires the corpus comparison and calibration evidence
+   in AN-SCORE-002.
+2. **Confidence limitation ownership:** limitation text spans intentionally
+   distinct candidate-note, report-warning, and evidence-quality scopes. A
+   single typed model would currently add scope and rendering branches without
+   eliminating the family policy decisions. Reconsider only with a complete
+   limitation-to-scope matrix and exact global, route, temporal, ordering,
+   deduplication, and JSON parity tests; public typing remains separate schema
+   work.
+3. **Dual executor modes:** history and focused tests establish exact behavior
+   for artifacts that predate worker counts, but the repository cannot establish
+   the external historical-artifact population. AN-EXEC-003 remains binding.
+   Retirement requires an explicit release decision, supported-version and
+   artifact-population evidence, migration guidance, and corpus-wide ranking and
+   fixture impact analysis.
 
 These candidates do not justify changing exact heuristics merely because their
 historical calibration is unknown. Revision still requires the evidence named
