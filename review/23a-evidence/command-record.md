@@ -345,3 +345,136 @@ Important output:
  M review/23a-evidence/unresolved-questions.md
 ```
 Limitations: none.
+
+# 23A-3 Command Record
+
+## Starting verification
+Command: `git status --short`
+Purpose: verify the working tree was clean before evidence work.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: command was run before edits only, per task instruction.
+
+Command: `git rev-parse HEAD`
+Purpose: verify required starting commit.
+Result: success.
+Exit status: 0.
+Important output: `2947676608961904c3230e69be5583643e6bdd4f`.
+Limitations: none.
+
+## Discovery
+Command: `find .. -name AGENTS.md -print`
+Purpose: locate repository instruction files.
+Result: success.
+Exit status: 0.
+Important output: `../tailtriage/AGENTS.md` only.
+Limitations: none.
+
+Command: `cargo metadata --format-version 1 --locked > /tmp/23a3-cargo-metadata.json`
+Purpose: capture workspace/package metadata without mutating repository files.
+Result: success.
+Exit status: 0.
+Important output: metadata written to `/tmp/23a3-cargo-metadata.json`.
+Limitations: raw metadata was not committed.
+
+Command: `find . -path './target' -prune -o -path './.git' -prune -o -type f \( -name '*.md' -o -name '*.py' -o -name '*.sh' -o -name 'Makefile' -o -name 'Justfile' -o -name 'Taskfile.yml' -o -path '*/.cargo/config.toml' \) -print | sort`
+Purpose: inventory Markdown, Python, shell, and task-runner surfaces while excluding target and git internals.
+Result: success.
+Exit status: 0.
+Important output: 78 files were listed and stored in `/tmp/23a3-files.txt` for inspection.
+Limitations: workflow YAML files were inspected separately because they were not part of the requested find expression.
+
+Command: `python3` one-off Markdown summary extractor under `/tmp/23a3-md-summary.txt`
+Purpose: extract headings and embedded command-looking lines from repository Markdown inventory.
+Result: success.
+Exit status: 0.
+Important output: summarized titles/headings/commands for Markdown docs, package READMEs, validation docs, and review files.
+Limitations: extraction was heuristic and supported, not replaced, manual inspection.
+
+Command: `python3` one-off script summary extractor under `/tmp/23a3-py-summary.txt`
+Purpose: extract argparse, subprocess, function, and command-construction cues from Python scripts.
+Result: success.
+Exit status: 0.
+Important output: summarized script entry points, options, helper functions, subprocess use, and mutation flags.
+Limitations: extraction was heuristic and supported manual inspection.
+
+Command: `find .github/workflows -type f -maxdepth 1 -print -exec sed -n '1,220p' {} \; > /tmp/23a3-workflows.txt`
+Purpose: inspect workflow triggers/jobs/steps for cadence and command ownership.
+Result: success.
+Exit status: 0.
+Important output: workflow command blocks captured for `ci.yml` and `validation-snapshot.yml`.
+Limitations: hosted CI was not run.
+
+Command: `rg -n "This structural change|u128|u64|saturat|ratio|parity|option paths|extreme|false-positive" docs README.md VALIDATION.md CHANGELOG.md tailtriage-*/*.md review -g '*.md'`
+Purpose: search prose for CF-DOC-001 and ratio/saturation/parity terminology.
+Result: success.
+Exit status: 0.
+Important output: found the `docs/analyzer-rationale.md` parity sentence and many unrelated parity/saturation references; no other prose was found that states the exact saturated-`u64` to exact-`u128` scoped-ratio distinction.
+Limitations: search scope was repository prose, not code comments outside selected source inspection.
+
+Command: `sed -n '1,220p' tailtriage-analyzer/src/ratio.rs`
+Purpose: inspect the scoped ratio helper implementation and tests for CF-DOC-001.
+Result: success.
+Exit status: 0.
+Important output: `meets_ratio` uses exact `u128::from(...) * u128::from(...)` cross-products and tests large values near `u64::MAX`.
+Limitations: no code was changed.
+
+Command: `rg -n "validate_docs_contracts|validate_all|diagnostic_benchmark|run_diagnostic_matrix|run_mitigation_matrix|measure_runtime_cost|measure_collector|demo_tool|smoke_|cargo fmt|cargo clippy|cargo test|cargo doc|cargo package|cargo publish|CHANGELOG|tag|release" .github scripts docs README.md VALIDATION.md CONTRIBUTING.md AGENTS.md CHANGELOG.md -g '!target'`
+Purpose: map contributor commands, workflow ownership, release-oriented surfaces, and script call graph evidence.
+Result: success.
+Exit status: 0.
+Important output: found CI command blocks, validation script references, release snapshot trigger references, contributor command differences, and no `cargo package`/`cargo publish` implementation in the searched surfaces.
+Limitations: output was large; evidence report records material findings rather than committing raw output.
+
+## Focused validation
+Command: `python3 -m unittest scripts.tests.test_validate_docs_contracts`
+Purpose: run docs-contract unit tests requested for 23A-3.
+Result: failure due to the same expected evidence-branch docs-index limitation.
+Exit status: 1.
+Important output: `Ran 96 tests`; `FAILED (errors=1)`; `test_docs_index_contract` raised `ValueError: docs index missing required Markdown links: ['review/23a-evidence/00-baseline.md', 'review/23a-evidence/01-workspace-api-configuration.md', 'review/23a-evidence/02-tests-fixtures-demos-validation.md', 'review/23a-evidence/03-docs-scripts-commands.md', 'review/23a-evidence/command-record.md', 'review/23a-evidence/unresolved-questions.md']`.
+Limitations: run after temporary evidence Markdown existed; this tests validator behavior but is blocked by the intentional review-file index limitation.
+
+Command: `cargo doc --workspace --all-features --no-deps`
+Purpose: build workspace Rustdoc as requested for 23A-3.
+Result: success.
+Exit status: 0.
+Important output: `Finished dev profile ...`; documentation generated under `target/doc`.
+Limitations: task-requested command omitted `--locked`; CI uses `--locked`.
+
+## Documentation-contract expected limitation
+Command: `python3 scripts/validate_docs_contracts.py`
+Purpose: run docs contract after creating temporary evidence file.
+Result: expected failure.
+Exit status: 1.
+Important output: `docs/README.md must link to every tracked markdown file; missing links: review/23a-evidence/00-baseline.md, review/23a-evidence/01-workspace-api-configuration.md, review/23a-evidence/02-tests-fixtures-demos-validation.md, review/23a-evidence/03-docs-scripts-commands.md, review/23a-evidence/command-record.md, review/23a-evidence/unresolved-questions.md`.
+Limitations: expected evidence-branch limitation; intentionally not fixed, not classified as a product defect.
+
+## Final validation
+Command: `cargo fmt --check`
+Purpose: verify Rust formatting after evidence-only changes.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: no Rust files were intended to change.
+
+Command: `git diff --check`
+Purpose: verify diff whitespace cleanliness.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: none.
+
+Command: `git diff --name-only`
+Purpose: verify changed-file allowlist.
+Result: success.
+Exit status: 0.
+Important output: after intent-to-add for the new evidence file, only `review/23a-evidence/03-docs-scripts-commands.md`, `review/23a-evidence/command-record.md`, and `review/23a-evidence/unresolved-questions.md`.
+Limitations: run before commit.
+
+Command: `git status --short`
+Purpose: verify final pre-commit worktree path set.
+Result: success.
+Exit status: 0.
+Important output: `M review/23a-evidence/command-record.md`, `M review/23a-evidence/unresolved-questions.md`, `?? review/23a-evidence/03-docs-scripts-commands.md`.
+Limitations: run before commit.
