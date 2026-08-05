@@ -1387,6 +1387,118 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             ):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    def test_docs_index_contract_accepts_normalized_fragments_and_schemes(self) -> None:
+        docs_index = """# Documentation index
+
+- [Guide](./user-guide.md#install)
+- [Diag](subdir/../diagnostics.md)
+- [Root](../README.md)
+- [Self](#documentation-index)
+- [External](https://example.com/page.md)
+- [Mail](mailto:docs@example.com)
+"""
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            for rel in (
+                "README.md",
+                "docs/README.md",
+                "docs/user-guide.md",
+                "docs/diagnostics.md",
+            ):
+                path = repo_root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# {rel}\n", encoding="utf-8")
+
+            docs_index_path = repo_root / "docs" / "README.md"
+            docs_index_path.write_text(docs_index, encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_index_path),
+                mock.patch.object(
+                    validate_docs_contracts,
+                    "DOCS_INDEX_EXCLUDED_MARKDOWN",
+                    {"docs/README.md"},
+                ),
+            ):
+                validate_docs_contracts.validate_docs_index_contract()
+
+    def test_docs_index_contract_rejects_required_markdown_omitted_from_index(self) -> None:
+        docs_index = """# Documentation index
+
+- [Root](../README.md)
+"""
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            for rel in ("README.md", "docs/README.md", "docs/user-guide.md"):
+                path = repo_root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# {rel}\n", encoding="utf-8")
+
+            docs_index_path = repo_root / "docs" / "README.md"
+            docs_index_path.write_text(docs_index, encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_index_path),
+                mock.patch.object(
+                    validate_docs_contracts,
+                    "DOCS_INDEX_EXCLUDED_MARKDOWN",
+                    {"docs/README.md"},
+                ),
+                self.assertRaisesRegex(ValueError, r"docs index missing required Markdown links"),
+            ):
+                validate_docs_contracts.validate_docs_index_contract()
+
+    def test_docs_index_contract_rejects_dead_local_markdown_target(self) -> None:
+        docs_index = """# Documentation index
+
+- [Root](../README.md)
+- [Missing](missing.md)
+"""
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            for rel in ("README.md", "docs/README.md"):
+                path = repo_root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"# {rel}\n", encoding="utf-8")
+
+            docs_index_path = repo_root / "docs" / "README.md"
+            docs_index_path.write_text(docs_index, encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_index_path),
+                mock.patch.object(
+                    validate_docs_contracts,
+                    "DOCS_INDEX_EXCLUDED_MARKDOWN",
+                    {"docs/README.md"},
+                ),
+                self.assertRaisesRegex(ValueError, r"dead local Markdown links"),
+            ):
+                validate_docs_contracts.validate_docs_index_contract()
+
+    def test_docs_index_contract_rejects_repository_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            repo_root = workspace / "repo"
+            docs_dir = repo_root / "docs"
+            docs_dir.mkdir(parents=True)
+            (workspace / "outside.md").write_text("# Outside\n", encoding="utf-8")
+            (repo_root / "README.md").write_text("# Root\n", encoding="utf-8")
+            docs_index_path = docs_dir / "README.md"
+            docs_index_path.write_text("[Outside](../../outside.md)\n", encoding="utf-8")
+
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root),
+                mock.patch.object(validate_docs_contracts, "DOCS_INDEX_PATH", docs_index_path),
+                self.assertRaisesRegex(ValueError, r"escapes repository root"),
+            ):
+                validate_docs_contracts.validate_docs_index_contract()
+
 
     def test_tracing_readme_migration_section_contract_rejects_duplicate_sentence(self) -> None:
         readme_text = """# README
