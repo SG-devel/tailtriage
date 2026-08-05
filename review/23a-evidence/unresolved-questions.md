@@ -74,6 +74,6 @@
 
 ## 23A-3 correction-pass unresolved questions
 
-- `docs/README.md` claims a release-process owner through `[Release process](../RELEASING.md)`, but `RELEASING.md` is absent in the inspected checkout. Repository evidence still does not establish the intended replacement owner for release commands, publication ordering, version bumps, tags, or release notes.
+- `docs/README.md` claims a release-process owner through `[Release process](../RELEASING.md)`, but `RELEASING.md` is absent in the inspected checkout. Repository evidence still does not establish the intended replacement owner for release commands, package/publish ownership, publication ordering, version bumps, tags, or release notes; version history, a manual/tag validation snapshot workflow, and a publish validation profile exist but do not establish that owner.
 - `docs/README.md` links absent demo/example documentation targets: `examples/README.md`, `demos/queue/README.md`, `demos/executor/README.md`, `demos/blocking/README.md`, `demos/downstream/README.md`, and `demos/db-pool/README.md`. Repository evidence cannot establish whether these were deleted, renamed, or never created.
 - The docs-index contract is one-directional: existing Markdown files must be linked from `docs/README.md`, but Markdown-looking links in `docs/README.md` are not checked for existence. This explains how stale absent targets can coexist with the checked implementation; it does not identify intended replacements.
