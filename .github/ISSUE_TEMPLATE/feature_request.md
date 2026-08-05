@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose an MVP-aligned improvement.
+about: Propose a focused Tokio tail-latency triage improvement.
 title: "feature: "
 labels: ["enhancement"]
 assignees: []
@@ -14,9 +14,9 @@ What triage workflow problem are you trying to solve?
 
 Describe the smallest useful change.
 
-## Why this belongs in MVP
+## Why this fits tailtriage now
 
-Explain why this improves Tokio tail-latency triage without broadening into a general observability platform.
+Explain the demonstrated usefulness, adoption clarity, correctness, reliability, security, or coherent cleanup value without broadening into a general observability platform.
 
 ## Alternatives considered
 

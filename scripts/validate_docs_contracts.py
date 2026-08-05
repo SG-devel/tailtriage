@@ -638,28 +638,42 @@ def repo_markdown_files() -> set[str]:
 
 def docs_index_link_targets() -> set[str]:
     text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
-    docs_dir = DOCS_INDEX_PATH.parent
     targets: set[str] = set()
 
     for raw_link in markdown_links(text):
-        link = normalize_doc_link(raw_link)
-
-        if "://" in link or link.startswith("mailto:"):
+        destination = resolve_local_markdown_destination(
+            DOCS_INDEX_PATH, raw_link, repo_root=REPO_ROOT
+        )
+        if destination is None or destination.suffix.lower() != ".md":
             continue
-        if not link.endswith(".md"):
-            continue
 
-        resolved = (docs_dir / link).resolve()
-
-        try:
-            targets.add(resolved.relative_to(REPO_ROOT.resolve()).as_posix())
-        except ValueError:
-            continue
+        targets.add(destination.relative_to(REPO_ROOT.resolve()).as_posix())
 
     return targets
 
 
+def validate_docs_index_link_targets_exist() -> None:
+    text = DOCS_INDEX_PATH.read_text(encoding="utf-8")
+    missing: list[str] = []
+
+    for raw_link in sorted(markdown_links(text)):
+        destination = resolve_local_markdown_destination(
+            DOCS_INDEX_PATH, raw_link, repo_root=REPO_ROOT
+        )
+        if destination is None or destination.suffix.lower() != ".md":
+            continue
+        if not destination.is_file():
+            missing.append(raw_link)
+
+    if missing:
+        raise ValueError(
+            f"docs index contains dead local Markdown links: {missing}"
+        )
+
+
 def validate_docs_index_contract() -> None:
+    validate_docs_index_link_targets_exist()
+
     required = repo_markdown_files()
     linked = docs_index_link_targets()
 

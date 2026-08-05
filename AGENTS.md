@@ -126,7 +126,7 @@ Validation scorecards should distinguish:
 
 Only expand scope when at least one of these is true:
 
-1. the missing piece is clearly holding the MVP back in real usage
+1. the missing piece is clearly holding real usage or adoption clarity back
 2. the change provides a clearly high-leverage boost to usefulness, clarity, or adoption without changing the product category
 3. the change fixes a severe correctness, reliability, or security problem that would materially undermine trust in the tool if left unresolved
 

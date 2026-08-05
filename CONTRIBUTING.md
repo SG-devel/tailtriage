@@ -25,22 +25,39 @@ You must have the right to submit the code, documentation, tests, examples, fixt
 
 Do not submit material that you cannot license under MIT.
 
-## Fast contributor workflow
+## Contributor workflow
 
 1. Open an issue (or comment on an existing one) before large changes.
 2. Keep PRs scoped to one problem.
 3. Add or update tests with behavior changes.
-4. Run local checks before pushing:
+4. Use fast local iteration checks when useful. They are optional fast feedback, not proof that a change is complete.
+5. Before a change is complete, run the required completion gate.
+
+### Fast local iteration
+
+For quick feedback while editing, you may run a narrower subset such as:
 
 ```bash
 cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+### Required completion gate
+
+Completed work must pass the repository baseline:
+
+```bash
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-targets --all-features --locked
+python3 scripts/validate_docs_contracts.py
+```
+
+Hosted CI also runs platform- and release-profile-specific checks such as release-profile Cargo checks, docs, dependency policy, demos, and example smoke tests. Those CI additions do not replace the local completion gate above.
+
 ## Scope guardrails
 
-Please do not expand MVP scope in drive-by PRs. In particular, avoid adding:
+Please keep drive-by PRs within the narrow Tokio tail-latency triage product. Prefer demonstrated usefulness, adoption clarity, coherent tightening, and severe correctness, reliability, or security fixes over adjacent platform expansion. In particular, avoid adding:
 
 - observability backends/exporters
 - distributed tracing backends
@@ -62,7 +79,7 @@ If behavior or user workflows change, update the relevant public docs. Common fi
 
 - [ ] Change is scoped and explained.
 - [ ] Tests updated/added where needed.
-- [ ] `cargo fmt`, `cargo clippy`, and `cargo test` pass.
+- [ ] The required completion gate passes, or any environment limitation is documented.
 - [ ] Public docs reflect behavior changes.
-- [ ] Claims remain evidence-based and within MVP scope.
+- [ ] Claims remain evidence-based; suspects are framed as evidence-ranked leads, not causal proof.
 - [ ] I have the right to submit this contribution under the MIT License, and I agree that this contribution is licensed under the repository's MIT License.
