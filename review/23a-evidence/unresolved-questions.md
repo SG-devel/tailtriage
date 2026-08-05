@@ -71,3 +71,9 @@
 
 ## Documentation-contract limitation details
 - `python3 scripts/validate_docs_contracts.py` fails on this evidence branch because `review/23a-evidence/*.md` files, including `review/23a-evidence/03-docs-scripts-commands.md`, are tracked Markdown files intentionally not linked from `docs/README.md`. This remains an expected temporary evidence-branch limitation and is not classified as a product defect.
+
+## 23A-3 correction-pass unresolved questions
+
+- `docs/README.md` claims a release-process owner through `[Release process](../RELEASING.md)`, but `RELEASING.md` is absent in the inspected checkout. Repository evidence still does not establish the intended replacement owner for release commands, publication ordering, version bumps, tags, or release notes.
+- `docs/README.md` links absent demo/example documentation targets: `examples/README.md`, `demos/queue/README.md`, `demos/executor/README.md`, `demos/blocking/README.md`, `demos/downstream/README.md`, and `demos/db-pool/README.md`. Repository evidence cannot establish whether these were deleted, renamed, or never created.
+- The docs-index contract is one-directional: existing Markdown files must be linked from `docs/README.md`, but Markdown-looking links in `docs/README.md` are not checked for existence. This explains how stale absent targets can coexist with the checked implementation; it does not identify intended replacements.
