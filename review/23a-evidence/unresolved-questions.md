@@ -57,3 +57,23 @@
 ## Documentation-contract limitation details
 
 - Exact 23A-2 docs-contract failure: `ValueError: docs index missing required Markdown links: ['review/23a-evidence/00-baseline.md', 'review/23a-evidence/01-workspace-api-configuration.md', 'review/23a-evidence/02-tests-fixtures-demos-validation.md', 'review/23a-evidence/command-record.md', 'review/23a-evidence/unresolved-questions.md']`.
+
+# 23A-3 Unresolved Questions
+
+## Newly resolved by 23A-3 evidence
+- CF-DOC-001 is verified: `tailtriage-analyzer/src/ratio.rs` uses exact `u128` scoped ratio cross-products in `meets_ratio`, while `docs/analyzer-rationale.md` still says `This structural change does not alter reports or option paths.` Option paths and ordinary fixture output remain preserved, but extreme valid values that would previously saturate `u64` cross-products can produce different corrected movement results.
+
+## New documentation and command ownership gaps
+- Release-command ownership remains not established by repository evidence. `CHANGELOG.md`, `SECURITY.md`, `.github/workflows/validation-snapshot.yml`, and `scripts/validate_all.py --profile publish` exist, but no repository-local `cargo package`, `cargo publish`, version-bump, lockfile-update, tag-creation, release-notes, or publication-order command owner was found.
+- Contributor baseline command ownership is inconsistent across visible contributor surfaces: `AGENTS.md` and `scripts/validate_all.py` use all-features/locked clippy and test commands, while `CONTRIBUTING.md` and `.github/pull_request_template.md` document lighter commands.
+- `.github/ISSUE_TEMPLATE/feature_request.md` still asks why a change belongs in MVP, while `AGENTS.md` states the MVP is done and the current operating mode is post-MVP; ownership of issue-template wording is not established.
+- `scripts/smoke_external_consumer.py` is implemented, but the visible CI step is commented out and no current contributor-facing documentation command was found.
+
+## Documentation-contract limitation details
+- `python3 scripts/validate_docs_contracts.py` fails on this evidence branch because `review/23a-evidence/*.md` files, including `review/23a-evidence/03-docs-scripts-commands.md`, are tracked Markdown files intentionally not linked from `docs/README.md`. This remains an expected temporary evidence-branch limitation and is not classified as a product defect.
+
+## 23A-3 correction-pass unresolved questions
+
+- `docs/README.md` claims a release-process owner through `[Release process](../RELEASING.md)`, but `RELEASING.md` is absent in the inspected checkout. Repository evidence still does not establish the intended replacement owner for release commands, package/publish ownership, publication ordering, version bumps, tags, or release notes; version history, a manual/tag validation snapshot workflow, and a publish validation profile exist but do not establish that owner.
+- `docs/README.md` links absent demo/example documentation targets: `examples/README.md`, `demos/queue/README.md`, `demos/executor/README.md`, `demos/blocking/README.md`, `demos/downstream/README.md`, and `demos/db-pool/README.md`. Repository evidence cannot establish whether these were deleted, renamed, or never created.
+- The docs-index contract is one-directional: existing Markdown files must be linked from `docs/README.md`, but Markdown-looking links in `docs/README.md` are not checked for existence. This explains how stale absent targets can coexist with the checked implementation; it does not identify intended replacements.

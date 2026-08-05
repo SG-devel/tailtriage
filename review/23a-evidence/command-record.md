@@ -345,3 +345,408 @@ Important output:
  M review/23a-evidence/unresolved-questions.md
 ```
 Limitations: none.
+
+# 23A-3 Command Record
+
+## Starting verification
+Command: `git status --short`
+Purpose: verify the working tree was clean before evidence work.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: command was run before edits only, per task instruction.
+
+Command: `git rev-parse HEAD`
+Purpose: verify required starting commit.
+Result: success.
+Exit status: 0.
+Important output: `2947676608961904c3230e69be5583643e6bdd4f`.
+Limitations: none.
+
+## Discovery
+Command: `find .. -name AGENTS.md -print`
+Purpose: locate repository instruction files.
+Result: success.
+Exit status: 0.
+Important output: `../tailtriage/AGENTS.md` only.
+Limitations: none.
+
+Command: `cargo metadata --format-version 1 --locked > /tmp/23a3-cargo-metadata.json`
+Purpose: capture workspace/package metadata without mutating repository files.
+Result: success.
+Exit status: 0.
+Important output: metadata written to `/tmp/23a3-cargo-metadata.json`.
+Limitations: raw metadata was not committed.
+
+Command: `find . -path './target' -prune -o -path './.git' -prune -o -type f \( -name '*.md' -o -name '*.py' -o -name '*.sh' -o -name 'Makefile' -o -name 'Justfile' -o -name 'Taskfile.yml' -o -path '*/.cargo/config.toml' \) -print | sort`
+Purpose: inventory Markdown, Python, shell, and task-runner surfaces while excluding target and git internals.
+Result: success.
+Exit status: 0.
+Important output: 78 files were listed and stored in `/tmp/23a3-files.txt` for inspection.
+Limitations: workflow YAML files were inspected separately because they were not part of the requested find expression.
+
+Command: `python3` one-off Markdown summary extractor under `/tmp/23a3-md-summary.txt`
+Purpose: extract headings and embedded command-looking lines from repository Markdown inventory.
+Result: success.
+Exit status: 0.
+Important output: summarized titles/headings/commands for Markdown docs, package READMEs, validation docs, and review files.
+Limitations: extraction was heuristic and supported, not replaced, manual inspection.
+
+Command: `python3` one-off script summary extractor under `/tmp/23a3-py-summary.txt`
+Purpose: extract argparse, subprocess, function, and command-construction cues from Python scripts.
+Result: success.
+Exit status: 0.
+Important output: summarized script entry points, options, helper functions, subprocess use, and mutation flags.
+Limitations: extraction was heuristic and supported manual inspection.
+
+Command: `find .github/workflows -type f -maxdepth 1 -print -exec sed -n '1,220p' {} \; > /tmp/23a3-workflows.txt`
+Purpose: inspect workflow triggers/jobs/steps for cadence and command ownership.
+Result: success.
+Exit status: 0.
+Important output: workflow command blocks captured for `ci.yml` and `validation-snapshot.yml`.
+Limitations: hosted CI was not run.
+
+Command: `rg -n "This structural change|u128|u64|saturat|ratio|parity|option paths|extreme|false-positive" docs README.md VALIDATION.md CHANGELOG.md tailtriage-*/*.md review -g '*.md'`
+Purpose: search prose for CF-DOC-001 and ratio/saturation/parity terminology.
+Result: success.
+Exit status: 0.
+Important output: found the `docs/analyzer-rationale.md` parity sentence and many unrelated parity/saturation references; no other prose was found that states the exact saturated-`u64` to exact-`u128` scoped-ratio distinction.
+Limitations: search scope was repository prose, not code comments outside selected source inspection.
+
+Command: `sed -n '1,220p' tailtriage-analyzer/src/ratio.rs`
+Purpose: inspect the scoped ratio helper implementation and tests for CF-DOC-001.
+Result: success.
+Exit status: 0.
+Important output: `meets_ratio` uses exact `u128::from(...) * u128::from(...)` cross-products and tests large values near `u64::MAX`.
+Limitations: no code was changed.
+
+Command: `rg -n "validate_docs_contracts|validate_all|diagnostic_benchmark|run_diagnostic_matrix|run_mitigation_matrix|measure_runtime_cost|measure_collector|demo_tool|smoke_|cargo fmt|cargo clippy|cargo test|cargo doc|cargo package|cargo publish|CHANGELOG|tag|release" .github scripts docs README.md VALIDATION.md CONTRIBUTING.md AGENTS.md CHANGELOG.md -g '!target'`
+Purpose: map contributor commands, workflow ownership, release-oriented surfaces, and script call graph evidence.
+Result: success.
+Exit status: 0.
+Important output: found CI command blocks, validation script references, release snapshot trigger references, contributor command differences, and no `cargo package`/`cargo publish` implementation in the searched surfaces.
+Limitations: output was large; evidence report records material findings rather than committing raw output.
+
+## Focused validation
+Command: `python3 -m unittest scripts.tests.test_validate_docs_contracts`
+Purpose: run docs-contract unit tests requested for 23A-3.
+Result: failure due to the same expected evidence-branch docs-index limitation.
+Exit status: 1.
+Important output: `Ran 96 tests`; `FAILED (errors=1)`; `test_docs_index_contract` raised `ValueError: docs index missing required Markdown links: ['review/23a-evidence/00-baseline.md', 'review/23a-evidence/01-workspace-api-configuration.md', 'review/23a-evidence/02-tests-fixtures-demos-validation.md', 'review/23a-evidence/03-docs-scripts-commands.md', 'review/23a-evidence/command-record.md', 'review/23a-evidence/unresolved-questions.md']`.
+Limitations: run after temporary evidence Markdown existed; this tests validator behavior but is blocked by the intentional review-file index limitation.
+
+Command: `cargo doc --workspace --all-features --no-deps`
+Purpose: build workspace Rustdoc as requested for 23A-3.
+Result: success.
+Exit status: 0.
+Important output: `Finished dev profile ...`; documentation generated under `target/doc`.
+Limitations: task-requested command omitted `--locked`; CI uses `--locked`.
+
+## Documentation-contract expected limitation
+Command: `python3 scripts/validate_docs_contracts.py`
+Purpose: run docs contract after creating temporary evidence file.
+Result: expected failure.
+Exit status: 1.
+Important output: `docs/README.md must link to every tracked markdown file; missing links: review/23a-evidence/00-baseline.md, review/23a-evidence/01-workspace-api-configuration.md, review/23a-evidence/02-tests-fixtures-demos-validation.md, review/23a-evidence/03-docs-scripts-commands.md, review/23a-evidence/command-record.md, review/23a-evidence/unresolved-questions.md`.
+Limitations: expected evidence-branch limitation; intentionally not fixed, not classified as a product defect.
+
+## Final validation
+Command: `cargo fmt --check`
+Purpose: verify Rust formatting after evidence-only changes.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: no Rust files were intended to change.
+
+Command: `git diff --check`
+Purpose: verify diff whitespace cleanliness.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: none.
+
+Command: `git diff --name-only`
+Purpose: verify changed-file allowlist.
+Result: success.
+Exit status: 0.
+Important output: after intent-to-add for the new evidence file, only `review/23a-evidence/03-docs-scripts-commands.md`, `review/23a-evidence/command-record.md`, and `review/23a-evidence/unresolved-questions.md`.
+Limitations: run before commit.
+
+Command: `git status --short`
+Purpose: verify final pre-commit worktree path set.
+Result: success.
+Exit status: 0.
+Important output: `M review/23a-evidence/command-record.md`, `M review/23a-evidence/unresolved-questions.md`, `?? review/23a-evidence/03-docs-scripts-commands.md`.
+Limitations: run before commit.
+
+## 23A-3 documentation-index and CLI correction
+
+Command: `git status --short`
+Purpose: correction-pass starting verification; proceed only if worktree was clean.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: starting verification only.
+
+Command: `git rev-parse HEAD`
+Purpose: correction-pass starting verification; proceed only if HEAD matched the requested SHA.
+Result: success.
+Exit status: 0.
+Important output: `1be11b5d75f4bb38262a75d761a7e1eaabc7b37f`.
+Limitations: this is recorded only as the separately labeled correction-pass starting SHA; the original 23A-3 phase baseline remains `2947676608961904c3230e69be5583643e6bdd4f`.
+
+Command: `sed -n '1,220p' docs/getting-started-demo.md`; `sed -n '1,220p' docs/README.md`; `sed -n '1,220p' scripts/validate_docs_contracts.py`; `sed -n '1,220p' scripts/tests/test_validate_docs_contracts.py`
+Purpose: inspect the requested docs index, getting-started demo guide, docs-contract implementation, and docs-contract tests.
+Result: success.
+Exit status: 0.
+Important output: `docs/getting-started-demo.md` title is `Getting started with demos`; audience is not stated; it lists recommended demos, additional demos, synthetic analyzer-contract demos, the baseline diagnosis contract table, `scripts/demo_tool.py run`/`validate` commands, interpretation guidance, before/after comparison usage, and artifact policy. `docs/README.md` links `getting-started-demo.md`, absent example/demo README targets, and `../RELEASING.md`.
+Limitations: read-only inspection; no public docs, scripts, or tests were modified.
+
+Command:
+```bash
+for path in \
+  examples/README.md \
+  demos/queue/README.md \
+  demos/executor/README.md \
+  demos/blocking/README.md \
+  demos/downstream/README.md \
+  demos/db-pool/README.md \
+  RELEASING.md
+do
+  if test -e "$path"; then
+    printf 'present\t%s\n' "$path"
+  else
+    printf 'missing\t%s\n' "$path"
+  fi
+done
+```
+Purpose: verify existence of documentation-index targets called out by the correction task.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+missing	examples/README.md
+missing	demos/queue/README.md
+missing	demos/executor/README.md
+missing	demos/blocking/README.md
+missing	demos/downstream/README.md
+missing	demos/db-pool/README.md
+missing	RELEASING.md
+```
+Limitations: file-existence check cannot establish whether missing targets were deleted, renamed, or never created.
+
+Command: `sed -n '629,680p' scripts/validate_docs_contracts.py`
+Purpose: inspect exact docs-index validator implementation functions: `repo_markdown_files`, `docs_index_link_targets`, and `validate_docs_index_contract`.
+Result: success.
+Exit status: 0.
+Important output: `repo_markdown_files()` returns existing `*.md` paths from `REPO_ROOT.rglob("*.md")` excluding `.git`, `target`, and `DOCS_INDEX_EXCLUDED_MARKDOWN`; `docs_index_link_targets()` reads `docs/README.md`, normalizes Markdown links, keeps links ending in `.md`, resolves them relative to the docs directory, and records repository-relative paths; `validate_docs_index_contract()` computes `missing = sorted(required - linked)` and raises only when that set is nonempty.
+Limitations: implementation inspection only; no validator changes were made.
+
+Command: `sed -n '80,310p' scripts/check_demo_fixture_drift.py`
+Purpose: inspect demo fixture-drift CLI, regeneration, temporary output, and mutation behavior.
+Result: success.
+Exit status: 0.
+Important output: `_scenario_specs()` enumerates the committed fixture paths that can be rewritten; `check_or_refresh()` creates an internal `tempfile.TemporaryDirectory(prefix="tailtriage-fixture-drift-")`, regenerates outputs there, compares normalized generated analysis to committed fixtures when `--refresh` is absent, and writes only enumerated fixture paths when `--refresh` is present. `parse_args()` defines `--refresh`, `--profile {dev,release}` with default `dev`, and `--release` as `store_const` selecting `release`.
+Limitations: read-only inspection; `--refresh` was not run.
+
+Command: `python3 scripts/check_demo_fixture_drift.py --help`
+Purpose: verify documented CLI surface without regenerating fixtures.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+usage: check_demo_fixture_drift.py [-h] [--refresh] [--profile {dev,release}]
+                                   [--release]
+
+Detect or refresh committed demo analysis fixtures.
+
+options:
+  -h, --help            show this help message and exit
+  --refresh             Rewrite committed fixtures with regenerated outputs.
+  --profile {dev,release}
+                        Cargo profile used for demo + analysis regeneration.
+                        Policy: committed fixtures are dev-profile canonical
+                        for deterministic drift checks.
+  --release             Shortcut for --profile release.
+```
+Limitations: help output only; no fixtures were regenerated.
+
+Command: `rg -n -- '--out-dir|RELEASING\.md|getting-started-demo|examples/README\.md|demos/(queue|executor|blocking|downstream|db-pool)/README\.md' review/23a-evidence/03-docs-scripts-commands.md review/23a-evidence/command-record.md review/23a-evidence/unresolved-questions.md`
+Purpose: targeted evidence search requested by the correction task.
+Result: success.
+Exit status: 0.
+Important output: matches show `docs/getting-started-demo.md` inventory entries, absent index targets (`examples/README.md`, `demos/queue/README.md`, `demos/executor/README.md`, `demos/blocking/README.md`, `demos/downstream/README.md`, `demos/db-pool/README.md`, `RELEASING.md`) recorded as missing/absent, and `--out-dir` only in statements that `scripts/check_demo_fixture_drift.py` has no such supported argument.
+Limitations: targeted search only; it does not validate every unrelated command surface.
+
+Command: `cargo fmt --check`
+Purpose: final validation required by correction task.
+Result: success.
+Exit status: 0.
+Important output: no output before recorded `FMT_STATUS:0`.
+Limitations: no Rust files were changed.
+
+Command: `git diff --check`
+Purpose: final whitespace validation required by correction task.
+Result: success.
+Exit status: 0.
+Important output: no output before recorded `DIFF_CHECK_STATUS:0`.
+Limitations: whitespace validation only.
+
+Command: `git diff --name-only`
+Purpose: final changed-file allowlist validation required by correction task.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+review/23a-evidence/03-docs-scripts-commands.md
+review/23a-evidence/command-record.md
+review/23a-evidence/unresolved-questions.md
+```
+Limitations: must be rerun after recording this final-validation command block if strict current diff output is needed.
+
+Command: `git status --short`
+Purpose: final worktree status validation required by correction task.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+ M review/23a-evidence/03-docs-scripts-commands.md
+ M review/23a-evidence/command-record.md
+ M review/23a-evidence/unresolved-questions.md
+```
+Limitations: run before commit.
+
+## 23A-3 final consistency correction
+
+Final correction-pass starting SHA: `269cce5f4abf246144e94fc6a0b25693f496f9e2`.
+Original 23A-3 phase baseline preserved: `2947676608961904c3230e69be5583643e6bdd4f`.
+First correction-pass baseline preserved: `1be11b5d75f4bb38262a75d761a7e1eaabc7b37f`.
+
+Command: `git status --short`
+Purpose: starting verification required before editing.
+Result: success.
+Exit status: 0.
+Important output: no output; worktree was clean.
+Limitations: worktree status only.
+
+Command: `git rev-parse HEAD`
+Purpose: starting SHA verification required before editing.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+269cce5f4abf246144e94fc6a0b25693f496f9e2
+```
+Limitations: local checkout only; remotes were not inspected.
+
+Command: `sed -n '200,280p' scripts/generate_diagnostic_scorecard.py`
+Purpose: inspect scorecard CLI defaults and selected output-directory writes without running artifact generation.
+Result: success.
+Exit status: 0.
+Important output: `parse_args()` defines `--manifest`, valid `--out-dir` with default `target/validation/diagnostics`, threshold flags, and `--snapshot-label`; `generate_scorecard()` creates the selected output directory and writes `benchmark-summary.json`, `environment.json`, and `scorecard.md` beneath it.
+Limitations: read-only implementation inspection; scorecard generation was not run.
+
+Command: `sed -n '80,310p' scripts/check_demo_fixture_drift.py`
+Purpose: re-inspect demo fixture-drift CLI and output/mutation behavior.
+Result: success.
+Exit status: 0.
+Important output: `parse_args()` defines `--refresh`, `--profile {dev,release}` defaulting to `dev`, and `--release`; no `--out-dir` argument is defined. The drift check uses an internal `TemporaryDirectory` for regenerated comparison outputs, compares normalized analysis without `--refresh`, and rewrites only `_scenario_specs()` fixture paths with `--refresh`.
+Limitations: read-only implementation inspection; `--refresh` was not run.
+
+Command: `python3 scripts/generate_diagnostic_scorecard.py --help`
+Purpose: verify scorecard CLI help without generating artifacts.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+usage: generate_diagnostic_scorecard.py [-h] [--manifest MANIFEST]
+                                        [--out-dir OUT_DIR]
+                                        [--min-top1 MIN_TOP1]
+                                        [--min-top2 MIN_TOP2]
+                                        [--max-high-confidence-wrong MAX_HIGH_CONFIDENCE_WRONG]
+                                        [--snapshot-label SNAPSHOT_LABEL]
+
+options:
+  -h, --help            show this help message and exit
+  --manifest MANIFEST
+  --out-dir OUT_DIR
+  --min-top1 MIN_TOP1
+  --min-top2 MIN_TOP2
+  --max-high-confidence-wrong MAX_HIGH_CONFIDENCE_WRONG
+  --snapshot-label SNAPSHOT_LABEL
+```
+Limitations: help output only; no scorecard artifacts were generated.
+
+Command: `python3 scripts/check_demo_fixture_drift.py --help`
+Purpose: verify demo fixture-drift CLI help without regenerating fixtures.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+usage: check_demo_fixture_drift.py [-h] [--refresh] [--profile {dev,release}]
+                                   [--release]
+
+Detect or refresh committed demo analysis fixtures.
+
+options:
+  -h, --help            show this help message and exit
+  --refresh             Rewrite committed fixtures with regenerated outputs.
+  --profile {dev,release}
+                        Cargo profile used for demo + analysis regeneration.
+                        Policy: committed fixtures are dev-profile canonical
+                        for deterministic drift checks.
+  --release             Shortcut for --profile release.
+```
+Limitations: help output only; no fixtures were regenerated.
+
+Command: `sed -n '629,670p' scripts/validate_docs_contracts.py && sed -n '715,722p' scripts/validate_docs_contracts.py`
+Purpose: inspect exact docs-index and root README docs-link validator implementations.
+Result: success.
+Exit status: 0.
+Important output: `repo_markdown_files()` gathers existing required Markdown files from the repository; `docs_index_link_targets()` gathers Markdown-looking targets from `docs/README.md`; `validate_docs_index_contract()` computes `missing = sorted(required - linked)` and rejects only that direction; it does not compute or reject `linked - required`. `validate_root_readme_docs_link()` separately checks that root `README.md` links to `docs/README.md`.
+Limitations: read-only implementation inspection; validator behavior was recorded but not changed.
+
+Command: `rg -n -- '--out-dir|output-directory option|generate_diagnostic_scorecard|check_demo_fixture_drift|RELEASING\.md|required - linked|linked - required' review/23a-evidence/03-docs-scripts-commands.md review/23a-evidence/command-record.md review/23a-evidence/unresolved-questions.md`
+Purpose: targeted final consistency search.
+Result: success.
+Exit status: 0.
+Important output: matches show valid `--out-dir` ownership assigned to `scripts/generate_diagnostic_scorecard.py`, absent `--out-dir` support assigned to `scripts/check_demo_fixture_drift.py`, no vague `[output-directory option]` text, both `required - linked` and `linked - required` directions recorded for the docs-index contract, and `RELEASING.md` recorded as an absent claimed release-process owner.
+Limitations: targeted search only; it does not validate unrelated evidence text.
+
+Command: `cargo fmt --check`
+Purpose: final validation required by task.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: no Rust files were changed.
+
+Command: `git diff --check`
+Purpose: final whitespace validation required by task.
+Result: success.
+Exit status: 0.
+Important output: no output.
+Limitations: whitespace validation only.
+
+Command: `git diff --name-only`
+Purpose: final changed-file allowlist validation required by task.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+review/23a-evidence/03-docs-scripts-commands.md
+review/23a-evidence/command-record.md
+review/23a-evidence/unresolved-questions.md
+```
+Limitations: run before commit.
+
+Command: `git status --short`
+Purpose: final worktree status validation required by task.
+Result: success.
+Exit status: 0.
+Important output:
+```text
+ M review/23a-evidence/03-docs-scripts-commands.md
+ M review/23a-evidence/command-record.md
+ M review/23a-evidence/unresolved-questions.md
+```
+Limitations: run before commit.
