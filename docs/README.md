@@ -39,6 +39,7 @@ This is the canonical map for the `tailtriage` documentation set. Choose the row
 ## Examples, demos, and repository reference
 
 - [Repository overview](../README.md)
+- [Manual release procedure](../RELEASING.md)
 - [Getting-started demo](getting-started-demo.md)
 - [Demo index](../demos/README.md)
 - [Implementation plan](../IMPLEMENTATION_PLAN.md)
