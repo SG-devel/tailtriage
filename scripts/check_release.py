@@ -16,6 +16,15 @@ def command(argv: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(argv, capture_output=True, text=True)
 
 
+def failed_command(argv: list[str], result: subprocess.CompletedProcess[str]) -> str:
+    details = [f"command {argv!r} exited with {result.returncode}"]
+    if result.stdout:
+        details.append(f"stdout:\n{result.stdout.rstrip()}")
+    if result.stderr:
+        details.append(f"stderr:\n{result.stderr.rstrip()}")
+    return "\n".join(details)
+
+
 def is_publishable(package: dict[str, Any]) -> bool:
     allowed = package.get("publish")
     return allowed is None or "crates-io" in allowed
@@ -107,28 +116,33 @@ def changelog_errors(version: str, text: str) -> list[str]:
 
 def check(version: str, changelog: Path = Path("CHANGELOG.md")) -> int:
     errors: list[str] = []
-    status = command(["git", "status", "--porcelain"])
+    status_command = ["git", "status", "--porcelain"]
+    status = command(status_command)
     if status.returncode != 0:
-        errors.append("could not inspect worktree cleanliness")
+        errors.append("could not inspect worktree cleanliness:\n" + failed_command(status_command, status))
     elif status.stdout.strip():
         errors.append("worktree is not clean")
 
-    head_result = command(["git", "rev-parse", "HEAD"])
+    head_command = ["git", "rev-parse", "HEAD"]
+    head_result = command(head_command)
     head = head_result.stdout.strip()
-    if head_result.returncode != 0 or not head:
+    if head_result.returncode != 0:
+        errors.append("could not determine HEAD:\n" + failed_command(head_command, head_result))
+    elif not head:
         errors.append("could not determine HEAD")
     else:
         print(f"HEAD: {head}")
 
-    metadata_result = command(["cargo", "metadata", "--format-version", "1", "--locked"])
+    metadata_command = ["cargo", "metadata", "--format-version", "1", "--locked"]
+    metadata_result = command(metadata_command)
     metadata: dict[str, Any] = {}
     if metadata_result.returncode != 0:
-        errors.append("cargo metadata failed")
+        errors.append("cargo metadata failed:\n" + failed_command(metadata_command, metadata_result))
     else:
         try:
             metadata = json.loads(metadata_result.stdout)
-        except json.JSONDecodeError:
-            errors.append("cargo metadata returned invalid JSON")
+        except json.JSONDecodeError as exc:
+            errors.append(f"cargo metadata returned invalid JSON: {exc}")
 
     workspace_ids = set(metadata.get("workspace_members", []))
     workspace = [package for package in metadata.get("packages", []) if package["id"] in workspace_ids]
@@ -157,7 +171,7 @@ def check(version: str, changelog: Path = Path("CHANGELOG.md")) -> int:
         package_command.extend(["-p", name])
     packaged = command(package_command)
     if packaged.returncode != 0:
-        print(f"Release preflight failed: cargo package exited with {packaged.returncode}", file=sys.stderr)
+        print("Release preflight failed: " + failed_command(package_command, packaged), file=sys.stderr)
         return 1
 
     print(f"Requested version: {version}")

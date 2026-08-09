@@ -11,8 +11,8 @@ from unittest.mock import patch
 from scripts import check_release
 
 
-def result(returncode: int = 0, stdout: str = ""):
-    return check_release.subprocess.CompletedProcess([], returncode, stdout, "")
+def result(returncode: int = 0, stdout: str = "", stderr: str = ""):
+    return check_release.subprocess.CompletedProcess([], returncode, stdout, stderr)
 
 
 def metadata(version: str = "1.2.3") -> dict:
@@ -94,7 +94,7 @@ class CheckReleaseTests(unittest.TestCase):
                 return result(stdout="abc\n")
             if argv[:2] == ["cargo", "metadata"]:
                 return result(stdout=json.dumps(metadata()))
-            return result(returncode=2)
+            return result(returncode=2, stdout="package stdout\n", stderr="package stderr\n")
 
         with tempfile.TemporaryDirectory() as directory:
             changelog = Path(directory) / "CHANGELOG.md"
@@ -102,8 +102,11 @@ class CheckReleaseTests(unittest.TestCase):
             output = io.StringIO()
             with patch.object(check_release, "command", side_effect=run), redirect_stdout(output), redirect_stderr(output):
                 self.assertEqual(1, check_release.check("1.2.3", changelog))
-        self.assertIn("cargo package exited with 2", output.getvalue())
-        self.assertNotIn("cargo publish", output.getvalue())
+        printed = output.getvalue()
+        self.assertIn("command ['cargo', 'package', '--locked', '-p', 'core', '-p', 'api', '-p', 'cli'] exited with 2", printed)
+        self.assertIn("stdout:\npackage stdout", printed)
+        self.assertIn("stderr:\npackage stderr", printed)
+        self.assertNotIn("cargo publish", printed)
 
 
 if __name__ == "__main__":
