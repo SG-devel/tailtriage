@@ -173,7 +173,7 @@ Choose `TailtriageController` when a long-lived service needs repeated arm, coll
 
 ## Operations and validation
 
-The [operations guide](docs/operations.md) covers rollout, capture modes, runtime sampling, retention, truncation, artifact sizing, and controlled reruns. [VALIDATION.md](VALIDATION.md) describes what repository validation does and does not support; measurements remain machine-, workload-, and profile-scoped rather than universal production guarantees.
+The [operations guide](docs/operations.md) covers rollout, capture modes, runtime sampling, retention, truncation, artifact sizing, and controlled reruns. [VALIDATION.md](docs/dev/VALIDATION.md) describes what repository validation does and does not support; measurements remain machine-, workload-, and profile-scoped rather than universal production guarantees.
 
 ## What this is not
 

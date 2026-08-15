@@ -8,7 +8,7 @@ The schema-version-2 benchmark separates three concepts. An analyzer-executed ca
 Top-1 means the observation primary equals ground truth. Top-2 means ground truth is primary or first secondary. High-confidence-wrong means a high-confidence primary falls outside `expected_primary_kinds`. Ground truth is controlled fixture intent, not production truth or root-cause proof. Equivalent encodings must agree on ordered diagnosis visibility and confidence bucket.
 
 ## Deterministic vs repeated-run validation
-Deterministic fixture validation is mandatory in normal CI; durable scorecards remain manual/tag snapshot outputs. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
+Deterministic fixture validation is mandatory in normal CI; durable scorecards remain manually generated snapshot outputs. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
 
 ## Validation responsibilities
 

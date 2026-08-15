@@ -68,16 +68,23 @@ Optimize docs for:
 
 ## Documentation contract
 
-Docs in `docs/` are user-facing product documentation.
+Markdown files directly under `docs/` are user-facing product documentation. The `docs/dev/`
+subtree contains repository-development, contributor, and maintainer documentation.
 
-- `docs/` pages are for users of `tailtriage`, not repository development workflow.
-- Do not write contributor-process narration, issue-history context, or roadmap-history wording in `docs/` pages.
-- Keep docs crisp, truthful, present-tense, and aligned with the current product surface.
+- Direct `docs/*.md` pages are for users of `tailtriage`, not repository development workflow.
+- `docs/dev/README.md` is the developer and maintainer documentation landing page.
+- Developer documents do not need to appear in the user documentation index merely because they
+  exist under `docs/dev/`.
+- User-facing documentation may deliberately link to a developer document when it is relevant to
+  a public trust or reference surface.
+- Do not write contributor-process narration, issue-history context, or roadmap-history wording in
+  direct user-facing `docs/*.md` pages.
+- Keep user docs crisp, truthful, present-tense, and aligned with the current product surface.
 - Do not claim behavior that is not supported by the code and current public docs.
 - Treat `docs/operations.md` as the canonical production operations guidance page.
 - Update `docs/operations.md` when behavior or guidance changes for rollout path, capture-mode choice, controller/lifecycle operation, runtime sampling guidance, artifact sizing, truncation/capture-limit behavior, weak-signal troubleshooting, `evidence_quality` interpretation, or operational validation claims.
 - Keep operations guidance bounded: evidence-ranked suspects and next checks are triage leads, not proof of root cause, and not observability-platform claims.
-- Keep `docs/README.md` as a complete user-journey index to current docs.
+- Keep `docs/README.md` as the canonical, complete user-journey index to current user docs.
 - Treat `scripts/validate_docs_contracts.py` and related tests as part of the public documentation contract.
 - If docs structure, required docs links, or enforced public-doc wording changes, update the docs contract validator and related tests in the same change set.
 - Only change docs contract validation when the new docs are more truthful to the code or when the intended public docs contract has actually changed.
@@ -90,7 +97,10 @@ Docs in `docs/` are user-facing product documentation.
 
 ## Validation documentation contract
 
-Validation docs are part of the public trust surface.
+Validation docs are part of the public trust surface. `docs/dev/VALIDATION.md` remains the
+repository validation map and trust boundary; user-facing validation documentation may link to
+it. Its developer-documentation location does not make its validation evidence private or
+non-public.
 
 When editing validation-related files, preserve these rules:
 
@@ -107,7 +117,7 @@ When editing validation-related files, preserve these rules:
 
 If validation corpus schema or benchmark semantics change, update together:
 
-- `VALIDATION.md`
+- `docs/dev/VALIDATION.md`
 - `docs/diagnostic-validation.md`
 - `validation/diagnostics/README.md`
 - `validation/diagnostics/latest/scorecard.md`
@@ -465,7 +475,7 @@ If behavior, scope, or public guidance changes, update as needed:
 
 - `README.md`
 - `SPEC.md`
-- `IMPLEMENTATION_PLAN.md` if milestones or operating mode changed
+- `docs/dev/IMPLEMENTATION_PLAN.md` if milestones or operating mode changed
 - `docs/user-guide.md`
 - relevant crate docs/readmes
 - relevant demos/examples/tests
@@ -481,7 +491,7 @@ Do not leave the repository teaching multiple competing onboarding stories after
 When given a task:
 
 1. read the issue/task carefully
-2. inspect `README.md`, `SPEC.md`, `IMPLEMENTATION_PLAN.md`, and this file
+2. inspect `README.md`, `SPEC.md`, `docs/dev/IMPLEMENTATION_PLAN.md`, and this file
 3. make the smallest reasonable change that solves the actual problem
 4. add or update tests
 5. update docs/examples/demos where needed

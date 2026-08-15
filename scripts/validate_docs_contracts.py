@@ -15,7 +15,10 @@ from urllib.parse import urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
 SPEC_PATH = REPO_ROOT / "SPEC.md"
-DESIGN_NOTES_PATH = REPO_ROOT / "DESIGN_NOTES.md"
+DEV_DOCS_DIR = REPO_ROOT / "docs" / "dev"
+DESIGN_NOTES_PATH = DEV_DOCS_DIR / "DESIGN_NOTES.md"
+IMPLEMENTATION_PLAN_PATH = DEV_DOCS_DIR / "IMPLEMENTATION_PLAN.md"
+VALIDATION_PATH = DEV_DOCS_DIR / "VALIDATION.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
@@ -64,8 +67,8 @@ USER_FACING_TERMINOLOGY_PATHS = (
 RUN_SCHEMA_CURRENT_CLAIM_PATHS = (
     README_PATH,
     SPEC_PATH,
-    REPO_ROOT / "VALIDATION.md",
-    REPO_ROOT / "IMPLEMENTATION_PLAN.md",
+    VALIDATION_PATH,
+    IMPLEMENTATION_PLAN_PATH,
     DESIGN_NOTES_PATH,
     DOCS_INDEX_PATH,
     USER_GUIDE_PATH,
@@ -92,10 +95,8 @@ DOCS_INDEX_EXCLUDED_MARKDOWN = {
     ".github/ISSUE_TEMPLATE/feature_request.md",
     ".github/pull_request_template.md",
 
-    # Agent/maintainer/planning docs, not product docs.
+    # Agent working rules are not product docs.
     "AGENTS.md",
-    "DESIGN_NOTES.md",
-    "IMPLEMENTATION_PLAN.md",
 
     # The docs index should not be required to link to itself.
     "docs/README.md",
@@ -128,7 +129,7 @@ DIAGNOSTICS_FIELD_REFERENCE_LABELS = (
 )
 
 VALIDATION_DOC_PATHS = (
-    REPO_ROOT / "VALIDATION.md",
+    VALIDATION_PATH,
     DIAGNOSTIC_VALIDATION_PATH,
     REPO_ROOT / "validation" / "diagnostics" / "README.md",
     REPO_ROOT / "validation" / "diagnostics" / "latest" / "scorecard.md",
@@ -381,7 +382,7 @@ def validate_analyzer_ownership_navigation(
             "../tailtriage-cli/README.md",
             "../tailtriage-analyzer/README.md",
             "../SPEC.md",
-            "../VALIDATION.md",
+            "dev/VALIDATION.md",
         ),
         README_PATH: (
             "docs/README.md",
@@ -632,6 +633,7 @@ def repo_markdown_files() -> set[str]:
         for path in REPO_ROOT.rglob("*.md")
         if ".git" not in path.parts
         and "target" not in path.parts
+        and not path.is_relative_to(DEV_DOCS_DIR)
         and path.relative_to(REPO_ROOT).as_posix() not in DOCS_INDEX_EXCLUDED_MARKDOWN
     }
 

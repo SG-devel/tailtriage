@@ -2,7 +2,10 @@
 
 Thanks for helping improve `tailtriage`.
 
-Please read and follow the [implementation plan](IMPLEMENTATION_PLAN.md) before proposing or submitting changes that affect behavior, API shape, scope, diagnostics, demos, or public documentation. Contributions should stay within the current product direction and scope.
+Please read and follow the [implementation plan](docs/dev/IMPLEMENTATION_PLAN.md) before proposing or submitting changes that affect behavior, API shape, scope, diagnostics, demos, or public documentation. Contributions should stay within the current product direction and scope.
+
+The [developer documentation](docs/dev/README.md) maps repository architecture, ownership, flows,
+validation surfaces, fixtures, release responsibilities, and other maintainer documentation.
 
 ## What this project is
 

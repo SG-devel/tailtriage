@@ -4,7 +4,7 @@ This directory defines the deterministic diagnostic-validation corpus used by `s
 
 Demos teach; validation measures.
 
-The analyzer artifacts are manually authored and committed. `analyzer-fixtures.lock.json` uses the self-identifying `tailtriage.analyzer-fixture-lock.v1` format to record their manifest-owned inventory, exact bytes, text formatting, and compact structural shape. It is an integrity lock, not a fixture generator. The checker also rejects byte-identical analyzer inputs assigned to distinct accuracy observations; multiple encodings for the same observation may share bytes. Normal CI checks the lock before running the deterministic corpus benchmark against `validation/diagnostics/manifest.json`; durable/versioned scorecards remain manual/tag snapshot artifacts from `.github/workflows/validation-snapshot.yml`.
+The analyzer artifacts are manually authored and committed. `analyzer-fixtures.lock.json` uses the self-identifying `tailtriage.analyzer-fixture-lock.v1` format to record their manifest-owned inventory, exact bytes, text formatting, and compact structural shape. It is an integrity lock, not a fixture generator. The checker also rejects byte-identical analyzer inputs assigned to distinct accuracy observations; multiple encodings for the same observation may share bytes. Normal CI checks the lock before running the deterministic corpus benchmark against `validation/diagnostics/manifest.json`; durable/versioned scorecards remain manually generated snapshot artifacts from `.github/workflows/validation-snapshot.yml`.
 
 ## Validation classes and schema
 
@@ -63,8 +63,8 @@ Validation tracks currently include deterministic corpus benchmark, adversarial 
 For profile-based orchestration across validation tracks, use `scripts/validate_all.py` (`smoke`, `ci`, `full`, `publish`). Keep using this diagnostics runner directly for diagnostics-specific validation workflows.
 
 
-## Versioned/manual scorecard generation
-Use `.github/workflows/validation-snapshot.yml` to generate durable diagnostic snapshots on manual dispatch or `v*` tag pushes. Normal CI does not upload durable diagnostic scorecards.
+## Manual scorecard generation
+Use `.github/workflows/validation-snapshot.yml` to generate durable diagnostic snapshots through manual workflow dispatch. Normal CI does not upload durable diagnostic scorecards.
 
 Snapshot output directory: `target/validation/diagnostics/`
 - `benchmark-summary.json`

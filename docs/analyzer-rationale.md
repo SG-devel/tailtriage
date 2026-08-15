@@ -48,7 +48,7 @@ numeric calibration remains unknown.
 - **Revision criteria:** Require an explicitly approved product/model change,
   a defined probability or causality semantics, calibration evidence, schema
   and compatibility analysis, and updated validation non-claims.
-- **Provenance:** Recorded intent (`SPEC.md`, `DESIGN_NOTES.md`, and validation
+- **Provenance:** Recorded intent (`SPEC.md`, `docs/dev/DESIGN_NOTES.md`, and validation
   documentation).
 
 ### AN-SCORE-001 — Scores only order evidence within one report
@@ -181,7 +181,7 @@ numeric calibration remains unknown.
 - **Revision criteria:** Require a lifecycle signal that distinguishes operation
   completion from helper Drop, or validation showing the policy systematically
   suppresses/creates wrong leads; assess schema and completed-output stability.
-- **Provenance:** Recorded intent (`SPEC.md`, `VALIDATION.md`, and typed tests).
+- **Provenance:** Recorded intent (`SPEC.md`, `docs/dev/VALIDATION.md`, and typed tests).
 
 ### AN-ATTR-002 — Request-scoped stage samples
 

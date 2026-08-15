@@ -27,7 +27,7 @@ For production rollout and operational guidance that applies these bounded claim
 This repository includes an initial deterministic validation corpus for controlled Tokio workload fixtures. The corpus and benchmark validate bounded diagnostic behavior on committed fixtures, not universal production behavior.
 
 ## Validation map
-`VALIDATION.md` is the top-level validation map and trust boundary. `docs/diagnostic-validation.md` explains diagnostic validation behavior for users. `validation/diagnostics/README.md` defines the corpus/manifest contract for maintainers. `validation/diagnostics/latest/scorecard.md` is a stable note about committed scorecard status, not a live metrics file. `scripts/validate_all.py` is an orchestration convenience over existing tracks, not the source of truth.
+This document is the repository validation map and trust boundary. `docs/diagnostic-validation.md` explains diagnostic validation behavior for users. `validation/diagnostics/README.md` defines the corpus/manifest contract for maintainers. `validation/diagnostics/latest/scorecard.md` is a stable note about committed scorecard status, not a live metrics file. `scripts/validate_all.py` is an orchestration convenience over existing tracks, not the source of truth.
 
 | File/script/workflow | Role | Normal CI? | Publishes durable artifacts? |
 |---|---|---:|---:|
@@ -39,7 +39,7 @@ This repository includes an initial deterministic validation corpus for controll
 | `scripts/run_operational_validation.py` | Runtime-cost and collector-limit operational validation | Manual/local; some narrower smoke checks exist elsewhere | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
 
-Normal CI keeps deterministic diagnostics and docs contracts as gates but does not publish durable scorecards. Durable scorecard publication remains limited to the manual/tag snapshot workflow.
+Normal CI keeps deterministic diagnostics and docs contracts as gates but does not publish durable scorecards. Durable scorecard publication remains limited to the manual snapshot workflow.
 
 ## Evidence levels
 
