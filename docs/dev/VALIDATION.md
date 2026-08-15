@@ -39,7 +39,7 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 | `scripts/run_operational_validation.py` | Runtime-cost and collector-limit operational validation | Manual/local; some narrower smoke checks exist elsewhere | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
 
-Normal CI keeps deterministic diagnostics and docs contracts as gates but does not publish durable scorecards. Durable scorecard publication remains limited to the manual/tag snapshot workflow.
+Normal CI keeps deterministic diagnostics and docs contracts as gates but does not publish durable scorecards. Durable scorecard publication remains limited to the manual snapshot workflow.
 
 ## Evidence levels
 
