@@ -15,10 +15,38 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import demo_tool  # noqa: E402
+import check_demo_fixture_drift  # noqa: E402
+import _demo_runner  # noqa: E402
 from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
 class DemoWrapperTests(unittest.TestCase):
+    def test_shared_scenario_metadata_owns_all_demo_paths(self) -> None:
+        self.assertEqual(set(demo_tool.SCENARIOS), set(_demo_runner.SCENARIOS))
+        self.assertIs(demo_tool.SCENARIO_PATHS, _demo_runner.SCENARIOS)
+        self.assertIs(demo_tool.scenario_manifest, _demo_runner.scenario_manifest)
+        self.assertIs(demo_tool.scenario_artifact_dir, _demo_runner.scenario_artifact_dir)
+        for scenario, service_dir in _demo_runner.SCENARIOS.items():
+            demo_dir = REPO_ROOT / "demos" / service_dir
+            self.assertEqual(
+                _demo_runner.scenario_manifest(REPO_ROOT, scenario),
+                demo_dir / "Cargo.toml",
+            )
+            self.assertEqual(
+                _demo_runner.scenario_artifact_dir(REPO_ROOT, scenario),
+                demo_dir / "artifacts",
+            )
+
+    def test_fixture_refresh_owns_only_canonical_contracts(self) -> None:
+        owned = [path.as_posix() for path, _ in check_demo_fixture_drift._scenario_specs()]
+        self.assertEqual(len(owned), 19)
+        self.assertFalse(any("sample-analysis.json" in path for path in owned))
+        comparisons = [path for path in owned if path.endswith("before-after-comparison.json")]
+        self.assertEqual(
+            comparisons,
+            ["demos/downstream_service/fixtures/before-after-comparison.json"],
+        )
+
     def test_demo_tool_help_runs(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(SCRIPTS_DIR / "demo_tool.py"), "--help"],
