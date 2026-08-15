@@ -231,6 +231,8 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 
 The canonical user documentation index lives in [`docs/README.md`](docs/README.md).
 
+Contributors can use the [repository ownership and flow map](docs/repository-map.md) to find the authoritative owner for each package, data flow, policy, command, fixture family, and release responsibility.
+
 Start there for the user workflow, crate selection, controller configuration, analyzer and CLI contracts, diagnostics interpretation, demos, validation, runtime-cost measurement, collector limits, and architecture.
 
 

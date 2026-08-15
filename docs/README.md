@@ -6,6 +6,7 @@ This is the canonical map for the `tailtriage` documentation set. Choose the row
 
 | Task | Authoritative document |
 | --- | --- |
+| Repository-wide package, flow, configuration, command, fixture, validation, and release ownership | [Repository ownership and flow map](repository-map.md) |
 | First adoption and the end-to-end user journey | [User guide](user-guide.md) |
 | Production capture, rollout, retention, limits, and operations | [Production operations guide](operations.md) |
 | Turn one report into one next check | [Analyzer guide](analyzer-guide.md) |
