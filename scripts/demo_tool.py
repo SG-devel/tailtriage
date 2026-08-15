@@ -16,6 +16,7 @@ from _demo_runner import (
     repo_root,
     run_and_analyze,
     scenario_artifact_dir,
+    scenario_manifest,
     variant_paths,
     write_before_after_comparison,
 )
@@ -127,8 +128,8 @@ def run_before_after_scenario(
 def run_scenario_queue(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/queue_service/Cargo.toml",
-        root_dir / "demos/queue_service/artifacts",
+        scenario_manifest(root_dir, "queue"),
+        scenario_artifact_dir(root_dir, "queue"),
         mode,
         snapshot_queue,
         profile=profile,
@@ -137,8 +138,8 @@ def run_scenario_queue(root_dir: Path, mode: str, *, profile: str = "dev") -> No
 def run_scenario_blocking(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/blocking_service/Cargo.toml",
-        root_dir / "demos/blocking_service/artifacts",
+        scenario_manifest(root_dir, "blocking"),
+        scenario_artifact_dir(root_dir, "blocking"),
         mode,
         snapshot_blocking,
         profile=profile,
@@ -147,8 +148,8 @@ def run_scenario_blocking(root_dir: Path, mode: str, *, profile: str = "dev") ->
 def run_scenario_executor(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/executor_pressure_service/Cargo.toml",
-        root_dir / "demos/executor_pressure_service/artifacts",
+        scenario_manifest(root_dir, "executor"),
+        scenario_artifact_dir(root_dir, "executor"),
         mode,
         snapshot_queue,
         profile=profile,
@@ -157,8 +158,8 @@ def run_scenario_executor(root_dir: Path, mode: str, *, profile: str = "dev") ->
 def run_scenario_downstream(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/downstream_service/Cargo.toml",
-        root_dir / "demos/downstream_service/artifacts",
+        scenario_manifest(root_dir, "downstream"),
+        scenario_artifact_dir(root_dir, "downstream"),
         mode,
         snapshot_downstream,
         profile=profile,
@@ -167,8 +168,8 @@ def run_scenario_downstream(root_dir: Path, mode: str, *, profile: str = "dev") 
 def run_scenario_mixed(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/mixed_contention_service/Cargo.toml",
-        root_dir / "demos/mixed_contention_service/artifacts",
+        scenario_manifest(root_dir, "mixed"),
+        scenario_artifact_dir(root_dir, "mixed"),
         mode,
         snapshot_queue,
         profile=profile,
@@ -177,8 +178,8 @@ def run_scenario_mixed(root_dir: Path, mode: str, *, profile: str = "dev") -> No
 def run_scenario_cold_start(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/cold_start_burst_service/Cargo.toml",
-        root_dir / "demos/cold_start_burst_service/artifacts",
+        scenario_manifest(root_dir, "cold-start"),
+        scenario_artifact_dir(root_dir, "cold-start"),
         mode,
         snapshot_queue,
         profile=profile,
@@ -187,8 +188,8 @@ def run_scenario_cold_start(root_dir: Path, mode: str, *, profile: str = "dev") 
 def run_scenario_db_pool(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/db_pool_saturation_service/Cargo.toml",
-        root_dir / "demos/db_pool_saturation_service/artifacts",
+        scenario_manifest(root_dir, "db-pool"),
+        scenario_artifact_dir(root_dir, "db-pool"),
         mode,
         snapshot_queue,
         profile=profile,
@@ -197,8 +198,8 @@ def run_scenario_db_pool(root_dir: Path, mode: str, *, profile: str = "dev") -> 
 def run_scenario_shared_lock(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/shared_state_lock_service/Cargo.toml",
-        root_dir / "demos/shared_state_lock_service/artifacts",
+        scenario_manifest(root_dir, "shared-lock"),
+        scenario_artifact_dir(root_dir, "shared-lock"),
         mode,
         snapshot_queue,
         profile=profile,
@@ -207,8 +208,8 @@ def run_scenario_shared_lock(root_dir: Path, mode: str, *, profile: str = "dev")
 def run_scenario_retry_storm(root_dir: Path, mode: str, *, profile: str = "dev") -> None:
     run_before_after_scenario(
         root_dir,
-        root_dir / "demos/retry_storm_service/Cargo.toml",
-        root_dir / "demos/retry_storm_service/artifacts",
+        scenario_manifest(root_dir, "retry-storm"),
+        scenario_artifact_dir(root_dir, "retry-storm"),
         mode,
         snapshot_queue,
         profile=profile,
@@ -298,7 +299,7 @@ def _validate_nonworsening_score_for_downstream(
 
 def validate_queue(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_queue(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/queue_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "queue")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -335,7 +336,7 @@ def validate_queue(root_dir: Path, *, profile: str = "dev") -> None:
 
 def validate_blocking(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_blocking(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/blocking_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "blocking")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -404,7 +405,7 @@ def validate_blocking(root_dir: Path, *, profile: str = "dev") -> None:
 
 def validate_downstream(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_downstream(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/downstream_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "downstream")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -444,7 +445,7 @@ def validate_downstream(root_dir: Path, *, profile: str = "dev") -> None:
 
 def validate_mixed(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_mixed(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/mixed_contention_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "mixed")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -496,7 +497,7 @@ def _contains_blocking_depth_evidence(report: dict) -> bool:
 
 def validate_executor(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_executor(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/executor_pressure_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "executor")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -562,7 +563,7 @@ def _report_mentions_cold_start_or_queue(report: dict) -> bool:
 
 def validate_cold_start(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_cold_start(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/cold_start_burst_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "cold-start")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -610,7 +611,7 @@ def validate_cold_start(root_dir: Path, *, profile: str = "dev") -> None:
 
 def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_db_pool(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/db_pool_saturation_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "db-pool")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -653,7 +654,7 @@ def validate_db_pool(root_dir: Path, *, profile: str = "dev") -> None:
 
 def validate_shared_lock(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_shared_lock(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/shared_state_lock_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "shared-lock")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -703,7 +704,7 @@ def validate_shared_lock(root_dir: Path, *, profile: str = "dev") -> None:
 
 def validate_retry_storm(root_dir: Path, *, profile: str = "dev") -> None:
     run_scenario_retry_storm(root_dir, "both", profile=profile)
-    artifact_dir = root_dir / "demos/retry_storm_service/artifacts"
+    artifact_dir = scenario_artifact_dir(root_dir, "retry-storm")
     before = load_report_json(artifact_dir / "before-analysis.json")
     after = load_report_json(artifact_dir / "after-analysis.json")
 
@@ -821,8 +822,8 @@ NON_RUNTIME_TRACING_SCENARIOS = {
 def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
     configs = {
         "queue": {
-            "demo_manifest": root_dir / "demos/queue_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/queue_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "queue"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "queue"),
             "route": "/queue-demo",
             "expected_kind": "application_queue_saturation",
             "queues": {"worker_permit"},
@@ -830,8 +831,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": True,
         },
         "downstream": {
-            "demo_manifest": root_dir / "demos/downstream_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/downstream_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "downstream"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "downstream"),
             "route": "/downstream-demo",
             "expected_kind": "downstream_stage_dominates",
             "queues": set(),
@@ -839,8 +840,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": True,
         },
         "mixed": {
-            "demo_manifest": root_dir / "demos/mixed_contention_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/mixed_contention_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "mixed"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "mixed"),
             "route": "/mixed-contention-demo",
             "expected_kind": "application_queue_saturation",
             "queues": {"worker_permit"},
@@ -848,8 +849,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": True,
         },
         "cold-start": {
-            "demo_manifest": root_dir / "demos/cold_start_burst_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/cold_start_burst_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "cold-start"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "cold-start"),
             "route": "/cold-start-burst-demo",
             "expected_kind": "application_queue_saturation",
             "queues": {"worker_admission"},
@@ -857,8 +858,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": True,
         },
         "db-pool": {
-            "demo_manifest": root_dir / "demos/db_pool_saturation_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/db_pool_saturation_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "db-pool"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "db-pool"),
             "route": "/db-pool-saturation-demo",
             "expected_kind": "application_queue_saturation",
             "queues": {"db_pool"},
@@ -866,8 +867,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": True,
         },
         "shared-lock": {
-            "demo_manifest": root_dir / "demos/shared_state_lock_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/shared_state_lock_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "shared-lock"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "shared-lock"),
             "route": "/shared-state-lock-demo",
             "expected_kind": "application_queue_saturation",
             "queues": {"shared_state_write_lock"},
@@ -875,8 +876,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": True,
         },
         "retry-storm": {
-            "demo_manifest": root_dir / "demos/retry_storm_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/retry_storm_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "retry-storm"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "retry-storm"),
             "route": "/retry-storm-demo",
             "expected_kind": "downstream_stage_dominates",
             "queues": set(),
@@ -887,8 +888,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": False,
         },
         "blocking": {
-            "demo_manifest": root_dir / "demos/blocking_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/blocking_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "blocking"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "blocking"),
             "route": "/blocking-demo",
             "expected_kind": "blocking_pool_pressure",
             "queues": {"dispatch_overhead"},
@@ -896,8 +897,8 @@ def _tracing_parity_config(root_dir: Path, scenario: str) -> dict:
             "require_p95_improvement": True,
         },
         "executor": {
-            "demo_manifest": root_dir / "demos/executor_pressure_service/Cargo.toml",
-            "artifact_dir": root_dir / "demos/executor_pressure_service/artifacts",
+            "demo_manifest": scenario_manifest(root_dir, "executor"),
+            "artifact_dir": scenario_artifact_dir(root_dir, "executor"),
             "route": "/executor-pressure",
             "expected_kind": "executor_pressure_suspected",
             "queues": set(),
