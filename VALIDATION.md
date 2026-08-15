@@ -33,7 +33,7 @@ This repository includes an initial deterministic validation corpus for controll
 |---|---|---:|---:|
 | `scripts/diagnostic_benchmark.py` | Deterministic diagnostics corpus gate for committed manifest/fixtures | Yes | No |
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
-| `.github/workflows/validation-snapshot.yml` | Versioned/manual diagnostic scorecard snapshot | Manual/tag | Yes |
+| `.github/workflows/validation-snapshot.yml` | Manual diagnostic scorecard snapshot | Manual | Yes |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/run_mitigation_matrix.py` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
 | `scripts/run_operational_validation.py` | Runtime-cost and collector-limit operational validation | Manual/local; some narrower smoke checks exist elsewhere | No |
@@ -124,8 +124,8 @@ Validation does not claim:
 Demos teach scenarios; validation measures bounded diagnostic behavior.
 
 
-## Versioned/manual diagnostic snapshots
-Durable diagnostic validation scorecards are generated only by `.github/workflows/validation-snapshot.yml` on `workflow_dispatch` and `v*` tags. Normal CI does not publish durable diagnostic scorecards and does not auto-overwrite `validation/diagnostics/latest/scorecard.md`.
+## Manual diagnostic snapshots
+Durable diagnostic validation scorecards are generated only by `.github/workflows/validation-snapshot.yml` through manual `workflow_dispatch`. Normal CI does not publish durable diagnostic scorecards and does not auto-overwrite `validation/diagnostics/latest/scorecard.md`.
 
 Snapshot artifacts include deterministic benchmark metrics, thresholds, git/ref metadata, `tailtriage` workspace/package version metadata, GitHub Actions metadata when available, software/hardware metadata, and manifest/referenced-artifact hashes.
 

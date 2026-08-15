@@ -7,9 +7,6 @@ on:
         description: "Snapshot label, for example v0.3.0, pre-release, or validation-check"
         required: true
         type: string
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read
@@ -32,12 +29,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set snapshot label
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "SNAPSHOT_LABEL=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
-          else
-            echo "SNAPSHOT_LABEL=${{ inputs.snapshot_label }}" >> "$GITHUB_ENV"
-          fi
+        run: echo "SNAPSHOT_LABEL=${{ inputs.snapshot_label }}" >> "$GITHUB_ENV"
 
       - name: Sanitize snapshot label for artifact name
         run: |
@@ -68,7 +60,3 @@ jobs:
           name: diagnostic-validation-${{ env.SAFE_SNAPSHOT_LABEL }}-${{ env.SHORT_SHA }}
           path: target/validation/diagnostics
           retention-days: 90
-
-      - name: TODO release attach
-        run: |
-          echo "TODO: optionally attach snapshot artifact to GitHub Releases in a follow-up task."
