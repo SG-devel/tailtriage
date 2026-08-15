@@ -6,7 +6,6 @@ This is the canonical map for the `tailtriage` documentation set. Choose the row
 
 | Task | Authoritative document |
 | --- | --- |
-| Repository-wide package, flow, configuration, command, fixture, validation, and release ownership | [Repository ownership and flow map](repository-map.md) |
 | First adoption and the end-to-end user journey | [User guide](user-guide.md) |
 | Production capture, rollout, retention, limits, and operations | [Production operations guide](operations.md) |
 | Turn one report into one next check | [Analyzer guide](analyzer-guide.md) |
@@ -15,8 +14,8 @@ This is the canonical map for the `tailtriage` documentation set. Choose the row
 | CLI package commands, artifact loading, and output | [`tailtriage-cli` README](../tailtriage-cli/README.md) |
 | Typed in-process analyzer API and rendering | [`tailtriage-analyzer` README](../tailtriage-analyzer/README.md) and its Rustdoc |
 | Normative product, data, and analyzer contracts | [SPEC.md](../SPEC.md) |
-| Validation approach, evidence, and non-claims | [VALIDATION.md](../VALIDATION.md) and [diagnostic validation](diagnostic-validation.md) |
-| Architecture and durable design ownership | [Architecture](architecture.md) and [DESIGN_NOTES.md](../DESIGN_NOTES.md) |
+| Validation approach, evidence, and non-claims | [VALIDATION.md](dev/VALIDATION.md) and [diagnostic validation](diagnostic-validation.md) |
+| Architecture and durable design ownership | [Architecture](architecture.md) and [DESIGN_NOTES.md](dev/DESIGN_NOTES.md) |
 | Versioned user-visible changes | [CHANGELOG.md](../CHANGELOG.md) |
 
 ## Integrations and package boundaries
@@ -40,10 +39,10 @@ This is the canonical map for the `tailtriage` documentation set. Choose the row
 ## Examples, demos, and repository reference
 
 - [Repository overview](../README.md)
-- [Manual release procedure](../RELEASING.md)
+- [Manual release procedure](dev/RELEASING.md)
 - [Getting-started demo](getting-started-demo.md)
 - [Demo index](../demos/README.md)
-- [Implementation plan](../IMPLEMENTATION_PLAN.md)
+- [Implementation plan](dev/IMPLEMENTATION_PLAN.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Code of conduct](../CODE_OF_CONDUCT.md)
 - [Security](../SECURITY.md)

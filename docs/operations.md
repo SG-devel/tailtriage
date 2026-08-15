@@ -21,7 +21,7 @@ For API-level usage and request lifecycle contracts, see:
 - [user guide](user-guide.md)
 - [diagnostics guide](diagnostics.md)
 - [controller README](../tailtriage-controller/README.md)
-- [validation overview](../VALIDATION.md)
+- [validation overview](dev/VALIDATION.md)
 
 ## Recommended rollout path
 
@@ -341,7 +341,7 @@ Use these when evaluating:
 
 Primary references:
 
-* [validation overview](../VALIDATION.md)
+* [validation overview](dev/VALIDATION.md)
 * [runtime cost measurement](runtime-cost.md)
 * [collector limits and stress guidance](collector-limits.md)
 * [`scripts/run_operational_validation.py`](../scripts/run_operational_validation.py)

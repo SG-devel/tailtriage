@@ -374,7 +374,7 @@ When behavior or public guidance changes, update relevant public docs together:
 
 - `README.md`
 - `SPEC.md`
-- `IMPLEMENTATION_PLAN.md`
+- `docs/dev/IMPLEMENTATION_PLAN.md`
 - `docs/README.md`
 - `docs/user-guide.md`
 - `docs/diagnostics.md`

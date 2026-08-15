@@ -173,7 +173,7 @@ Choose `TailtriageController` when a long-lived service needs repeated arm, coll
 
 ## Operations and validation
 
-The [operations guide](docs/operations.md) covers rollout, capture modes, runtime sampling, retention, truncation, artifact sizing, and controlled reruns. [VALIDATION.md](VALIDATION.md) describes what repository validation does and does not support; measurements remain machine-, workload-, and profile-scoped rather than universal production guarantees.
+The [operations guide](docs/operations.md) covers rollout, capture modes, runtime sampling, retention, truncation, artifact sizing, and controlled reruns. [VALIDATION.md](docs/dev/VALIDATION.md) describes what repository validation does and does not support; measurements remain machine-, workload-, and profile-scoped rather than universal production guarantees.
 
 ## What this is not
 
@@ -230,8 +230,6 @@ Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/
 ## Documentation
 
 The canonical user documentation index lives in [`docs/README.md`](docs/README.md).
-
-Contributors can use the [repository ownership and flow map](docs/repository-map.md) to find the authoritative owner for each package, data flow, policy, command, fixture family, and release responsibility.
 
 Start there for the user workflow, crate selection, controller configuration, analyzer and CLI contracts, diagnostics interpretation, demos, validation, runtime-cost measurement, collector limits, and architecture.
 
