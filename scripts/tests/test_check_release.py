@@ -37,9 +37,9 @@ class CheckReleaseTests(unittest.TestCase):
         packages = metadata()["packages"]
         publishable = [package for package in packages if check_release.is_publishable(package)]
         order, errors = check_release.publication_order(publishable, "1.2.3")
-        self.assertEqual(["core", "api", "cli"], order)
+        self.assertEqual(["core", "private", "api", "cli"], order)
         self.assertEqual([], errors)
-        self.assertEqual(["demo", "private"], [package["name"] for package in packages if not check_release.is_publishable(package)])
+        self.assertEqual(["demo"], [package["name"] for package in packages if not check_release.is_publishable(package)])
 
     def test_readiness_failure_suppresses_package_and_publish_commands(self) -> None:
         calls: list[list[str]] = []
@@ -47,7 +47,7 @@ class CheckReleaseTests(unittest.TestCase):
         def run(argv: list[str]):
             calls.append(argv)
             if argv[:2] == ["git", "status"]:
-                return result(stdout="dirty\n")
+                return result(stdout=" M some/file\n?? another/file\n")
             if argv[:2] == ["git", "rev-parse"]:
                 return result(stdout="abc\n")
             return result(stdout=json.dumps(metadata()))
@@ -59,6 +59,7 @@ class CheckReleaseTests(unittest.TestCase):
             with patch.object(check_release, "command", side_effect=run), redirect_stdout(output), redirect_stderr(output):
                 self.assertEqual(1, check_release.check("1.2.3", changelog))
         self.assertFalse(any(call[:2] == ["cargo", "package"] for call in calls))
+        self.assertIn("worktree is not clean:\n M some/file\n?? another/file", output.getvalue())
         self.assertNotIn("cargo publish", output.getvalue())
 
     def test_success_packages_once_and_prints_publication_order(self) -> None:
@@ -81,9 +82,12 @@ class CheckReleaseTests(unittest.TestCase):
             with patch.object(check_release, "command", side_effect=run), redirect_stdout(output):
                 self.assertEqual(0, check_release.check("1.2.3", changelog))
         packages = [call for call in calls if call[:2] == ["cargo", "package"]]
-        self.assertEqual([["cargo", "package", "--locked", "-p", "core", "-p", "api", "-p", "cli"]], packages)
+        self.assertEqual(
+            [["cargo", "package", "--locked", "-p", "core", "-p", "private", "-p", "api", "-p", "cli"]], packages
+        )
         printed = output.getvalue()
         self.assertLess(printed.index("cargo publish --locked -p core"), printed.index("cargo publish --locked -p api"))
+        self.assertIn("cargo publish --locked -p private", printed)
         self.assertLess(printed.index("cargo publish --locked -p api"), printed.index("cargo publish --locked -p cli"))
 
     def test_packaging_failure_suppresses_publication_commands(self) -> None:
@@ -103,7 +107,10 @@ class CheckReleaseTests(unittest.TestCase):
             with patch.object(check_release, "command", side_effect=run), redirect_stdout(output), redirect_stderr(output):
                 self.assertEqual(1, check_release.check("1.2.3", changelog))
         printed = output.getvalue()
-        self.assertIn("command ['cargo', 'package', '--locked', '-p', 'core', '-p', 'api', '-p', 'cli'] exited with 2", printed)
+        self.assertIn(
+            "command ['cargo', 'package', '--locked', '-p', 'core', '-p', 'private', '-p', 'api', '-p', 'cli'] exited with 2",
+            printed,
+        )
         self.assertIn("stdout:\npackage stdout", printed)
         self.assertIn("stderr:\npackage stderr", printed)
         self.assertNotIn("cargo publish", printed)

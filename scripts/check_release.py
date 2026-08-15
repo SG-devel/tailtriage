@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check whether a commit is ready for a manual crates.io release."""
+"""Check whether a commit is ready for a manual release."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def failed_command(argv: list[str], result: subprocess.CompletedProcess[str]) ->
 
 def is_publishable(package: dict[str, Any]) -> bool:
     allowed = package.get("publish")
-    return allowed is None or "crates-io" in allowed
+    return allowed is None or bool(allowed)
 
 
 def version_tuple(version: str) -> tuple[int, int, int] | None:
@@ -121,7 +121,7 @@ def check(version: str, changelog: Path = Path("CHANGELOG.md")) -> int:
     if status.returncode != 0:
         errors.append("could not inspect worktree cleanliness:\n" + failed_command(status_command, status))
     elif status.stdout.strip():
-        errors.append("worktree is not clean")
+        errors.append("worktree is not clean:\n" + status.stdout.rstrip())
 
     head_command = ["git", "rev-parse", "HEAD"]
     head_result = command(head_command)
@@ -149,7 +149,7 @@ def check(version: str, changelog: Path = Path("CHANGELOG.md")) -> int:
     publishable = [package for package in workspace if is_publishable(package)]
     non_publishable = sorted(package["name"] for package in workspace if not is_publishable(package))
     if metadata and not publishable:
-        errors.append("workspace has no crates.io-publishable packages")
+        errors.append("workspace has no publishable packages")
     for package in publishable:
         if package["version"] != version:
             errors.append(f"{package['name']} has version {package['version']}, expected {version}")
