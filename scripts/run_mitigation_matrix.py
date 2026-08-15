@@ -10,36 +10,32 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from _demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze
+    from _demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze, scenario_manifest
 except ModuleNotFoundError:  # pragma: no cover
-    from scripts._demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze
+    from scripts._demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze, scenario_manifest
 
 CONF_HIGH = {"high"}
 DEFAULT_OUT = Path("target/mitigation-runs.jsonl")
 
 SCENARIOS = {
     "queue": {
-        "demo_manifest": "demos/queue_service/Cargo.toml",
         "targeted_suspect": "application_queue_saturation",
         "expected_movements": ["p95_decreases", "queue_share_decreases", "targeted_score_nonworsening"],
         "expected_after_top2": ["downstream_stage_dominates", "application_queue_saturation"],
         "notes": "Queue mitigation should reduce queue-wait evidence and improve tail latency.",
     },
     "blocking": {
-        "demo_manifest": "demos/blocking_service/Cargo.toml",
         "targeted_suspect": "blocking_pool_pressure",
         "expected_movements": ["p95_decreases", "blocking_queue_depth_decreases", "targeted_score_nonworsening"],
         "expected_after_top2": ["downstream_stage_dominates", "blocking_pool_pressure"],
         "notes": "Blocking mitigation should reduce blocking queue pressure and improve latency.",
     },
     "downstream": {
-        "demo_manifest": "demos/downstream_service/Cargo.toml",
         "targeted_suspect": "downstream_stage_dominates",
         "expected_movements": ["p95_decreases", "targeted_score_nonworsening"],
         "notes": "Downstream mitigation should reduce stage/service contribution and improve latency.",
     },
     "db-pool": {
-        "demo_manifest": "demos/db_pool_saturation_service/Cargo.toml",
         "targeted_suspect": "application_queue_saturation",
         "expected_movements": ["p95_decreases", "queue_share_decreases", "targeted_score_nonworsening"],
         "expected_after_top2": ["downstream_stage_dominates", "application_queue_saturation"],
@@ -265,7 +261,7 @@ def main() -> int:
     thresholds = {"min_p95_improvement_ratio": args.min_p95_improvement_ratio, "min_p99_improvement_ratio": args.min_p99_improvement_ratio}
     for scenario in scenarios:
         meta = dict(SCENARIOS[scenario])
-        demo_manifest = root / meta["demo_manifest"]
+        demo_manifest = scenario_manifest(root, scenario)
         out_dir = root / args.artifact_root / scenario
         before_artifact = out_dir / "before-run.json"
         before_analysis = out_dir / "before-analysis.json"

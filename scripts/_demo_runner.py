@@ -15,6 +15,30 @@ from typing import Any
 
 PROFILE_CHOICES = ("dev", "release")
 
+# Stable mechanical facts shared by demo commands. Diagnosis expectations and
+# validation thresholds intentionally remain with their policy-owning callers.
+SCENARIOS = {
+    "queue": "queue_service",
+    "blocking": "blocking_service",
+    "executor": "executor_pressure_service",
+    "downstream": "downstream_service",
+    "mixed": "mixed_contention_service",
+    "cold-start": "cold_start_burst_service",
+    "db-pool": "db_pool_saturation_service",
+    "shared-lock": "shared_state_lock_service",
+    "retry-storm": "retry_storm_service",
+}
+
+
+def scenario_manifest(root: Path, scenario: str) -> Path:
+    """Return the Cargo manifest for a supported diagnostic scenario."""
+    return root / "demos" / SCENARIOS[scenario] / "Cargo.toml"
+
+
+def scenario_artifact_dir(root: Path, scenario: str) -> Path:
+    """Return the local artifact directory for a diagnostic scenario."""
+    return root / "demos" / SCENARIOS[scenario] / "artifacts"
+
 
 def repo_root(from_file: str) -> Path:
     """Return repository root for a script file path under ``scripts/``."""

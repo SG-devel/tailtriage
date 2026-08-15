@@ -11,16 +11,15 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from _demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze
+    from _demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze, scenario_manifest
 except ModuleNotFoundError:  # pragma: no cover
-    from scripts._demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze
+    from scripts._demo_runner import PROFILE_CHOICES, load_report_json, repo_root, run_and_analyze, scenario_manifest
 
 CONF_HIGH = {"high"}
 DEFAULT_OUT = Path("target/diagnostic-runs.jsonl")
 
 SCENARIO_MATRIX = {
     "queue": {
-        "manifest": "demos/queue_service/Cargo.toml",
         "variant": "before",
         "demo_mode": "baseline",
         "ground_truth": "application_queue_saturation",
@@ -29,7 +28,6 @@ SCENARIO_MATRIX = {
         "top1_required": True,
     },
     "blocking": {
-        "manifest": "demos/blocking_service/Cargo.toml",
         "variant": "before",
         "demo_mode": "baseline",
         "ground_truth": "blocking_pool_pressure",
@@ -38,7 +36,6 @@ SCENARIO_MATRIX = {
         "top1_required": True,
     },
     "executor": {
-        "manifest": "demos/executor_pressure_service/Cargo.toml",
         "variant": "before",
         "demo_mode": "baseline",
         "ground_truth": "executor_pressure_suspected",
@@ -47,7 +44,6 @@ SCENARIO_MATRIX = {
         "top1_required": True,
     },
     "downstream": {
-        "manifest": "demos/downstream_service/Cargo.toml",
         "variant": "before",
         "demo_mode": "baseline",
         "ground_truth": "downstream_stage_dominates",
@@ -56,7 +52,6 @@ SCENARIO_MATRIX = {
         "top1_required": True,
     },
     "mixed": {
-        "manifest": "demos/mixed_contention_service/Cargo.toml",
         "variant": "before",
         "demo_mode": "baseline",
         "ground_truth": "application_queue_saturation",
@@ -246,7 +241,7 @@ def main() -> None:
     scenario_defs = {name: {**SCENARIO_MATRIX[name], "name": name} for name in selected}
     records: list[dict[str, Any]] = []
     for name, spec in scenario_defs.items():
-        demo_manifest = root / spec["manifest"]
+        demo_manifest = scenario_manifest(root, name)
         run_dir = args.artifact_root / name / spec["variant"]
         run_dir.mkdir(parents=True, exist_ok=True)
         for i in range(1, args.runs + 1):

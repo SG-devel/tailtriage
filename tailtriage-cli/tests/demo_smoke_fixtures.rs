@@ -44,7 +44,7 @@ fn assert_primary_evidence_contains_any(report: &Value, cues: &[&str], fixture: 
 
 #[test]
 fn queue_demo_fixture_reports_application_queue_saturation() {
-    let fixture = "demos/queue_service/fixtures/sample-analysis.json";
+    let fixture = "demos/queue_service/fixtures/before-analysis.json";
     let report = load_demo_analysis(fixture);
 
     assert_primary_kind_in_allowed_set(&report, &["application_queue_saturation"], fixture);
@@ -53,7 +53,7 @@ fn queue_demo_fixture_reports_application_queue_saturation() {
 
 #[test]
 fn blocking_demo_fixture_reports_blocking_pool_pressure() {
-    let fixture = "demos/blocking_service/fixtures/sample-analysis.json";
+    let fixture = "demos/blocking_service/fixtures/before-analysis.json";
     let report = load_demo_analysis(fixture);
 
     assert_primary_kind_in_allowed_set(&report, &["blocking_pool_pressure"], fixture);
@@ -62,7 +62,7 @@ fn blocking_demo_fixture_reports_blocking_pool_pressure() {
 
 #[test]
 fn downstream_demo_fixture_reports_downstream_stage_dominance() {
-    let fixture = "demos/downstream_service/fixtures/sample-analysis.json";
+    let fixture = "demos/downstream_service/fixtures/before-analysis.json";
     let report = load_demo_analysis(fixture);
 
     assert_primary_kind_in_allowed_set(&report, &["downstream_stage_dominates"], fixture);
@@ -71,7 +71,7 @@ fn downstream_demo_fixture_reports_downstream_stage_dominance() {
 
 #[test]
 fn executor_demo_fixture_reports_executor_pressure() {
-    let fixture = "demos/executor_pressure_service/fixtures/sample-analysis.json";
+    let fixture = "demos/executor_pressure_service/fixtures/before-analysis.json";
     let report = load_demo_analysis(fixture);
 
     assert_primary_kind_in_allowed_set(&report, &["executor_pressure_suspected"], fixture);

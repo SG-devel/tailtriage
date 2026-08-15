@@ -17,7 +17,7 @@
 | mitigation validation | Manual/local mitigation matrix available | baseline/mitigated controlled demos compare latency and evidence movement; generated outputs are not committed by default. |
 | real service validation | Planned | add curated real-service anonymized artifacts. |
 
-Schema-version-2 accounting separates 11 analyzer-executed, accuracy-eligible observations from 38 report-contract cases. Report-contract pass rates do not contribute to analyzer accuracy; equivalent artifact encodings are one logical observation, not independent samples. Fixture labels are controlled intent, not production truth. These checks are not real-service validation and do not provide root-cause proof.
+Schema-version-2 accounting separates 11 analyzer-executed, accuracy-eligible observations from 34 report-contract cases. Report-contract pass rates do not contribute to analyzer accuracy; equivalent artifact encodings are one logical observation, not independent samples. Fixture labels are controlled intent, not production truth. These checks are not real-service validation and do not provide root-cause proof.
 
 Normal CI runs the deterministic benchmark against the committed diagnostics manifest and fixtures as a required validation gate. Normal CI still does not publish durable scorecards.
 

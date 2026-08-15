@@ -14,6 +14,7 @@ from _demo_runner import (
     load_report_json,
     repo_root,
     run_and_analyze,
+    scenario_manifest,
     variant_paths,
     write_before_after_comparison,
 )
@@ -94,10 +95,8 @@ def _scenario_specs() -> list[tuple[Path, Path]]:
     return [
         (Path("demos/queue_service/fixtures/before-analysis.json"), Path("queue/before-analysis.json")),
         (Path("demos/queue_service/fixtures/after-analysis.json"), Path("queue/after-analysis.json")),
-        (Path("demos/queue_service/fixtures/sample-analysis.json"), Path("queue/before-analysis.json")),
         (Path("demos/blocking_service/fixtures/before-analysis.json"), Path("blocking/before-analysis.json")),
         (Path("demos/blocking_service/fixtures/after-analysis.json"), Path("blocking/after-analysis.json")),
-        (Path("demos/blocking_service/fixtures/sample-analysis.json"), Path("blocking/before-analysis.json")),
         (
             Path("demos/executor_pressure_service/fixtures/before-analysis.json"),
             Path("executor/before-analysis.json"),
@@ -107,20 +106,12 @@ def _scenario_specs() -> list[tuple[Path, Path]]:
             Path("executor/after-analysis.json"),
         ),
         (
-            Path("demos/executor_pressure_service/fixtures/sample-analysis.json"),
-            Path("executor/before-analysis.json"),
-        ),
-        (
             Path("demos/downstream_service/fixtures/before-analysis.json"),
             Path("downstream/before-analysis.json"),
         ),
         (
             Path("demos/downstream_service/fixtures/after-analysis.json"),
             Path("downstream/after-analysis.json"),
-        ),
-        (
-            Path("demos/downstream_service/fixtures/sample-analysis.json"),
-            Path("downstream/before-analysis.json"),
         ),
         (
             Path("demos/downstream_service/fixtures/before-after-comparison.json"),
@@ -172,63 +163,63 @@ def _scenario_specs() -> list[tuple[Path, Path]]:
 def regenerate_outputs(root_dir: Path, out_dir: Path, *, profile: str = "dev") -> None:
     _run_before_after(
         root_dir,
-        root_dir / "demos/queue_service/Cargo.toml",
+        scenario_manifest(root_dir, "queue"),
         out_dir / "queue",
         snapshot_queue,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/blocking_service/Cargo.toml",
+        scenario_manifest(root_dir, "blocking"),
         out_dir / "blocking",
         snapshot_blocking,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/executor_pressure_service/Cargo.toml",
+        scenario_manifest(root_dir, "executor"),
         out_dir / "executor",
         snapshot_queue,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/downstream_service/Cargo.toml",
+        scenario_manifest(root_dir, "downstream"),
         out_dir / "downstream",
         snapshot_downstream,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/mixed_contention_service/Cargo.toml",
+        scenario_manifest(root_dir, "mixed"),
         out_dir / "mixed",
         snapshot_queue,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/cold_start_burst_service/Cargo.toml",
+        scenario_manifest(root_dir, "cold-start"),
         out_dir / "cold-start",
         snapshot_queue,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/db_pool_saturation_service/Cargo.toml",
+        scenario_manifest(root_dir, "db-pool"),
         out_dir / "db-pool",
         snapshot_queue,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/shared_state_lock_service/Cargo.toml",
+        scenario_manifest(root_dir, "shared-lock"),
         out_dir / "shared-lock",
         snapshot_queue,
         profile=profile,
     )
     _run_before_after(
         root_dir,
-        root_dir / "demos/retry_storm_service/Cargo.toml",
+        scenario_manifest(root_dir, "retry-storm"),
         out_dir / "retry-storm",
         snapshot_queue,
         profile=profile,

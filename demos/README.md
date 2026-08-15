@@ -4,6 +4,11 @@ The demos are intentionally small services for Tokio tail-latency triage. They a
 
 The demos are educational scenario artifacts. They teach triage situations, while validation corpus benchmarking measures diagnostic quality separately.
 
+`runtime_cost` and `collector_stress` are not diagnosis teaching scenarios. They are separate,
+machine/workload/profile-scoped empirical workloads owned by
+[`docs/runtime-cost.md`](../docs/runtime-cost.md) and
+[`docs/collector-limits.md`](../docs/collector-limits.md), respectively.
+
 ## Brief introduction
 
 Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) for a short introduction to the demos and how to run them.
@@ -85,7 +90,8 @@ Check out [`../docs/getting-started-demo.md`](../docs/getting-started-demo.md) f
 - `primary_suspect.kind`
 - `p95_service_share_permille`
 - downstream-stage suspect evidence
-- before/after p95 and suspect-score movement in `before-after-comparison.json`
+- before/after p95 and suspect-score movement in the committed, drift-checked
+  `before-after-comparison.json`
 
 ### `db_pool_saturation_service`
 

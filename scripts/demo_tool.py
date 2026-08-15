@@ -11,9 +11,11 @@ from typing import Callable
 
 from _demo_runner import (
     PROFILE_CHOICES,
+    SCENARIOS as SCENARIO_PATHS,
     load_report_json,
     repo_root,
     run_and_analyze,
+    scenario_artifact_dir,
     variant_paths,
     write_before_after_comparison,
 )
@@ -28,17 +30,7 @@ EXPECTED_DB_POOL_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_SHARED_LOCK_PRIMARY_KINDS = EXPECTED_QUEUE_KIND
 EXPECTED_RETRY_STORM_PRIMARY_KINDS = EXPECTED_DOWNSTREAM_KIND
 MODE_CHOICES = ["before", "after", "both", "baseline", "mitigated"]
-SCENARIOS = [
-    "queue",
-    "blocking",
-    "executor",
-    "downstream",
-    "mixed",
-    "cold-start",
-    "db-pool",
-    "shared-lock",
-    "retry-storm",
-]
+SCENARIOS = list(SCENARIO_PATHS)
 
 
 def _suspects(report: dict) -> list[dict]:
@@ -1291,17 +1283,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 def _scenario_to_artifact_dir(root_dir: Path, scenario: str) -> Path:
-    return {
-        "queue": root_dir / "demos/queue_service/artifacts",
-        "blocking": root_dir / "demos/blocking_service/artifacts",
-        "executor": root_dir / "demos/executor_pressure_service/artifacts",
-        "downstream": root_dir / "demos/downstream_service/artifacts",
-        "mixed": root_dir / "demos/mixed_contention_service/artifacts",
-        "cold-start": root_dir / "demos/cold_start_burst_service/artifacts",
-        "db-pool": root_dir / "demos/db_pool_saturation_service/artifacts",
-        "shared-lock": root_dir / "demos/shared_state_lock_service/artifacts",
-        "retry-storm": root_dir / "demos/retry_storm_service/artifacts",
-    }[scenario]
+    return scenario_artifact_dir(root_dir, scenario)
 
 def _run_scenario(root_dir: Path, scenario: str, mode: str, *, profile: str) -> None:
     if scenario == "queue":
