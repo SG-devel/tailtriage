@@ -106,17 +106,16 @@ This is intentionally a high-level owner map, not a provenance audit.
 
 | Family | Broad contract and current owner | Detailed documentation |
 | --- | --- | --- |
-| Analyzer/golden and report-contract fixtures | Typed analyzer behavior is exercised by [`tailtriage-analyzer/tests/fixtures/`](../../tailtriage-analyzer/tests/fixtures); corpus report-contract artifacts are owned by the diagnostic manifest and benchmark. | [Analyzer README](../../tailtriage-analyzer/README.md) and [diagnostic corpus contract](../../validation/diagnostics/README.md) |
+| Analyzer/golden and report-contract fixtures | Typed analyzer behavior is exercised by [`tailtriage-analyzer/tests/fixtures/`](../../tailtriage-analyzer/tests/fixtures); corpus report-contract artifacts are owned by the diagnostic manifest and benchmark. | [Fixture lineage](FIXTURE_LINEAGE.md), [Analyzer README](../../tailtriage-analyzer/README.md), and [diagnostic corpus contract](../../validation/diagnostics/README.md) |
 | Tracing-equivalence artifacts | Native `Run`, stable completed-span JSONL, and expected equivalence evidence are owned by `tailtriage-tracing` tests and [`tests/fixtures/equivalence/`](../../tailtriage-tracing/tests/fixtures/equivalence). | [Tracing README](../../tailtriage-tracing/README.md) and [validation equivalence tracks](../diagnostic-validation.md#native-tracing-equivalence-tracks) |
 | Diagnostic validation corpus | Manifest-classified analyzer execution and report-contract cases live under [`validation/diagnostics/`](../../validation/diagnostics), with integrity and benchmark scripts under `scripts/`. | [Corpus contract](../../validation/diagnostics/README.md) and [VALIDATION.md](VALIDATION.md) |
 | Demo fixtures/artifacts | Scenario-owned checked-in analysis fixtures live below each demo; `scripts/demo_tool.py` and drift checks own execution/verification. | [Demo guide](../../demos/README.md) and [getting-started demo](../getting-started-demo.md) |
 | Runtime-cost outputs | Committed latest summaries live under [`validation/runtime-cost/latest/`](../../validation/runtime-cost/latest); machine/workload/profile-scoped generated operational output is normally under `target/`. | [Runtime-cost domain](../../validation/runtime-cost/README.md) and [user guidance](../runtime-cost.md) |
 | Collector-limit outputs | Committed latest summaries live under [`validation/collector-limits/latest/`](../../validation/collector-limits/latest); generated validation checks visible bounded drops, warnings, and downgrade behavior rather than claiming no drops. | [Collector-limit domain](../../validation/collector-limits/README.md) and [user guidance](../collector-limits.md) |
-| Generated diagnostic scorecards | The generator and manual snapshot workflow own generated scorecards; the current committed reference is [`validation/diagnostics/latest/scorecard.md`](../../validation/diagnostics/latest/scorecard.md). | [Diagnostic corpus snapshots](../../validation/diagnostics/README.md#versionedmanual-scorecard-generation) |
+| Generated diagnostic scorecards | The generator and manual snapshot workflow own generated scorecards; the current committed reference is [`validation/diagnostics/latest/scorecard.md`](../../validation/diagnostics/latest/scorecard.md). | [Diagnostic corpus snapshots](../../validation/diagnostics/README.md#manual-scorecard-generation) |
 
-Detailed source, consumer, generator/refresh command, mutation policy, lineage, and
-retirement/consolidation decisions remain Phase 25A work. This map makes no fixture ownership
-change.
+Detailed source, consumer, generator/refresh command, mutation policy, lineage, and disposition are
+documented in the [fixture and scenario lineage map](FIXTURE_LINEAGE.md).
 
 ## Intentionally unresolved work
 
