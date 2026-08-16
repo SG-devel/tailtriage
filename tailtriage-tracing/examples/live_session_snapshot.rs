@@ -50,8 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let imported = futures_executor::block_on(session.shutdown())?;
     let run = imported.run();
-    let diagnosis =
-        analyze_run(run, AnalyzeOptions::default()).expect("analyzer options should be valid");
+    let diagnosis = analyze_run(run, AnalyzeOptions::default())?;
     println!("{}", render_text(&diagnosis));
     Ok(())
 }

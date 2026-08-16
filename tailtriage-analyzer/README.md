@@ -66,7 +66,7 @@ The 0.4 API has one checked analysis operation and separate renderers:
 - `try_analyze_run(...)` becomes `analyze_run(...)?`.
 - The former `analyze_run(...) -> Report` becomes `analyze_run(...) -> Result<Report, AnalyzeConfigError>`.
 - `Analyzer` methods become `analyze_run(...)`; reuse `AnalyzeOptions` directly.
-- `analyze_run_json*` becomes `analyze_run(...)?` followed by `render_json*(&report)?`.
+- `analyze_run_json*` / `try_analyze_run_json*` become `analyze_run(...)?` followed by `render_json*(&report)?`.
 - Analyzer-owned strict wrappers become `tailtriage_core::validate_run_strict(...)?` followed by `analyze_run(...)?`.
 
 ## Request ID contract

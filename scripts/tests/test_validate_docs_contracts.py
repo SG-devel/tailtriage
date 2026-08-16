@@ -244,6 +244,19 @@ Schema contract:
                 with self.assertRaisesRegex(ValueError, r"conflates strict Run artifact validation"):
                     validate_docs_contracts.validate_governance_strictness_contract()
 
+    def test_analyzer_strictness_ownership_rejects_analyzer_strict_alternatives(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "README.md"
+            path.write_text(
+                "Analyzer library entry points remain permissive by default and expose strict alternatives.\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", Path(tmp_dir)),
+                self.assertRaisesRegex(ValueError, "analyzer-owned strict validation alternatives"),
+            ):
+                validate_docs_contracts.validate_analyzer_strictness_ownership_contract(path=path)
+
     def test_governance_pending_state_contract_accepts_unsealed_shutdown_wording(self) -> None:
         design_text = """# Notes
 

@@ -19,6 +19,7 @@ DEV_DOCS_DIR = REPO_ROOT / "docs" / "dev"
 DESIGN_NOTES_PATH = DEV_DOCS_DIR / "DESIGN_NOTES.md"
 IMPLEMENTATION_PLAN_PATH = DEV_DOCS_DIR / "IMPLEMENTATION_PLAN.md"
 VALIDATION_PATH = DEV_DOCS_DIR / "VALIDATION.md"
+DEV_README_PATH = DEV_DOCS_DIR / "README.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
@@ -341,6 +342,14 @@ def validate_governance_strictness_contract() -> None:
     for pattern in conflations:
         if re.search(pattern, lower_text):
             raise ValueError("SPEC.md conflates strict Run artifact validation with tracing import --strict")
+
+
+def validate_analyzer_strictness_ownership_contract(*, path: Path = DEV_README_PATH) -> None:
+    text = path.read_text(encoding="utf-8")
+    if re.search(r"analyzer (?:library )?entry points?[^\n]*expose strict alternatives", text, re.IGNORECASE):
+        raise ValueError(
+            f"{path.relative_to(REPO_ROOT)} claims analyzer-owned strict validation alternatives"
+        )
 
 
 def validate_governance_pending_state_contract() -> None:
@@ -1601,6 +1610,7 @@ def validate_run_schema_v2_public_contract(
 def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
+    validate_analyzer_strictness_ownership_contract()
     validate_governance_pending_state_contract()
     validate_analyzer_ownership_navigation()
     validate_crate_rustdocs_include_readmes()
