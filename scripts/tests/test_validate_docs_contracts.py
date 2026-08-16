@@ -1658,10 +1658,16 @@ Duplicate.
             workflow.parent.mkdir(parents=True)
             script.parent.mkdir()
             workflow.write_text(
-                """permissions:
-  contents: read
+                """# permissions: write-all
+permissions: read-all
 jobs:
+  inert:
+    steps:
+      - run: echo "permissions: write-all"
+      - run: printf '%s\\n' 'contents: write'
   validate:
+    permissions:
+      contents: read
     steps:
       - run: git status --short
       - run: git diff --check
@@ -1767,6 +1773,8 @@ jobs:
         prohibited_cases = {
             "workflow": "permissions:\n  contents: write\njobs: {}\n",
             "job": "jobs:\n  release:\n    permissions:\n      contents: write\n    steps: []\n",
+            "workflow write-all": "permissions: write-all\njobs: {}\n",
+            "job write-all": "jobs:\n  validate:\n    permissions: write-all\n    steps: []\n",
         }
         for label, source in prohibited_cases.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp_dir:
@@ -1776,7 +1784,10 @@ jobs:
                 workflow.write_text(source, encoding="utf-8")
                 with (
                     mock.patch.object(validate_docs_contracts, "REPO_ROOT", root),
-                    self.assertRaisesRegex(ValueError, "prohibited contents: write permission"),
+                    self.assertRaisesRegex(
+                        ValueError,
+                        "prohibited (?:contents: write|permissions: write-all) permission",
+                    ),
                 ):
                     validate_docs_contracts.validate_manual_release_boundary(
                         workflow_paths=(workflow,), release_script_paths=()

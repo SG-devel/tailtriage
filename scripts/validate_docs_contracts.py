@@ -1704,6 +1704,49 @@ def _static_command_argument(node: ast.AST) -> str | None:
     return None
 
 
+def _prohibited_workflow_permission_lines(text: str) -> list[tuple[int, str]]:
+    """Return prohibited workflow/job permission declarations and their lines."""
+    errors: list[tuple[int, str]] = []
+    # Each entry is an indentation level and a mapping key. This deliberately
+    # recognizes only the workflow- and job-level permission forms relevant to
+    # Z02; command strings, comments, and step mappings are outside those scopes.
+    mapping_stack: list[tuple[int, str]] = []
+    key_pattern = re.compile(r"^(\s*)([A-Za-z0-9_-]+)\s*:\s*(.*?)\s*$")
+
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = key_pattern.match(line)
+        if match is None:
+            continue
+
+        indent = len(match.group(1).expandtabs(2))
+        key = match.group(2)
+        value = match.group(3).split(" #", 1)[0].strip().lower()
+        while mapping_stack and mapping_stack[-1][0] >= indent:
+            mapping_stack.pop()
+        parents = [parent_key for _, parent_key in mapping_stack]
+        permission_scope = not parents or (
+            len(parents) == 2 and parents[0] == "jobs"
+        )
+
+        if key == "permissions" and permission_scope and value == "write-all":
+            errors.append((line_number, "requests prohibited permissions: write-all permission"))
+        elif (
+            key == "contents"
+            and value == "write"
+            and parents
+            and parents[-1] == "permissions"
+            and (len(parents) == 1 or (len(parents) == 3 and parents[0] == "jobs"))
+        ):
+            errors.append((line_number, "requests prohibited contents: write permission"))
+
+        if not value:
+            mapping_stack.append((indent, key))
+
+    return errors
+
+
 def validate_manual_release_boundary(
     *,
     workflow_paths: tuple[Path, ...] | None = None,
@@ -1718,6 +1761,8 @@ def validate_manual_release_boundary(
     errors: list[str] = []
     for path in workflow_paths:
         text = path.read_text(encoding="utf-8")
+        for line_number, message in _prohibited_workflow_permission_lines(text):
+            errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} {message}")
         for line_number, line in enumerate(text.splitlines(), start=1):
             executable = re.sub(r"^\s*(?:-\s*)?(?:run:\s*)?", "", line)
             prohibited = _prohibited_release_command(executable)
@@ -1727,10 +1772,6 @@ def validate_manual_release_boundary(
                 errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} configures registry publication credentials")
             if re.search(r"uses:\s*[^#\s]*(?:create[-_]release|action[-_]gh[-_]release|release[-_]action)", line, re.IGNORECASE):
                 errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} invokes GitHub Release automation")
-            if re.search(r"\bcontents\s*:\s*write\b", line, re.IGNORECASE):
-                errors.append(
-                    f"{path.relative_to(REPO_ROOT)}:{line_number} requests prohibited contents: write permission"
-                )
 
     command_runner_names = {"command", "run", "Popen", "call", "check_call", "check_output"}
     for path in release_script_paths:
