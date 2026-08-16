@@ -73,7 +73,7 @@ production source, script, manifest, workflow, or golden was changed while produ
 | L01 | CLI command/help policy exposes analyze/import, removed strict flag stays rejected, import strict remains distinct | CLI `main.rs` | `tailtriage-cli/tests/cli_boundary.rs::{tailtriage_help_mentions_import_and_analyze_artifacts, analyze_help_documents_strict_default_and_permissive_escape_hatch, analyze_rejects_removed_strict_artifact_flag, tracing_import_help_keeps_distinct_strict_input_flag}` | docs contracts | boundary + documentation; gate/CI | none | high | KEEP | Negative tests protect the final Phase-26 command surface, not obsolete APIs. |
 | L02 | Saved Run loading requires supported finalized schema and non-empty requests | CLI `artifact.rs` | `tailtriage-cli/src/artifact.rs::{rejects_malformed_json, rejects_missing_required_fields, rejects_empty_requests_section, rejects_missing_schema_version, rejects_non_integer_schema_versions, rejects_unsupported_schema_versions, flags_truncation_like_parse_errors, surfaces_unfinished_request_warnings, cli_loads_finalized_schema_v2_artifact, cli_rejects_schema_v1_before_shape_decode, cli_rejects_unfinalized_schema_v2_artifact}` | `cli_boundary.rs` strict-default cases | unit + process boundary; gate/CI | inline JSON/temp files | high | KEEP | Loader diagnostics and end-to-end exit/stderr both matter. |
 | L03 | CLI analysis is strict by default; explicit ambiguous mode normalizes and emits every issue | CLI main/artifact + core validation | `tailtriage-cli/tests/cli_boundary.rs::{analyze_rejects_duplicate_completed_request_ids_by_default, analyze_allow_ambiguous_artifact_excludes_orphan_and_warns, analyze_default_accepts_warning_only_precision_findings}` | `json_parity.rs` seven-case matrix | boundary + equivalence; gate/CI | inline JSON | high | KEEP | Policy and normalized cross-entry equivalence are distinct. |
-| L04 | Analyzer config file/override precedence, type/range errors, and help are CLI-private behavior | CLI `analyze_config.rs`, main | `tailtriage-cli/src/analyze_config.rs::{default_options_without_config_or_overrides, config_toml_applies, override_applies_and_beats_toml_last_wins, misspelled_path_reports_suggestion, invalid_type_reports_expected_type, missing_config_returns_read_config_error_with_path, invalid_toml_returns_analyzer_error}` | CLI boundary config/help tests | unit + boundary; gate/CI | temporary TOML | high | CONSOLIDATE | See backlog A1: two default/config/override paths overlap at the same config-composition boundary; retain process error/help coverage. |
+| L04 | Analyzer config file/override precedence, type/range errors, and help are CLI-private behavior | CLI `analyze_config.rs`, main | `tailtriage-cli/src/analyze_config.rs::{positive_config_composition_cases, misspelled_path_reports_suggestion, invalid_type_reports_expected_type, missing_config_returns_read_config_error_with_path, invalid_toml_returns_analyzer_error}` | CLI boundary config/help tests | unit + boundary; gate/CI | temporary TOML | high | KEEP | The named table cases own defaults, TOML, and last-wins override composition; private error diagnostics and process help/error behavior remain distinct. |
 | L05 | CLI JSON exactly matches analyzer renderer | CLI output delegation | `tailtriage-cli/tests/json_parity.rs::cli_json_matches_analyzer_renderer_output` | analyzer renderer unit tests | equivalence; gate/CI | queue analyzer fixture | high | KEEP | Cross-process equality is stronger than either side alone. |
 | P01 | Facade default exposes core, controller, and Tokio paths | `tailtriage/Cargo.toml`, `src/lib.rs` | `tailtriage/src/lib.rs::{core_reexport_exposes_tailtriage, tokio_namespace_reexport_compiles, tokio_helper_trait_reexport_path_compiles, controller_namespace_reexport_compiles, axum_namespace_reexport_compiles, tracing_namespace_reexport_compiles}` | public example smoke script | package + API; gate/CI | examples | medium | KEEP | Facade availability is not implied by component workspace tests. |
 | P02 | Facade Axum/tracing feature relationships expose direct integration APIs | facade manifest/lib | `tailtriage/src/lib.rs::{axum_namespace_reexport_compiles, tracing_namespace_reexport_compiles}`, `tailtriage/tests/tracing_facade.rs` (the feature-gated integration target itself is the direct façade proof unit) | docs contract feature checks | package + live; gate/CI | none | high | KEEP | Protects feature wiring and executable API. |
@@ -89,8 +89,8 @@ production source, script, manifest, workflow, or golden was changed while produ
 | O02 | Collector-limit output exposes bounded drops, warnings, and downgrade behavior; never “no drops” | collector demo/scripts | `scripts/measure_collector_limits.py`, `scripts/validate_collector_limits_summary.py`, `scripts/tests/test_measure_collector_limits.py::CollectorLimitsSummaryTests::test_summarize_synthetic_rows_exposes_structure_mode_filtering_sampler_and_onset`, `scripts/tests/test_validate_collector_limits_summary.py::ValidateCollectorLimitsSummaryTests::test_accepts_summary_with_required_shape` | committed status scorecard/docs contracts | operational; CI/manual | generated raw/summary | high | KEEP | Saturation is expected evidence, not failure of the characterization. |
 | M01 | User docs remain complete, linked, current, and keep product/validation claims bounded | Markdown + docs index | `scripts/validate_docs_contracts.py`, `scripts/tests/test_validate_docs_contracts.py::ValidateDocsContractsTests` (the full contract class is the user-doc proof unit) | CI docs-contract job | documentation/boundary; gate/CI | Markdown/examples/workflow source | high | KEEP | Contract tests inspect repository source only, not hosted state. |
 | M02 | Removed Phase-26 public APIs/helpers remain absent | package public sources | `scripts/tests/test_validate_docs_contracts.py::ValidateDocsContractsTests::{test_residual_public_api_cleanup_contract_accepts_private_cli_internals, test_residual_public_api_cleanup_contract_rejects_cli_helper_export, test_analyzer_strictness_ownership_rejects_analyzer_strict_alternatives}` | canonical public API compile tests | API + documentation; gate/CI | source text | high | KEEP | Negative absence checks are current-surface proof, not obsolete compatibility proof. |
-| Z01 | Release preflight is check/package-only, dependency ordered, and never publishes | `scripts/check_release.py` | `scripts/tests/test_check_release.py::CheckReleaseTests::{test_classification_and_deterministic_dependency_order, test_readiness_failure_suppresses_package_and_publish_commands, test_success_packages_once_and_prints_publication_order, test_packaging_failure_suppresses_publication_commands}` | `docs/dev/RELEASING.md`, docs validator, CI source | release + documentation; gate/CI/manual | manifests | high | ADD MISSING PROOF | Existing tests cover plan/error behavior but no focused negative test scans checker/workflows for executable `cargo publish`; add in the existing release test module. |
-| Z02 | Release remains manual: no tag, GitHub Release, credentials, or publication automation | release docs and workflow source | `docs/dev/RELEASING.md`, `.github/workflows/ci.yml` (these checked-in policy sources are the current module-level proof units; Z02 proposes executable source-policy proof) | manual review | release; gate/CI/manual | Markdown/workflows | medium | ADD MISSING PROOF | Add one repository-source policy test rather than network/hosted inspection. |
+| Z01 | Release preflight is check/package-only, dependency ordered, and never publishes | `scripts/check_release.py` | `scripts/tests/test_check_release.py::CheckReleaseTests::{test_classification_and_deterministic_dependency_order, test_readiness_failure_suppresses_package_and_publish_commands, test_success_packages_once_and_prints_publication_order, test_successful_preflight_executes_checks_and_package_but_never_publish, test_packaging_failure_suppresses_publication_commands}` | `docs/dev/RELEASING.md`, repository release-boundary validator | release + documentation; gate/CI/manual | manifests | high | KEEP | The focused success-path proof captures every invocation, excludes executed `cargo publish`, and retains inert manual instructions. |
+| Z02 | GitHub workflows are validation/diagnostic-only with respect to durable repository and release state: no automated commit, tag, push, crate publication, GitHub Release mutation, or publication credentials | release tooling and workflow source | `scripts/validate_docs_contracts.py::validate_manual_release_boundary`, `scripts/tests/test_validate_docs_contracts.py::ValidateDocsContractsTests::{test_manual_release_boundary_accepts_non_mutating_automation, test_manual_release_boundary_rejects_executable_release_script_mutation, test_manual_release_boundary_rejects_workflow_mutation_commands, test_manual_release_boundary_rejects_release_actions_and_credentials, test_manual_release_boundary_rejects_contents_write_permissions}` | `docs/dev/RELEASING.md`, Z01 invocation proof | release + documentation; gate/CI/manual | checked-in scripts/workflows | high | KEEP | The release procedure remains manual. Workflows may validate and upload diagnostic Actions artifacts but may not mutate repository/release state or request `contents: write`; release scripts may print inert publication instructions. Z01 separately proves successful preflight executes no `cargo publish`. |
 | Q01 | Option descriptors have unique exact paths and bounded combinations are exhaustively validated | analyzer option registry | `tailtriage-analyzer/src/tests.rs::{descriptors_have_unique_and_exact_v1_paths, analyze_options_validate_rejects_invalid_classes, validate_ratio_zero_denominators_report_exact_paths}` | CLI help/config tests | exhaustive small-domain + boundary; gate/CI | example TOML | high | KEEP | Existing finite tables are sufficient; no property-testing dependency is justified. |
 
 **Inventory total:** 67 invariant rows across the 30 required families. The rows deliberately
@@ -128,25 +128,31 @@ after compilation warm-up**, measured with
 `TIMEFORMAT='WALL_SECONDS=%R'; time cargo test --workspace --all-targets --all-features --locked`. Wall time is
 machine/cache dependent and is not an optimization target.
 
-## Phase 27A2 decision backlog
+## Phase 27A2 implementation outcome
 
-### A. High-confidence proposed consolidation/removal
+The accepted L04 consolidation replaced the three positive private composition tests with the
+named table-driven `positive_config_composition_cases` owner. The separate private diagnostic
+cases and process-boundary CLI config/help/error tests remain intentionally distinct.
 
-1. **Consolidate CLI analyzer-config composition cases (L04).** In
-   `tailtriage-cli/src/analyze_config.rs`, consolidate
-   `default_options_without_config_or_overrides`, `config_toml_applies`, and
-   `override_applies_and_beats_toml_last_wins` into one table-driven private-boundary test. Keep
-   `tailtriage-cli/tests/cli_boundary.rs` config/help/error tests as the process boundary. The
-   surviving primary owner is the table-driven private test; boundary and diagnostic quality stay
-   equal or improve because the failing case is labeled. Benefit: one setup/composition path;
-   risk: low. Validate focused CLI tests and the full gate.
-2. **Remove no executable compatibility test.** The obsolescence search found no Rust/Python test
-   calling `Analyzer`, `try_analyze_run`, `analyze_run_json*`, analyzer strict wrappers,
-   `try_begin_request*`, `RuntimeSampler::start(run, interval)`, either removed `crate_name()`, or
-   public CLI artifact helpers. Validator negative-source checks intentionally survive as M02.
-   Consequently there is no high-confidence `REMOVE` proposal in 27A1.
+Z01 now has a focused captured-invocation proof that successful preflight runs readiness checks
+and packaging, never executes `cargo publish`, and still prints manual publication instructions.
+Z02 now has a deterministic checked-in-source validator for workflows and release scripts. It
+allows validation, read-only Git inspection, runner-local output, diagnostic Actions artifact
+uploads, and inert manual instructions while rejecting automated commit/tag/push, crate
+publication/login, GitHub Release mutation, publication credentials, and repository-content write
+permission. No accepted proposal was omitted, and no other proof was consolidated or removed.
 
-### B. Intentionally retained overlap
+Post-27A2 measurement retained **47 Rust test targets** with **953 listed Rust test cases**, as
+measured by `cargo test --workspace --all-targets --all-features --locked -- --list`. Python
+validation retained **14 test modules** and executed **306 tests**, as measured by
+`python3 -m unittest discover -s scripts/tests -v`.
+
+The comparable post-27A2 warm-cache Rust test command completed in **5.246 seconds** on the
+implementation container. Like the 5.102-second baseline, this is machine/cache dependent,
+descriptive only, not evidence that a test was redundant, and not an optimization target. No
+performance improvement is claimed from the timing difference.
+
+### Intentionally retained overlap
 
 - Keep analyzer arithmetic/eligibility tests beside full Report goldens: they cross unit versus
   serialization boundaries and the unit failures isolate rules better.
@@ -163,23 +169,11 @@ machine/cache dependent and is not an optimization target.
 - Keep the byte-identical low-request fixture copies described in `FIXTURE_LINEAGE.md`: one owns an
   analyzer golden and the contained copy owns integrity/CLI execution accounting.
 
-### C. Missing-proof additions
-
-1. **Release no-publication proof (Z01).** Add a focused test to
-   `scripts/tests/test_check_release.py` that inspects the generated executable plan and repository
-   workflow commands, proving publication commands are printed inert instructions only. Primary
-   owner remains the release test module; class `release`; risk low; run that module, docs
-   contracts, and full gate.
-2. **Repository release-boundary policy (Z02).** Add one docs-validator policy test covering no
-   executable `cargo publish`, tag, Release, or credential step in checked-in scripts/workflows.
-   Do not query hosted state. Primary owner becomes the docs validator test module; class
-   `release/documentation`; risk low-to-medium due to source-scanner false positives.
-
 ### D. Deferred/uncertain candidates (retain by default)
 
-- The CLI private config tests and process tests share inputs, but only the three positive
-  composition cases in A1 are approved candidates. Retain misspelling, invalid type, missing file,
-  invalid TOML, help, stderr, and exit-status cases because their diagnostics/boundaries differ.
+- The consolidated CLI private composition proof and process tests share inputs. Retain
+  misspelling, invalid type, missing file, invalid TOML, help, stderr, and exit-status cases
+  because their diagnostics/boundaries differ.
 - `tailtriage-tracing/tests/equivalence.rs` overlaps deterministic equivalence assertions, but it
   uses the live recorder harness; retain until a line-by-line proof shows the recorder lifecycle is
   independently owned with equal diagnostics.

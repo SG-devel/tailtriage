@@ -90,6 +90,44 @@ class CheckReleaseTests(unittest.TestCase):
         self.assertIn("cargo publish --locked -p private", printed)
         self.assertLess(printed.index("cargo publish --locked -p api"), printed.index("cargo publish --locked -p cli"))
 
+    def test_successful_preflight_executes_checks_and_package_but_never_publish(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(argv: list[str]):
+            calls.append(argv)
+            if argv[:2] == ["git", "rev-parse"]:
+                return result(stdout="abc\n")
+            if argv[:2] == ["cargo", "metadata"]:
+                return result(stdout=json.dumps(metadata()))
+            return result()
+
+        with tempfile.TemporaryDirectory() as directory:
+            changelog = Path(directory) / "CHANGELOG.md"
+            changelog.write_text("## [1.2.3] - 2026-08-07\n\nNotes.\n", encoding="utf-8")
+            output = io.StringIO()
+            with patch.object(check_release, "command", side_effect=run), redirect_stdout(output):
+                self.assertEqual(0, check_release.check("1.2.3", changelog))
+
+        self.assertEqual(
+            [
+                ["git", "status", "--porcelain"],
+                ["git", "rev-parse", "HEAD"],
+                ["cargo", "metadata", "--format-version", "1", "--locked"],
+                ["cargo", "package", "--locked", "-p", "core", "-p", "private", "-p", "api", "-p", "cli"],
+            ],
+            calls,
+            "successful preflight must execute only readiness checks and packaging",
+        )
+        self.assertFalse(
+            any(call[:2] == ["cargo", "publish"] for call in calls),
+            f"cargo publish must remain an inert manual instruction; captured calls: {calls!r}",
+        )
+        self.assertIn(
+            "Manual publication instructions (do not run automatically):",
+            output.getvalue(),
+        )
+        self.assertIn("cargo publish --locked -p core", output.getvalue())
+
     def test_packaging_failure_suppresses_publication_commands(self) -> None:
         def run(argv: list[str]):
             if argv[:2] == ["git", "status"]:

@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
+import shlex
 import subprocess
 import tomllib
 from pathlib import Path
@@ -36,6 +38,7 @@ ANALYZER_DOC_PATHS = (
 )
 DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "before-analysis.json"
@@ -1634,6 +1637,163 @@ def validate_run_schema_v2_public_contract(
         if "null" not in lower:
             raise ValueError(f"{path.relative_to(REPO_ROOT)} must permit null finalization for active snapshots")
 
+
+def _prohibited_release_command(command: str) -> str | None:
+    """Return the prohibited repository/release operation executed by a command."""
+    normalized = " ".join(command.strip().split())
+    if not normalized or normalized.startswith("#"):
+        return None
+
+    # This is deliberately a small command classifier, not a shell parser. Splitting
+    # command lists lets each statically recognizable invocation pass through the same
+    # wrapper and tool-global-option normalization.
+    for segment in re.split(r"\s*(?:&&|\|\||[;|&])\s*", normalized):
+        try:
+            words = shlex.split(segment, comments=True)
+        except ValueError:
+            words = segment.split()
+        if not words or words[0] in {"echo", "printf"}:
+            continue
+
+        if words[0] == "command":
+            words = words[1:]
+        if words and words[0] == "env":
+            words = words[1:]
+            while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+                words = words[1:]
+        if not words:
+            continue
+
+        tool, arguments = words[0], words[1:]
+        if tool == "cargo":
+            if arguments and arguments[0].startswith("+"):
+                arguments = arguments[1:]
+            if arguments and arguments[0] == "publish":
+                return "cargo publish"
+            if arguments and arguments[0] == "login":
+                return "cargo registry login"
+        elif tool == "git":
+            while len(arguments) >= 2 and arguments[0] == "-c":
+                arguments = arguments[2:]
+            if arguments and arguments[0] in {"commit", "tag", "push"}:
+                return {
+                    "commit": "git commit",
+                    "tag": "git tag creation",
+                    "push": "git push",
+                }[arguments[0]]
+        elif (
+            tool == "gh"
+            and len(arguments) >= 2
+            and arguments[0] == "release"
+            and arguments[1] in {"create", "upload", "edit"}
+        ):
+            return "GitHub Release publication"
+    return None
+
+
+def _static_command_argument(node: ast.AST) -> str | None:
+    if isinstance(node, (ast.List, ast.Tuple)):
+        words: list[str] = []
+        for element in node.elts:
+            if not isinstance(element, ast.Constant) or not isinstance(element.value, str):
+                return None
+            words.append(element.value)
+        return " ".join(words)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _prohibited_workflow_permission_lines(text: str) -> list[tuple[int, str]]:
+    """Return prohibited workflow/job permission declarations and their lines."""
+    errors: list[tuple[int, str]] = []
+    # Each entry is an indentation level and a mapping key. This deliberately
+    # recognizes only the workflow- and job-level permission forms relevant to
+    # Z02; command strings, comments, and step mappings are outside those scopes.
+    mapping_stack: list[tuple[int, str]] = []
+    key_pattern = re.compile(r"^(\s*)([A-Za-z0-9_-]+)\s*:\s*(.*?)\s*$")
+
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = key_pattern.match(line)
+        if match is None:
+            continue
+
+        indent = len(match.group(1).expandtabs(2))
+        key = match.group(2)
+        value = match.group(3).split(" #", 1)[0].strip().lower()
+        while mapping_stack and mapping_stack[-1][0] >= indent:
+            mapping_stack.pop()
+        parents = [parent_key for _, parent_key in mapping_stack]
+        permission_scope = not parents or (
+            len(parents) == 2 and parents[0] == "jobs"
+        )
+
+        if key == "permissions" and permission_scope and value == "write-all":
+            errors.append((line_number, "requests prohibited permissions: write-all permission"))
+        elif (
+            key == "contents"
+            and value == "write"
+            and parents
+            and parents[-1] == "permissions"
+            and (len(parents) == 1 or (len(parents) == 3 and parents[0] == "jobs"))
+        ):
+            errors.append((line_number, "requests prohibited contents: write permission"))
+
+        if not value:
+            mapping_stack.append((indent, key))
+
+    return errors
+
+
+def validate_manual_release_boundary(
+    *,
+    workflow_paths: tuple[Path, ...] | None = None,
+    release_script_paths: tuple[Path, ...] | None = None,
+) -> None:
+    """Reject durable repository/release mutation in checked-in automation."""
+    if workflow_paths is None:
+        workflow_paths = tuple(sorted((*WORKFLOWS_DIR.glob("*.yml"), *WORKFLOWS_DIR.glob("*.yaml"))))
+    if release_script_paths is None:
+        release_script_paths = tuple(sorted((REPO_ROOT / "scripts").glob("*release*.py")))
+
+    errors: list[str] = []
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        for line_number, message in _prohibited_workflow_permission_lines(text):
+            errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} {message}")
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            executable = re.sub(r"^\s*(?:-\s*)?(?:run:\s*)?", "", line)
+            prohibited = _prohibited_release_command(executable)
+            if prohibited:
+                errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} executes prohibited {prohibited}")
+            if re.search(r"\bCARGO_REGISTRY(?:_[A-Z0-9]+)?_TOKEN\b", line):
+                errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} configures registry publication credentials")
+            if re.search(r"uses:\s*[^#\s]*(?:create[-_]release|action[-_]gh[-_]release|release[-_]action)", line, re.IGNORECASE):
+                errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} invokes GitHub Release automation")
+
+    command_runner_names = {"command", "run", "Popen", "call", "check_call", "check_output"}
+    for path in release_script_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else (
+                node.func.id if isinstance(node.func, ast.Name) else ""
+            )
+            if name not in command_runner_names:
+                continue
+            command = _static_command_argument(node.args[0])
+            prohibited = _prohibited_release_command(command or "")
+            if prohibited:
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)}:{node.lineno} executes prohibited {prohibited}"
+                )
+
+    if errors:
+        raise ValueError("manual release boundary failed:\n" + "\n".join(errors))
+
 def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
@@ -1669,6 +1829,7 @@ def main() -> int:
     validate_live_tracing_session_public_contract()
     validate_run_schema_v2_public_contract()
     validate_checkpoint_documentation_contract()
+    validate_manual_release_boundary()
     print("docs contracts validated successfully")
     return 0
 

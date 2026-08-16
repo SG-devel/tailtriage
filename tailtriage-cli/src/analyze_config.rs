@@ -111,33 +111,33 @@ mod tests {
     }
 
     #[test]
-    fn default_options_without_config_or_overrides() {
-        let built = build_analyze_options(None, &[]).expect("build should succeed");
-        assert_eq!(built, AnalyzeOptions::default());
-    }
-
-    #[test]
-    fn config_toml_applies() {
+    fn positive_config_composition_cases() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("analyzer.toml");
         std::fs::write(&path, config_toml(410)).expect("write config");
 
-        let built = build_analyze_options(Some(&path), &[]).expect("build should succeed");
-        assert_eq!(built.queueing.trigger_permille, 410);
-    }
-
-    #[test]
-    fn override_applies_and_beats_toml_last_wins() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("analyzer.toml");
-        std::fs::write(&path, config_toml(410)).expect("write config");
-
-        let overrides = vec![
-            "queueing.trigger_permille=420".to_string(),
-            "queueing.trigger_permille=430".to_string(),
+        let cases = [
+            ("defaults without config or overrides", None, vec![], 300),
+            ("TOML config applies", Some(path.as_path()), vec![], 410),
+            (
+                "CLI override beats TOML and last override wins",
+                Some(path.as_path()),
+                vec![
+                    "queueing.trigger_permille=420".to_string(),
+                    "queueing.trigger_permille=430".to_string(),
+                ],
+                430,
+            ),
         ];
-        let built = build_analyze_options(Some(&path), &overrides).expect("build should succeed");
-        assert_eq!(built.queueing.trigger_permille, 430);
+
+        for (label, config_path, overrides, expected_trigger) in cases {
+            let built = build_analyze_options(config_path, &overrides)
+                .unwrap_or_else(|error| panic!("{label}: build should succeed: {error}"));
+            if config_path.is_none() {
+                assert_eq!(built, AnalyzeOptions::default(), "{label}");
+            }
+            assert_eq!(built.queueing.trigger_permille, expected_trigger, "{label}");
+        }
     }
 
     #[test]
