@@ -76,6 +76,7 @@ types, parsing, overrides, and validation where applicable.
 | Analyzer rationale and proof ownership | [Analyzer rationale](../analyzer-rationale.md) |
 | Normative product and data contracts | [SPEC.md](../../SPEC.md) |
 | Validation evidence and non-claims | [VALIDATION.md](VALIDATION.md) and [diagnostic validation](../diagnostic-validation.md) |
+| Tailtriage 0.4 invariant and test-proof ownership | [Invariant proof matrix](INVARIANT_PROOF_MATRIX.md) |
 | Architecture and design | [Architecture](../architecture.md) and [DESIGN_NOTES.md](DESIGN_NOTES.md) |
 | Package-specific usage | The package READMEs in the [documentation index](../README.md#integrations-and-package-boundaries) |
 | Versioned changes | [CHANGELOG.md](../../CHANGELOG.md) |
