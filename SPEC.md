@@ -139,12 +139,11 @@ Semantics:
 
 `tailtriage-analyzer` is the diagnosis engine and owns typed report generation from completed runs:
 
-- `analyze_run(&Run, AnalyzeOptions) -> Report`
+- `analyze_run(&Run, AnalyzeOptions) -> Result<Report, AnalyzeConfigError>`
 - `render_text(&Report)` for human-readable output
 - `render_json(&Report)` for canonical compact Report JSON
 - `render_json_pretty(&Report)` for canonical pretty Report JSON
-- `analyze_run_json(&Run, AnalyzeOptions)` for analyze+compact Report JSON
-- `analyze_run_json_pretty(&Run, AnalyzeOptions)` for analyze+pretty Report JSON
+- callers compose checked analysis with `render_json` or `render_json_pretty` for Report JSON
 
 Semantics are batch/snapshot for completed runs, not streaming analysis.
 

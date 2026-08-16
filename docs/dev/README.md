@@ -39,7 +39,7 @@ owners are mapped below.
 | Offline tracing import | Stable `tailtriage.tracing-span.v1` completed-span JSONL → `tailtriage import tracing-spans-jsonl` → tracing parsing/import policy → normalized standard `Run` JSON | [CLI import contract](../../tailtriage-cli/README.md) and [tracing input contract](../../tailtriage-tracing/README.md) |
 | Live tracing intake | `tailtriage::tracing` façade features or direct `tailtriage-tracing` → `TracingSession` layer records completed `tt.*` spans → core normalization → standard `Run` evidence (and configured outputs) | [Live tracing session](../../tailtriage-tracing/README.md) |
 | Saved-artifact analysis | Saved `Run` JSON → `tailtriage analyze <run.json>` loading and strict-by-default validation → `tailtriage-analyzer` → text or canonical pretty `Report` JSON | [CLI artifact contract](../../tailtriage-cli/README.md) |
-| In-process analysis | Typed `tailtriage_core::Run` → `tailtriage_analyzer::try_analyze_run` (or `analyze_run`) → typed `Report` → optional canonical renderers | [Analyzer package](../../tailtriage-analyzer/README.md) |
+| In-process analysis | Typed `tailtriage_core::Run` → `tailtriage_analyzer::analyze_run` (or `analyze_run`) → typed `Report` → optional canonical renderers | [Analyzer package](../../tailtriage-analyzer/README.md) |
 
 Offline import supports the documented Tailtriage completed-span wrapper, not arbitrary tracing
 logs or `tracing_subscriber::fmt().json()` output. Native and tracing paths converge on the core

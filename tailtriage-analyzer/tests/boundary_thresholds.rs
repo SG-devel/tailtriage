@@ -92,7 +92,8 @@ fn queue_share_threshold_uses_300_permille_boundary() {
         completed: true,
     }];
 
-    let below_report = analyze_run(&below, AnalyzeOptions::default());
+    let below_report =
+        analyze_run(&below, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(below_report.p95_queue_share_permille, Some(299));
     assert_ne!(
         below_report.primary_suspect.kind,
@@ -113,7 +114,8 @@ fn queue_share_threshold_uses_300_permille_boundary() {
         completed: true,
     }];
 
-    let above_report = analyze_run(&above, AnalyzeOptions::default());
+    let above_report =
+        analyze_run(&above, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(above_report.p95_queue_share_permille, Some(300));
     assert_eq!(
         above_report.primary_suspect.kind,
@@ -148,7 +150,8 @@ fn blocking_and_executor_pressure_require_nonzero_p95_depth() {
         },
     ];
 
-    let zero_report = analyze_run(&zero, AnalyzeOptions::default());
+    let zero_report =
+        analyze_run(&zero, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(zero_report
         .secondary_suspects
         .iter()
@@ -189,7 +192,8 @@ fn blocking_and_executor_pressure_require_nonzero_p95_depth() {
         },
     ];
 
-    let nonzero_report = analyze_run(&nonzero, AnalyzeOptions::default());
+    let nonzero_report =
+        analyze_run(&nonzero, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let kinds = std::iter::once(&nonzero_report.primary_suspect)
         .chain(nonzero_report.secondary_suspects.iter())
         .map(|suspect| suspect.kind.clone())
@@ -226,7 +230,8 @@ fn downstream_stage_requires_at_least_three_samples() {
         },
     ];
 
-    let two_samples_report = analyze_run(&two_samples, AnalyzeOptions::default());
+    let two_samples_report = analyze_run(&two_samples, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_ne!(
         two_samples_report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates,
@@ -270,7 +275,8 @@ fn downstream_stage_requires_at_least_three_samples() {
         },
     ];
 
-    let three_samples_report = analyze_run(&three_samples, AnalyzeOptions::default());
+    let three_samples_report = analyze_run(&three_samples, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(
         three_samples_report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates,
@@ -283,7 +289,8 @@ fn mixed_signal_fixtures_preserve_stronger_evidence_ordering() {
     let queue_vs_blocking = analyze_run(
         &load_fixture("mixed_queue_vs_blocking.json"),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         queue_vs_blocking.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -306,7 +313,8 @@ fn mixed_signal_fixtures_preserve_stronger_evidence_ordering() {
     let blocking_vs_downstream = analyze_run(
         &load_fixture("mixed_blocking_vs_downstream.json"),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         blocking_vs_downstream.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates

@@ -44,7 +44,8 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
     tailtriage.shutdown().expect("shutdown should succeed");
 
     let run = load_run(&artifact);
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind.as_str(),
         "application_queue_saturation",
@@ -95,7 +96,8 @@ async fn downstream_heavy_stage_is_ranked() {
     tailtriage.shutdown().expect("shutdown should succeed");
 
     let run = load_run(&artifact);
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind.as_str(),
         "downstream_stage_dominates"
@@ -131,7 +133,8 @@ async fn low_evidence_run_yields_insufficient_signal() {
     tailtriage.shutdown().expect("shutdown should succeed");
 
     let run = load_run(&artifact);
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind.as_str(),
         "insufficient_evidence"

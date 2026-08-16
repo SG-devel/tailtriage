@@ -204,7 +204,7 @@ pub fn native_case(name: &str) -> Run {
         .unwrap()
 }
 pub fn typed_report(run: &Run) -> Report {
-    analyze_run(run, AnalyzeOptions::default())
+    analyze_run(run, AnalyzeOptions::default()).expect("analyzer options should be valid")
 }
 pub fn report(run: &Run) -> ComparableReportProjection {
     project_report(&typed_report(run))

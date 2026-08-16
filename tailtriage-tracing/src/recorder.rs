@@ -2152,7 +2152,8 @@ mod tests {
             assert_eq!(run.queues.len(), 1);
             assert_eq!(run.stages.len(), 1);
             assert!(run.runtime_snapshots.is_empty());
-            let report = analyze_run(run, AnalyzeOptions::default());
+            let report = analyze_run(run, AnalyzeOptions::default())
+                .expect("analyzer options should be valid");
             assert_eq!(report.request_count, 1);
         });
     }
@@ -4488,8 +4489,10 @@ mod tests {
             std::fs::read(&second_path).unwrap()
         );
         assert_eq!(
-            analyze_run(replay.run(), AnalyzeOptions::default()),
+            analyze_run(replay.run(), AnalyzeOptions::default())
+                .expect("analyzer options should be valid"),
             analyze_run(direct.run(), AnalyzeOptions::default())
+                .expect("analyzer options should be valid")
         );
     }
 

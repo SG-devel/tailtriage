@@ -9,11 +9,10 @@ use super::temporal::{
     TEMPORAL_SUSPECT_SHIFT_WARNING, TEMPORAL_WALL_CLOCK_FALLBACK_WARNING,
 };
 use crate::{
-    analyze_run, analyze_run_internal, analyze_run_json_pretty, evidence, render_json,
-    render_json_pretty, render_text, validate_artifact_strict, AnalyzeConfigError, AnalyzeOptions,
-    ArtifactValidationError, Confidence, DiagnosisKind, EvidenceQuality, EvidenceQualityLevel,
-    InflightTrend, Report, SignalCoverageStatus, Suspect, ROUTE_DIVERGENCE_WARNING,
-    ROUTE_RUNTIME_ATTRIBUTION_WARNING,
+    analyze_run, analyze_run_internal, evidence, render_json, render_json_pretty, render_text,
+    AnalyzeConfigError, AnalyzeOptions, Confidence, DiagnosisKind, EvidenceQuality,
+    EvidenceQualityLevel, InflightTrend, Report, SignalCoverageStatus, Suspect,
+    ROUTE_DIVERGENCE_WARNING, ROUTE_RUNTIME_ATTRIBUTION_WARNING,
 };
 
 fn test_run() -> Run {
@@ -415,7 +414,8 @@ fn ambiguity_cluster_membership_uses_raw_scores_only() {
 
 #[test]
 fn evidence_cap_can_promote_lower_raw_score_candidate() {
-    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default());
+    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
@@ -481,14 +481,16 @@ fn evidence_cap_can_promote_lower_raw_score_candidate() {
 
 #[test]
 fn cap_induced_primary_flip_has_exact_json() {
-    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default());
+    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let expected_json = r#"{"request_count":45,"p50_latency_us":1000,"p95_latency_us":1000,"p99_latency_us":1000,"p95_queue_share_permille":0,"p95_service_share_permille":1000,"inflight_trend":null,"warnings":["Partial queue/stage observations are lower bounds; completed-duration percentiles exclude them."],"evidence_quality":{"request_count":45,"queue_event_count":45,"stage_event_count":45,"runtime_snapshot_count":0,"inflight_snapshot_count":0,"requests":"present","queues":"partial","stages":"present","runtime_snapshots":"missing","inflight_snapshots":"missing","truncated":false,"dropped_requests":0,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"quality":"partial","limitations":["Partial evidence captured: queues 0 completed/45 partial; stages 45 completed/0 partial. Partial durations are observed lower bounds.","Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."]},"primary_suspect":{"kind":"downstream_stage_dominates","score":88,"confidence":"high","evidence":["Stage 'db' has p95 latency 500 us across 45 samples.","Stage 'db' cumulative latency is 22500 us (500 permille of request latency).","Stage 'db' contributes 500 permille of tail request latency."],"next_checks":["Inspect downstream dependency behind stage 'db'.","Collect downstream service timings and retry behavior during tail windows.","Review downstream SLO/error budget and align retry budget/backoff with it."],"confidence_notes":[]},"secondary_suspects":[{"kind":"application_queue_saturation","score":95,"confidence":"medium","evidence":["Completed-only queue wait at p95 is 0.0% of request time.","Observed queue-wait lower bound at p95 is 92.0% of request time and includes 45 partial queue event(s).","Observed queue depth sample up to 20."],"next_checks":["Inspect queue admission limits and producer burst patterns.","Compare queue wait distribution before and after increasing worker parallelism."],"confidence_notes":["Partial queue evidence materially contributes to this suspect; confidence cannot exceed medium because partial durations are lower bounds."]}],"route_breakdowns":[],"temporal_segments":[]}"#;
     assert_eq!(render_json(&report).unwrap(), expected_json);
 }
 
 #[test]
 fn cap_induced_primary_flip_has_exact_text() {
-    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default());
+    let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let expected_text = "tailtriage diagnosis\nRequests analyzed: 45\nLatency (us): p50 1000, p95 1000, p99 1000\nRequest time at p95: queue 0.0%, non-queue service 100.0%\nInflight trend: none\nPrimary suspect: downstream_stage_dominates (high confidence, score 88)\nEvidence quality: partial (Partial evidence captured: queues 0 completed/45 partial; stages 45 completed/0 partial. Partial durations are observed lower bounds.)\nWarnings:\n- Partial queue/stage observations are lower bounds; completed-duration percentiles exclude them.\nEvidence:\n- Stage 'db' has p95 latency 500 us across 45 samples.\n- Stage 'db' cumulative latency is 22500 us (500 permille of request latency).\n- Stage 'db' contributes 500 permille of tail request latency.\nNext checks:\n- Inspect downstream dependency behind stage 'db'.\n- Collect downstream service timings and retry behavior during tail windows.\n- Review downstream SLO/error budget and align retry budget/backoff with it.\nSecondary suspects:\n- application_queue_saturation (medium confidence, score 95)";
     assert_eq!(render_text(&report), expected_text);
 }
@@ -500,7 +502,8 @@ fn raw_score_ambiguity_caps_all_cluster_members_uniformly() {
         stage.latency_us = 900;
         stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 900);
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let warning = "Top suspects are close in score; treat ranking as ambiguous and validate both with next checks.".to_string();
     let ambiguity_note =
         "Top suspects are close in score; confidence is capped by ambiguity.".to_string();
@@ -589,7 +592,7 @@ fn equal_final_confidence_without_raw_score_proximity_is_not_ambiguous() {
         stage.finished_at_run_us = stage.started_at_run_us.map(|s| s + 500);
     }
     let options = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 96);
-    let report = analyze_run(&run, options.clone());
+    let report = analyze_run(&run, options.clone()).expect("analyzer options should be valid");
     let primary = &report.primary_suspect;
     let secondary = &report.secondary_suspects[0];
     assert_eq!(primary.kind, DiagnosisKind::ApplicationQueueSaturation);
@@ -638,8 +641,9 @@ fn candidate_order_is_stable_under_irrelevant_input_reordering() {
     reordered.queues.reverse();
     reordered.stages.reverse();
     reordered.requests.reverse();
-    let a = analyze_run(&run, AnalyzeOptions::default());
-    let b = analyze_run(&reordered, AnalyzeOptions::default());
+    let a = analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
+    let b = analyze_run(&reordered, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(a.primary_suspect, b.primary_suspect);
     assert_eq!(a.secondary_suspects, b.secondary_suspects);
     assert_eq!(a.warnings, b.warnings);
@@ -676,7 +680,7 @@ fn scoped_flip_report() -> Report {
             o.min_request_count = 20;
             o.min_segment_request_count = 10;
         });
-    analyze_run(&run, options)
+    analyze_run(&run, options).expect("analyzer options should be valid")
 }
 
 #[test]
@@ -782,7 +786,8 @@ fn downstream_overlap_uses_request_scoped_stage_attribution_for_score() {
         precise_stage("c", "db", Some(0), Some(20), 20),
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let suspect = downstream_suspect(&report);
 
     assert_eq!(suspect.score, 75);
@@ -814,7 +819,8 @@ fn downstream_eligibility_uses_distinct_request_samples_not_raw_events() {
         ));
     }
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_ne!(
         report.primary_suspect.kind,
@@ -841,7 +847,8 @@ fn downstream_approximate_stage_group_warns_only_with_canonical_precision_warnin
         precise_stage("c", "db", Some(0), Some(10), 10),
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let suspect = downstream_suspect(&report);
 
     assert_eq!(suspect.score, 71);
@@ -879,7 +886,8 @@ fn downstream_stage_attribution_respects_normalization_boundary() {
         precise_stage("c", "db", Some(0), Some(20), 20),
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let suspect = downstream_suspect(&report);
 
     assert_eq!(
@@ -929,8 +937,10 @@ fn downstream_stage_input_order_invariance_extends_to_canonical_json() {
         first.stages[3].clone(),
     ];
 
-    let first_report = analyze_run(&first, AnalyzeOptions::default());
-    let second_report = analyze_run(&second, AnalyzeOptions::default());
+    let first_report =
+        analyze_run(&first, AnalyzeOptions::default()).expect("analyzer options should be valid");
+    let second_report =
+        analyze_run(&second, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(first_report, second_report);
     assert_eq!(
@@ -957,7 +967,8 @@ fn downstream_non_overlap_single_event_per_request_behavior_remains_stable() {
         precise_stage("c", "db", Some(0), Some(20), 20),
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let suspect = downstream_suspect(&report);
 
     assert_eq!(suspect.kind, DiagnosisKind::DownstreamStageDominates);
@@ -982,7 +993,8 @@ fn overlapping_precise_queues_are_union_attributed() {
         precise_queue("req-overlap", 40, 90, 50),
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.p95_queue_share_permille, Some(900));
     assert_eq!(report.p95_service_share_permille, Some(100));
@@ -1007,7 +1019,8 @@ fn missing_run_relative_queue_endpoint_falls_back_to_capped_duration_sum() {
         },
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.p95_queue_share_permille, Some(1000));
     assert_eq!(report.p95_service_share_permille, Some(0));
@@ -1026,7 +1039,8 @@ fn out_of_parent_precise_queue_is_excluded_before_attribution_not_clipped() {
         precise_queue("req-boundary", 80, 120, 40),
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.p95_queue_share_permille, Some(300));
     assert_eq!(report.p95_service_share_permille, Some(700));
@@ -1046,7 +1060,8 @@ fn non_overlapping_queue_attribution_remains_stable() {
         precise_queue("req-stable", 40, 70, 30),
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.p95_queue_share_permille, Some(500));
     assert_eq!(report.p95_service_share_permille, Some(500));
@@ -1061,10 +1076,12 @@ fn repeated_analysis_is_deterministic_for_overlap_safe_queue_attribution() {
         precise_queue("req-deterministic", 0, 60, 60),
     ];
 
-    let first = analyze_run(&run, AnalyzeOptions::default());
+    let first =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let first_json = render_json(&first).expect("render first report");
     for _ in 0..10 {
-        let next = analyze_run(&run, AnalyzeOptions::default());
+        let next =
+            analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         let next_json = render_json(&next).expect("render next report");
         assert_eq!(next, first);
         assert_eq!(next_json, first_json);
@@ -1087,7 +1104,8 @@ fn interleaved_queue_events_group_by_request_and_preserve_request_order() {
     assert_eq!(shares.queue, vec![400, 600]);
     assert_eq!(shares.service, vec![600, 400]);
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.p95_queue_share_permille, Some(600));
     assert_eq!(report.p95_service_share_permille, Some(600));
 }
@@ -1108,7 +1126,8 @@ fn duplicate_completed_request_ids_emit_warning_without_panic() {
         completed: true,
     }];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.request_count, 1);
     assert!(report
@@ -1120,162 +1139,13 @@ fn duplicate_completed_request_ids_emit_warning_without_panic() {
 
 #[test]
 fn unique_completed_request_ids_do_not_emit_duplicate_warning() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
 
     assert!(!report
         .warnings
         .iter()
         .any(|warning| warning.contains("duplicate_completed_request_id")));
-}
-
-#[test]
-fn strict_artifact_validation_fails_duplicate_completed_request_ids() {
-    let mut run = test_run();
-    run.requests[2].request_id = "req-1".to_owned();
-
-    let err =
-        validate_artifact_strict(&run).expect_err("duplicate ids should fail strict validation");
-
-    assert!(matches!(
-        err,
-        ArtifactValidationError::DuplicateCompletedRequestId { ref request_ids }
-            if request_ids == &vec!["req-1".to_owned()]
-    ));
-}
-
-#[test]
-fn strict_artifact_validation_fails_orphan_stage_and_queue_request_ids() {
-    let mut stage_run = test_run();
-    stage_run.stages = vec![StageEvent {
-        request_id: "missing-stage-request".to_owned(),
-        stage: "db".to_owned(),
-        started_at_unix_ms: 1,
-        started_at_run_us: None,
-        finished_at_unix_ms: 2,
-        finished_at_run_us: None,
-        latency_us: 100,
-        success: true,
-        completed: true,
-    }];
-    let stage_err = validate_artifact_strict(&stage_run)
-        .expect_err("orphan stage id should fail strict validation");
-    assert!(matches!(
-        stage_err,
-        ArtifactValidationError::OrphanRequestScopedEvent {
-            section: "stage",
-            ref request_ids,
-        } if request_ids == &vec!["missing-stage-request".to_owned()]
-    ));
-
-    let mut queue_run = test_run();
-    queue_run.queues = vec![QueueEvent {
-        request_id: "missing-queue-request".to_owned(),
-        queue: "worker".to_owned(),
-        waited_from_unix_ms: 1,
-        waited_from_run_us: None,
-        waited_until_unix_ms: 2,
-        waited_until_run_us: None,
-        wait_us: 100,
-        depth_at_start: Some(1),
-        completed: true,
-    }];
-    let queue_err = validate_artifact_strict(&queue_run)
-        .expect_err("orphan queue id should fail strict validation");
-    assert!(matches!(
-        queue_err,
-        ArtifactValidationError::OrphanRequestScopedEvent {
-            section: "queue",
-            ref request_ids,
-        } if request_ids == &vec!["missing-queue-request".to_owned()]
-    ));
-}
-
-#[test]
-fn strict_artifact_validation_simultaneous_stage_and_queue_orphans_return_core_with_source() {
-    let mut run = test_run();
-    run.stages = vec![StageEvent {
-        request_id: "missing-stage-request".to_owned(),
-        stage: "db".to_owned(),
-        started_at_unix_ms: 1,
-        started_at_run_us: None,
-        finished_at_unix_ms: 2,
-        finished_at_run_us: None,
-        latency_us: 100,
-        success: true,
-        completed: true,
-    }];
-    run.queues = vec![QueueEvent {
-        request_id: "missing-queue-request".to_owned(),
-        queue: "worker".to_owned(),
-        waited_from_unix_ms: 1,
-        waited_from_run_us: None,
-        waited_until_unix_ms: 2,
-        waited_until_run_us: None,
-        wait_us: 100,
-        depth_at_start: Some(1),
-        completed: true,
-    }];
-
-    let err = validate_artifact_strict(&run)
-        .expect_err("multi-section orphan failures should preserve core report");
-
-    assert!(matches!(err, ArtifactValidationError::Core(_)));
-    assert!(std::error::Error::source(&err).is_some());
-}
-
-#[test]
-fn strict_artifact_validation_duplicate_plus_metadata_returns_core_with_source() {
-    let mut run = test_run();
-    run.metadata.service_name = " ".to_owned();
-    run.requests[2].request_id = "req-1".to_owned();
-
-    let err = validate_artifact_strict(&run).expect_err("mixed failures should use core");
-
-    assert!(matches!(err, ArtifactValidationError::Core(_)));
-    assert!(std::error::Error::source(&err).is_some());
-}
-
-#[test]
-fn strict_artifact_validation_orphan_plus_timing_returns_core() {
-    let mut run = test_run();
-    run.stages = vec![StageEvent {
-        request_id: "missing-stage-request".to_owned(),
-        stage: "db".to_owned(),
-        started_at_unix_ms: 2,
-        started_at_run_us: None,
-        finished_at_unix_ms: 1,
-        finished_at_run_us: None,
-        latency_us: 100,
-        success: true,
-        completed: true,
-    }];
-
-    let err = validate_artifact_strict(&run).expect_err("mixed failures should use core");
-
-    assert!(matches!(err, ArtifactValidationError::Core(_)));
-}
-
-#[test]
-fn strict_artifact_validation_compatibility_variants_have_no_source() {
-    let mut run = test_run();
-    run.requests[2].request_id = "req-1".to_owned();
-    let err = validate_artifact_strict(&run).expect_err("duplicate ids should fail");
-    assert!(std::error::Error::source(&err).is_none());
-
-    let mut orphan_run = test_run();
-    orphan_run.stages = vec![StageEvent {
-        request_id: "missing-stage-request".to_owned(),
-        stage: "db".to_owned(),
-        started_at_unix_ms: 1,
-        started_at_run_us: None,
-        finished_at_unix_ms: 2,
-        finished_at_run_us: None,
-        latency_us: 100,
-        success: true,
-        completed: true,
-    }];
-    let err = validate_artifact_strict(&orphan_run).expect_err("orphan should fail");
-    assert!(std::error::Error::source(&err).is_none());
 }
 
 #[test]
@@ -1304,7 +1174,8 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
         completed: true,
     }];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.request_count, 3);
     assert!(report.warnings.iter().any(|warning| {
@@ -1341,7 +1212,8 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
         completed: true,
     }];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert!(!report
         .evidence_quality
@@ -1368,7 +1240,8 @@ fn latency_percentiles_use_duration_fields_not_timestamp_subtraction() {
         outcome: "ok".to_owned(),
     }];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.p50_latency_us, Some(50_000));
     assert_eq!(report.p95_latency_us, Some(50_000));
@@ -1488,7 +1361,8 @@ fn normalized_executor_remains_secondary_to_strong_blocking_pressure() {
     let report = analyze_run(
         &competing_executor_run(8, 0, 24, None, None),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     let executor = executor_suspect(&report);
     assert_eq!(
         report.primary_suspect.kind,
@@ -1511,7 +1385,8 @@ fn normalized_executor_remains_secondary_to_strong_downstream_stage() {
     let report = analyze_run(
         &competing_executor_run(8, 0, 0, None, Some(970)),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     let executor = executor_suspect(&report);
     let downstream = downstream_suspect(&report);
     assert_eq!(
@@ -1540,7 +1415,8 @@ fn application_queue_controls_preserve_normalized_executor_visibility_and_order(
         let report = analyze_run(
             &competing_executor_run(global_depth, 0, 0, Some((wait_us, depth)), None),
             AnalyzeOptions::default(),
-        );
+        )
+        .expect("analyzer options should be valid");
         let queue = std::iter::once(&report.primary_suspect)
             .chain(&report.secondary_suspects)
             .find(|suspect| suspect.kind == DiagnosisKind::ApplicationQueueSaturation)
@@ -1568,7 +1444,8 @@ fn clear_normalized_executor_remains_primary_against_weak_competing_signals() {
     let report = analyze_run(
         &competing_executor_run(32, 0, 0, Some((10, 1)), Some(10)),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ExecutorPressureSuspected
@@ -1591,7 +1468,8 @@ fn normalized_lower_bound_cap_keeps_higher_score_executor_below_high_confidence_
     for snapshot in &mut run.runtime_snapshots {
         snapshot.local_queue_depth = None;
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let executor = executor_suspect(&report);
     let downstream = downstream_suspect(&report);
     assert_eq!(
@@ -1659,6 +1537,7 @@ fn temporal_worker_report(run: &Run) -> Report {
             options.min_segment_request_count = 10;
         }),
     )
+    .expect("analyzer options should be valid")
 }
 
 #[test]
@@ -1805,7 +1684,8 @@ fn ambiguous_worker_fallbacks_match_historical_score_and_explain_the_cap() {
     for snapshot in &mut historical.runtime_snapshots {
         snapshot.worker_count = None;
     }
-    let historical_report = analyze_run(&historical, AnalyzeOptions::default());
+    let historical_report = analyze_run(&historical, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let historical_executor = executor_suspect(&historical_report);
     let historical_score = historical_executor.score;
     assert!(historical_executor.evidence.iter().any(|e| e.contains(
@@ -1825,7 +1705,8 @@ fn ambiguous_worker_fallbacks_match_historical_score_and_explain_the_cap() {
         for (index, snapshot) in run.runtime_snapshots.iter_mut().enumerate() {
             snapshot.worker_count = counts[index % counts.len()];
         }
-        let report = analyze_run(&run, AnalyzeOptions::default());
+        let report =
+            analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         let suspect = executor_suspect(&report);
         assert_eq!(suspect.score, historical_score, "{expected}");
         assert_ne!(suspect.confidence, Confidence::High, "{expected}");
@@ -1844,7 +1725,8 @@ fn missing_local_depth_remains_normalized_lower_bound() {
     run.runtime_snapshots.truncate(10);
     run.runtime_snapshots[0].global_queue_depth = Some(0);
     run.runtime_snapshots[0].local_queue_depth = None;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let suspect = executor_suspect(&report);
     assert!(suspect
         .evidence
@@ -1869,7 +1751,8 @@ fn normalized_local_queue_signal_does_not_attribute_contention_to_zero_global_de
         snapshot.global_queue_depth = Some(0);
         snapshot.local_queue_depth = Some(64);
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let suspect = executor_suspect(&report);
     assert!(suspect
         .evidence
@@ -1885,12 +1768,14 @@ fn worker_count_enables_normalized_executor_scoring() {
     let mut historical = test_run();
     historical.requests = (0..20).map(sample_request).collect();
     historical.runtime_snapshots = vec![runtime_snapshot(Some(20), Some(0), Some(20)); 20];
-    let historical_report = analyze_run(&historical, AnalyzeOptions::default());
+    let historical_report = analyze_run(&historical, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let mut normalized = historical.clone();
     for snapshot in &mut normalized.runtime_snapshots {
         snapshot.worker_count = Some(4);
     }
-    let normalized_report = analyze_run(&normalized, AnalyzeOptions::default());
+    let normalized_report = analyze_run(&normalized, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let historical_executor = std::iter::once(&historical_report.primary_suspect)
         .chain(&historical_report.secondary_suspects)
         .find(|s| s.kind == DiagnosisKind::ExecutorPressureSuspected)
@@ -1923,7 +1808,8 @@ fn executor_arithmetic_run(samples: usize, global: u64, local: u64, alive: u64) 
 #[test]
 fn historical_executor_arithmetic_boundaries_are_exact() {
     let no_signal = executor_arithmetic_run(20, 0, 60, 400);
-    let report = analyze_run(&no_signal, AnalyzeOptions::default());
+    let report = analyze_run(&no_signal, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert!(std::iter::once(&report.primary_suspect)
         .chain(&report.secondary_suspects)
         .all(|suspect| suspect.kind != DiagnosisKind::ExecutorPressureSuspected));
@@ -1941,7 +1827,8 @@ fn historical_executor_arithmetic_boundaries_are_exact() {
         let report = analyze_run(
             &executor_arithmetic_run(samples, 20, 0, 0),
             AnalyzeOptions::default(),
-        );
+        )
+        .expect("analyzer options should be valid");
         assert_eq!(
             executor_suspect(&report).score,
             expected,
@@ -1953,14 +1840,16 @@ fn historical_executor_arithmetic_boundaries_are_exact() {
         let report = analyze_run(
             &executor_arithmetic_run(20, 20, local, 0),
             AnalyzeOptions::default(),
-        );
+        )
+        .expect("analyzer options should be valid");
         assert_eq!(executor_suspect(&report).score, expected, "local={local}");
     }
     for (alive, expected) in [(399, 51), (400, 52)] {
         let report = analyze_run(
             &executor_arithmetic_run(20, 20, 0, alive),
             AnalyzeOptions::default(),
-        );
+        )
+        .expect("analyzer options should be valid");
         assert_eq!(executor_suspect(&report).score, expected, "alive={alive}");
     }
 }
@@ -1983,7 +1872,8 @@ fn historical_clean_extreme_requires_thirty_samples_and_absence_has_no_worker_ca
                 count: 2,
             },
         ];
-        let report = analyze_run(&run, AnalyzeOptions::default());
+        let report =
+            analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         let suspect = executor_suspect(&report);
         assert_eq!(suspect.score, expected_score, "samples={samples}");
         assert_eq!(suspect.confidence, Confidence::High);
@@ -2000,22 +1890,32 @@ fn normalized_executor_score_ignores_alive_tasks_and_queue_redistribution() {
     for snapshot in &mut baseline.runtime_snapshots {
         snapshot.worker_count = Some(4);
     }
-    let baseline_score = executor_suspect(&analyze_run(&baseline, AnalyzeOptions::default())).score;
+    let baseline_score = executor_suspect(
+        &analyze_run(&baseline, AnalyzeOptions::default())
+            .expect("analyzer options should be valid"),
+    )
+    .score;
 
     let mut changed_alive = baseline.clone();
     for snapshot in &mut changed_alive.runtime_snapshots {
         snapshot.alive_tasks = Some(u64::MAX);
     }
-    let alive_score =
-        executor_suspect(&analyze_run(&changed_alive, AnalyzeOptions::default())).score;
+    let alive_score = executor_suspect(
+        &analyze_run(&changed_alive, AnalyzeOptions::default())
+            .expect("analyzer options should be valid"),
+    )
+    .score;
 
     let mut redistributed = baseline.clone();
     for snapshot in &mut redistributed.runtime_snapshots {
         snapshot.global_queue_depth = Some(16);
         snapshot.local_queue_depth = Some(48);
     }
-    let redistributed_score =
-        executor_suspect(&analyze_run(&redistributed, AnalyzeOptions::default())).score;
+    let redistributed_score = executor_suspect(
+        &analyze_run(&redistributed, AnalyzeOptions::default())
+            .expect("analyzer options should be valid"),
+    )
+    .score;
     assert_eq!(baseline_score, alive_score);
     assert_eq!(baseline_score, redistributed_score);
 }
@@ -2026,7 +1926,8 @@ fn worker_confidence_limits_compose_with_existing_caps_without_duplicate_notes()
     ambiguous.runtime_snapshots[0].worker_count = Some(4);
     ambiguous.truncation.limits_hit = true;
     ambiguous.truncation.dropped_runtime_snapshots = 1;
-    let report = analyze_run(&ambiguous, AnalyzeOptions::default());
+    let report = analyze_run(&ambiguous, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let suspect = executor_suspect(&report);
     assert_eq!(suspect.confidence, Confidence::Medium);
     for fragment in [
@@ -2050,7 +1951,8 @@ fn worker_confidence_limits_compose_with_existing_caps_without_duplicate_notes()
         snapshot.worker_count = Some(4);
         snapshot.local_queue_depth = None;
     }
-    let report = analyze_run(&lower_bound, AnalyzeOptions::default());
+    let report = analyze_run(&lower_bound, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let suspect = executor_suspect(&report);
     assert_eq!(suspect.confidence, Confidence::Low);
     for fragment in ["Missing local queue depth", "Low completed-request count"] {
@@ -2072,7 +1974,8 @@ fn clear_blocking_pressure_selects_blocking_pool() {
     run.requests = (0..20).map(sample_request).collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(24)); 40];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(
         report.primary_suspect.kind,
@@ -2091,7 +1994,8 @@ fn clear_scheduler_pressure_selects_executor_pressure() {
     run.requests = (0..20).map(sample_request).collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(140), Some(12), Some(0)); 40];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(
         report.primary_suspect.kind,
@@ -2176,7 +2080,8 @@ fn downstream_stage_tie_break_is_deterministic() {
         },
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
@@ -2600,6 +2505,7 @@ fn truncated_inflight_history_does_not_infer_missing_zero() {
     ];
     run.truncation.dropped_inflight_snapshots = 1;
     let trend = analyze_run(&run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid")
         .inflight_trend
         .unwrap();
     assert_eq!((trend.sample_count, trend.growth_delta), (2, 1));
@@ -2685,7 +2591,8 @@ fn suspect_evidence<'a>(report: &'a Report, kind: &DiagnosisKind) -> &'a [String
 
 #[test]
 fn closed_historical_inflight_spike_adds_no_bonus_when_active_flat_episode_wins() {
-    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let report = analyze_run(
         &queue_bonus_run(vec![
             inflight("closed", 1, Some(1), 1),
@@ -2695,7 +2602,8 @@ fn closed_historical_inflight_spike_adds_no_bonus_when_active_flat_episode_wins(
             inflight("active", 5, Some(5), 5),
         ]),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         report.inflight_trend,
         Some(InflightTrend {
@@ -2720,14 +2628,16 @@ fn closed_historical_inflight_spike_adds_no_bonus_when_active_flat_episode_wins(
 
 #[test]
 fn inflight_growth_evidence_states_unix_fallback_without_rate() {
-    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let report = analyze_run(
         &queue_bonus_run(vec![
             inflight("fallback", 1, Some(1), 1),
             inflight("fallback", 2, None, 3),
         ]),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         report.inflight_trend.as_ref().unwrap().growth_per_sec_milli,
         None
@@ -2746,14 +2656,16 @@ fn inflight_growth_evidence_states_unix_fallback_without_rate() {
 
 #[test]
 fn inflight_growth_evidence_states_unavailable_run_relative_rate() {
-    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let report = analyze_run(
         &queue_bonus_run(vec![
             inflight("zero-elapsed", 1, Some(10), 1),
             inflight("zero-elapsed", 2, Some(10), 3),
         ]),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         report.inflight_trend.as_ref().unwrap().growth_per_sec_milli,
         None
@@ -2771,14 +2683,16 @@ fn inflight_growth_evidence_states_unavailable_run_relative_rate() {
 
 #[test]
 fn queue_inflight_growth_bonus_remains_exactly_five() {
-    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let growing = analyze_run(
         &queue_bonus_run(vec![
             inflight("g", 1, Some(1), 1),
             inflight("g", 2, Some(1_000_001), 3),
         ]),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         suspect_score(&growing, &DiagnosisKind::ApplicationQueueSaturation)
             - suspect_score(&baseline, &DiagnosisKind::ApplicationQueueSaturation),
@@ -2795,8 +2709,10 @@ fn executor_inflight_growth_bonus_remains_exactly_four() {
         inflight("g", 1, Some(1), 1),
         inflight("g", 2, Some(1_000_001), 3),
     ];
-    let without = analyze_run(&baseline, AnalyzeOptions::default());
-    let with = analyze_run(&growing, AnalyzeOptions::default());
+    let without = analyze_run(&baseline, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
+    let with =
+        analyze_run(&growing, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         suspect_score(&with, &DiagnosisKind::ExecutorPressureSuspected)
             - suspect_score(&without, &DiagnosisKind::ExecutorPressureSuspected),
@@ -2812,13 +2728,15 @@ fn executor_inflight_growth_bonus_remains_exactly_four() {
 
 #[test]
 fn declining_inflight_episode_adds_no_growth_bonus() {
-    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default());
+    let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     for samples in [
         vec![inflight("g", 1, Some(1), 7)],
         vec![inflight("g", 1, Some(1), 3), inflight("g", 2, Some(2), 3)],
         vec![inflight("g", 1, Some(1), 3), inflight("g", 2, Some(2), 1)],
     ] {
-        let report = analyze_run(&queue_bonus_run(samples), AnalyzeOptions::default());
+        let report = analyze_run(&queue_bonus_run(samples), AnalyzeOptions::default())
+            .expect("analyzer options should be valid");
         assert_eq!(
             suspect_score(&report, &DiagnosisKind::ApplicationQueueSaturation),
             suspect_score(&baseline, &DiagnosisKind::ApplicationQueueSaturation)
@@ -2836,7 +2754,8 @@ fn render_text_marks_one_sample_inflight_trend_unknown() {
     let report = analyze_run(
         &queue_bonus_run(vec![inflight("single", 1, Some(1), 7)]),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     let text = render_text(&report);
     assert!(text.contains("direction unknown") && text.contains("precise rate unavailable"));
     assert!(!text.contains("net growth +0"));
@@ -2962,7 +2881,8 @@ fn analyze_run_emits_truncation_warnings() {
     run.truncation.dropped_runtime_snapshots = 1;
     run.truncation.limits_hit = true;
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report.warnings.len() >= 3);
     assert!(report.warnings.iter().any(|warning| {
         warning.contains("dropped evidence can reduce diagnosis completeness and confidence")
@@ -2979,7 +2899,8 @@ fn analyze_run_emits_truncation_warnings() {
 
 #[test]
 fn low_request_count_warning_appears() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert!(report
         .warnings
         .iter()
@@ -3024,7 +2945,8 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
             completed: true,
         },
     ];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -3063,7 +2985,8 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
         },
     ];
 
-    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    let default_report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         default_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -3077,7 +3000,8 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
     assert!(default_report.analyzer_config.is_none());
 
     let strict_options = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 95);
-    let strict_report = analyze_run(&run, strict_options);
+    let strict_report =
+        analyze_run(&run, strict_options).expect("analyzer options should be valid");
     assert!(strict_report
         .warnings
         .iter()
@@ -3087,7 +3011,8 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
 
 #[test]
 fn runtime_warning_emitted_when_insufficient_evidence() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert!(report
         .warnings
         .iter()
@@ -3133,7 +3058,8 @@ fn downstream_beats_weak_blocking() {
         },
     ];
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
@@ -3171,7 +3097,8 @@ fn score_100_is_reserved_for_overwhelming_queue_evidence() {
             completed: true,
         })
         .collect();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -3230,7 +3157,8 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::BlockingPoolPressure
@@ -3293,7 +3221,7 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
     let downstream_score_for = |margin: u8| {
         let options = AnalyzeOptions::default()
             .with_downstream(|o| o.blocking_correlation_score_margin = margin);
-        let report = analyze_run(&run, options);
+        let report = analyze_run(&run, options).expect("analyzer options should be valid");
         report
             .secondary_suspects
             .iter()
@@ -3332,7 +3260,8 @@ fn truncation_warnings_remain_additive() {
     run.truncation.dropped_requests = 1;
     run.truncation.dropped_stages = 1;
     run.truncation.dropped_runtime_snapshots = 1;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report
         .warnings
         .iter()
@@ -3349,7 +3278,8 @@ fn truncation_warnings_remain_additive() {
 
 #[test]
 fn evidence_quality_weak_for_low_requests() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(report.evidence_quality.quality, EvidenceQualityLevel::Weak);
     assert_eq!(
         report.evidence_quality.requests,
@@ -3362,7 +3292,8 @@ fn evidence_quality_requests_missing_when_zero_requests_even_if_dropped() {
     let mut run = test_run();
     run.requests.clear();
     run.truncation.dropped_requests = 3;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.evidence_quality.requests,
         SignalCoverageStatus::Missing
@@ -3401,7 +3332,8 @@ fn evidence_quality_partial_for_runtime_partial_fields() {
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), None, Some(1)); 10];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.evidence_quality.runtime_snapshots,
         SignalCoverageStatus::Partial
@@ -3458,7 +3390,8 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
             completed: true,
         })
         .collect();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.evidence_quality.quality,
         EvidenceQualityLevel::Strong
@@ -3513,7 +3446,8 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
         .collect();
     run.truncation.dropped_queues = 2;
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.evidence_quality.queues,
         SignalCoverageStatus::Truncated
@@ -3571,7 +3505,8 @@ fn confidence_caps_do_not_change_score_ordering() {
         })
         .collect();
     run.truncation.dropped_requests = 1;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let mut scores = vec![report.primary_suspect.score];
     scores.extend(report.secondary_suspects.iter().map(|s| s.score));
     assert!(scores.windows(2).all(|w| w[0] >= w[1]));
@@ -3608,7 +3543,8 @@ fn low_request_count_caps_primary_confidence_and_adds_note() {
             completed: true,
         })
         .collect();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.primary_suspect.confidence, Confidence::Medium);
     assert!(report
         .primary_suspect
@@ -3662,7 +3598,8 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
             count: 10,
         },
     ];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -3703,7 +3640,8 @@ fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
         })
         .collect();
     run.truncation.dropped_queues = 1;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report
         .primary_suspect
         .confidence_notes
@@ -3773,7 +3711,8 @@ fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
         })
         .collect();
     run.truncation.dropped_stages = 1;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report
         .primary_suspect
         .confidence_notes
@@ -3994,7 +3933,8 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
 
 #[test]
 fn route_breakdowns_empty_for_single_route() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert!(report.route_breakdowns.is_empty());
     assert!(report
         .warnings
@@ -4006,7 +3946,8 @@ fn route_breakdowns_empty_for_single_route() {
 fn single_route_executor_signals_do_not_emit_route_breakdowns_or_divergence_warning() {
     let mut run = test_run();
     run.runtime_snapshots = vec![runtime_snapshot(Some(150), Some(120), Some(2))];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report.route_breakdowns.is_empty());
     assert!(report
         .warnings
@@ -4064,7 +4005,8 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
         });
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.route_breakdowns.len(), 2);
     assert_eq!(report.route_breakdowns[0].route, "/a");
     assert_eq!(report.route_breakdowns[1].route, "/b");
@@ -4146,7 +4088,8 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
         });
     }
 
-    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    let default_report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(default_report.route_breakdowns.len(), 2);
     assert!(default_report
         .warnings
@@ -4155,7 +4098,7 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
 
     let mut options = AnalyzeOptions::default();
     options.route.emit_on_divergent_suspects = false;
-    let toggled_report = analyze_run(&run, options);
+    let toggled_report = analyze_run(&run, options).expect("analyzer options should be valid");
     assert_eq!(toggled_report.route_breakdowns.len(), 2);
     assert!(toggled_report
         .warnings
@@ -4194,7 +4137,8 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
             completed: true,
         });
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report.route_breakdowns.is_empty());
     assert!(report
         .warnings
@@ -4211,14 +4155,16 @@ fn route_breakdowns_do_not_change_global_primary_suspect() {
         crate::scoring::classify_worker_evidence(&run),
         &AnalyzeOptions::default(),
     );
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
 }
 
 #[test]
 fn temporal_segments_present_and_empty_below_threshold() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let value = serde_json::to_value(&report).expect("serialize");
     assert!(value.get("temporal_segments").is_some());
     assert!(report.temporal_segments.is_empty());
@@ -4251,7 +4197,8 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
             completed: true,
         });
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.temporal_segments.len(), 2);
     let early = report
         .temporal_segments
@@ -4306,7 +4253,8 @@ fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
         });
     }
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.temporal_segments.len(), 2);
     let early = report
@@ -4385,7 +4333,8 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
         },
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.temporal_segments.len(), 2);
     let early = report
@@ -4478,7 +4427,8 @@ fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
         },
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.temporal_segments.len(), 2);
     let early = report
@@ -4548,7 +4498,8 @@ fn temporal_segments_fallback_for_older_artifacts_warns() {
         },
     ];
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.request_count, 20);
     assert_eq!(report.temporal_segments.len(), 2);
@@ -4572,7 +4523,8 @@ fn temporal_segments_with_complete_run_relative_fields_do_not_warn_about_fallbac
         }
     }
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &report.temporal_segments {
@@ -4598,7 +4550,8 @@ fn temporal_segments_sort_complete_run_relative_starts_by_run_time() {
         })
         .collect();
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.temporal_segments.len(), 2);
     assert_eq!(report.temporal_segments[0].name, "early");
@@ -4632,7 +4585,8 @@ fn temporal_segments_sort_partial_run_relative_starts_by_unix_time() {
         })
         .collect();
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.temporal_segments.len(), 2);
     assert_eq!(report.temporal_segments[0].name, "early");
@@ -4645,7 +4599,8 @@ fn temporal_segments_sort_partial_run_relative_starts_by_unix_time() {
 fn temporal_segments_not_emitted_when_no_meaningful_difference() {
     let mut run = test_run();
     run.requests = (0..20).map(|i| sample_request(i + 1)).collect();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report.temporal_segments.is_empty());
     assert!(!report
         .warnings
@@ -4683,7 +4638,8 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
             completed: true,
         });
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.temporal_segments.len(), 2);
     assert_ne!(
         report.temporal_segments[0].primary_suspect.kind,
@@ -4708,7 +4664,8 @@ fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
             req.latency_us = 5_000;
         }
     }
-    let shifted = analyze_run(&run, AnalyzeOptions::default());
+    let shifted =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(shifted.temporal_segments.len(), 2);
     assert!(shifted
         .warnings
@@ -4754,7 +4711,8 @@ fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
         crate::scoring::classify_worker_evidence(&run),
         &AnalyzeOptions::default(),
     );
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.primary_suspect.kind, global.primary_suspect.kind);
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
 }
@@ -4846,7 +4804,8 @@ fn temporal_segments_warn_only_when_run_relative_timing_is_incomplete() {
     let complete_report = analyze_run(
         &run_with_temporal_shift_and_run_relative_offsets(),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(complete_report.temporal_segments.len(), 2);
     for segment in &complete_report.temporal_segments {
         assert!(!segment
@@ -4860,7 +4819,8 @@ fn temporal_segments_warn_only_when_run_relative_timing_is_incomplete() {
         request.started_at_run_us = None;
         request.finished_at_run_us = None;
     }
-    let incomplete_report = analyze_run(&incomplete_run, AnalyzeOptions::default());
+    let incomplete_report = analyze_run(&incomplete_run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(incomplete_report.temporal_segments.len(), 2);
     for segment in &incomplete_report.temporal_segments {
         assert!(segment
@@ -4890,7 +4850,8 @@ fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segment
         gauge: "http.server.requests".into(),
         count: 1,
     }];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report.temporal_segments.is_empty());
 }
 
@@ -4937,7 +4898,8 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
         crate::scoring::classify_worker_evidence(&run),
         &AnalyzeOptions::default(),
     );
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert_eq!(report.temporal_segments.len(), 2);
     assert_ne!(
@@ -4986,7 +4948,8 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
             completed: true,
         });
     }
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report
         .warnings
         .iter()
@@ -5010,7 +4973,8 @@ fn overlapping_temporal_windows_warn_runtime_inflight_attribution_is_approximate
         }
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &report.temporal_segments {
         assert!(segment
@@ -5033,7 +4997,8 @@ fn non_overlapping_temporal_windows_do_not_add_overlap_warning() {
         }
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &report.temporal_segments {
         assert!(!segment
@@ -5056,7 +5021,8 @@ fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
         }
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(2), Some(2))];
-    let mut report = analyze_run(&run, AnalyzeOptions::default());
+    let mut report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.temporal_segments.len(), 2);
     for segment in &mut report.temporal_segments {
         segment.warnings.clear();
@@ -5075,7 +5041,8 @@ fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
 #[test]
 fn public_api_supports_report_text_and_json_contract_fields() {
     let run = test_run();
-    let report: Report = analyze_run(&run, AnalyzeOptions::default());
+    let report: Report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let text = render_text(&report);
     assert!(!text.is_empty(), "rendered text should not be empty");
 
@@ -5089,7 +5056,8 @@ fn public_api_supports_report_text_and_json_contract_fields() {
 
 #[test]
 fn render_json_pretty_matches_serde_json_pretty() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let actual = render_json_pretty(&report).expect("report json should render");
     let expected = serde_json::to_string_pretty(&report).expect("report json should render");
     assert_eq!(actual, expected);
@@ -5097,25 +5065,17 @@ fn render_json_pretty_matches_serde_json_pretty() {
 
 #[test]
 fn render_json_matches_serde_json_compact() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let actual = render_json(&report).expect("report json should render");
     let expected = serde_json::to_string(&report).expect("report json should render");
     assert_eq!(actual, expected);
 }
 
 #[test]
-fn analyze_run_json_pretty_matches_analyze_then_render_json_pretty() {
-    let run = test_run();
-    let actual = analyze_run_json_pretty(&run, AnalyzeOptions::default())
-        .expect("analyze+json should render");
-    let expected_report = analyze_run(&run, AnalyzeOptions::default());
-    let expected = render_json_pretty(&expected_report).expect("report json should render");
-    assert_eq!(actual, expected);
-}
-
-#[test]
 fn compact_and_pretty_report_json_are_value_equivalent() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let compact = render_json(&report).expect("compact report json should render");
     let pretty = render_json_pretty(&report).expect("pretty report json should render");
     let compact_value: serde_json::Value =
@@ -5290,30 +5250,11 @@ fn validate_ratio_zero_denominators_report_exact_paths() {
 }
 
 #[test]
-fn try_analyze_run_rejects_invalid_options() {
+fn analyze_run_rejects_invalid_options() {
     let run = test_run();
     let options = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 1001);
-    assert!(crate::try_analyze_run(&run, options).is_err());
-}
-
-#[test]
-#[should_panic(
-    expected = "invalid analyzer options passed to Analyzer::analyze_run: invalid config value at 'queueing.trigger_permille': must be <= 1000"
-)]
-fn reusable_analyze_run_rejects_invalid_queueing_options() {
-    let analyzer = crate::Analyzer::new(
-        AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 1001),
-    );
-    let _ = analyzer.analyze_run(&test_run());
-}
-
-#[test]
-fn reusable_try_analyze_run_returns_config_error() {
-    let analyzer = crate::Analyzer::new(
-        AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 1001),
-    );
     assert!(matches!(
-        analyzer.try_analyze_run(&test_run()),
+        analyze_run(&run, options),
         Err(AnalyzeConfigError::InvalidConfigValue {
             path: "queueing.trigger_permille",
             ..
@@ -5322,39 +5263,10 @@ fn reusable_try_analyze_run_returns_config_error() {
 }
 
 #[test]
-fn reusable_analyzer_rejects_invalid_confidence_relationship() {
-    let analyzer = crate::Analyzer::new(AnalyzeOptions::default().with_confidence(|o| {
-        o.medium_score_threshold = 90;
-        o.high_score_threshold = 80;
-    }));
-    assert!(matches!(
-        analyzer.try_analyze_run(&test_run()),
-        Err(AnalyzeConfigError::InvalidConfigValue {
-            path: "confidence.medium_score_threshold",
-            ..
-        })
-    ));
-}
-
-#[test]
-fn reusable_analysis_matches_free_functions_and_is_deterministic() {
-    let run = test_run();
-    let options = AnalyzeOptions::default();
-    let analyzer = crate::Analyzer::new(options.clone());
-    let first = analyzer.analyze_run(&run);
-    let second = analyzer
-        .try_analyze_run(&run)
-        .expect("default options should validate");
-
-    assert_eq!(first, second);
-    assert_eq!(first, analyze_run(&run, options.clone()));
-    assert_eq!(first, crate::try_analyze_run(&run, options).unwrap());
-}
-
-#[test]
 fn analyze_run_still_works_with_default_options() {
     let run = test_run();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.request_count, 3);
 }
 
@@ -5592,7 +5504,8 @@ fn default_options_compat_queue_saturation_case() {
             completed: true,
         })
         .collect();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -5620,7 +5533,8 @@ fn default_options_compat_blocking_pool_pressure_case() {
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(1), Some(240)); 80];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::BlockingPoolPressure
@@ -5630,7 +5544,8 @@ fn default_options_compat_blocking_pool_pressure_case() {
 
 #[test]
 fn default_options_compat_insufficient_and_weak_evidence_case() {
-    let report = analyze_run(&test_run(), AnalyzeOptions::default());
+    let report = analyze_run(&test_run(), AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::InsufficientEvidence
@@ -5662,7 +5577,8 @@ fn default_options_compat_downstream_stage_dominates_case() {
         })
         .collect();
     run.runtime_snapshots = vec![runtime_snapshot(Some(2), Some(1), Some(1)); 5];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
@@ -5675,7 +5591,8 @@ fn default_options_compat_truncated_evidence_case() {
     let mut run = test_run();
     run.truncation.dropped_requests = 2;
     run.truncation.limits_hit = true;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(report
         .warnings
         .iter()
@@ -5746,7 +5663,8 @@ fn default_options_compat_route_breakdowns_case() {
         });
     }
     run.runtime_snapshots = vec![runtime_snapshot(Some(200), Some(140), Some(180))];
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(!report.route_breakdowns.is_empty());
     assert!(report
         .warnings
@@ -5803,7 +5721,8 @@ fn default_options_compat_temporal_segments_case() {
             completed: true,
         })
         .collect();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert!(!report.temporal_segments.is_empty());
     assert_default_report_has_no_analyzer_config(&report);
 }
@@ -5811,7 +5730,8 @@ fn default_options_compat_temporal_segments_case() {
 #[test]
 fn analyzer_config_transparency_default_report_omits_config() {
     let run = test_run();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert!(report.analyzer_config.is_none());
 
@@ -5835,7 +5755,7 @@ fn analyzer_config_transparency_non_default_report_includes_config() {
     options.queueing.trigger_permille = 400;
     options.temporal.min_request_count = 30;
 
-    let report = analyze_run(&run, options);
+    let report = analyze_run(&run, options).expect("analyzer options should be valid");
     let config = report
         .analyzer_config
         .as_ref()
@@ -5917,13 +5837,14 @@ fn option_queueing_trigger_permille_changes_queue_suspect() {
             completed: true,
         });
     }
-    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    let default_report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         default_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
     );
     let strict = AnalyzeOptions::default().with_queueing(|o| o.trigger_permille = 600);
-    let strict_report = analyze_run(&run, strict);
+    let strict_report = analyze_run(&run, strict).expect("analyzer options should be valid");
     assert_ne!(
         strict_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -5935,13 +5856,14 @@ fn option_blocking_min_nonzero_samples_changes_signal_emission() {
     let mut run = option_run_twenty_requests();
     run.runtime_snapshots = vec![runtime_snapshot(Some(0), Some(0), Some(0)); 100];
     run.runtime_snapshots[0].blocking_queue_depth = Some(1);
-    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    let default_report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_ne!(
         default_report.primary_suspect.kind,
         DiagnosisKind::BlockingPoolPressure
     );
     let relaxed = AnalyzeOptions::default().with_blocking(|o| o.min_nonzero_samples_for_signal = 1);
-    let relaxed_report = analyze_run(&run, relaxed);
+    let relaxed_report = analyze_run(&run, relaxed).expect("analyzer options should be valid");
     assert_eq!(
         relaxed_report.primary_suspect.kind,
         DiagnosisKind::BlockingPoolPressure
@@ -5952,13 +5874,14 @@ fn option_blocking_min_nonzero_samples_changes_signal_emission() {
 fn option_executor_min_global_queue_p95_changes_signal_emission() {
     let mut run = option_run_twenty_requests();
     run.runtime_snapshots = vec![runtime_snapshot(Some(1), Some(0), Some(0)); 20];
-    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    let default_report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         default_report.primary_suspect.kind,
         DiagnosisKind::ExecutorPressureSuspected
     );
     let strict = AnalyzeOptions::default().with_executor(|o| o.min_global_queue_p95_for_signal = 2);
-    let strict_report = analyze_run(&run, strict);
+    let strict_report = analyze_run(&run, strict).expect("analyzer options should be valid");
     assert_ne!(
         strict_report.primary_suspect.kind,
         DiagnosisKind::ExecutorPressureSuspected
@@ -5982,7 +5905,8 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
         });
     }
 
-    let default_report = analyze_run(&run, AnalyzeOptions::default());
+    let default_report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         default_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -5991,7 +5915,7 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
     assert_eq!(default_report.primary_suspect.confidence, Confidence::High);
 
     let strict = AnalyzeOptions::default().with_confidence(|o| o.high_score_threshold = 91);
-    let strict_report = analyze_run(&run, strict);
+    let strict_report = analyze_run(&run, strict).expect("analyzer options should be valid");
     assert_eq!(
         strict_report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -6161,8 +6085,10 @@ fn prompt09_partial_events_are_now_visible_without_contaminating_completed_perce
     partial.queues[0].completed = false;
     partial.stages[0].completed = false;
     partial.stages[0].success = false;
-    let completed_report = analyze_run(&completed, AnalyzeOptions::default());
-    let partial_report = analyze_run(&partial, AnalyzeOptions::default());
+    let completed_report = analyze_run(&completed, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
+    let partial_report =
+        analyze_run(&partial, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         completed_report.p95_queue_share_permille,
         partial_report.p95_queue_share_permille
@@ -6182,8 +6108,10 @@ fn partial_queue_events_do_not_enter_completed_queue_percentiles() {
     q.completed = false;
     q.depth_at_start = Some(99);
     partial.queues.push(q);
-    let a = analyze_run(&completed, AnalyzeOptions::default());
-    let b = analyze_run(&partial, AnalyzeOptions::default());
+    let a = analyze_run(&completed, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
+    let b =
+        analyze_run(&partial, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(a.p95_queue_share_permille, Some(900));
     assert_eq!(b.p95_queue_share_permille, Some(900));
     assert_eq!(a.p95_service_share_permille, Some(100));
@@ -6203,7 +6131,8 @@ fn partial_queue_events_do_not_enter_completed_queue_percentiles() {
 fn partial_only_queue_evidence_can_rank_queue_suspect_but_caps_confidence() {
     let mut run = partial_policy_run(true, false);
     run.stages.clear();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.p95_queue_share_permille, Some(0));
     assert_eq!(
         report.primary_suspect.kind,
@@ -6228,8 +6157,10 @@ fn partial_stage_events_do_not_enter_completed_stage_percentiles() {
     s.completed = false;
     s.success = false;
     partial.stages.push(s);
-    let a = analyze_run(&completed, AnalyzeOptions::default());
-    let b = analyze_run(&partial, AnalyzeOptions::default());
+    let a = analyze_run(&completed, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
+    let b =
+        analyze_run(&partial, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let asus = downstream_suspect(&a);
     assert_eq!(asus.score, 95);
     assert_eq!(
@@ -6244,7 +6175,8 @@ fn partial_stage_events_do_not_enter_completed_stage_percentiles() {
 fn partial_only_stage_evidence_can_rank_downstream_suspect_but_caps_confidence() {
     let mut run = partial_policy_run(false, true);
     run.queues.clear();
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::DownstreamStageDominates
@@ -6269,7 +6201,8 @@ fn partial_only_stage_evidence_can_rank_downstream_suspect_but_caps_confidence()
 #[test]
 fn completed_only_report_json_text_scores_and_rankings_remain_exact() {
     let run = partial_policy_run(false, false);
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let expected_json = r#"{"request_count":45,"p50_latency_us":1000,"p95_latency_us":1000,"p99_latency_us":1000,"p95_queue_share_permille":900,"p95_service_share_permille":100,"inflight_trend":null,"warnings":["Top suspects are close in score; treat ranking as ambiguous and validate both with next checks."],"evidence_quality":{"request_count":45,"queue_event_count":45,"stage_event_count":45,"runtime_snapshot_count":0,"inflight_snapshot_count":0,"requests":"present","queues":"present","stages":"present","runtime_snapshots":"missing","inflight_snapshots":"missing","truncated":false,"dropped_requests":0,"dropped_stages":0,"dropped_queues":0,"dropped_inflight_snapshots":0,"dropped_runtime_snapshots":0,"quality":"strong","limitations":["Runtime snapshots are missing, limiting executor and blocking-pressure interpretation."]},"primary_suspect":{"kind":"application_queue_saturation","score":95,"confidence":"medium","evidence":["Queue wait at p95 consumes 90.0% of request time.","Observed queue depth sample up to 20."],"next_checks":["Inspect queue admission limits and producer burst patterns.","Compare queue wait distribution before and after increasing worker parallelism."],"confidence_notes":["Top suspects are close in score; confidence is capped by ambiguity."]},"secondary_suspects":[{"kind":"downstream_stage_dominates","score":95,"confidence":"medium","evidence":["Stage 'db' has p95 latency 900 us across 45 samples.","Stage 'db' cumulative latency is 40500 us (900 permille of request latency).","Stage 'db' contributes 900 permille of tail request latency."],"next_checks":["Inspect downstream dependency behind stage 'db'.","Collect downstream service timings and retry behavior during tail windows.","Review downstream SLO/error budget and align retry budget/backoff with it."],"confidence_notes":["Top suspects are close in score; confidence is capped by ambiguity."]}],"route_breakdowns":[],"temporal_segments":[]}"#;
     assert_eq!(render_json(&report).unwrap(), expected_json);
     let text = render_text(&report);
@@ -6311,7 +6244,8 @@ fn completed_only_warning_and_limitation_order_remains_stable() {
     let mut run = partial_policy_run(false, false);
     run.truncation.dropped_requests = 1;
     run.truncation.dropped_queues = 1;
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.warnings, vec![
         "Capture limits were hit during this run; dropped evidence can reduce diagnosis completeness and confidence.".to_string(),
         "Capture truncated requests: dropped 1 request events after reaching the configured max_requests limit. This dropped evidence can reduce diagnosis completeness and confidence.".to_string(),
@@ -6373,7 +6307,8 @@ fn mixed_queue_evidence_uses_higher_basis_and_labels_material_partial_reliance()
     assert_eq!(observed.suspect.score, 95);
     assert!(observed.suspect.score > completed.suspect.score);
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         report.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -6429,7 +6364,7 @@ fn fully_overlapped_partial_queue_does_not_cap_completed_candidate() {
     .expect("observed queue candidate");
     assert_eq!(completed.suspect.score, observed.suspect.score);
 
-    let r = analyze_run(&run, AnalyzeOptions::default());
+    let r = analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(
         r.primary_suspect.kind,
         DiagnosisKind::ApplicationQueueSaturation
@@ -6452,6 +6387,7 @@ fn fully_overlapped_partial_queue_does_not_cap_completed_candidate() {
         .contains(&super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()));
     let completed_only_confidence =
         analyze_run(&partial_policy_run(false, false), AnalyzeOptions::default())
+            .expect("analyzer options should be valid")
             .primary_suspect
             .confidence;
     assert_eq!(r.primary_suspect.confidence, completed_only_confidence);
@@ -6507,7 +6443,8 @@ fn mixed_stage_evidence_uses_higher_basis_and_labels_material_partial_reliance()
     assert_eq!(observed.7, 95);
     assert!(observed.7 > completed.7);
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let suspect = downstream_suspect(&report);
     assert_eq!(suspect.score, observed.7);
     assert_eq!(suspect.evidence, vec![
@@ -6550,7 +6487,7 @@ fn fully_overlapped_partial_stage_does_not_cap_completed_candidate() {
         .expect("observed stage candidate");
     assert_eq!(completed.7, observed.7);
 
-    let r = analyze_run(&run, AnalyzeOptions::default());
+    let r = analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     let d = downstream_suspect(&r);
     assert_eq!(d.score, completed.7);
     assert!(d
@@ -6564,10 +6501,10 @@ fn fully_overlapped_partial_stage_does_not_cap_completed_candidate() {
     assert!(!d
         .confidence_notes
         .contains(&super::partial_evidence::PARTIAL_STAGE_CONFIDENCE_NOTE.to_string()));
-    let completed_only_confidence = downstream_suspect(&analyze_run(
-        &partial_policy_run(false, false),
-        AnalyzeOptions::default(),
-    ))
+    let completed_only_confidence = downstream_suspect(
+        &analyze_run(&partial_policy_run(false, false), AnalyzeOptions::default())
+            .expect("analyzer options should be valid"),
+    )
     .confidence;
     assert_eq!(d.confidence, completed_only_confidence);
     assert_eq!(r.evidence_quality.stages, SignalCoverageStatus::Partial);
@@ -6577,7 +6514,7 @@ fn fully_overlapped_partial_stage_does_not_cap_completed_candidate() {
 #[test]
 fn partial_counts_and_signal_statuses_are_deterministic() {
     let run = partial_policy_run(true, true);
-    let r = analyze_run(&run, AnalyzeOptions::default());
+    let r = analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(r.evidence_quality.queue_event_count, 45);
     assert_eq!(r.evidence_quality.stage_event_count, 45);
     assert_eq!(r.evidence_quality.queues, SignalCoverageStatus::Partial);
@@ -6589,7 +6526,7 @@ fn partial_counts_and_signal_statuses_are_deterministic() {
 fn partial_and_truncated_family_reports_truncated_status() {
     let mut run = partial_policy_run(true, true);
     run.truncation.dropped_queues = 1;
-    let r = analyze_run(&run, AnalyzeOptions::default());
+    let r = analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(r.evidence_quality.queues, SignalCoverageStatus::Truncated);
 }
 fn scoped_partial_acceptance_run() -> Run {
@@ -6652,7 +6589,8 @@ fn global_partial_warning_is_emitted_once_and_not_copied_to_nested_warnings() {
                 o.min_request_count = 20;
                 o.min_segment_request_count = 10;
             }),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(r.route_breakdowns.len(), 2);
     assert_eq!(r.temporal_segments.len(), 2);
     assert_eq!(r.warnings, vec![
@@ -6844,7 +6782,8 @@ fn route_breakdowns_apply_completed_distribution_and_partial_confidence_policy()
     let report = analyze_run(
         &run,
         AnalyzeOptions::default().with_route(|o| o.min_request_count = 10),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(report.route_breakdowns.len(), 2);
     let completed = report
         .route_breakdowns
@@ -6913,7 +6852,8 @@ fn temporal_segments_apply_completed_distribution_and_partial_confidence_policy(
             o.min_request_count = 20;
             o.min_segment_request_count = 10;
         }),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(report.temporal_segments.len(), 2);
     assert!(report.warnings.iter().any(|w| w == "Temporal segments show different primary suspects; inspect temporal_segments before acting on the global suspect."));
     let early = report
@@ -6986,7 +6926,7 @@ fn cancelled_requests_with_partial_children_are_qualified_without_fabricated_fai
     assert_eq!(child.request_id, "r7");
     assert!(!child.completed);
     assert!(!child.success);
-    let r = analyze_run(&run, AnalyzeOptions::default());
+    let r = analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(r.request_count, 45);
     assert_eq!(
         run.requests
@@ -7088,7 +7028,8 @@ fn validation_corpus_completed_defaults_and_partial_flags_deserialize() {
                 }
             }
         }
-        let report = analyze_run(&run, AnalyzeOptions::default());
+        let report =
+            analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         assert_eq!(report.request_count, run.requests.len());
     }
     assert!(saw_omitted_completed_default);

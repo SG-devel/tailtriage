@@ -33,7 +33,8 @@ fn cli_json_matches_analyzer_renderer_output() {
     let report = tailtriage_analyzer::analyze_run(
         &loaded.run,
         tailtriage_analyzer::AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     let expected_json = tailtriage_analyzer::render_json_pretty(&report)
         .expect("expected report JSON should render");
 
@@ -82,7 +83,8 @@ fn allow_ambiguous_artifact_reports_preserve_core_warning_equivalence_for_bounda
         let analyzer_report = tailtriage_analyzer::analyze_run(
             &original,
             tailtriage_analyzer::AnalyzeOptions::default(),
-        );
+        )
+        .expect("analyzer options should be valid");
 
         let tempdir = tempfile::tempdir().expect("tempdir should build");
         let artifact_path = tempdir.path().join(format!("{}.json", candidate.name));
@@ -296,7 +298,8 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
         }
 
         let analyzer =
-            tailtriage_analyzer::analyze_run(&run, tailtriage_analyzer::AnalyzeOptions::default());
+            tailtriage_analyzer::analyze_run(&run, tailtriage_analyzer::AnalyzeOptions::default())
+                .expect("analyzer options should be valid");
         assert_eq!(
             analyzer.request_count,
             reference.requests.len(),
@@ -312,50 +315,13 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
             );
         }
         let analyzer2 =
-            tailtriage_analyzer::analyze_run(&run, tailtriage_analyzer::AnalyzeOptions::default());
+            tailtriage_analyzer::analyze_run(&run, tailtriage_analyzer::AnalyzeOptions::default())
+                .expect("analyzer options should be valid");
         assert_eq!(
             analyzer.warnings, analyzer2.warnings,
             "{} analyzer warning order",
             case.name
         );
-
-        match tailtriage_analyzer::validate_artifact_strict(&run) {
-            Ok(()) => assert!(
-                strict.is_ok(),
-                "{} analyzer strict should match core",
-                case.name
-            ),
-            Err(err) => {
-                assert!(
-                    strict.is_err(),
-                    "{} analyzer strict rejected when core accepted: {err}",
-                    case.name
-                );
-                let represented_codes = match &err {
-                    tailtriage_analyzer::ArtifactValidationError::Core(core) => core
-                        .report()
-                        .issues
-                        .iter()
-                        .filter(|issue| {
-                            issue.severity == tailtriage_core::RunValidationSeverity::Error
-                        })
-                        .map(|issue| issue.code.as_str().to_owned())
-                        .collect::<BTreeSet<_>>(),
-                    _ => stable_issue_codes()
-                        .into_iter()
-                        .filter(|code| err.to_string().contains(code))
-                        .map(str::to_owned)
-                        .collect::<BTreeSet<_>>(),
-                };
-                for code in &strict_error_codes {
-                    assert!(
-                        represented_codes.contains(code),
-                        "{} analyzer strict missing {code}: {represented_codes:?}",
-                        case.name
-                    );
-                }
-            }
-        }
 
         let tempdir = tempfile::tempdir().expect("tempdir");
         let artifact_path = tempdir.path().join(format!("{}.json", case.name));
@@ -581,7 +547,8 @@ fn native_run_is_strict_valid_and_normalization_idempotent() {
     let analyzer = tailtriage_analyzer::analyze_run(
         &native_run,
         tailtriage_analyzer::AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(analyzer.request_count, normalized_projection.requests.len());
 }
 
@@ -625,7 +592,8 @@ fn native_derived_missing_precision_keeps_duration_evidence_without_lifecycle_mu
     let _ = tailtriage_analyzer::analyze_run(
         &native_run,
         tailtriage_analyzer::AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         native_run.metadata.lifecycle_warnings, lifecycle_before,
         "read-only analysis should not append lifecycle warnings"

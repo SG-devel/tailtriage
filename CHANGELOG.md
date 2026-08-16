@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Simplified the analyzer API to one checked `analyze_run` operation plus separate `render_text`, `render_json`, and `render_json_pretty` functions. Migrate `try_analyze_run(...)` to `analyze_run(...)?`, `Analyzer` methods to the free function, `analyze_run_json*` to analysis followed by `render_json*`, and analyzer strict wrappers to `tailtriage_core::validate_run_strict(...)?` followed by analysis.
+
 - Executor-pressure scoring now normalizes runnable queue depth by Tokio worker count when complete worker evidence is available. Historical artifacts retain exact legacy scoring, while partial, inconsistent, or invalid worker evidence uses a confidence-capped legacy fallback.
 
 - Diagnostic validation responsibilities are now documented as typed analyzer-rule tests, deterministic artifact-pipeline regression, and local/manual live-workload validation.

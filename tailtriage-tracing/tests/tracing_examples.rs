@@ -119,7 +119,8 @@ fn assert_single_request_timing_semantics(run: &Run) {
     duration_authority.queues[0].waited_until_unix_ms = 11;
     duration_authority.queues[0].wait_us = 30_000;
 
-    let report = analyze_run(&duration_authority, AnalyzeOptions::default());
+    let report = analyze_run(&duration_authority, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(report.p50_latency_us, Some(50_000));
     assert_eq!(report.p95_latency_us, Some(50_000));
     assert_eq!(report.p99_latency_us, Some(50_000));
@@ -207,7 +208,8 @@ fn imported_fixture_run_is_analyzable_and_has_no_runtime_snapshots() {
         run.runtime_snapshots.is_empty(),
         "tracing-only import must not fabricate runtime snapshots"
     );
-    let report = analyze_run(run, AnalyzeOptions::default());
+    let report =
+        analyze_run(run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.request_count, 1);
 }
 

@@ -156,10 +156,10 @@ tailtriage analyze tailtriage-run.json
 Or analyze a completed `Run` in process and obtain a typed **Report**:
 
 ```rust
-use tailtriage_analyzer::{try_analyze_run, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 # use tailtriage::Run;
 # fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
-let report = try_analyze_run(&run, AnalyzeOptions::default())?;
+let report = analyze_run(&run, AnalyzeOptions::default())?;
 # let _ = report;
 # Ok(())
 # }

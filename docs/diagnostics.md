@@ -21,14 +21,7 @@ probabilities, and suspects are **not proof** of root cause.
 | typed `Report` | The analyzer result and source for text or JSON rendering. |
 | Report JSON | Serialization of `Report`; it is output, not a reusable Run artifact. |
 
-`Analyzer::analyze_run` and `analyze_run` permissively normalize request-scoped
-evidence. Invalid or orphaned events are discarded or canonicalized and the
-result carries validation warnings. `AnalyzeOptions` are still semantically
-validated: the free and reusable `analyze_run` entry points panic on invalid
-options, while the free and reusable `try_analyze_run` entry points return
-`AnalyzeConfigError`. `validate_artifact_strict` and
-`try_analyze_run_strict_artifact` additionally reject invalid artifact
-relationships. Saved-artifact CLI analysis is strict
+`analyze_run` validates `AnalyzeOptions`, returns `AnalyzeConfigError` for invalid options, and permissively normalizes request-scoped evidence. Invalid or orphaned events are discarded or canonicalized and the result carries validation warnings. Callers that require strict in-process acceptance explicitly compose `tailtriage_core::validate_run_strict(&run)?` before `analyze_run(&run, options)?`. Saved-artifact CLI analysis is strict
 by default and emits loader/lifecycle notices on stderr; see the
 [`tailtriage-cli` README](../tailtriage-cli/README.md) for command and schema
 mechanics.
@@ -422,9 +415,8 @@ version 1 and only non-default path/value summaries, sorted by path.
 - `Report` serialization has stable named fields; `route_breakdowns` and
   `temporal_segments` are always present, including when empty.
 - `analyzer_config` is absent at defaults and present only for non-defaults.
-- `analyze_run_json` and `analyze_run_json_pretty` are the canonical compact and
-  pretty serializers of the typed `Report`; their `try_` forms return option
-  validation errors.
+- `render_json(&Report)` and `render_json_pretty(&Report)` are the canonical compact and
+  pretty serializers of the typed `Report`; analysis and rendering are separate operations.
 - `render_text(&Report)` renders the typed report. CLI JSON output serializes the
   same report model; text output uses the text renderer.
 

@@ -60,8 +60,10 @@ pub struct ParityReport {
 
 pub fn build_parity_report(native_run: &Run, tracing_run: &Run) -> ParityReport {
     let run = compare_runs(native_run, tracing_run);
-    let native_analysis = analyze_run(native_run, AnalyzeOptions::default());
-    let tracing_analysis = analyze_run(tracing_run, AnalyzeOptions::default());
+    let native_analysis = analyze_run(native_run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
+    let tracing_analysis = analyze_run(tracing_run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     let analyzer = compare_analyzer_reports(&native_analysis, &tracing_analysis);
     let rendered = compare_rendered_reports(&native_analysis, &tracing_analysis);
 
@@ -849,6 +851,7 @@ fn live_session_preserves_event_shape_and_outputs_analyzable_run() {
     assert!(run.stages.iter().all(|s| s.latency_us > 0));
     assert!(run.queues.iter().all(|q| q.wait_us > 0));
 
-    let analysis = analyze_run(&run, AnalyzeOptions::default());
+    let analysis =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(analysis.request_count, 3);
 }

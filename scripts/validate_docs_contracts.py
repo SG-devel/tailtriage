@@ -336,7 +336,7 @@ def validate_governance_strictness_contract() -> None:
 
     conflations = (
         r"strict artifact validation[^\n]*(?:cli/import strict flags|tracing import `--strict`)",
-        r"tracing import `--strict`[^\n]*(?:runs? validate_artifact_strict|(?<!not )replace(?:s)? strict run artifact validation)",
+        r"tracing import `--strict`[^\n]*(?<!not )replace(?:s)? strict run artifact validation",
     )
     for pattern in conflations:
         if re.search(pattern, lower_text):
@@ -907,7 +907,7 @@ def validate_analyzer_tuning_tokens_contract() -> None:
             raise ValueError(f"tailtriage-cli/README.md missing required analyzer token: {token}")
 
     analyzer_lower = (REPO_ROOT / "tailtriage-analyzer" / "README.md").read_text(encoding="utf-8").lower()
-    for token in ("analyzeoptions", "try_analyze_run", "with_queueing", "analyzer_config"):
+    for token in ("analyzeoptions", "analyze_run", "with_queueing", "analyzer_config"):
         if token not in analyzer_lower:
             raise ValueError(f"tailtriage-analyzer/README.md missing required analyzer token: {token}")
 
@@ -1006,8 +1006,6 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         "render_json",
         "render_json_pretty",
         "analyze_run",
-        "analyze_run_json",
-        "analyze_run_json_pretty",
         "render_text",
         "analyzeoptions::default()",
         "tailtriage-cli",
@@ -1015,6 +1013,9 @@ def validate_analyzer_cli_docs_split_contract() -> None:
     for token in analyzer_required:
         if token not in analyzer_lower:
             raise ValueError(f"tailtriage-analyzer README missing required concept/token: {token}")
+
+    if "let report = analyze_run" not in analyzer_lower or "analyzeoptions::default())?" not in analyzer_lower:
+        raise ValueError("tailtriage-analyzer README must teach checked analyze_run and separate Report rendering")
 
     if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
         raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")

@@ -739,7 +739,7 @@ Normal CI does not publish durable diagnostic scorecards.
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
 Use analyze_run(run, AnalyzeOptions::default()) for the standard entry point.
 Use render_text(&report), render_json(&report), and render_json_pretty(&report) for Report rendering.
-Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty(run, AnalyzeOptions::default()) for helpers.
+First let report = analyze_run(run, AnalyzeOptions::default())?; then use render_json(&report) or render_json_pretty(&report).
 This crate is not streaming / not live streaming, and tailtriage-cli owns artifact loading.
 ## How to interpret a report
 primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
@@ -767,8 +767,7 @@ CLI does not consume Report JSON as input.
     def test_analyzer_readme_validation_fails_when_json_renderer_tokens_missing(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values with typed Report output.
-Use analyze_run(run, AnalyzeOptions::default()) and render_text(&report).
-Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+Use analyze_run(run, AnalyzeOptions::default())? and render_text(&report).
 This crate is not streaming and references tailtriage-cli for artifact loading.
 """
         cli_text = """
@@ -794,8 +793,7 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
 Use analyze_run(run, AnalyzeOptions::default()) and render_text(&report).
-Use render_json(&report), render_json_pretty(&report), analyze_run_json(run, AnalyzeOptions::default()),
-and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+First let report = analyze_run(run, AnalyzeOptions::default())?; then use render_json(&report) and render_json_pretty(&report).
 This crate is not streaming / not live streaming and references tailtriage-cli.
 ## How to interpret a report
 primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
@@ -824,7 +822,7 @@ Rust in-process users should use tailtriage-analyzer.
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
 Use analyze_run(run, AnalyzeOptions::default()) for the standard entry point.
 Use render_text(&report), render_json(&report), and render_json_pretty(&report) for Report rendering.
-Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+First let report = analyze_run(run, AnalyzeOptions::default())?; then use render_json(&report) and render_json_pretty(&report).
 This crate is not streaming and references tailtriage-cli.
 ## How to interpret a report
 primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
@@ -866,7 +864,7 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
 Use analyze_run(run, AnalyzeOptions::default()) for the standard entry point.
 Use render_text(&report), render_json(&report), and render_json_pretty(&report) for Report rendering.
-Use analyze_run_json(run, AnalyzeOptions::default()) and analyze_run_json_pretty(run, AnalyzeOptions::default()).
+First let report = analyze_run(run, AnalyzeOptions::default())?; then use render_json(&report) and render_json_pretty(&report).
 This crate is not streaming and references tailtriage-cli.
 primary_suspect secondary_suspects evidence[] next_checks[] score confidence evidence_quality route_breakdowns temporal_segments Report JSON Run artifact JSON
 """

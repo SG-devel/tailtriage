@@ -45,7 +45,8 @@ fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     let run: Run = serde_json::from_str(valid_cli_artifact_with_empty_requests())
         .expect("fixture should decode to run");
 
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
     assert_eq!(report.request_count, 0);
 }
 
@@ -703,7 +704,8 @@ fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
 
     let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
         .expect("imported run should load in cli loader");
-    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(report.request_count, 1);
     assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
@@ -933,7 +935,8 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixtu
     assert_eq!(loaded.run.requests.len(), 1);
     assert_eq!(loaded.run.stages.len(), 1);
     assert_eq!(loaded.run.queues.len(), 1);
-    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(report.request_count, 1);
 }
 
@@ -1685,7 +1688,8 @@ fn import_tracing_spans_jsonl_persists_optional_default_assumption_warnings_in_r
         .iter()
         .any(|warning| warning.contains("missing optional 'tt.success'; assumed true")));
 
-    let report = analyze_run(&loaded.run, AnalyzeOptions::default());
+    let report = analyze_run(&loaded.run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(report.request_count, 1);
 }
 

@@ -10,7 +10,7 @@ Use this crate when you already have a completed `tailtriage_core::Run` in memor
 - returns a typed `Report` with evidence-ranked suspects and next checks
 - renders human-readable output with `render_text(&Report)`
 - renders canonical Report JSON with `render_json(&Report)` and `render_json_pretty(&Report)`
-- provides analyze+render helpers: `analyze_run_json` and `analyze_run_json_pretty`
+- keeps analysis separate from Report rendering so configuration and serialization errors remain distinct
 
 Suspects are investigation leads, not proof of root cause.
 
@@ -37,11 +37,11 @@ Typical flow:
 ## In-process API
 
 ```rust
-use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run, AnalyzeOptions};
+use tailtriage_analyzer::{render_json_pretty, render_text, analyze_run, AnalyzeOptions};
 use tailtriage_core::Run;
 
 fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
-    let report = try_analyze_run(run, AnalyzeOptions::default())?;
+    let report = analyze_run(run, AnalyzeOptions::default())?;
     let text = render_text(&report);
     let json = render_json_pretty(&report)?;
     Ok(format!("{text}\n\n{json}"))
@@ -50,22 +50,30 @@ fn render_report(run: &Run) -> Result<String, Box<dyn std::error::Error>> {
 
 ## Report contract
 
-- `try_analyze_run` validates `AnalyzeOptions` and returns `AnalyzeConfigError` when they are semantically invalid
-- `analyze_run` performs the same validation but panics on invalid options; it is convenient when options are known-valid, including `AnalyzeOptions::default()`
-- `Analyzer::try_analyze_run` and `Analyzer::analyze_run` provide the same checked-versus-panicking distinction for a reusable analyzer
+- `analyze_run` validates `AnalyzeOptions` and returns `AnalyzeConfigError` when they are semantically invalid
 - `AnalyzeOptions` is the supported configuration model for current analyzer behavior
 - `Report` is the typed analyzer output model and should be your primary integration surface
 - `render_text` is for human-readable triage output
 - `render_json` and `render_json_pretty` are canonical Report JSON renderers
-- `analyze_run_json` and `analyze_run_json_pretty` combine analysis + canonical JSON rendering
+- analysis and JSON rendering compose explicitly: call `analyze_run`, then `render_json` or `render_json_pretty`
 - Report JSON is analyzer output and is distinct from raw Run artifact JSON input
-- analyzer library default analysis is permissive: it analyzes core-normalized evidence and surfaces stable core issue-code warnings for excluded, repaired, or precision-limited completed-Run evidence; strict artifact validation APIs reject error-level generic core integrity failures. The saved-artifact CLI independently enforces strict validation by default.
+- analyzer library default analysis is permissive: it analyzes core-normalized evidence and surfaces stable core issue-code warnings for excluded, repaired, or precision-limited completed-Run evidence; `tailtriage_core::validate_run_strict` rejects error-level generic core integrity failures when explicitly composed before analysis. The saved-artifact CLI independently enforces strict validation by default.
+
+## Migrating to 0.4
+
+The 0.4 API has one checked analysis operation and separate renderers:
+
+- `try_analyze_run(...)` becomes `analyze_run(...)?`.
+- The former `analyze_run(...) -> Report` becomes `analyze_run(...) -> Result<Report, AnalyzeConfigError>`.
+- `Analyzer` methods become `analyze_run(...)`; reuse `AnalyzeOptions` directly.
+- `analyze_run_json*` becomes `analyze_run(...)?` followed by `render_json*(&report)?`.
+- Analyzer-owned strict wrappers become `tailtriage_core::validate_run_strict(...)?` followed by `analyze_run(...)?`.
 
 ## Request ID contract
 
 `request_id` is the per-run tailtriage identity of one completed logical request/work item. It must be unique among completed requests in one `Run`; stage and queue events must reuse that ID only for the same logical request. Duplicate completed IDs make request-scoped queue attribution, route breakdowns, temporal segmentation, and downstream-stage matching ambiguous.
 
-Use `validate_artifact_strict` or `try_analyze_run_strict_artifact` when you want the analyzer to reject error-level generic core integrity failures before producing evidence-ranked suspects and next checks. Default analysis remains backward-compatible and warns instead of failing; missing optional run-relative precision is a warning-only legacy compatibility limitation.
+Use `tailtriage_core::validate_run_strict` before `analyze_run` when you want to reject error-level generic core integrity failures before producing evidence-ranked suspects and next checks. Default analysis remains backward-compatible and warns instead of failing; missing optional run-relative precision is a warning-only legacy compatibility limitation.
 
 Users remain responsible for meaningful instrumentation and request-boundary semantics. The analyzer cannot know whether an external trace ID, retry ID, fanout ID, or batch ID identifies the correct logical request; convert repeating external IDs into unique tailtriage request IDs before analysis.
 
@@ -83,13 +91,13 @@ let _ = options;
 In-process checked custom options:
 
 ```rust
-use tailtriage_analyzer::{try_analyze_run, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
 use tailtriage_core::Run;
 
 fn analyze_checked(run: &Run) -> Result<(), Box<dyn std::error::Error>> {
     let options = AnalyzeOptions::default()
         .with_queueing(|o| o.trigger_permille = 450);
-    let report = try_analyze_run(run, options)?;
+    let report = analyze_run(run, options)?;
     let _ = report;
     Ok(())
 }
