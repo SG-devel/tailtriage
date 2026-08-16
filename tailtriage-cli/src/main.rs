@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use tailtriage_analyzer::{render_json_pretty, render_text, try_analyze_run};
+use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text};
 use tailtriage_cli::artifact::{decode_run_artifact, ArtifactLoadError};
 use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
 use tailtriage_core::{
@@ -177,7 +177,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("warning: {warning}");
             }
             let options = build_analyze_options(analyzer_config.as_deref(), &analyzer_set)?;
-            let report = try_analyze_run(&loaded.original_run, options)?;
+            let report = analyze_run(&loaded.original_run, options)?;
 
             match format {
                 OutputFormat::Text => {

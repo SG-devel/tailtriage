@@ -25,7 +25,8 @@ fn fixture_reports_match_canonical_pretty_json_golden_files() {
         "scoped_temporal.json",
     ] {
         let run = load_fixture(fixture);
-        let report = analyze_run(&run, AnalyzeOptions::default());
+        let report =
+            analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         let actual = render_json_pretty(&report).expect("report should render");
         let stem = fixture.strip_suffix(".json").expect("fixture suffix");
         let expected_path = Path::new("tests/expected").join(format!("{stem}.report.json"));
@@ -39,7 +40,8 @@ fn scoped_route_fixture_preserves_breakdown_contract() {
     let report = analyze_run(
         &load_fixture("scoped_route.json"),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         report
             .route_breakdowns
@@ -76,7 +78,8 @@ fn scoped_temporal_fixture_preserves_windowed_evidence_contract() {
     let report = analyze_run(
         &load_fixture("scoped_temporal.json"),
         AnalyzeOptions::default(),
-    );
+    )
+    .expect("analyzer options should be valid");
     assert_eq!(
         report
             .temporal_segments
@@ -137,7 +140,8 @@ fn fixture_categories_produce_expected_primary_suspect() {
 
     for (fixture, expected) in cases {
         let run = load_fixture(fixture);
-        let report = analyze_run(&run, AnalyzeOptions::default());
+        let report =
+            analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
         assert_eq!(report.primary_suspect.kind, expected, "fixture={fixture}");
         assert!(
             !report.primary_suspect.evidence.is_empty(),
@@ -153,7 +157,8 @@ fn fixture_categories_produce_expected_primary_suspect() {
 #[test]
 fn fixture_reports_render_to_text_and_json() {
     let run = load_fixture("queue_saturation.json");
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     let text = render_text(&report);
     assert!(text.contains("Primary suspect:"));
@@ -172,12 +177,14 @@ fn fixture_reports_render_to_text_and_json() {
 #[test]
 fn fixture_reports_include_expected_request_time_shares() {
     let queue_run = load_fixture("queue_saturation.json");
-    let queue_report = analyze_run(&queue_run, AnalyzeOptions::default());
+    let queue_report = analyze_run(&queue_run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(queue_report.p95_queue_share_permille, Some(666));
     assert_eq!(queue_report.p95_service_share_permille, Some(500));
 
     let downstream_run = load_fixture("downstream_stage.json");
-    let downstream_report = analyze_run(&downstream_run, AnalyzeOptions::default());
+    let downstream_report = analyze_run(&downstream_run, AnalyzeOptions::default())
+        .expect("analyzer options should be valid");
     assert_eq!(downstream_report.p95_queue_share_permille, Some(0));
     assert_eq!(downstream_report.p95_service_share_permille, Some(1000));
 }
@@ -185,7 +192,8 @@ fn fixture_reports_include_expected_request_time_shares() {
 #[test]
 fn queue_fixture_includes_inflight_trend_evidence() {
     let run = load_fixture("queue_saturation.json");
-    let report = analyze_run(&run, AnalyzeOptions::default());
+    let report =
+        analyze_run(&run, AnalyzeOptions::default()).expect("analyzer options should be valid");
 
     assert!(report.inflight_trend.is_some());
     assert!(

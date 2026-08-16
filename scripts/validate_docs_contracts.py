@@ -19,6 +19,7 @@ DEV_DOCS_DIR = REPO_ROOT / "docs" / "dev"
 DESIGN_NOTES_PATH = DEV_DOCS_DIR / "DESIGN_NOTES.md"
 IMPLEMENTATION_PLAN_PATH = DEV_DOCS_DIR / "IMPLEMENTATION_PLAN.md"
 VALIDATION_PATH = DEV_DOCS_DIR / "VALIDATION.md"
+DEV_README_PATH = DEV_DOCS_DIR / "README.md"
 DOCS_INDEX_PATH = REPO_ROOT / "docs" / "README.md"
 USER_GUIDE_PATH = REPO_ROOT / "docs" / "user-guide.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs" / "diagnostics.md"
@@ -336,11 +337,19 @@ def validate_governance_strictness_contract() -> None:
 
     conflations = (
         r"strict artifact validation[^\n]*(?:cli/import strict flags|tracing import `--strict`)",
-        r"tracing import `--strict`[^\n]*(?:runs? validate_artifact_strict|(?<!not )replace(?:s)? strict run artifact validation)",
+        r"tracing import `--strict`[^\n]*(?<!not )replace(?:s)? strict run artifact validation",
     )
     for pattern in conflations:
         if re.search(pattern, lower_text):
             raise ValueError("SPEC.md conflates strict Run artifact validation with tracing import --strict")
+
+
+def validate_analyzer_strictness_ownership_contract(*, path: Path = DEV_README_PATH) -> None:
+    text = path.read_text(encoding="utf-8")
+    if re.search(r"analyzer (?:library )?entry points?[^\n]*expose strict alternatives", text, re.IGNORECASE):
+        raise ValueError(
+            f"{path.relative_to(REPO_ROOT)} claims analyzer-owned strict validation alternatives"
+        )
 
 
 def validate_governance_pending_state_contract() -> None:
@@ -907,7 +916,7 @@ def validate_analyzer_tuning_tokens_contract() -> None:
             raise ValueError(f"tailtriage-cli/README.md missing required analyzer token: {token}")
 
     analyzer_lower = (REPO_ROOT / "tailtriage-analyzer" / "README.md").read_text(encoding="utf-8").lower()
-    for token in ("analyzeoptions", "try_analyze_run", "with_queueing", "analyzer_config"):
+    for token in ("analyzeoptions", "analyze_run", "with_queueing", "analyzer_config"):
         if token not in analyzer_lower:
             raise ValueError(f"tailtriage-analyzer/README.md missing required analyzer token: {token}")
 
@@ -1006,8 +1015,6 @@ def validate_analyzer_cli_docs_split_contract() -> None:
         "render_json",
         "render_json_pretty",
         "analyze_run",
-        "analyze_run_json",
-        "analyze_run_json_pretty",
         "render_text",
         "analyzeoptions::default()",
         "tailtriage-cli",
@@ -1015,6 +1022,9 @@ def validate_analyzer_cli_docs_split_contract() -> None:
     for token in analyzer_required:
         if token not in analyzer_lower:
             raise ValueError(f"tailtriage-analyzer README missing required concept/token: {token}")
+
+    if "let report = analyze_run" not in analyzer_lower or "analyzeoptions::default())?" not in analyzer_lower:
+        raise ValueError("tailtriage-analyzer README must teach checked analyze_run and separate Report rendering")
 
     if "not streaming" not in analyzer_lower and "not live streaming" not in analyzer_lower:
         raise ValueError("tailtriage-analyzer README must state it is not streaming/live-streaming")
@@ -1600,6 +1610,7 @@ def validate_run_schema_v2_public_contract(
 def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
+    validate_analyzer_strictness_ownership_contract()
     validate_governance_pending_state_contract()
     validate_analyzer_ownership_navigation()
     validate_crate_rustdocs_include_readmes()

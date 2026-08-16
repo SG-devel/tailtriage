@@ -3141,7 +3141,8 @@ mod tests {
             .all(|warning| !warning.message().contains("tt.completed")));
 
         let report =
-            tailtriage_analyzer::analyze_run(run, tailtriage_analyzer::AnalyzeOptions::default());
+            tailtriage_analyzer::analyze_run(run, tailtriage_analyzer::AnalyzeOptions::default())
+                .expect("analyzer options should be valid");
         assert_eq!(
             report.evidence_quality.queues,
             tailtriage_analyzer::SignalCoverageStatus::Present

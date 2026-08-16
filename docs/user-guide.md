@@ -239,7 +239,7 @@ use tailtriage_analyzer::render_json_pretty;
 
 # use tailtriage::Run;
 # fn example(run: Run) -> Result<(), Box<dyn std::error::Error>> {
-let report = analyze_run(&run, AnalyzeOptions::default());
+let report = analyze_run(&run, AnalyzeOptions::default())?;
 let text = render_text(&report);
 let json = render_json_pretty(&report)?;
 # let _ = (text, json);
@@ -259,7 +259,7 @@ Current analyzer semantics are completed-run or stable-snapshot batch analysis, 
 
 ### Analyzer tuning
 
-Start with defaults. When representative runs justify tuning, use the option paths and precedence documented in the [analyzer behavior reference](diagnostics.md); keep the same analyzer configuration across a controlled rerun. Rust users should prefer checked `try_analyze_run`, while CLI users can inspect supported paths with `tailtriage analyze --help-analyzer-options`.
+Start with defaults. When representative runs justify tuning, use the option paths and precedence documented in the [analyzer behavior reference](diagnostics.md); keep the same analyzer configuration across a controlled rerun. Rust users should prefer checked `analyze_run`, while CLI users can inspect supported paths with `tailtriage analyze --help-analyzer-options`.
 
 ## 4) Request lifecycle contract (required)
 

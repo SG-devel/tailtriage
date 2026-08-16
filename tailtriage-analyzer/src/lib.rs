@@ -25,212 +25,14 @@ pub use options::{
 };
 use partial_evidence::{EvidenceBasis, PartialEvidenceProfile, ScoredSuspect};
 use tailtriage_core::{
-    normalize_run_permissive, summarize_run_validation, validate_run_strict, InFlightSnapshot,
-    QueueEvent, Run, RunValidationIssueCode, RuntimeSnapshot,
+    normalize_run_permissive, summarize_run_validation, InFlightSnapshot, QueueEvent, Run,
+    RuntimeSnapshot,
 };
 
 const ROUTE_DIVERGENCE_WARNING: &str =
     "Different routes show different primary suspects; inspect route_breakdowns before acting on the global suspect.";
 const ROUTE_RUNTIME_ATTRIBUTION_WARNING: &str =
     "Runtime and in-flight signals are global and are not attributed to this route.";
-
-/// Errors returned by strict run-artifact validation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ArtifactValidationError {
-    /// More than one completed request event used the same `request_id`.
-    DuplicateCompletedRequestId {
-        /// Duplicate request IDs found in completed requests.
-        request_ids: Vec<String>,
-    },
-    /// Stage or queue evidence referenced a `request_id` with no completed request.
-    OrphanRequestScopedEvent {
-        /// Section containing orphan request-scoped events.
-        section: &'static str,
-        /// Orphan request IDs found in that section.
-        request_ids: Vec<String>,
-    },
-    /// Canonical core validation rejected another generic integrity issue.
-    Core(tailtriage_core::RunValidationError),
-}
-
-impl std::fmt::Display for ArtifactValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DuplicateCompletedRequestId { request_ids } => write!(f, "strict artifact validation failed: duplicate_completed_request_id duplicate completed request_id value(s): {}", request_ids.join(", ")),
-            Self::OrphanRequestScopedEvent { section, request_ids } => write!(f, "strict artifact validation failed: orphan_request_scoped_event orphan {section} request_id value(s) with no matching completed request: {}", request_ids.join(", ")),
-            Self::Core(err) => err.fmt(f),
-        }
-    }
-}
-impl std::error::Error for ArtifactValidationError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Core(err) => Some(err),
-            Self::DuplicateCompletedRequestId { .. } | Self::OrphanRequestScopedEvent { .. } => {
-                None
-            }
-        }
-    }
-}
-
-/// Strictly validates request-scoped artifact invariants before analysis.
-///
-/// This delegates to canonical core strict validation for all generic `Run`
-/// integrity failures, including metadata, required fields, timing, duplicate
-/// request IDs, orphan children, parent-state, and containment failures. Default
-/// analyzer entry points do not call this automatically; they keep
-/// backward-compatible permissive behavior and emit warnings instead of failing.
-///
-/// # Errors
-/// Returns [`ArtifactValidationError`] when core strict validation rejects the artifact.
-pub fn validate_artifact_strict(run: &Run) -> Result<(), ArtifactValidationError> {
-    match validate_run_strict(run) {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            if has_only_error_code(&err, RunValidationIssueCode::DuplicateCompletedRequestId) {
-                let mut duplicate_ids = run
-                    .requests
-                    .iter()
-                    .enumerate()
-                    .filter(|(index, _)| {
-                        err.report().issues.iter().any(|issue| {
-                            issue.code == RunValidationIssueCode::DuplicateCompletedRequestId
-                                && issue.location.section == tailtriage_core::RunSection::Requests
-                                && issue.location.index == Some(*index)
-                        })
-                    })
-                    .map(|(_, request)| request.request_id.clone())
-                    .collect::<Vec<_>>();
-                duplicate_ids.sort();
-                duplicate_ids.dedup();
-                if !duplicate_ids.is_empty() {
-                    return Err(ArtifactValidationError::DuplicateCompletedRequestId {
-                        request_ids: duplicate_ids,
-                    });
-                }
-            }
-            if has_only_error_code(&err, RunValidationIssueCode::OrphanRequestScopedEvent) {
-                let orphan_sections = err
-                    .report()
-                    .issues
-                    .iter()
-                    .filter(|issue| {
-                        issue.severity == tailtriage_core::RunValidationSeverity::Error
-                            && issue.code == RunValidationIssueCode::OrphanRequestScopedEvent
-                    })
-                    .map(|issue| issue.location.section)
-                    .collect::<std::collections::BTreeSet<_>>();
-                if let [section] = orphan_sections
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice()
-                {
-                    let name = match *section {
-                        tailtriage_core::RunSection::Stages => "stage",
-                        tailtriage_core::RunSection::Queues => "queue",
-                        _ => return Err(ArtifactValidationError::Core(err)),
-                    };
-                    let mut ids = err
-                        .report()
-                        .issues
-                        .iter()
-                        .filter(|issue| {
-                            issue.code == RunValidationIssueCode::OrphanRequestScopedEvent
-                                && issue.location.section == *section
-                        })
-                        .filter_map(|issue| issue.location.index)
-                        .map(|index| {
-                            if *section == tailtriage_core::RunSection::Stages {
-                                run.stages[index].request_id.clone()
-                            } else {
-                                run.queues[index].request_id.clone()
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    ids.sort();
-                    ids.dedup();
-                    if !ids.is_empty() {
-                        return Err(ArtifactValidationError::OrphanRequestScopedEvent {
-                            section: name,
-                            request_ids: ids,
-                        });
-                    }
-                }
-            }
-            Err(ArtifactValidationError::Core(err))
-        }
-    }
-}
-
-fn has_only_error_code(
-    err: &tailtriage_core::RunValidationError,
-    code: RunValidationIssueCode,
-) -> bool {
-    let mut saw_error = false;
-    for issue in &err.report().issues {
-        if issue.severity == tailtriage_core::RunValidationSeverity::Error {
-            saw_error = true;
-            if issue.code != code {
-                return false;
-            }
-        }
-    }
-    saw_error
-}
-
-/// Validates options and strict artifact invariants, then analyzes one [`Run`].
-///
-/// # Errors
-/// Returns an error when analyzer options are invalid or strict artifact
-/// validation fails.
-pub fn try_analyze_run_strict_artifact(
-    run: &Run,
-    options: AnalyzeOptions,
-) -> Result<Report, AnalyzeRunError> {
-    options.validate()?;
-    validate_artifact_strict(run)?;
-    Ok(Analyzer::new(options).analyze_run(run))
-}
-
-/// Error returned by [`try_analyze_run_strict_artifact`].
-#[derive(Debug)]
-pub enum AnalyzeRunError {
-    /// Analyzer option validation failed.
-    Config(AnalyzeConfigError),
-    /// Strict artifact validation failed.
-    Artifact(ArtifactValidationError),
-}
-
-impl std::fmt::Display for AnalyzeRunError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Config(err) => err.fmt(f),
-            Self::Artifact(err) => err.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for AnalyzeRunError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Config(err) => Some(err),
-            Self::Artifact(err) => Some(err),
-        }
-    }
-}
-
-impl From<AnalyzeConfigError> for AnalyzeRunError {
-    fn from(value: AnalyzeConfigError) -> Self {
-        Self::Config(value)
-    }
-}
-
-impl From<ArtifactValidationError> for AnalyzeRunError {
-    fn from(value: ArtifactValidationError) -> Self {
-        Self::Artifact(value)
-    }
-}
 
 /// Evidence-ranked diagnosis categories produced by heuristic triage.
 ///
@@ -474,9 +276,8 @@ pub struct RouteBreakdown {
 /// `request_id` is the per-run identity of one completed logical request/work item.
 /// It must be unique among completed requests in a `Run`, and stage/queue events
 /// must reuse that ID only for the same logical request. Default analysis warns
-/// about duplicate completed IDs; use [`validate_artifact_strict`] or
-/// [`try_analyze_run_strict_artifact`] to reject duplicate or orphan request-scoped
-/// evidence before analysis. Users remain responsible for meaningful
+/// about duplicate completed IDs. Callers that require strict acceptance can compose
+/// `tailtriage_core::validate_run_strict` before analysis. Users remain responsible for meaningful
 /// instrumentation and request-boundary semantics.
 ///
 /// # Examples
@@ -519,25 +320,20 @@ pub struct RouteBreakdown {
 /// };
 ///
 /// // `analyze_run(&Run, AnalyzeOptions)` can operate on an in-memory run with zero requests.
-/// let report = analyze_run(&run, AnalyzeOptions::default());
+/// let report = analyze_run(&run, AnalyzeOptions::default())?;
 /// assert_eq!(report.request_count, 0);
+/// # Ok::<(), tailtriage_analyzer::AnalyzeConfigError>(())
 /// ```
-///
-/// # Panics
-///
-/// Panics if `options` fails semantic validation. Use [`try_analyze_run`] to handle invalid options as errors.
-#[must_use]
-pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Report {
-    Analyzer::new(options).analyze_run(run)
-}
-
-/// Analyzes one completed [`Run`] with validated options and returns a triage report.
 ///
 /// # Errors
 ///
-/// Returns an error when options fail semantic validation.
-pub fn try_analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, AnalyzeConfigError> {
-    Analyzer::new(options).try_analyze_run(run)
+/// Returns [`AnalyzeConfigError`] when options fail semantic validation.
+// The public operation takes ownership so callers can pass a configured value directly and the
+// API has one consistent invocation shape for defaults, TOML, and CLI-derived options.
+#[allow(clippy::needless_pass_by_value)]
+pub fn analyze_run(run: &Run, options: AnalyzeOptions) -> Result<Report, AnalyzeConfigError> {
+    options.validate()?;
+    Ok(analyze_run_with_options(run, &options))
 }
 
 /// Renders analyzer [`Report`] JSON in compact form.
@@ -563,117 +359,6 @@ pub fn render_json(report: &Report) -> Result<String, serde_json::Error> {
 #[must_use = "The rendered JSON string should be used for output or transport."]
 pub fn render_json_pretty(report: &Report) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(report)
-}
-
-/// Analyzes one in-memory [`Run`] and returns compact analyzer [`Report`] JSON.
-///
-/// This analyzes a run artifact already loaded in memory and returns analyzer report JSON,
-/// not raw run artifact JSON.
-///
-/// # Errors
-///
-/// Returns any serialization error from [`render_json`].
-///
-/// # Panics
-///
-/// Panics if `options` fails semantic validation through [`analyze_run`].
-#[must_use = "The rendered JSON string should be used for output or transport."]
-pub fn analyze_run_json(
-    run: &tailtriage_core::Run,
-    options: AnalyzeOptions,
-) -> Result<String, serde_json::Error> {
-    let report = analyze_run(run, options);
-    render_json(&report)
-}
-
-/// Analyzes one in-memory [`Run`] and returns compact analyzer [`Report`] JSON.
-///
-/// # Errors
-///
-/// Returns an error when options fail validation or JSON serialization fails.
-pub fn try_analyze_run_json(
-    run: &tailtriage_core::Run,
-    options: AnalyzeOptions,
-) -> Result<String, AnalyzeConfigError> {
-    let report = try_analyze_run(run, options)?;
-    render_json(&report).map_err(|error| AnalyzeConfigError::InvalidConfigValue {
-        path: "analyzer.report_json",
-        message: format!("report serialization failed: {error}"),
-    })
-}
-
-/// Analyzes one in-memory [`Run`] and returns canonical pretty analyzer [`Report`] JSON.
-///
-/// This analyzes a run artifact already loaded in memory and returns analyzer report JSON,
-/// not raw run artifact JSON. The pretty output is intended for CLI JSON output.
-///
-/// # Errors
-///
-/// Returns any serialization error from [`render_json_pretty`].
-///
-/// # Panics
-///
-/// Panics if `options` fails semantic validation through [`analyze_run`].
-#[must_use = "The rendered JSON string should be used for output or transport."]
-pub fn analyze_run_json_pretty(
-    run: &tailtriage_core::Run,
-    options: AnalyzeOptions,
-) -> Result<String, serde_json::Error> {
-    let report = analyze_run(run, options);
-    render_json_pretty(&report)
-}
-
-/// Analyzes one in-memory [`Run`] and returns pretty analyzer [`Report`] JSON.
-///
-/// # Errors
-///
-/// Returns an error when options fail validation or JSON serialization fails.
-pub fn try_analyze_run_json_pretty(
-    run: &tailtriage_core::Run,
-    options: AnalyzeOptions,
-) -> Result<String, AnalyzeConfigError> {
-    let report = try_analyze_run(run, options)?;
-    render_json_pretty(&report).map_err(|error| AnalyzeConfigError::InvalidConfigValue {
-        path: "analyzer.report_json",
-        message: format!("report serialization failed: {error}"),
-    })
-}
-
-/// Reusable analyzer configured with [`AnalyzeOptions`].
-#[derive(Debug, Clone, Default)]
-pub struct Analyzer {
-    options: AnalyzeOptions,
-}
-
-impl Analyzer {
-    /// Creates an analyzer with the provided options.
-    #[must_use]
-    pub const fn new(options: AnalyzeOptions) -> Self {
-        Self { options }
-    }
-
-    /// Analyzes one completed [`Run`] (or stable snapshot equivalent) and returns a triage report.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the stored options fail semantic validation. Use
-    /// [`Analyzer::try_analyze_run`] to handle invalid options as errors.
-    #[must_use]
-    pub fn analyze_run(&self, run: &Run) -> Report {
-        self.try_analyze_run(run).unwrap_or_else(|err| {
-            panic!("invalid analyzer options passed to Analyzer::analyze_run: {err}")
-        })
-    }
-
-    /// Analyzes one completed [`Run`] after validating the stored options.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AnalyzeConfigError`] when the stored options fail semantic validation.
-    pub fn try_analyze_run(&self, run: &Run) -> Result<Report, AnalyzeConfigError> {
-        self.options.validate()?;
-        Ok(analyze_run_with_options(run, &self.options))
-    }
 }
 
 fn analyze_run_with_options(run: &Run, options: &AnalyzeOptions) -> Report {

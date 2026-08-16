@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context};
 use serde::Serialize;
-use tailtriage_analyzer::{render_json_pretty, try_analyze_run, AnalyzeOptions};
+use tailtriage_analyzer::{analyze_run, render_json_pretty, AnalyzeOptions};
 use tailtriage_core::{CaptureLimitsOverride, CaptureMode, MemorySink, Run, Tailtriage};
 use tailtriage_tokio::RuntimeSampler;
 use tailtriage_tracing::TracingSession;
@@ -359,7 +359,7 @@ fn measure_analysis_and_render_ms(run: Option<&Run>) -> anyhow::Result<(f64, f64
         return Ok((0.0, 0.0));
     }
     let analyze_start = Instant::now();
-    let report = try_analyze_run(run_value, AnalyzeOptions::default())?;
+    let report = analyze_run(run_value, AnalyzeOptions::default())?;
     let analyze_ms = analyze_start.elapsed().as_secs_f64() * 1000.0;
     let render_start = Instant::now();
     black_box(render_json_pretty(&report)?);
