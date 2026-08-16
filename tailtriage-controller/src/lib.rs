@@ -643,8 +643,73 @@ impl TailtriageController {
         options: RequestOptions,
     ) -> ControllerStartedRequest {
         let route = route.into();
-        if let Some(started) = self.try_begin_request_with(route.clone(), options.clone()) {
-            return started;
+        let active = {
+            let lifecycle = self
+                .inner
+                .lifecycle
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            match *lifecycle {
+                ControllerLifecycle::Active { ref active, .. } => Some(Arc::clone(active)),
+                ControllerLifecycle::Disabled { .. }
+                | ControllerLifecycle::TerminalFailed { .. } => None,
+            }
+        };
+
+        if let Some(active) = active {
+            #[cfg(test)]
+            {
+                let hook = active
+                    .admission_test_hooks
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .before_admission_gate
+                    .clone();
+                if let Some(hook) = hook {
+                    hook();
+                }
+            }
+
+            let _admission = active
+                .admission_gate
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            if active.accepting_new.load(Ordering::Acquire) {
+                if active.state.activation_config.run_end_policy
+                    == RunEndPolicy::AutoSealOnLimitsHit
+                    && active.run.snapshot().truncation.limits_hit
+                {
+                    Self::close_generation_admissions_locked(
+                        &active,
+                        RunEndReason::AutoSealOnLimitsHit,
+                    );
+                } else {
+                    // Admission is linearized with every controller closure path by the
+                    // generation admission gate. The core pair is created before the
+                    // controller in-flight counter is committed, and neither is exposed to
+                    // the caller until both steps complete.
+                    let started = active
+                        .run
+                        .begin_request_with_owned(route.clone(), options.clone());
+                    active.inflight_captured.fetch_add(1, Ordering::AcqRel);
+
+                    return ControllerStartedRequest {
+                        handle: ControllerRequestHandle::Active(started.handle),
+                        completion: ControllerRequestCompletion {
+                            kind: ControllerCompletionKind::Active(ActiveControllerCompletion {
+                                completion: Some(started.completion),
+                                admission_generation_id: active.state.generation_id,
+                                admitted_generation: Arc::downgrade(&active),
+                                inner: Arc::downgrade(&self.inner),
+                                run_end_policy: active.state.activation_config.run_end_policy,
+                                inflight_recorded: true,
+                            }),
+                        },
+                    };
+                }
+            }
         }
 
         ControllerStartedRequest {
@@ -662,96 +727,6 @@ impl TailtriageController {
     /// Convenience helper using default request options.
     pub fn begin_request(&self, route: impl Into<String>) -> ControllerStartedRequest {
         self.begin_request_with(route, RequestOptions::new())
-    }
-
-    /// Tries to begin a captured request when an active generation is still admitting requests.
-    ///
-    /// The returned handle and completion are generation-bound at admission time.
-    /// They remain attached to that admitted generation even if the controller is
-    /// disabled and re-enabled before completion finishes.
-    ///
-    /// Returns `None` when controller is disabled or when active generation is closing.
-    ///
-    /// Prefer [`TailtriageController::begin_request_with`] for the primary non-branching API.
-    ///
-    #[must_use]
-    pub fn try_begin_request_with(
-        &self,
-        route: impl Into<String>,
-        options: RequestOptions,
-    ) -> Option<ControllerStartedRequest> {
-        let route = route.into();
-        let active = {
-            let lifecycle = self
-                .inner
-                .lifecycle
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            match *lifecycle {
-                ControllerLifecycle::Active { ref active, .. } => Arc::clone(active),
-                ControllerLifecycle::Disabled { .. }
-                | ControllerLifecycle::TerminalFailed { .. } => return None,
-            }
-        };
-
-        #[cfg(test)]
-        {
-            let hook = active
-                .admission_test_hooks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .before_admission_gate
-                .clone();
-            if let Some(hook) = hook {
-                hook();
-            }
-        }
-
-        let _admission = active
-            .admission_gate
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        if !active.accepting_new.load(Ordering::Acquire) {
-            return None;
-        }
-
-        if active.state.activation_config.run_end_policy == RunEndPolicy::AutoSealOnLimitsHit
-            && active.run.snapshot().truncation.limits_hit
-        {
-            Self::close_generation_admissions_locked(&active, RunEndReason::AutoSealOnLimitsHit);
-            return None;
-        }
-
-        // Admission is linearized with every controller closure path by the
-        // generation admission gate. The core pair is created before the
-        // controller in-flight counter is committed, and neither is exposed to
-        // the caller until both steps complete.
-        let started = active.run.begin_request_with_owned(route, options);
-        active.inflight_captured.fetch_add(1, Ordering::AcqRel);
-
-        Some(ControllerStartedRequest {
-            handle: ControllerRequestHandle::Active(started.handle),
-            completion: ControllerRequestCompletion {
-                kind: ControllerCompletionKind::Active(ActiveControllerCompletion {
-                    completion: Some(started.completion),
-                    admission_generation_id: active.state.generation_id,
-                    admitted_generation: Arc::downgrade(&active),
-                    inner: Arc::downgrade(&self.inner),
-                    run_end_policy: active.state.activation_config.run_end_policy,
-                    inflight_recorded: true,
-                }),
-            },
-        })
-    }
-
-    /// Compatibility helper using default request options.
-    ///
-    /// Prefer [`TailtriageController::begin_request`] for the primary non-branching API.
-    #[must_use]
-    pub fn try_begin_request(&self, route: impl Into<String>) -> Option<ControllerStartedRequest> {
-        self.try_begin_request_with(route, RequestOptions::new())
     }
 
     /// Finalizes controller state for process shutdown.

@@ -1,10 +1,13 @@
+mod analyze_config;
+mod artifact;
+
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use analyze_config::{analyzer_options_help_text, build_analyze_options};
+use artifact::{decode_run_artifact, ArtifactLoadError};
 use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text};
-use tailtriage_cli::artifact::{decode_run_artifact, ArtifactLoadError};
-use tailtriage_cli::{analyzer_options_help_text, build_analyze_options};
 use tailtriage_core::{
     validate_run_strict, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink,
     RunValidationSeverity,

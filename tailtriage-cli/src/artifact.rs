@@ -7,7 +7,7 @@ const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
 
 /// A decoded run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
-pub struct LoadedArtifact {
+pub(crate) struct LoadedArtifact {
     /// Permissively normalized [`Run`].
     ///
     /// This is suitable for command-level policy checks, such as whether any
@@ -30,7 +30,7 @@ pub struct LoadedArtifact {
 
 /// Errors returned when loading and validating run artifacts from disk.
 #[derive(Debug)]
-pub enum ArtifactLoadError {
+pub(crate) enum ArtifactLoadError {
     /// The file could not be read from disk.
     Read {
         /// Path that failed to read.
@@ -132,7 +132,8 @@ impl std::error::Error for ArtifactLoadError {
 /// # Errors
 /// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,
 /// the schema is unsupported, or required sections are missing.
-pub fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
+#[cfg(test)]
+pub(crate) fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
     let loaded = decode_run_artifact(path)?;
     validate_required_sections(&loaded.run, path)?;
     Ok(loaded)
@@ -145,7 +146,7 @@ pub fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadErro
 /// # Errors
 /// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,
 /// the schema envelope is unsupported, or the decoded shape is incompatible.
-pub fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
+pub(crate) fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
     let input = std::fs::read_to_string(path).map_err(|source| ArtifactLoadError::Read {
         path: path.to_path_buf(),
         source,
@@ -216,6 +217,7 @@ fn validate_schema_version(raw: &Value, path: &Path) -> Result<(), ArtifactLoadE
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoadError> {
     if run.requests.is_empty() {
         return Err(ArtifactLoadError::Validation {
