@@ -1,3 +1,7 @@
+#[path = "../src/artifact.rs"]
+#[allow(dead_code)]
+mod artifact;
+
 use std::process::Command;
 
 use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
@@ -38,7 +42,7 @@ fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     std::fs::write(&artifact_path, valid_cli_artifact_with_empty_requests())
         .expect("fixture should write");
 
-    let err = tailtriage_cli::artifact::load_run_artifact(&artifact_path)
+    let err = artifact::load_run_artifact(&artifact_path)
         .expect_err("cli loader should reject empty requests artifacts");
     assert!(err.to_string().contains("requests section is empty"));
 
@@ -644,8 +648,8 @@ fn import_tracing_spans_jsonl_creates_missing_output_parent_directories() {
     assert_precise_interval_warning_only_in_stderr(&output);
     assert!(run_path.exists(), "run artifact should be written");
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
     assert_no_precise_interval_lifecycle_warning(&loaded.run);
 }
@@ -702,8 +706,8 @@ fn import_tracing_spans_jsonl_writes_run_json_analyzable_by_existing_apis() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     assert_precise_interval_warning_only_in_stderr(&output);
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     let report = analyze_run(&loaded.run, AnalyzeOptions::default())
         .expect("analyzer options should be valid");
     assert_eq!(report.request_count, 1);
@@ -731,7 +735,7 @@ fn import_tracing_spans_jsonl_writes_run_json_when_output_path_contains_spaces()
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+    let loaded = artifact::load_run_artifact(&run_path)
         .expect("imported run should load from spaced output path");
     assert_eq!(loaded.run.requests.len(), 1);
 }
@@ -755,7 +759,7 @@ fn import_tracing_spans_jsonl_mode_investigation_sets_run_metadata_mode() {
         .output()
         .expect("cli should run");
     assert!(output.status.success(), "cli failed: {output:?}");
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    let loaded = artifact::load_run_artifact(&run_path).unwrap();
     assert_eq!(loaded.run.metadata.mode, CaptureMode::Investigation);
 }
 
@@ -782,7 +786,7 @@ fn import_tracing_spans_jsonl_capture_limit_overrides_apply() {
         .output()
         .expect("cli should run");
     assert!(output.status.success(), "cli failed: {output:?}");
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path).unwrap();
+    let loaded = artifact::load_run_artifact(&run_path).unwrap();
     assert_eq!(loaded.run.requests.len(), 1);
     assert_eq!(loaded.run.stages.len(), 1);
     assert_eq!(loaded.run.queues.len(), 1);
@@ -844,7 +848,7 @@ fn import_tracing_spans_jsonl_allows_zero_stage_and_queue_limits() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     assert_precise_interval_warning_only_in_stderr(&output);
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
+    let loaded = artifact::load_run_artifact(&run_path)
         .expect("imported request-only run should load in cli loader");
     assert!(!loaded.run.requests.is_empty());
     assert!(loaded.run.stages.is_empty());
@@ -930,8 +934,8 @@ fn import_tracing_spans_jsonl_input_format_tailtriage_wrapper_only_accepts_fixtu
     assert!(output.status.success(), "cli failed: {output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     assert_precise_interval_warning_only_in_stderr(&output);
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
     assert_eq!(loaded.run.stages.len(), 1);
     assert_eq!(loaded.run.queues.len(), 1);
@@ -1328,8 +1332,8 @@ fn import_tracing_spans_jsonl_permissive_with_max_requests_excludes_retained_orp
     assert!(!stderr.contains("valid but not retained due to max_requests"));
     assert!(run_path.exists(), "run output should exist");
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
     assert_eq!(loaded.run.requests[0].request_id, "r1");
     assert_eq!(loaded.run.stages.len(), 1);
@@ -1415,8 +1419,8 @@ fn import_tracing_spans_jsonl_non_strict_writes_output_and_emits_warning_to_stde
     assert!(stderr.contains("warning:"));
     assert!(run_path.exists(), "run output should be written");
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     assert_eq!(loaded.run.requests.len(), 1);
 }
 
@@ -1446,8 +1450,8 @@ fn import_tracing_spans_jsonl_writes_metadata_flags_into_run_json() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     assert_precise_interval_warning_only_in_stderr(&output);
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     assert_eq!(loaded.run.metadata.service_name, "checkout");
     assert_eq!(loaded.run.metadata.service_version.as_deref(), Some("v1"));
     assert_eq!(loaded.run.metadata.run_id, "run-42");
@@ -1476,8 +1480,7 @@ fn import_tracing_spans_jsonl_accepts_paths_with_spaces() {
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     assert!(run_path.exists(), "run output should be written");
 
-    tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
 }
 
 #[test]
@@ -1598,8 +1601,8 @@ fn import_tracing_spans_jsonl_warns_for_tt_fields_missing_kind_and_still_writes_
     assert!(stderr.contains("warning:"));
     assert!(stderr.contains("missing required field 'tt.kind'"));
     assert!(run_path.exists(), "run output should be written");
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     let warning_matches = loaded
         .run
         .metadata
@@ -1635,8 +1638,8 @@ fn import_tracing_spans_jsonl_persists_unknown_kind_warning_in_run_artifact() {
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("warning:"));
     assert!(stderr.contains("unknown tt.kind 'mystery' in span 'unknown'"));
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     let warning_matches = loaded
         .run
         .metadata
@@ -1673,8 +1676,8 @@ fn import_tracing_spans_jsonl_persists_optional_default_assumption_warnings_in_r
     assert!(stderr.contains("missing optional 'tt.outcome'; assumed 'ok'"));
     assert!(stderr.contains("missing optional 'tt.success'; assumed true"));
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     assert!(loaded
         .run
         .metadata
@@ -1760,8 +1763,8 @@ fn import_tracing_spans_jsonl_valid_outcomes_import_successfully() {
         .expect("cli should run");
     assert!(output.status.success(), "cli failed: {output:?}");
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&run_path)
-        .expect("imported run should load in cli loader");
+    let loaded =
+        artifact::load_run_artifact(&run_path).expect("imported run should load in cli loader");
     let outcomes = loaded
         .run
         .requests

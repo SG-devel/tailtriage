@@ -1247,6 +1247,33 @@ def validate_crate_rustdocs_include_readmes() -> None:
     if failures:
         raise ValueError("crate rustdoc README include contract violation:\n" + "\n".join(failures))
 
+
+def validate_residual_public_api_cleanup() -> None:
+    forbidden_by_path = {
+        REPO_ROOT / "tailtriage-controller" / "src" / "lib.rs": (
+            "pub fn try_begin_request(",
+            "pub fn try_begin_request_with(",
+        ),
+        REPO_ROOT / "tailtriage-tokio" / "src" / "lib.rs": (
+            "pub const fn crate_name(",
+            "pub fn start(\n        tailtriage: Arc<Tailtriage>,",
+        ),
+        REPO_ROOT / "tailtriage-axum" / "src" / "lib.rs": ("pub const fn crate_name(",),
+        REPO_ROOT / "tailtriage-cli" / "src" / "lib.rs": (
+            "pub mod artifact;",
+            "pub enum CliAnalyzeConfigError",
+            "pub fn build_analyze_options(",
+            "pub fn analyzer_options_help_text(",
+        ),
+    }
+    for path, forbidden in forbidden_by_path.items():
+        text = path.read_text(encoding="utf-8")
+        for symbol in forbidden:
+            if symbol in text:
+                raise ValueError(
+                    f"{path.relative_to(REPO_ROOT)} exposes removed residual public API: {symbol}"
+                )
+
 def is_misleading_controller_example_flow(readme_text: str) -> bool:
     for block in re.findall(r"```bash\n(.*?)\n```", readme_text, flags=re.DOTALL):
         if "cargo add tailtriage-controller" in block and "cargo run --example controller_minimal" in block:
@@ -1614,6 +1641,7 @@ def main() -> int:
     validate_governance_pending_state_contract()
     validate_analyzer_ownership_navigation()
     validate_crate_rustdocs_include_readmes()
+    validate_residual_public_api_cleanup()
     validate_controller_readme_toml()
     validate_no_stale_controller_policy_names()
     validate_docs_index_contract()

@@ -333,6 +333,39 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                 with self.assertRaisesRegex(ValueError, r"README directive"):
                     validate_docs_contracts.validate_crate_rustdocs_include_readmes()
 
+    def test_residual_public_api_cleanup_contract_accepts_private_cli_internals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            sources = {
+                "tailtriage-controller/src/lib.rs": "pub fn begin_request() {}\n",
+                "tailtriage-tokio/src/lib.rs": "pub fn builder() {}\n",
+                "tailtriage-axum/src/lib.rs": "pub fn middleware() {}\n",
+                "tailtriage-cli/src/lib.rs": "#![doc = include_str!(\"../README.md\")]\n",
+            }
+            for rel, body in sources.items():
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", root):
+                validate_docs_contracts.validate_residual_public_api_cleanup()
+
+    def test_residual_public_api_cleanup_contract_rejects_cli_helper_export(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            sources = {
+                "tailtriage-controller/src/lib.rs": "",
+                "tailtriage-tokio/src/lib.rs": "",
+                "tailtriage-axum/src/lib.rs": "",
+                "tailtriage-cli/src/lib.rs": "pub fn build_analyze_options() {}\n",
+            }
+            for rel, body in sources.items():
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(body, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", root):
+                with self.assertRaisesRegex(ValueError, "removed residual public API"):
+                    validate_docs_contracts.validate_residual_public_api_cleanup()
+
     def test_markdown_examples_validate_against_contract(self) -> None:
         validate_docs_contracts.validate_controller_readme_toml()
 

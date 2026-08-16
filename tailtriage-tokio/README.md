@@ -147,7 +147,7 @@ async fn demo() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Important constraints
 
-- `RuntimeSampler::start()` must run inside an active Tokio runtime
+- `RuntimeSampler::builder(...).start()` must run inside an active Tokio runtime
 - only one successful sampler start is allowed per `Tailtriage` run
 - `CaptureMode` does **not** auto-start runtime sampling
 - runtime snapshot retention is bounded by the resolved core capture limits

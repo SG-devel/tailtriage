@@ -405,12 +405,6 @@ impl InstrumentedOwnedSemaphore<'_> {
     }
 }
 
-/// Returns the crate name for smoke-testing workspace wiring.
-#[must_use]
-pub const fn crate_name() -> &'static str {
-    "tailtriage-tokio"
-}
-
 /// Errors produced while starting runtime sampling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SamplerStartError {
@@ -519,28 +513,6 @@ impl RuntimeSampler {
             interval_override: None,
             max_runtime_snapshots_override: None,
         }
-    }
-
-    /// Starts periodic runtime metrics sampling on the current Tokio runtime.
-    ///
-    /// Use this during incident triage when runtime pressure evidence is needed
-    /// to rank suspects (for example: global queue growth or alive-task spikes).
-    /// For lower runtime-cost core-only capture categories, skip sampler startup.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SamplerStartError::ZeroInterval`] when `interval` is zero.
-    ///
-    /// Returns [`SamplerStartError::MissingRuntime`] when called outside an
-    /// active Tokio runtime.
-    ///
-    /// Returns [`SamplerStartError::DuplicateStart`] when runtime sampling was
-    /// already started for this run.
-    pub fn start(
-        tailtriage: Arc<Tailtriage>,
-        interval: Duration,
-    ) -> Result<Self, SamplerStartError> {
-        Self::builder(tailtriage).interval(interval).start()
     }
 
     /// Requests sampler shutdown and waits for task completion.
@@ -741,7 +713,6 @@ mod tests {
 
     use tailtriage_core::{CaptureMode, Tailtriage};
 
-    use super::crate_name;
     use super::{RuntimeSampler, SamplerStartError};
 
     async fn wait_until(
@@ -759,11 +730,6 @@ mod tests {
         }
 
         assert!(condition(), "{failure_message}");
-    }
-
-    #[test]
-    fn crate_name_is_stable() {
-        assert_eq!(crate_name(), "tailtriage-tokio");
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -813,7 +779,9 @@ mod tests {
                 .expect("build should succeed"),
         );
 
-        let err = RuntimeSampler::start(tailtriage, Duration::ZERO)
+        let err = RuntimeSampler::builder(tailtriage)
+            .interval(Duration::ZERO)
+            .start()
             .expect_err("zero interval should fail");
         assert_eq!(err, SamplerStartError::ZeroInterval);
     }

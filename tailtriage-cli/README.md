@@ -22,6 +22,10 @@ tailtriage
 
 The output is intended to guide the next investigation step. It does **not** prove root cause on its own.
 
+The package retains a Rust library target so this README is available as crate documentation, but
+the supported interface is the `tailtriage` command. For in-process analysis use
+`tailtriage-analyzer`; for generic Run validation and normalization use `tailtriage-core`.
+
 ## Installation
 
 ```bash

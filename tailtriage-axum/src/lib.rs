@@ -19,12 +19,6 @@ use tailtriage_core::{Outcome, OwnedRequestHandle, RequestOptions, Tailtriage};
 
 type MiddlewareFuture = Pin<Box<dyn Future<Output = axum::response::Response> + Send + 'static>>;
 
-/// Returns the crate name for smoke-testing workspace wiring.
-#[must_use]
-pub const fn crate_name() -> &'static str {
-    "tailtriage-axum"
-}
-
 /// Middleware that starts and finishes one tailtriage request per axum request.
 ///
 /// Use this with `axum::middleware::from_fn_with_state` and pass the same
@@ -156,14 +150,9 @@ pub fn default_status_to_outcome(status: StatusCode) -> Outcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{crate_name, default_status_to_outcome};
+    use super::default_status_to_outcome;
     use axum::http::StatusCode;
     use tailtriage_core::Outcome;
-
-    #[test]
-    fn crate_name_is_stable() {
-        assert_eq!(crate_name(), "tailtriage-axum");
-    }
 
     #[test]
     fn default_status_mapping_matches_http_contract() {

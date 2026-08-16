@@ -1,3 +1,7 @@
+#[path = "../src/artifact.rs"]
+#[allow(dead_code)]
+mod artifact;
+
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::future::ready;
@@ -26,8 +30,8 @@ fn cli_json_matches_analyzer_renderer_output() {
 
     tailtriage.shutdown().expect("shutdown should succeed");
 
-    let loaded = tailtriage_cli::artifact::load_run_artifact(&artifact_path)
-        .expect("artifact should load successfully");
+    let loaded =
+        artifact::load_run_artifact(&artifact_path).expect("artifact should load successfully");
     assert!(loaded.warnings.is_empty());
 
     let report = tailtriage_analyzer::analyze_run(

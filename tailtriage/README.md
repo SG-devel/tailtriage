@@ -122,7 +122,7 @@ If you want a smaller core-only dependency surface, use `tailtriage-core` direct
 
 - Capture and analysis are separate. For in-process analysis/report generation, use `tailtriage-analyzer`.
 - For command-line analysis of saved artifacts, use `tailtriage-cli`.
-- Tokio runtime sampling still requires explicit `RuntimeSampler::start(...)` with an active Tokio runtime.
+- Tokio runtime sampling still requires explicit `RuntimeSampler::builder(...).start()` with an active Tokio runtime.
 - `CaptureMode` selection does not auto-start Tokio runtime sampling.
 - Analysis output is triage guidance, not root-cause proof.
 

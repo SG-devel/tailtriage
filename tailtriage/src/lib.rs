@@ -46,7 +46,11 @@ mod tests {
     #[cfg(feature = "tokio")]
     #[test]
     fn tokio_namespace_reexport_compiles() {
-        let _name = crate::tokio::crate_name();
+        let _builder = crate::tokio::RuntimeSampler::builder(std::sync::Arc::new(
+            crate::Tailtriage::builder("tokio-smoke")
+                .build()
+                .expect("build should succeed"),
+        ));
     }
 
     #[cfg(feature = "tokio")]
@@ -67,7 +71,7 @@ mod tests {
     #[cfg(feature = "axum")]
     #[test]
     fn axum_namespace_reexport_compiles() {
-        let _name = crate::axum::crate_name();
+        std::hint::black_box(crate::axum::middleware);
     }
 
     #[cfg(feature = "tracing")]
