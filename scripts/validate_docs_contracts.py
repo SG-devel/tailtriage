@@ -7,6 +7,7 @@ import argparse
 import ast
 import json
 import re
+import shlex
 import subprocess
 import tomllib
 from pathlib import Path
@@ -1638,20 +1639,55 @@ def validate_run_schema_v2_public_contract(
 
 
 def _prohibited_release_command(command: str) -> str | None:
-    """Return the prohibited manual-release operation executed by a command, if any."""
+    """Return the prohibited repository/release operation executed by a command."""
     normalized = " ".join(command.strip().split())
-    if not normalized or normalized.startswith(("#", "echo ", "printf ")):
+    if not normalized or normalized.startswith("#"):
         return None
-    patterns = (
-        (r"(?:^|[;&|]\s*)cargo\s+publish(?:\s|$)", "cargo publish"),
-        (r"(?:^|[;&|]\s*)cargo\s+login(?:\s|$)", "cargo registry login"),
-        (r"(?:^|[;&|]\s*)git\s+tag(?:\s|$)", "git tag creation"),
-        (r"(?:^|[;&|]\s*)git\s+push(?:\s|$)", "git push"),
-        (r"(?:^|[;&|]\s*)gh\s+release\s+(?:create|upload|edit)(?:\s|$)", "GitHub Release publication"),
-    )
-    for pattern, description in patterns:
-        if re.search(pattern, normalized):
-            return description
+
+    # This is deliberately a small command classifier, not a shell parser. Splitting
+    # command lists lets each statically recognizable invocation pass through the same
+    # wrapper and tool-global-option normalization.
+    for segment in re.split(r"\s*(?:&&|\|\||[;|&])\s*", normalized):
+        try:
+            words = shlex.split(segment, comments=True)
+        except ValueError:
+            words = segment.split()
+        if not words or words[0] in {"echo", "printf"}:
+            continue
+
+        if words[0] == "command":
+            words = words[1:]
+        if words and words[0] == "env":
+            words = words[1:]
+            while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+                words = words[1:]
+        if not words:
+            continue
+
+        tool, arguments = words[0], words[1:]
+        if tool == "cargo":
+            if arguments and arguments[0].startswith("+"):
+                arguments = arguments[1:]
+            if arguments and arguments[0] == "publish":
+                return "cargo publish"
+            if arguments and arguments[0] == "login":
+                return "cargo registry login"
+        elif tool == "git":
+            while len(arguments) >= 2 and arguments[0] == "-c":
+                arguments = arguments[2:]
+            if arguments and arguments[0] in {"commit", "tag", "push"}:
+                return {
+                    "commit": "git commit",
+                    "tag": "git tag creation",
+                    "push": "git push",
+                }[arguments[0]]
+        elif (
+            tool == "gh"
+            and len(arguments) >= 2
+            and arguments[0] == "release"
+            and arguments[1] in {"create", "upload", "edit"}
+        ):
+            return "GitHub Release publication"
     return None
 
 
@@ -1673,7 +1709,7 @@ def validate_manual_release_boundary(
     workflow_paths: tuple[Path, ...] | None = None,
     release_script_paths: tuple[Path, ...] | None = None,
 ) -> None:
-    """Reject executable publication/release automation in checked-in source."""
+    """Reject durable repository/release mutation in checked-in automation."""
     if workflow_paths is None:
         workflow_paths = tuple(sorted((*WORKFLOWS_DIR.glob("*.yml"), *WORKFLOWS_DIR.glob("*.yaml"))))
     if release_script_paths is None:
@@ -1691,6 +1727,10 @@ def validate_manual_release_boundary(
                 errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} configures registry publication credentials")
             if re.search(r"uses:\s*[^#\s]*(?:create[-_]release|action[-_]gh[-_]release|release[-_]action)", line, re.IGNORECASE):
                 errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} invokes GitHub Release automation")
+            if re.search(r"\bcontents\s*:\s*write\b", line, re.IGNORECASE):
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)}:{line_number} requests prohibited contents: write permission"
+                )
 
     command_runner_names = {"command", "run", "Popen", "call", "check_call", "check_output"}
     for path in release_script_paths:
