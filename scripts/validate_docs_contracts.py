@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -36,6 +37,7 @@ ANALYZER_DOC_PATHS = (
 )
 DIAGNOSTIC_VALIDATION_PATH = REPO_ROOT / "docs" / "diagnostic-validation.md"
 CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 ARCHITECTURE_PATH = REPO_ROOT / "docs" / "architecture.md"
 CONTROLLER_README_PATH = REPO_ROOT / "tailtriage-controller" / "README.md"
 ANALYSIS_FIXTURE_PATH = REPO_ROOT / "demos" / "queue_service" / "fixtures" / "before-analysis.json"
@@ -1634,6 +1636,83 @@ def validate_run_schema_v2_public_contract(
         if "null" not in lower:
             raise ValueError(f"{path.relative_to(REPO_ROOT)} must permit null finalization for active snapshots")
 
+
+def _prohibited_release_command(command: str) -> str | None:
+    """Return the prohibited manual-release operation executed by a command, if any."""
+    normalized = " ".join(command.strip().split())
+    if not normalized or normalized.startswith(("#", "echo ", "printf ")):
+        return None
+    patterns = (
+        (r"(?:^|[;&|]\s*)cargo\s+publish(?:\s|$)", "cargo publish"),
+        (r"(?:^|[;&|]\s*)cargo\s+login(?:\s|$)", "cargo registry login"),
+        (r"(?:^|[;&|]\s*)git\s+tag(?:\s|$)", "git tag creation"),
+        (r"(?:^|[;&|]\s*)git\s+push(?:\s|$)", "git push"),
+        (r"(?:^|[;&|]\s*)gh\s+release\s+(?:create|upload|edit)(?:\s|$)", "GitHub Release publication"),
+    )
+    for pattern, description in patterns:
+        if re.search(pattern, normalized):
+            return description
+    return None
+
+
+def _static_command_argument(node: ast.AST) -> str | None:
+    if isinstance(node, (ast.List, ast.Tuple)):
+        words: list[str] = []
+        for element in node.elts:
+            if not isinstance(element, ast.Constant) or not isinstance(element.value, str):
+                return None
+            words.append(element.value)
+        return " ".join(words)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def validate_manual_release_boundary(
+    *,
+    workflow_paths: tuple[Path, ...] | None = None,
+    release_script_paths: tuple[Path, ...] | None = None,
+) -> None:
+    """Reject executable publication/release automation in checked-in source."""
+    if workflow_paths is None:
+        workflow_paths = tuple(sorted((*WORKFLOWS_DIR.glob("*.yml"), *WORKFLOWS_DIR.glob("*.yaml"))))
+    if release_script_paths is None:
+        release_script_paths = tuple(sorted((REPO_ROOT / "scripts").glob("*release*.py")))
+
+    errors: list[str] = []
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            executable = re.sub(r"^\s*(?:-\s*)?(?:run:\s*)?", "", line)
+            prohibited = _prohibited_release_command(executable)
+            if prohibited:
+                errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} executes prohibited {prohibited}")
+            if re.search(r"\bCARGO_REGISTRY(?:_[A-Z0-9]+)?_TOKEN\b", line):
+                errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} configures registry publication credentials")
+            if re.search(r"uses:\s*[^#\s]*(?:create[-_]release|action[-_]gh[-_]release|release[-_]action)", line, re.IGNORECASE):
+                errors.append(f"{path.relative_to(REPO_ROOT)}:{line_number} invokes GitHub Release automation")
+
+    command_runner_names = {"command", "run", "Popen", "call", "check_call", "check_output"}
+    for path in release_script_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else (
+                node.func.id if isinstance(node.func, ast.Name) else ""
+            )
+            if name not in command_runner_names:
+                continue
+            command = _static_command_argument(node.args[0])
+            prohibited = _prohibited_release_command(command or "")
+            if prohibited:
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)}:{node.lineno} executes prohibited {prohibited}"
+                )
+
+    if errors:
+        raise ValueError("manual release boundary failed:\n" + "\n".join(errors))
+
 def main() -> int:
     _ = parse_args()
     validate_governance_strictness_contract()
@@ -1669,6 +1748,7 @@ def main() -> int:
     validate_live_tracing_session_public_contract()
     validate_run_schema_v2_public_contract()
     validate_checkpoint_documentation_contract()
+    validate_manual_release_boundary()
     print("docs contracts validated successfully")
     return 0
 

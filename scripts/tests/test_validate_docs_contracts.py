@@ -1871,6 +1871,64 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
             )
             self.assertNotIn("untracked-contract.md", message)
 
+    def test_manual_release_boundary_accepts_inert_instructions_and_ordinary_git(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            workflow = root / ".github" / "workflows" / "ci.yml"
+            script = root / "scripts" / "check_release.py"
+            workflow.parent.mkdir(parents=True)
+            script.parent.mkdir()
+            workflow.write_text(
+                "steps:\n  - run: git status --short\n  - run: echo cargo publish --locked -p crate\n",
+                encoding="utf-8",
+            )
+            script.write_text(
+                'print("Manual publication: cargo publish --locked -p crate")\n'
+                'command(["git", "status", "--porcelain"])\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(validate_docs_contracts, "REPO_ROOT", root):
+                validate_docs_contracts.validate_manual_release_boundary(
+                    workflow_paths=(workflow,), release_script_paths=(script,)
+                )
+
+    def test_manual_release_boundary_rejects_executable_release_script_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            script = root / "scripts" / "check_release.py"
+            script.parent.mkdir()
+            script.write_text('command(["cargo", "publish", "--locked"])\n', encoding="utf-8")
+            with (
+                mock.patch.object(validate_docs_contracts, "REPO_ROOT", root),
+                self.assertRaisesRegex(ValueError, "executes prohibited cargo publish"),
+            ):
+                validate_docs_contracts.validate_manual_release_boundary(
+                    workflow_paths=(), release_script_paths=(script,)
+                )
+
+    def test_manual_release_boundary_rejects_workflow_release_automation(self) -> None:
+        prohibited_cases = {
+            "publish": "steps:\n  - run: cargo publish --locked\n",
+            "tag": "steps:\n  - run: git tag v0.4.0\n",
+            "push": "steps:\n  - run: git push origin v0.4.0\n",
+            "github release": "steps:\n  - run: gh release create v0.4.0\n",
+            "release action": "steps:\n  - uses: softprops/action-gh-release@v2\n",
+            "registry credentials": "env:\n  CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}\n",
+        }
+        for label, source in prohibited_cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp_dir:
+                root = Path(tmp_dir)
+                workflow = root / ".github" / "workflows" / "release.yml"
+                workflow.parent.mkdir(parents=True)
+                workflow.write_text(source, encoding="utf-8")
+                with (
+                    mock.patch.object(validate_docs_contracts, "REPO_ROOT", root),
+                    self.assertRaisesRegex(ValueError, "manual release boundary failed"),
+                ):
+                    validate_docs_contracts.validate_manual_release_boundary(
+                        workflow_paths=(workflow,), release_script_paths=()
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()
