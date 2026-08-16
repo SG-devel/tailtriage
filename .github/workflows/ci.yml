@@ -19,26 +19,6 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/**/*.yml"
       - ".github/workflows/**/*.yaml"
-  push:
-    branches:
-      - main
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "**/build.rs"
-      - "deny.toml"
-      - "rustfmt.toml"
-      - "clippy.toml"
-      - ".cargo/**/*.toml"
-      - "scripts/**/*.py"
-      - "validation/**/*.json"
-      - "validation/**/*.jsonl"
-      - "**/*.md"
-      - "rust-toolchain"
-      - "rust-toolchain.toml"
-      - ".github/workflows/**/*.yml"
-      - ".github/workflows/**/*.yaml"
   workflow_dispatch:
 
 concurrency:
@@ -52,13 +32,11 @@ env:
   CARGO_TERM_COLOR: always
 
 # CI policy:
-# - pull_request and main push use path filters to skip irrelevant runs.
-# - docs-contracts enforces public documentation contracts.
-# - Ubuntu dev/release are the extended legs with split responsibilities.
-# - Ubuntu dev focuses on fast correctness checks, unit/helper tests, docs examples, diagnostics, and one cheap native demo smoke.
-# - Ubuntu release owns runtime/demo validation, tracing parity, collector/runtime-cost smoke, cargo doc, and cargo deny.
-# - Runtime-cost CI is a bounded smoke gate with broad tracing/native sanity thresholds. It is not a rigorous benchmark suite and should not be interpreted as stable performance characterization. Runtime-cost artifacts are validated in-place rather than uploaded.
-# - Windows/macOS run Cargo compile/lint/test coverage to catch OS-specific behavior.
+# - Relevant pull requests run mandatory CI; workflow_dispatch provides a manual full run.
+# - The Cargo matrix owns cross-platform dev/release Cargo proof, with release docs and dependency policy.
+# - Independent deterministic, live, and bounded operational Linux proof runs in parallel after path detection.
+# - Runtime-cost and collector-limit results are machine/workload/profile scoped, not universal guarantees.
+# - CI required only aggregates applicable job results and performs no validation itself.
 # - The external crates.io consumer smoke step remains intentionally disabled.
 jobs:
   changes:
@@ -101,14 +79,11 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.docs == 'true' || needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Validate public docs contracts
         run: python3 scripts/validate_docs_contracts.py
-
       - name: Validate docs contract helper unit tests
         run: python3 -m unittest scripts.tests.test_validate_docs_contracts
 
@@ -124,152 +99,83 @@ jobs:
         include:
           - os: ubuntu-latest
             profile: dev
-            extended: true
           - os: ubuntu-latest
             profile: release
-            extended: true
           - os: windows-latest
             profile: dev
-            extended: false
           - os: macos-latest
             profile: dev
-            extended: false
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        if: matrix.extended
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
       - name: Install cargo-deny
-        if: matrix.extended && matrix.profile == 'release'
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release'
         uses: taiki-e/install-action@cargo-deny
-
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             . -> target
-
       - name: Cargo fmt
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev'
         run: cargo fmt --check
-
       - name: Cargo clippy
         run: cargo clippy --workspace --all-targets --all-features --locked ${{ matrix.profile == 'release' && '--release' || '' }} -- -D warnings
-
       - name: Cargo test
         run: cargo test --workspace --all-targets --all-features --locked ${{ matrix.profile == 'release' && '--release' || '' }}
-
       - name: Cargo doc
-        if: matrix.extended && matrix.profile == 'release'
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release'
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --all-features --no-deps --locked
-
       - name: Cargo deny
-        if: matrix.extended && matrix.profile == 'release'
+        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release'
         run: cargo deny check
 
-      - name: Validate queue demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && (matrix.profile == 'dev' || matrix.profile == 'release')
-        run: python3 scripts/demo_tool.py validate queue --profile ${{ matrix.profile }}
-
-      - name: Validate blocking demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate blocking --profile ${{ matrix.profile }}
-
-      - name: Validate executor demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate executor --profile ${{ matrix.profile }}
-
-      - name: Validate downstream demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate downstream --profile ${{ matrix.profile }}
-
-      - name: Validate mixed demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate mixed --profile ${{ matrix.profile }}
-
-      - name: Validate cold-start demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate cold-start --profile ${{ matrix.profile }}
-
-      - name: Validate db-pool demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate db-pool --profile ${{ matrix.profile }}
-
-      - name: Validate shared-lock demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate shared-lock --profile ${{ matrix.profile }}
-
-      - name: Validate retry-storm demo
-        if: matrix.os == 'ubuntu-latest' && matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/demo_tool.py validate retry-storm --profile ${{ matrix.profile }}
-
+  deterministic:
+    name: validation / deterministic
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+      - name: Validate queue demo (dev)
+        run: python3 scripts/demo_tool.py validate queue --profile dev
       - name: Smoke-check public examples
-        if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/smoke_public_examples.py
-
-      #- name: Smoke-check external crates.io consumer adoption flow
-      #  if: matrix.extended && matrix.profile == 'release'
-      #  run: python3 scripts/smoke_external_consumer.py
-
-      - name: Smoke-check controller public example
-        if: matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/smoke_controller_example.py
-
-      - name: Measure collector limits (smoke)
-        if: matrix.extended && matrix.profile == 'release'
-        run: python3 scripts/measure_collector_limits.py --profile smoke
-
-      - name: Validate collector limits smoke outputs
-        if: matrix.extended && matrix.profile == 'release'
-        run: |
-          python3 scripts/validate_collector_limits_summary.py \
-            --raw demos/collector_stress/artifacts/collector-limits-smoke-raw.jsonl \
-            --summary demos/collector_stress/artifacts/collector-limits-smoke-summary.json
-
-      - name: Validate collector limits summary helper unit tests
-        if: matrix.extended && matrix.profile == 'release'
-        run: python3 -m unittest scripts.tests.test_measure_collector_limits
-
       - name: Validate diagnostic fixture integrity helper tests
-        if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_check_diagnostic_fixture_integrity
-
       - name: Check diagnostic analyzer fixture integrity
-        if: matrix.extended && matrix.profile == 'dev'
         run: python3 scripts/check_diagnostic_fixture_integrity.py
-
       - name: Validate diagnostic benchmark helper unit tests
-        if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_diagnostic_benchmark
-
       - name: Validate deterministic diagnostics benchmark corpus
-        if: matrix.extended && matrix.profile == 'dev'
         run: |
           python3 scripts/diagnostic_benchmark.py \
             --manifest validation/diagnostics/manifest.json \
             --min-top1 0.75 \
             --min-top2 0.90 \
             --max-high-confidence-wrong 0
-
       - name: Validate diagnostic scorecard generator unit tests
-        if: matrix.extended && matrix.profile == 'dev'
         run: python3 -m unittest scripts.tests.test_generate_diagnostic_scorecard
-
       - name: Smoke-check diagnostic scorecard snapshot generation
-        if: matrix.extended && matrix.profile == 'release'
         run: |
           python3 scripts/generate_diagnostic_scorecard.py \
             --manifest validation/diagnostics/manifest.json \
@@ -278,29 +184,81 @@ jobs:
             --min-top2 0.90 \
             --max-high-confidence-wrong 0 \
             --snapshot-label ci-smoke
+      - name: Check demo fixture drift (canonical dev profile)
+        run: python3 scripts/check_demo_fixture_drift.py --profile dev
 
-      - name: Check demo fixture drift
-        if: matrix.extended && matrix.profile == 'dev'
-        run: python3 scripts/check_demo_fixture_drift.py --profile ${{ matrix.profile }}
-
+  live:
+    name: validation / live
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+      - name: Validate release demos
+        run: |
+          python3 scripts/demo_tool.py validate queue --profile release
+          python3 scripts/demo_tool.py validate blocking --profile release
+          python3 scripts/demo_tool.py validate executor --profile release
+          python3 scripts/demo_tool.py validate downstream --profile release
+          python3 scripts/demo_tool.py validate mixed --profile release
+          python3 scripts/demo_tool.py validate cold-start --profile release
+          python3 scripts/demo_tool.py validate db-pool --profile release
+          python3 scripts/demo_tool.py validate shared-lock --profile release
+          python3 scripts/demo_tool.py validate retry-storm --profile release
+      - name: Smoke-check controller public example
+        run: python3 scripts/smoke_controller_example.py
       - name: Validate tracing parity across all demos
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: python3 scripts/demo_tool.py validate-tracing-parity all --profile release
-
       - name: Validate tracing retention parity (tiny limits)
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: python3 scripts/demo_tool.py validate-tracing-retention-parity --profile release
 
+  operational:
+    name: validation / operational
+    needs: changes
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+      - name: Measure collector limits (smoke)
+        run: python3 scripts/measure_collector_limits.py --profile smoke
+      - name: Validate collector limits smoke outputs
+        run: |
+          python3 scripts/validate_collector_limits_summary.py \
+            --raw demos/collector_stress/artifacts/collector-limits-smoke-raw.jsonl \
+            --summary demos/collector_stress/artifacts/collector-limits-smoke-summary.json
+      - name: Validate collector limits summary helper unit tests
+        run: python3 -m unittest scripts.tests.test_measure_collector_limits
       - name: Validate runtime-cost script unit tests
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev' && matrix.extended
         run: python3 -m unittest scripts.tests.test_measure_runtime_cost
-
       - name: Validate runtime-cost summary validator unit tests
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'dev' && matrix.extended
         run: python3 -m unittest scripts.tests.test_validate_runtime_cost_summary
-
       - name: Measure runtime cost (bounded smoke)
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: |
           python3 scripts/measure_runtime_cost.py \
             --requests 4000 \
@@ -309,10 +267,39 @@ jobs:
             --rounds 4 \
             --warmup-rounds 1 \
             --artifact-dir demos/runtime_cost/artifacts/ci-smoke
-
       - name: Validate runtime cost smoke outputs
-        if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.extended
         run: |
           python3 scripts/validate_runtime_cost_summary.py \
             --raw demos/runtime_cost/artifacts/ci-smoke/runtime-cost-raw.jsonl \
             --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
+
+  required:
+    name: CI required
+    needs: [changes, docs-contracts, verify, deterministic, live, operational]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all applicable CI jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOCS_RESULT: ${{ needs.docs-contracts.result }}
+          CARGO_RESULT: ${{ needs.verify.result }}
+          DETERMINISTIC_RESULT: ${{ needs.deterministic.result }}
+          LIVE_RESULT: ${{ needs.live.result }}
+          OPERATIONAL_RESULT: ${{ needs.operational.result }}
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          test "$CHANGES_RESULT" = success
+          test "$DOCS_RESULT" = success
+          if [ "$EVENT_NAME" = workflow_dispatch ] || [ "$CODE_CHANGED" = true ]; then
+            test "$CARGO_RESULT" = success
+            test "$DETERMINISTIC_RESULT" = success
+            test "$LIVE_RESULT" = success
+            test "$OPERATIONAL_RESULT" = success
+          else
+            test "$CARGO_RESULT" = skipped
+            test "$DETERMINISTIC_RESULT" = skipped
+            test "$LIVE_RESULT" = skipped
+            test "$OPERATIONAL_RESULT" = skipped
+          fi

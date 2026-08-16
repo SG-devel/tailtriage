@@ -41,6 +41,21 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 
 Normal CI keeps deterministic diagnostics and docs contracts as gates but does not publish durable scorecards. Durable scorecard publication remains limited to the manual snapshot workflow.
 
+### Normal CI ownership and cadence
+
+Normal mandatory CI runs on relevant pull requests. The Cargo matrix owns cross-platform dev and
+release Cargo proof, including release documentation and dependency-policy checks. Independent
+Linux jobs run after changed-path detection: `validation / deterministic` owns the deterministic
+corpus, fixture, and public-example checks; `validation / live` owns release demo validation and
+live tracing parity; and `validation / operational` owns bounded runtime-cost and collector-limit
+smoke checks. These proof classes run in parallel when code changes are applicable.
+
+`CI required` aggregates the applicable mandatory job results and performs no additional proof.
+Docs-only pull requests run docs contracts without unnecessarily running code jobs. A manual
+`workflow_dispatch` runs the full workflow, while a normal merge to `main` does not automatically
+repeat the same full CI matrix. `.github/workflows/validation-snapshot.yml` remains a separate,
+manual `workflow_dispatch` path for durable diagnostic artifacts.
+
 ## Evidence levels
 
 | Level | Runs in CI? | What it supports | What it does not prove |
