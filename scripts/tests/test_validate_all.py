@@ -9,7 +9,7 @@ import scripts.validate_all as va
 
 class ValidateAllTests(unittest.TestCase):
     def args(self, profile="smoke"):
-        return SimpleNamespace(profile=profile, out=f"target/validation/{profile}", runs=1, profile_mode="dev", skip_cargo=False, include_cargo=False, no_fail_thresholds=False, python="python3")
+        return SimpleNamespace(profile=profile, out=f"target/validation/{profile}", runs=1, profile_mode="dev", skip_cargo=False, no_fail_thresholds=False, python="python3")
 
     def test_smoke_plan(self):
         plan = va.build_plan(self.args("smoke"))

@@ -163,7 +163,6 @@ def main() -> int:
     p.add_argument("--runs", type=int)
     p.add_argument("--profile-mode", choices=["dev", "release"], default="dev")
     p.add_argument("--skip-cargo", action="store_true")
-    p.add_argument("--include-cargo", action="store_true", help="Deprecated: cargo baseline checks run by default unless --skip-cargo is set.")
     p.add_argument("--no-fail-fast", action="store_true")
     p.add_argument("--no-fail-thresholds", action="store_true")
     p.add_argument("--dry-run", action="store_true")

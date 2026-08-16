@@ -111,7 +111,34 @@ Real-service validation is planned for curated anonymized real-service artifacts
 ## Unified validation runner
 Use `scripts/validate_all.py` to orchestrate existing validation tracks through explicit profiles (`smoke`, `ci`, `full`, `publish`).
 
-The unified runner orchestrates existing scripts; it does not replace domain runners or change analyzer behavior.
+This page owns the profile meanings and invocation policy:
+
+| Profile | Intended audience and scope |
+|---|---|
+| `smoke` | Local fast pass over one bounded scenario per live validation track, deterministic diagnostics, docs contracts, and Cargo completion checks. |
+| `ci` | Contributor/CI-shaped deterministic and script-test coverage without the full repeated-run and mitigation matrices. |
+| `full` | Manual/local full repeated-run, mitigation, runtime-cost, and collector-limit validation. Outputs remain machine/workload/profile scoped. |
+| `publish` | Credential-free, check-only release-readiness validation using the full tracks and a release-artifact directory. It does **not** publish crates; the manual procedure is owned solely by [RELEASING.md](RELEASING.md). |
+
+Cargo formatting, Clippy, and workspace tests run by default in every profile. Use `--skip-cargo`
+only when those checks were run separately and the intended invocation is limited to non-Cargo
+tracks. The unified runner orchestrates existing scripts; it does not replace focused domain
+runners, change analyzer behavior, publish crates, or create tags or releases.
+
+Examples:
+
+```bash
+# Fast local orchestration
+python3 scripts/validate_all.py --profile smoke
+
+# Check-only release-readiness orchestration; no publication occurs
+python3 scripts/validate_all.py --profile publish --profile-mode release
+```
+
+Run focused package tests and domain runners while iterating; use the completion commands in
+[`AGENTS.md`](../../AGENTS.md) before committing. Fixture check/refresh ownership and required
+ordering live in [FIXTURE_LINEAGE.md](FIXTURE_LINEAGE.md), rather than in a second command matrix
+here. CI-only command composition remains owned by [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 
 ## Validation non-claims
 Validation does not claim:
