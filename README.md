@@ -190,42 +190,30 @@ Use the GitHub/workspace path when you want to run packaged examples, inspect in
 
 ## Examples
 
-Six public examples to start with:
-
-- `minimal_checkout` — fastest capture-to-analyze loop
-- `axum_core_manual` — manual Axum + `tailtriage-core` framework wiring
-- `axum_service_adoption` — service-shaped Axum adoption example
-- `mini_service_integration` — helper-layer or fractured-code instrumentation shape
-- `controller_minimal` — arm/disarm controller lifecycle starter
-- `controller_toml_startup` — TOML-backed controller startup and activation example
-
-Start with `controller_toml_startup` when you want the most direct example of config-file-driven controller startup.
+Start with the smallest capture-to-analysis example:
 
 ```bash
 cargo run -p tailtriage-tokio --example minimal_checkout
-cargo run -p tailtriage-axum --example axum_core_manual
-cargo run -p tailtriage-axum --example axum_service_adoption
-cargo run -p tailtriage-tokio --example mini_service_integration
-cargo run -p tailtriage-controller --example controller_minimal
-cargo run -p tailtriage-controller --example controller_toml_startup
-python3 scripts/smoke_public_examples.py
 ```
+
+The relevant [package README](docs/README.md#integrations-and-package-boundaries) owns each
+package's adoption examples. Contributors can run the complete public-example smoke through the
+command owner, `python3 scripts/smoke_public_examples.py`.
 
 ## Demos
 
 The demos are intentionally small services for Tokio tail-latency triage. They are designed to exercise diagnosis behavior with deterministic, reviewable artifacts, not universal causality proof.
 
-If you only run three demos, start with:
+For the shortest deterministic demo path, start with:
 
 ```bash
 python3 scripts/demo_tool.py validate queue
-python3 scripts/demo_tool.py validate downstream
-python3 scripts/demo_tool.py validate db-pool
 ```
 
 Use before/after comparisons as a reproducible mitigation-confirmation loop, not causal proof.
 
-Demo walkthrough and CI coverage details: [`docs/getting-started-demo.md`](docs/getting-started-demo.md)
+The [demo walkthrough](docs/getting-started-demo.md) owns the first-user sequence; the
+[demo index](demos/README.md) owns the complete scenario and contributor command surface.
 
 ## Documentation
 

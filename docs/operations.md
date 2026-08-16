@@ -158,7 +158,13 @@ Start conservatively.
 Worker count remains optional in schema-v2 artifacts, so older artifacts may omit
 it. A zero value is invalid: strict validation rejects it, while permissive
 normalization clears only the invalid field and retains the runtime snapshot and
-typed validation finding. Worker count is not yet used in analyzer scoring.
+typed validation finding. Complete, consistent, positive worker-count evidence
+enables per-worker runnable-queue scoring. Historical absence preserves legacy
+absolute-depth scoring; partial, inconsistent, or invalid evidence uses that
+fallback without inventing a worker count and limits confidence as documented.
+When local queue depth is missing, normalized runnable-queue evidence is a lower
+bound. See the [executor-pressure reference](diagnostics.md#executor-pressure)
+for the scoring and confidence details.
 
 Prefer moderate intervals and bounded runs before increasing density.
 
