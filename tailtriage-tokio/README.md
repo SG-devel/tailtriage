@@ -171,7 +171,13 @@ When the sampler is running, the run artifact can include runtime snapshots such
 Worker count is captured in ordinary builds: current-thread runtimes report one,
 and configured multi-thread runtimes report their configured worker count when it
 fits in `u32`. Some other fields depend on Tokio build/runtime capabilities.
-Worker count is optional evidence and is not yet used in analyzer scoring.
+Worker count remains optional so historical artifacts can omit it. Complete,
+consistent, positive values let downstream analysis normalize runnable queue
+pressure per worker; missing, partial, inconsistent, or invalid evidence retains
+fallback scoring rather than assuming a count. Missing local queue depth makes
+normalized runnable-queue evidence a lower bound. See the
+[executor-pressure reference](../docs/diagnostics.md#executor-pressure) for
+analysis details.
 
 ### Start with inherited mode defaults
 
