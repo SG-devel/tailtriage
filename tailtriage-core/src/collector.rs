@@ -680,22 +680,6 @@ impl Tailtriage {
         }
     }
 
-    fn notify_limits_hit_listener_async(&self) {
-        let listener = self
-            .limits_hit_listener
-            .lock()
-            .expect("limits-hit listener lock poisoned")
-            .clone();
-        if let Some(listener) = listener {
-            // Request admission may be called while an integration holds its
-            // own admission lock. Dispatching this one-shot transition avoids
-            // calling back into that integration while its lock is held.
-            let _ = std::thread::Builder::new()
-                .name("tailtriage-limits-hit".into())
-                .spawn(move || listener());
-        }
-    }
-
     fn start_request(
         &self,
         route: String,
@@ -731,7 +715,7 @@ impl Tailtriage {
         };
         drop(state);
         if notify_limits_hit {
-            self.notify_limits_hit_listener_async();
+            self.notify_limits_hit_listener();
         }
 
         (request_id, route, kind, pending_key, interval_start)
