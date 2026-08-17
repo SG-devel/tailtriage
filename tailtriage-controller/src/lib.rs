@@ -217,7 +217,7 @@ struct ActiveGenerationRuntime {
     state: ActiveGenerationState,
     artifact_path: PathBuf,
     run: Arc<Tailtriage>,
-    admission_gate: Mutex<()>,
+    admission_gate: Mutex<AdmissionState>,
     finalization_gate: Mutex<()>,
     finalization_result: Mutex<GenerationFinalizationResult>,
     accepting_new: AtomicBool,
@@ -230,6 +230,11 @@ struct ActiveGenerationRuntime {
     finalization_test_hooks: Mutex<FinalizationTestHooks>,
     #[cfg(test)]
     admission_test_hooks: Mutex<AdmissionTestHooks>,
+}
+
+#[derive(Debug, Default)]
+struct AdmissionState {
+    admitted_request_slots: usize,
 }
 
 #[cfg(test)]
@@ -525,7 +530,7 @@ impl TailtriageController {
             },
             artifact_path,
             run: Arc::clone(&run),
-            admission_gate: Mutex::new(()),
+            admission_gate: Mutex::new(AdmissionState::default()),
             finalization_gate: Mutex::new(()),
             finalization_result: Mutex::default(),
             accepting_new: AtomicBool::new(true),
@@ -671,7 +676,7 @@ impl TailtriageController {
                 }
             }
 
-            let _admission = active
+            let mut admission = active
                 .admission_gate
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -686,28 +691,62 @@ impl TailtriageController {
                         RunEndReason::AutoSealOnLimitsHit,
                     );
                 } else {
-                    // Admission is linearized with every controller closure path by the
-                    // generation admission gate. The core pair is created before the
-                    // controller in-flight counter is committed, and neither is exposed to
-                    // the caller until both steps complete.
-                    let started = active
+                    let max_requests = active
                         .run
-                        .begin_request_with_owned(route.clone(), options.clone());
-                    active.inflight_captured.fetch_add(1, Ordering::AcqRel);
+                        .effective_core_config()
+                        .capture_limits
+                        .max_requests;
+                    if admission.admitted_request_slots >= max_requests {
+                        if active.state.activation_config.run_end_policy
+                            == RunEndPolicy::AutoSealOnLimitsHit
+                        {
+                            Self::close_generation_admissions_locked(
+                                &active,
+                                RunEndReason::AutoSealOnLimitsHit,
+                            );
+                        }
 
-                    return ControllerStartedRequest {
-                        handle: ControllerRequestHandle::Active(started.handle),
-                        completion: ControllerRequestCompletion {
-                            kind: ControllerCompletionKind::Active(ActiveControllerCompletion {
-                                completion: Some(started.completion),
-                                admission_generation_id: active.state.generation_id,
-                                admitted_generation: Arc::downgrade(&active),
-                                inner: Arc::downgrade(&self.inner),
-                                run_end_policy: active.state.activation_config.run_end_policy,
-                                inflight_recorded: true,
-                            }),
-                        },
-                    };
+                        // Core remains authoritative for refusal accounting and the
+                        // synchronous first-transition notification. Auto-seal closure
+                        // is already linearized above, so its callback cannot re-enter
+                        // this gate.
+                        let _refused = active
+                            .run
+                            .begin_request_with_owned(route.clone(), options.clone());
+                    } else {
+                        // Admission is linearized with every controller closure path by the
+                        // generation admission gate. The core pair is created before the
+                        // controller in-flight counter is committed, and neither is exposed to
+                        // the caller until both steps complete.
+                        let started = active
+                            .run
+                            .begin_request_with_owned(route.clone(), options.clone());
+                        // Request capacity is monotonic for a run: pending requests become
+                        // retained requests without releasing a slot. Controller-owned
+                        // production admissions are serialized here, while core independently
+                        // enforces the same hard bound.
+                        admission.admitted_request_slots += 1;
+                        active.inflight_captured.fetch_add(1, Ordering::AcqRel);
+
+                        return ControllerStartedRequest {
+                            handle: ControllerRequestHandle::Active(started.handle),
+                            completion: ControllerRequestCompletion {
+                                kind: ControllerCompletionKind::Active(
+                                    ActiveControllerCompletion {
+                                        completion: Some(started.completion),
+                                        admission_generation_id: active.state.generation_id,
+                                        admitted_generation: Arc::downgrade(&active),
+                                        inner: Arc::downgrade(&self.inner),
+                                        run_end_policy: active
+                                            .state
+                                            .activation_config
+                                            .run_end_policy,
+                                        inflight_recorded: true,
+                                    },
+                                ),
+                            },
+                        };
+                    }
                 }
             }
         }
@@ -1004,8 +1043,14 @@ impl TailtriageController {
         let Some(active) = active.upgrade() else {
             return;
         };
-        let inflight =
-            Self::close_generation_admissions(&active, RunEndReason::AutoSealOnLimitsHit);
+        let inflight = if active.closing.load(Ordering::Acquire) {
+            // Request-capacity auto-seal is pre-linearized while admission_gate is
+            // held. Once closing is visible no later admission can change this count,
+            // so the synchronous core callback must not recursively acquire the gate.
+            active.inflight_captured.load(Ordering::Acquire)
+        } else {
+            Self::close_generation_admissions(&active, RunEndReason::AutoSealOnLimitsHit)
+        };
 
         if inflight > 0 {
             return;
@@ -1980,7 +2025,7 @@ mod tests {
             },
             artifact_path,
             run,
-            admission_gate: Mutex::new(()),
+            admission_gate: Mutex::new(super::AdmissionState::default()),
             finalization_gate: Mutex::new(()),
             finalization_result: Mutex::default(),
             accepting_new: std::sync::atomic::AtomicBool::new(true),
@@ -2559,8 +2604,11 @@ mod tests {
 
         let active = controller.enable().expect("enable should succeed");
         controller.begin_request("/checkout").completion.finish_ok();
-        controller.begin_request("/checkout").completion.finish_ok();
-        controller.begin_request("/checkout").completion.finish_ok();
+        let refused_one = controller.begin_request_with(
+            "/checkout",
+            RequestOptions::new().request_id("refused-one").kind("test"),
+        );
+        let refused_two = controller.begin_request("/checkout");
 
         let status = controller.status();
         let GenerationState::Active(active_status) = status.generation else {
@@ -2568,6 +2616,13 @@ mod tests {
         };
         assert!(active_status.accepting_new_admissions);
         assert!(!active_status.closing);
+        assert_eq!(active_status.inflight_captured_requests, 0);
+        assert!(matches!(
+            &refused_one.handle,
+            super::ControllerRequestHandle::Inert(_)
+        ));
+        assert_eq!(refused_one.handle.request_id(), "refused-one");
+        assert_eq!(refused_one.handle.kind(), Some("test"));
 
         assert!(matches!(
             controller.disable(),
@@ -2581,6 +2636,13 @@ mod tests {
             run.metadata.run_end_reason,
             Some(tailtriage_core::RunEndReason::ManualDisarm)
         );
+
+        refused_one.completion.finish_ok();
+        drop(refused_two.completion);
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
@@ -2600,7 +2662,7 @@ mod tests {
 
         let active = controller.enable().expect("enable should succeed");
         controller.begin_request("/checkout").completion.finish_ok();
-        controller.begin_request("/checkout").completion.finish_ok();
+        let refused = controller.begin_request("/checkout");
 
         let status = controller.status();
         assert!(matches!(
@@ -2610,11 +2672,131 @@ mod tests {
 
         let run = read_run(&active.artifact_path);
         assert!(run.truncation.limits_hit);
-        assert!(run.truncation.dropped_requests > 0);
+        assert_eq!(run.truncation.dropped_requests, 1);
         assert_eq!(
             run.metadata.run_end_reason,
             Some(tailtriage_core::RunEndReason::AutoSealOnLimitsHit)
         );
+
+        refused.completion.finish_ok();
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn admitted_request_alone_controls_auto_seal_drain() {
+        let output = test_output("auto-seal-admitted-drain");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .run_end_policy(RunEndPolicy::AutoSealOnLimitsHit)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(1),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let admitted = controller.begin_request("/admitted");
+        let refused = controller.begin_request("/refused");
+
+        let GenerationState::Active(status) = controller.status().generation else {
+            panic!("admitted request should keep the generation draining");
+        };
+        assert!(status.closing);
+        assert!(!status.accepting_new_admissions);
+        assert_eq!(status.inflight_captured_requests, 1);
+        assert!(matches!(
+            &refused.handle,
+            super::ControllerRequestHandle::Inert(_)
+        ));
+
+        refused.completion.finish_ok();
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Active(ref status) if status.inflight_captured_requests == 1
+        ));
+
+        admitted.completion.finish_ok();
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let run = read_run(&active.artifact_path);
+        assert_eq!(run.truncation.dropped_requests, 1);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::AutoSealOnLimitsHit)
+        );
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn request_limit_synchronous_callback_returns_without_gate_reentry() {
+        let output = test_output("synchronous-request-limit-callback");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .run_end_policy(RunEndPolicy::AutoSealOnLimitsHit)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(0),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("build should succeed");
+
+        let active = controller.enable().expect("enable should succeed");
+        let refused = controller.begin_request("/known-full");
+
+        assert!(matches!(
+            controller.status().generation,
+            GenerationState::Disabled { next_generation: 2 }
+        ));
+        let run = read_run(&active.artifact_path);
+        assert_eq!(run.truncation.dropped_requests, 1);
+        assert_eq!(
+            run.metadata.run_end_reason,
+            Some(tailtriage_core::RunEndReason::AutoSealOnLimitsHit)
+        );
+        drop(refused.completion);
+
+        fs::remove_file(active.artifact_path).expect("cleanup should succeed");
+    }
+
+    #[test]
+    fn zero_request_capacity_refuses_without_controller_inflight() {
+        let output = test_output("zero-request-capacity");
+        let controller = TailtriageController::builder("checkout-service")
+            .output(&output)
+            .capture_limits_override(CaptureLimitsOverride {
+                max_requests: Some(0),
+                ..CaptureLimitsOverride::default()
+            })
+            .build()
+            .expect("zero request capacity should be supported");
+
+        let active = controller.enable().expect("enable should succeed");
+        let refused = controller.begin_request("/refused");
+        let GenerationState::Active(status) = controller.status().generation else {
+            panic!("continue policy should remain active");
+        };
+        assert_eq!(status.inflight_captured_requests, 0);
+        assert!(matches!(
+            &refused.handle,
+            super::ControllerRequestHandle::Inert(_)
+        ));
+        assert!(matches!(
+            controller.disable(),
+            Ok(DisableOutcome::Finalized { generation_id }) if generation_id == active.generation_id
+        ));
+        let run = read_run(&active.artifact_path);
+        assert_eq!(run.truncation.dropped_requests, 1);
+        assert!(run.truncation.limits_hit);
+        drop(refused.completion);
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
