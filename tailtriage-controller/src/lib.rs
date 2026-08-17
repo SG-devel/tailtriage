@@ -2750,7 +2750,23 @@ mod tests {
             .expect("build should succeed");
 
         let active = controller.enable().expect("enable should succeed");
-        let refused = controller.begin_request("/known-full");
+        let (returned_tx, returned_rx) = mpsc::channel();
+        let worker_controller = controller.clone();
+        let worker = std::thread::spawn(move || {
+            let refused = worker_controller.begin_request("/known-full");
+            returned_tx
+                .send(refused)
+                .expect("test thread should receive the refused request");
+        });
+        let refused = returned_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "synchronous request-limit notification failed to return and may have \
+                     re-entered the admission gate: {error}"
+                )
+            });
+        worker.join().expect("request admission worker should exit");
 
         assert!(matches!(
             controller.status().generation,
