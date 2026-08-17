@@ -827,6 +827,131 @@ fn saturation_preserves_exact_drop_counts_across_sections() {
 }
 
 #[test]
+fn request_admission_bounds_retained_plus_pending_and_makes_refused_children_inert() {
+    let tailtriage = Tailtriage::builder("request-admission-bound")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_requests: Some(2),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+
+    let first =
+        tailtriage.begin_request_with("/first", RequestOptions::new().request_id("admitted-first"));
+    let second = tailtriage.begin_request_with(
+        "/second",
+        RequestOptions::new().request_id("admitted-second"),
+    );
+    assert_eq!(tailtriage.pending_request_count(), 2);
+
+    let refused =
+        tailtriage.begin_request_with("/refused", RequestOptions::new().request_id("refused"));
+    assert_eq!(tailtriage.pending_request_count(), 2);
+    futures_executor::block_on(refused.handle.stage("refused-stage").await_value(ready(())));
+    futures_executor::block_on(refused.handle.queue("refused-queue").await_on(ready(())));
+    drop(refused.handle.inflight("refused-inflight"));
+    refused.completion.finish_ok();
+
+    first.completion.finish_ok();
+    assert_eq!(tailtriage.snapshot().requests.len(), 1);
+    assert_eq!(tailtriage.pending_request_count(), 1);
+
+    // Completion moves an admitted request from pending to retained; it does
+    // not release request capacity while that retained event remains captured.
+    let still_refused = tailtriage.begin_request("/still-refused");
+    assert_eq!(tailtriage.pending_request_count(), 1);
+    still_refused.completion.finish_ok();
+
+    second.completion.finish_ok();
+    let run = tailtriage.snapshot();
+    assert_eq!(run.requests.len(), 2);
+    assert_eq!(tailtriage.pending_request_count(), 0);
+    assert!(run.stages.is_empty());
+    assert!(run.queues.is_empty());
+    assert!(run.inflight.is_empty());
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+    assert_eq!(run.truncation.dropped_requests, 2);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
+fn shutdown_counts_only_admitted_pending_requests_after_saturation() {
+    let sink = MemorySink::new();
+    let tailtriage = Tailtriage::builder("bounded-unfinished")
+        .sink(sink.clone())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_requests: Some(1),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let admitted = tailtriage.begin_request_with(
+        "/admitted",
+        RequestOptions::new().request_id("admitted-pending"),
+    );
+    let refused = tailtriage.begin_request_with(
+        "/refused",
+        RequestOptions::new().request_id("refused-pending"),
+    );
+
+    assert_eq!(tailtriage.pending_request_count(), 1);
+    tailtriage.shutdown().unwrap();
+    let run = sink.last_run().unwrap();
+    assert_eq!(run.metadata.unfinished_requests.count, 1);
+    assert_eq!(run.metadata.unfinished_requests.sample.len(), 1);
+    assert_eq!(
+        run.metadata.unfinished_requests.sample[0].request_id,
+        "admitted-pending"
+    );
+    assert_eq!(run.truncation.dropped_requests, 1);
+    assert!(run.truncation.limits_hit);
+    drop(admitted.completion);
+    drop(refused.completion);
+}
+
+#[test]
+fn concurrent_request_admission_cannot_exceed_retained_plus_pending_limit() {
+    const CALLERS: usize = 8;
+    let tailtriage = Tailtriage::builder("request-admission-concurrent-bound")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_requests: Some(1),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let entered = std::sync::Barrier::new(CALLERS + 1);
+    let release = std::sync::Barrier::new(CALLERS + 1);
+
+    std::thread::scope(|scope| {
+        for caller in 0..CALLERS {
+            let tailtriage = &tailtriage;
+            let entered = &entered;
+            let release = &release;
+            scope.spawn(move || {
+                let started = tailtriage.begin_request(format!("/request-{caller}"));
+                entered.wait();
+                release.wait();
+                started.completion.finish_ok();
+            });
+        }
+        entered.wait();
+        assert_eq!(tailtriage.pending_request_count(), 1);
+        let run = tailtriage.snapshot();
+        assert!(run.requests.is_empty());
+        assert_eq!(run.truncation.dropped_requests, (CALLERS - 1) as u64);
+        release.wait();
+    });
+
+    let run = tailtriage.snapshot();
+    assert_eq!(run.requests.len(), 1);
+    assert_eq!(tailtriage.pending_request_count(), 0);
+    assert_eq!(run.truncation.dropped_requests, (CALLERS - 1) as u64);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
 fn shutdown_artifact_includes_post_saturation_drops() {
     let sink = Arc::new(RecordingSink::default());
     let tailtriage = Tailtriage::builder("payments")
@@ -3296,6 +3421,79 @@ fn inflight_zero_cleanup_survives_snapshot_retention_saturation() {
     assert_eq!(inflight_counts(&run), vec![1]);
     assert_eq!(run.truncation.dropped_inflight_snapshots, 1);
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+}
+
+#[test]
+fn inflight_distinct_label_admission_is_bounded_and_refused_guard_is_inert() {
+    let tailtriage = Tailtriage::builder("inflight-label-bound")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_inflight_snapshots: Some(2),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+
+    let first = tailtriage.inflight("first");
+    let second = tailtriage.inflight("second");
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 2);
+
+    let refused = tailtriage.inflight("refused");
+    assert!(!refused.enabled);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 2);
+
+    let repeated = tailtriage.inflight("first");
+    assert!(repeated.enabled);
+    drop(refused);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 2);
+    drop(repeated);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 2);
+    drop(first);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 1);
+    drop(second);
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+
+    let run = tailtriage.snapshot();
+    assert_eq!(inflight_counts(&run), vec![1, 1]);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, 5);
+    assert!(run.truncation.limits_hit);
+}
+
+#[test]
+fn concurrent_distinct_inflight_admission_cannot_exceed_limit() {
+    const CALLERS: usize = 8;
+    let tailtriage = Tailtriage::builder("inflight-label-concurrent-bound")
+        .sink(MemorySink::new())
+        .capture_limits_override(CaptureLimitsOverride {
+            max_inflight_snapshots: Some(1),
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let entered = std::sync::Barrier::new(CALLERS + 1);
+    let release = std::sync::Barrier::new(CALLERS + 1);
+
+    std::thread::scope(|scope| {
+        for caller in 0..CALLERS {
+            let tailtriage = &tailtriage;
+            let entered = &entered;
+            let release = &release;
+            scope.spawn(move || {
+                let guard = tailtriage.inflight(format!("label-{caller}"));
+                entered.wait();
+                release.wait();
+                drop(guard);
+            });
+        }
+        entered.wait();
+        assert_eq!(tailtriage.live_inflight_gauge_count(), 1);
+        release.wait();
+    });
+    assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
+    let run = tailtriage.snapshot();
+    assert_eq!(run.inflight.len(), 1);
+    assert_eq!(run.truncation.dropped_inflight_snapshots, CALLERS as u64);
+    assert!(run.truncation.limits_hit);
 }
 
 #[test]

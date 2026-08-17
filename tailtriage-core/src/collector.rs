@@ -387,6 +387,11 @@ impl Tailtriage {
         lock_state(&self.state.mutex).inflight_counts.len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn pending_request_count(&self) -> usize {
+        lock_state(&self.state.mutex).pending_requests.len()
+    }
+
     /// Writes the current run artifact and finishes the run lifecycle.
     ///
     /// With default/non-strict lifecycle, unfinished requests are recorded in
@@ -496,6 +501,26 @@ impl Tailtriage {
             let sample = self.run_clock.sample();
             let mut state = lock_state(&self.state.mutex);
             if !matches!(state.phase, CollectorPhase::Open) {
+                return InflightGuard {
+                    tailtriage: self,
+                    gauge,
+                    enabled: false,
+                };
+            }
+            if !state.inflight_counts.contains_key(&gauge)
+                && state.inflight_counts.len() >= self.limits.max_inflight_snapshots
+            {
+                self.truncation_state.inflight.mark_saturated();
+                state.run.truncation.dropped_inflight_snapshots = state
+                    .run
+                    .truncation
+                    .dropped_inflight_snapshots
+                    .saturating_add(1);
+                let notify_limits_hit = self.truncation_state.mark_run_limits_hit(&mut state.run);
+                drop(state);
+                if notify_limits_hit {
+                    self.notify_limits_hit_listener();
+                }
                 return InflightGuard {
                     tailtriage: self,
                     gauge,
@@ -655,6 +680,22 @@ impl Tailtriage {
         }
     }
 
+    fn notify_limits_hit_listener_async(&self) {
+        let listener = self
+            .limits_hit_listener
+            .lock()
+            .expect("limits-hit listener lock poisoned")
+            .clone();
+        if let Some(listener) = listener {
+            // Request admission may be called while an integration holds its
+            // own admission lock. Dispatching this one-shot transition avoids
+            // calling back into that integration while its lock is held.
+            let _ = std::thread::Builder::new()
+                .name("tailtriage-limits-hit".into())
+                .spawn(move || listener());
+        }
+    }
+
     fn start_request(
         &self,
         route: String,
@@ -672,13 +713,26 @@ impl Tailtriage {
             kind: kind.clone(),
             interval_start,
         };
+        let mut notify_limits_hit = false;
         let mut state = lock_state(&self.state.mutex);
-        let pending_key = if matches!(state.phase, CollectorPhase::Open) {
+        let pending_key = if matches!(state.phase, CollectorPhase::Open)
+            && state.run.requests.len() + state.pending_requests.len() < self.limits.max_requests
+        {
             state.pending_requests.insert(pending_key, pending);
             Some(pending_key)
         } else {
+            if matches!(state.phase, CollectorPhase::Open) {
+                state.run.truncation.dropped_requests =
+                    state.run.truncation.dropped_requests.saturating_add(1);
+                self.truncation_state.requests.mark_saturated();
+                notify_limits_hit = self.truncation_state.mark_run_limits_hit(&mut state.run);
+            }
             None
         };
+        drop(state);
+        if notify_limits_hit {
+            self.notify_limits_hit_listener_async();
+        }
 
         (request_id, route, kind, pending_key, interval_start)
     }
