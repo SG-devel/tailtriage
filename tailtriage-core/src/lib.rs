@@ -27,6 +27,7 @@
 // # }
 // ```
 
+mod artifact;
 mod collector;
 mod config;
 mod events;
@@ -37,6 +38,7 @@ mod time;
 mod timers;
 mod validation;
 
+pub use artifact::{decode_run_json_path, RunJsonDecodeError};
 pub use collector::{
     OwnedRequestCompletion, OwnedRequestHandle, OwnedStartedRequest, RequestCompletion,
     RequestHandle, RuntimeSamplerRegistrationError, StartedRequest, Tailtriage,

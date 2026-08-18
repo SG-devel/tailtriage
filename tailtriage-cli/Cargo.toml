@@ -23,8 +23,6 @@ doc = false
 
 [dependencies]
 clap = { version = "4.5.40", features = ["derive"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
 tailtriage-core.workspace = true
 tailtriage-analyzer.workspace = true
 tailtriage-tracing = { workspace = true, features = ["jsonl"] }
@@ -36,4 +34,5 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dev-dependencies]
+serde_json = "1.0.145"
 tempfile = "3.23.0"

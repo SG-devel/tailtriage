@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-use tailtriage_core::{normalize_run_permissive, Run, RunValidationReport, SCHEMA_VERSION};
-
-const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
+use tailtriage_core::{
+    decode_run_json_path, normalize_run_permissive, Run, RunJsonDecodeError, RunValidationReport,
+};
 
 /// A decoded run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
@@ -54,16 +53,6 @@ pub(crate) enum ArtifactLoadError {
         /// Supported schema version expected by this binary.
         supported: u64,
     },
-    /// Required top-level `schema_version` key was missing.
-    MissingSchemaVersion {
-        /// Artifact path missing `schema_version`.
-        path: PathBuf,
-    },
-    /// Top-level `schema_version` existed but was not an integer.
-    InvalidSchemaVersionType {
-        /// Artifact path with invalid `schema_version` type.
-        path: PathBuf,
-    },
     /// Additional validation rejected the artifact contents.
     Validation {
         /// Artifact path that failed validation.
@@ -91,16 +80,6 @@ impl std::fmt::Display for ArtifactLoadError {
                 "unsupported run artifact schema_version={found}; this tailtriage version supports schema_version={supported}. Regenerate the artifact with a current tailtriage version. ('{}')",
                 path.display()
             ),
-            Self::MissingSchemaVersion { path } => write!(
-                f,
-                "invalid run artifact in '{}': missing required top-level schema_version.",
-                path.display()
-            ),
-            Self::InvalidSchemaVersionType { path } => write!(
-                f,
-                "invalid run artifact in '{}': schema_version must be an integer.",
-                path.display()
-            ),
             Self::Validation { path, message } => write!(
                 f,
                 "invalid run artifact '{}': {message}",
@@ -123,8 +102,9 @@ impl std::error::Error for ArtifactLoadError {
 /// Loads and decodes a tailtriage run artifact from disk, then applies
 /// permissive core normalization for command-level checks.
 ///
-/// The CLI owns file/JSON/schema-envelope decoding and the analyze command
-/// requirement that at least one request remains after core normalization.
+/// Core owns canonical streaming Run JSON decoding. The CLI owns path diagnostics,
+/// finalization policy, warnings, normalization, and the analyze command's
+/// requirement that at least one request remains after normalization.
 ///
 /// Loader warnings are non-fatal findings and are returned in
 /// [`LoadedArtifact::warnings`].
@@ -147,24 +127,7 @@ pub(crate) fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactL
 /// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,
 /// the schema envelope is unsupported, or the decoded shape is incompatible.
 pub(crate) fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
-    let input = std::fs::read_to_string(path).map_err(|source| ArtifactLoadError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
-
-    let raw: Value = serde_json::from_str(&input).map_err(|err| ArtifactLoadError::Parse {
-        path: path.to_path_buf(),
-        message: parse_error_message(&err),
-    })?;
-
-    validate_schema_version(&raw, path)?;
-
-    let original_run: Run = serde_json::from_value(raw).map_err(|err| ArtifactLoadError::Parse {
-        path: path.to_path_buf(),
-        message: format!(
-            "JSON shape does not match the tailtriage run schema ({err}). Check for missing required fields such as metadata.run_id and requests[]."
-        ),
-    })?;
+    let original_run = decode_run_json_path(path).map_err(|error| map_decode_error(path, error))?;
 
     if original_run.metadata.finalized_at_unix_ms.is_none() {
         return Err(ArtifactLoadError::Validation {
@@ -193,28 +156,26 @@ pub(crate) fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, Artifac
     })
 }
 
-fn validate_schema_version(raw: &Value, path: &Path) -> Result<(), ArtifactLoadError> {
-    let Some(version) = raw.get("schema_version") else {
-        return Err(ArtifactLoadError::MissingSchemaVersion {
-            path: path.to_path_buf(),
-        });
-    };
-
-    let Some(found) = version.as_u64() else {
-        return Err(ArtifactLoadError::InvalidSchemaVersionType {
-            path: path.to_path_buf(),
-        });
-    };
-
-    if found != SUPPORTED_SCHEMA_VERSION {
-        return Err(ArtifactLoadError::UnsupportedSchemaVersion {
-            path: path.to_path_buf(),
-            found,
-            supported: SUPPORTED_SCHEMA_VERSION,
-        });
+fn map_decode_error(path: &Path, error: RunJsonDecodeError) -> ArtifactLoadError {
+    let path = path.to_path_buf();
+    match error {
+        RunJsonDecodeError::Io(source) => ArtifactLoadError::Read { path, source },
+        RunJsonDecodeError::UnsupportedSchemaVersion { found, supported } => ArtifactLoadError::UnsupportedSchemaVersion { path, found, supported },
+        RunJsonDecodeError::Malformed(error) => {
+            let message = if error.is_eof() {
+                format!("JSON ended unexpectedly ({error}). The artifact may be truncated; re-run capture and ensure the file was fully written.")
+            } else if error.is_syntax() {
+                format!("malformed JSON ({error}).")
+            } else if error.is_data() {
+                format!("JSON data is incompatible with the expected run schema ({error}).")
+            } else {
+                format!("I/O error while parsing JSON ({error}).")
+            };
+            ArtifactLoadError::Parse { path, message }
+        }
+        RunJsonDecodeError::Shape(error) => ArtifactLoadError::Parse { path, message: format!("JSON shape does not match the tailtriage run schema ({error}). Check for missing required fields such as metadata.run_id and requests[].") },
+        _ => ArtifactLoadError::Parse { path, message: error.to_string() },
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -227,23 +188,6 @@ fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoad
     }
 
     Ok(())
-}
-
-fn parse_error_message(error: &serde_json::Error) -> String {
-    match error.classify() {
-        serde_json::error::Category::Eof => {
-            format!("JSON ended unexpectedly ({error}). The artifact may be truncated; re-run capture and ensure the file was fully written.")
-        }
-        serde_json::error::Category::Syntax => {
-            format!("malformed JSON ({error}).")
-        }
-        serde_json::error::Category::Data => {
-            format!("JSON data is incompatible with the expected run schema ({error}).")
-        }
-        serde_json::error::Category::Io => {
-            format!("I/O error while parsing JSON ({error}).")
-        }
-    }
 }
 
 #[cfg(test)]
@@ -298,7 +242,8 @@ mod tests {
         let error = load_run_artifact(&path).expect_err("expected missing version failure");
         let message = error.to_string();
 
-        assert!(message.contains("missing required top-level schema_version"));
+        assert!(message.contains("JSON shape does not match"));
+        assert!(message.contains("schema_version"));
     }
 
     #[test]
@@ -314,7 +259,8 @@ mod tests {
         let error = load_run_artifact(&path).expect_err("expected schema type failure");
         let message = error.to_string();
 
-        assert!(message.contains("schema_version must be an integer"));
+        assert!(message.contains("JSON shape does not match"));
+        assert!(message.contains("invalid type"));
     }
 
     #[test]
@@ -371,14 +317,13 @@ mod tests {
     }
 
     #[test]
-    fn cli_rejects_schema_v1_before_shape_decode() {
+    fn structurally_incompatible_old_schema_fails_as_shape_error() {
         let dir = tempfile::tempdir().expect("tempdir should build");
         let path = dir.path().join("v1.json");
         std::fs::write(&path, r#"{"schema_version":1,"metadata":{"finished_at_unix_ms":2},"requests":"not decoded as v2"}"#).expect("fixture should write");
-        let error = load_run_artifact(&path).expect_err("v1 should fail at envelope");
+        let error = load_run_artifact(&path).expect_err("incompatible shape should fail");
         let message = error.to_string();
-        assert!(message.contains("unsupported run artifact schema_version=1"));
-        assert!(message.contains("supports schema_version=2"));
+        assert!(message.contains("JSON shape does not match"));
     }
 
     #[test]
