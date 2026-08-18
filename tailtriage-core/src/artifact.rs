@@ -54,7 +54,8 @@ impl std::error::Error for RunJsonDecodeError {
 ///
 /// The document is decoded directly into [`Run`] without first retaining the
 /// complete input as a string or generic JSON value. Trailing non-whitespace is
-/// rejected.
+/// rejected. This removes avoidable raw-input amplification; it does not impose
+/// a universal allocation bound on arbitrarily large, otherwise valid Runs.
 ///
 /// # Errors
 ///
@@ -167,16 +168,21 @@ mod tests {
 
     #[test]
     fn deep_json_fails_under_normal_recursion_protection() {
-        // Leave the pathological nesting truncated as well. The decoder keeps
-        // serde_json's normal parser protections and reports the hostile input
-        // rather than attempting any recovery or recursion-limit override.
-        let nested = "[".repeat(256) + &"]".repeat(255);
+        let nesting_depth = 256;
+        let nested = "[".repeat(nesting_depth) + &"]".repeat(nesting_depth);
         let mut data = String::from_utf8(valid()).unwrap();
         data.insert_str(data.len() - 1, &format!(",\"unknown\":{nested}"));
-        assert!(matches!(
-            decode(data.as_bytes()),
-            Err(RunJsonDecodeError::Malformed(_) | RunJsonDecodeError::Shape(_))
-        ));
+
+        // Deserialize the complete balanced document into a recursively visited
+        // representation so this test exercises serde_json's depth guard even
+        // though Run's derived visitor efficiently skips unknown field values.
+        let mut deserializer = serde_json::Deserializer::from_slice(data.as_bytes());
+        let json_error = serde_json::Value::deserialize(&mut deserializer)
+            .expect_err("deep nesting must be rejected");
+        assert!(
+            json_error.to_string().contains("recursion limit exceeded"),
+            "expected recursion-limit exhaustion, got {json_error}"
+        );
     }
 
     #[test]
