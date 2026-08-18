@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "tokio")]
@@ -475,6 +475,43 @@ fn write_completed_span_jsonl_from_retained_sources(
     retained_sources: &[SpanRecord],
     path: &Path,
 ) -> Result<(), ImportError> {
+    write_completed_span_jsonl_with_limit(retained_sources, path, crate::MAX_JSONL_RECORD_BYTES)
+}
+
+struct RecordLimitedWriter<'a, W> {
+    inner: &'a mut W,
+    written: usize,
+    limit: usize,
+    exceeded: bool,
+}
+
+#[derive(serde::Serialize)]
+struct CompletedSpanJsonlRecord<'a> {
+    format: &'static str,
+    span: &'a SpanRecord,
+}
+
+impl<W: Write> Write for RecordLimitedWriter<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() > self.limit.saturating_sub(self.written) {
+            self.exceeded = true;
+            return Err(io::Error::other("JSONL record byte limit exceeded"));
+        }
+        let count = self.inner.write(bytes)?;
+        self.written += count;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn write_completed_span_jsonl_with_limit(
+    retained_sources: &[SpanRecord],
+    path: &Path,
+    record_limit: usize,
+) -> Result<(), ImportError> {
     create_output_parent_dir(path, "create completed span jsonl parent directory")?;
     let temp_path = completed_span_jsonl_temp_path(path);
     let mut file = std::fs::OpenOptions::new()
@@ -489,16 +526,32 @@ fn write_completed_span_jsonl_from_retained_sources(
         })?;
 
     let write_result = (|| -> Result<(), ImportError> {
-        for span in retained_sources {
-            let wrapped =
-                serde_json::json!({ "format": "tailtriage.tracing-span.v1", "span": span });
+        for (index, span) in retained_sources.iter().enumerate() {
+            let wrapped = CompletedSpanJsonlRecord {
+                format: "tailtriage.tracing-span.v1",
+                span,
+            };
+            let mut limited = RecordLimitedWriter {
+                inner: &mut file,
+                written: 0,
+                limit: record_limit,
+                exceeded: false,
+            };
+            if let Err(err) = serde_json::to_writer(&mut limited, &wrapped) {
+                if limited.exceeded {
+                    return Err(ImportError::JsonlRecordTooLarge {
+                        line: index + 1,
+                        limit: record_limit,
+                    });
+                }
+                return Err(ImportError::Io {
+                    operation: "write completed span jsonl record",
+                    context: temp_path.display().to_string(),
+                    reason: err.to_string(),
+                });
+            }
 
-            serde_json::to_writer(&mut file, &wrapped).map_err(|err| ImportError::Io {
-                operation: "write completed span jsonl record",
-                context: temp_path.display().to_string(),
-                reason: err.to_string(),
-            })?;
-
+            // The delimiter is written outside the limited adapter and does not count.
             file.write_all(b"\n").map_err(|err| ImportError::Io {
                 operation: "write completed span jsonl newline",
                 context: temp_path.display().to_string(),
@@ -3982,6 +4035,85 @@ mod tests {
             std::fs::read(&first_path).unwrap(),
             std::fs::read(&second_path).unwrap()
         );
+    }
+
+    #[test]
+    fn completed_jsonl_writer_enforces_per_record_bytes_without_total_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let exact_path = dir.path().join("exact.jsonl");
+        let source = SpanRecord::new("request", 1, 2)
+            .field(TT_KIND, "request")
+            .field("tt.request_id", "r1")
+            .field("tt.route", "/")
+            .field("padding", "x".repeat(256));
+        let wrapped = serde_json::json!({
+            "format": "tailtriage.tracing-span.v1",
+            "span": &source,
+        });
+        let serialized_len = serde_json::to_vec(&wrapped).unwrap().len();
+
+        write_completed_span_jsonl_with_limit(
+            std::slice::from_ref(&source),
+            &exact_path,
+            serialized_len,
+        )
+        .unwrap();
+        assert_eq!(
+            usize::try_from(std::fs::metadata(&exact_path).unwrap().len()).unwrap(),
+            serialized_len + 1
+        );
+
+        let one_over_path = dir.path().join("one-over.jsonl");
+        assert_eq!(
+            write_completed_span_jsonl_with_limit(
+                std::slice::from_ref(&source),
+                &one_over_path,
+                serialized_len - 1,
+            )
+            .unwrap_err(),
+            ImportError::JsonlRecordTooLarge {
+                line: 1,
+                limit: serialized_len - 1,
+            }
+        );
+        assert!(!one_over_path.exists());
+
+        let aggregate_path = dir.path().join("aggregate.jsonl");
+        write_completed_span_jsonl_with_limit(
+            &[source.clone(), source.clone()],
+            &aggregate_path,
+            serialized_len,
+        )
+        .unwrap();
+        assert_eq!(
+            usize::try_from(std::fs::metadata(&aggregate_path).unwrap().len()).unwrap(),
+            2 * (serialized_len + 1)
+        );
+    }
+
+    #[test]
+    fn completed_jsonl_writer_reports_line_and_cleans_temp_on_oversize() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("oversize.jsonl");
+        let small = SpanRecord::new("small", 1, 2);
+        let large = SpanRecord::new("large", 1, 2).field("padding", "x".repeat(256));
+        let small_len = serde_json::to_vec(&serde_json::json!({
+            "format": "tailtriage.tracing-span.v1",
+            "span": &small,
+        }))
+        .unwrap()
+        .len();
+        let err =
+            write_completed_span_jsonl_with_limit(&[small, large], &path, small_len).unwrap_err();
+        assert_eq!(
+            err,
+            ImportError::JsonlRecordTooLarge {
+                line: 2,
+                limit: small_len,
+            }
+        );
+        assert!(!path.exists());
+        assert!(!completed_span_jsonl_temp_path(&path).exists());
     }
 
     #[test]

@@ -19,16 +19,11 @@ pub enum ImportError {
         /// Underlying JSON parser error text.
         reason: String,
     },
-    /// One logical JSONL record exceeded the fixed raw-byte intake ceiling.
+    /// One logical JSONL record exceeded the shared fixed raw-byte ceiling.
     JsonlRecordTooLarge {
         /// 1-based logical line number.
         line: usize,
         /// Maximum permitted raw bytes, excluding the newline delimiter.
-        limit: usize,
-    },
-    /// A JSONL import exceeded the fixed total raw-byte intake ceiling.
-    JsonlInputTooLarge {
-        /// Maximum permitted raw bytes, including delimiters and whitespace.
         limit: usize,
     },
     /// JSONL input did not match the stable tailtriage wrapper shape required by the stable tracing JSONL wrapper contract.
@@ -94,10 +89,6 @@ impl fmt::Display for ImportError {
                 f,
                 "JSONL record at line {line} exceeds the raw-byte limit of {limit} bytes"
             ),
-            Self::JsonlInputTooLarge { limit } => write!(
-                f,
-                "JSONL input exceeds the total raw-byte limit of {limit} bytes"
-            ),
             Self::ExpectedTailtriageWrapper { reason } => {
                 write!(f, "expected tailtriage wrapper JSONL record: {reason}")
             }
@@ -142,10 +133,6 @@ mod tests {
         assert_eq!(
             ImportError::JsonlRecordTooLarge { line: 7, limit: 9 }.to_string(),
             "JSONL record at line 7 exceeds the raw-byte limit of 9 bytes"
-        );
-        assert_eq!(
-            ImportError::JsonlInputTooLarge { limit: 11 }.to_string(),
-            "JSONL input exceeds the total raw-byte limit of 11 bytes"
         );
     }
 }

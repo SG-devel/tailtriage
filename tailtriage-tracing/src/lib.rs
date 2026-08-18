@@ -64,6 +64,9 @@ pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind,
 // Retain a deterministic diagnostic sample without allowing one allocation per input record.
 const MAX_IMPORT_WARNINGS: usize = 256;
 
+// Serialized JSON object bytes count toward this limit; the JSONL newline does not.
+pub(crate) const MAX_JSONL_RECORD_BYTES: usize = 8 * 1024 * 1024;
+
 fn push_import_warning(warnings: &mut Vec<ImportWarning>, warning: ImportWarning) {
     if warnings.len() < MAX_IMPORT_WARNINGS {
         warnings.push(warning);
@@ -173,6 +176,8 @@ where
     let mut parsed_requests = Vec::new();
     let mut parsed_stages = Vec::new();
     let mut parsed_queues = Vec::new();
+    #[cfg(test)]
+    let mut collection_peaks = CollectionPeaks::default();
 
     let mut dropped_requests = 0_u64;
     let mut dropped_stages = 0_u64;
@@ -272,6 +277,13 @@ where
                         },
                         outcome_defaulted,
                     });
+                    #[cfg(test)]
+                    collection_peaks.observe(
+                        parsed_requests.len(),
+                        parsed_stages.len(),
+                        parsed_queues.len(),
+                        source_spans.len(),
+                    );
                 }
             }
             SpanKind::Stage => {
@@ -314,6 +326,13 @@ where
                         },
                         success_defaulted: matches!(success_field, OptionalField::Missing),
                     });
+                    #[cfg(test)]
+                    collection_peaks.observe(
+                        parsed_requests.len(),
+                        parsed_stages.len(),
+                        parsed_queues.len(),
+                        source_spans.len(),
+                    );
                 }
             }
             SpanKind::Queue => {
@@ -355,6 +374,13 @@ where
                             completed: true,
                         },
                     });
+                    #[cfg(test)]
+                    collection_peaks.observe(
+                        parsed_requests.len(),
+                        parsed_stages.len(),
+                        parsed_queues.len(),
+                        source_spans.len(),
+                    );
                 }
             }
         }
@@ -467,6 +493,8 @@ where
         candidate_provenance: provenance,
         source_outcomes,
         retained_sources,
+        #[cfg(test)]
+        collection_peaks,
     })
 }
 
@@ -478,6 +506,27 @@ struct ProvenanceImportedRun {
     source_outcomes: SourceOutcomes,
     #[allow(dead_code)]
     retained_sources: Vec<SpanRecord>,
+    #[cfg(test)]
+    collection_peaks: CollectionPeaks,
+}
+
+#[cfg(test)]
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CollectionPeaks {
+    requests: usize,
+    stages: usize,
+    queues: usize,
+    source_spans: usize,
+}
+
+#[cfg(test)]
+impl CollectionPeaks {
+    fn observe(&mut self, requests: usize, stages: usize, queues: usize, source_spans: usize) {
+        self.requests = self.requests.max(requests);
+        self.stages = self.stages.max(stages);
+        self.queues = self.queues.max(queues);
+        self.source_spans = self.source_spans.max(source_spans);
+    }
 }
 
 impl ProvenanceImportedRun {
@@ -995,6 +1044,93 @@ fn parse_depth_at_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_conversion_directly_bounds_temporary_candidate_and_source_state() {
+        let mut spans = Vec::new();
+        for index in 0..4 {
+            spans.push(
+                SpanRecord::new(format!("request-{index}"), 1, 2)
+                    .field(TT_KIND, "request")
+                    .field(TT_REQUEST_ID, format!("r{index}"))
+                    .field(TT_ROUTE, "/bounded"),
+            );
+        }
+        for index in 0..4 {
+            spans.push(
+                SpanRecord::new(format!("stage-{index}"), 1, 2)
+                    .field(TT_KIND, "stage")
+                    .field(TT_REQUEST_ID, "r0")
+                    .field(TT_STAGE, format!("s{index}")),
+            );
+        }
+        for index in 0..4 {
+            spans.push(
+                SpanRecord::new(format!("queue-{index}"), 1, 2)
+                    .field(TT_KIND, "queue")
+                    .field(TT_REQUEST_ID, "r0")
+                    .field(TT_QUEUE, format!("q{index}")),
+            );
+        }
+        let converted = convert_span_records_with_provenance(
+            spans,
+            ImportOptions::new("svc").capture_limits(tailtriage_core::CaptureLimits {
+                max_requests: 1,
+                max_stages: 2,
+                max_queues: 3,
+                ..tailtriage_core::CaptureLimits::default()
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            converted.collection_peaks,
+            CollectionPeaks {
+                requests: 1,
+                stages: 2,
+                queues: 3,
+                source_spans: 6,
+            }
+        );
+        let run = converted.imported.run();
+        assert_eq!(
+            (run.requests.len(), run.stages.len(), run.queues.len()),
+            (1, 2, 3)
+        );
+        assert_eq!(
+            (
+                run.truncation.dropped_requests,
+                run.truncation.dropped_stages,
+                run.truncation.dropped_queues,
+            ),
+            (3, 2, 1)
+        );
+        assert!(run.truncation.limits_hit);
+        assert_eq!(run.requests[0].request_id, "r0");
+        assert_eq!(
+            run.stages
+                .iter()
+                .map(|x| x.stage.as_str())
+                .collect::<Vec<_>>(),
+            ["s0", "s1"]
+        );
+        assert_eq!(
+            run.queues
+                .iter()
+                .map(|x| x.queue.as_str())
+                .collect::<Vec<_>>(),
+            ["q0", "q1", "q2"]
+        );
+        assert_eq!(converted.imported.retained_sources().len(), 6);
+        assert!(converted
+            .imported
+            .retained_sources()
+            .iter()
+            .all(|span| !matches!(
+                span.name(),
+                "request-1" | "request-2" | "request-3" | "stage-2" | "stage-3" | "queue-3"
+            )));
+    }
     use tailtriage_core::CaptureMode;
 
     #[test]

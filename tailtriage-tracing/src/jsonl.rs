@@ -6,9 +6,6 @@ use serde_json::Value;
 use crate::{run_from_span_record_results, ImportError, ImportOptions, ImportedRun, SpanRecord};
 
 const FORMAT_MARKER: &str = "tailtriage.tracing-span.v1";
-// Private intake ceilings bound attacker-controlled buffering independently of capture limits.
-const MAX_JSONL_RECORD_BYTES: usize = 1024 * 1024;
-const MAX_JSONL_INPUT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Imports newline-delimited stable completed-span JSONL records from a reader into a converted run.
 ///
@@ -19,33 +16,26 @@ const MAX_JSONL_INPUT_BYTES: usize = 64 * 1024 * 1024;
 /// # Errors
 ///
 /// Returns [`ImportError::Io`] for reader I/O failures,
-/// [`ImportError::JsonlRecordTooLarge`] or [`ImportError::JsonlInputTooLarge`]
-/// when a fixed raw-byte intake ceiling is exceeded,
+/// [`ImportError::JsonlRecordTooLarge`] when the fixed per-record raw-byte ceiling is exceeded,
 /// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
 /// [`ImportError::ExpectedTailtriageWrapper`] for structural JSONL shape errors,
 /// and existing field/conversion errors for malformed tailtriage span records
-/// or strict conversion violations surfaced by [`run_from_span_records`].
+/// or strict conversion violations surfaced by [`crate::run_from_span_records`].
 pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    import_jsonl_reader_with_limits(
-        reader,
-        options,
-        MAX_JSONL_RECORD_BYTES,
-        MAX_JSONL_INPUT_BYTES,
-    )
+    import_jsonl_reader_with_limit(reader, options, crate::MAX_JSONL_RECORD_BYTES)
 }
 
-fn import_jsonl_reader_with_limits<R: Read>(
+fn import_jsonl_reader_with_limit<R: Read>(
     reader: R,
     options: ImportOptions,
     record_limit: usize,
-    total_limit: usize,
 ) -> Result<ImportedRun, ImportError> {
     let mut parse_warnings = Vec::new();
     let strict = options.strict_mode();
-    let records = BoundedJsonlRecords::new(reader, record_limit, total_limit);
+    let records = BoundedJsonlRecords::new(reader, record_limit);
     let spans = records.filter_map(|record| match record {
         Err(error) => Some(Err(error)),
         Ok((_line_no, line)) if line.iter().all(u8::is_ascii_whitespace) => None,
@@ -81,38 +71,19 @@ struct BoundedJsonlRecords<R> {
     reader: BufReader<R>,
     record: Vec<u8>,
     line: usize,
-    total: usize,
     record_limit: usize,
-    total_limit: usize,
     done: bool,
 }
 
 impl<R: Read> BoundedJsonlRecords<R> {
-    fn new(reader: R, record_limit: usize, total_limit: usize) -> Self {
+    fn new(reader: R, record_limit: usize) -> Self {
         Self {
             reader: BufReader::new(reader),
             record: Vec::new(),
             line: 1,
-            total: 0,
             record_limit,
-            total_limit,
             done: false,
         }
-    }
-
-    fn account(&mut self, bytes: usize) -> Result<(), ImportError> {
-        self.total = self
-            .total
-            .checked_add(bytes)
-            .ok_or(ImportError::JsonlInputTooLarge {
-                limit: self.total_limit,
-            })?;
-        if self.total > self.total_limit {
-            return Err(ImportError::JsonlInputTooLarge {
-                limit: self.total_limit,
-            });
-        }
-        Ok(())
     }
 }
 
@@ -145,10 +116,6 @@ impl<R: Read> Iterator for BoundedJsonlRecords<R> {
                     .then(|| Ok((self.line, std::mem::take(&mut self.record))));
             }
             let consumed = take + usize::from(newline);
-            if let Err(error) = self.account(consumed) {
-                self.done = true;
-                return Some(Err(error));
-            }
             if self.record.len().saturating_add(take) > self.record_limit {
                 self.done = true;
                 return Some(Err(ImportError::JsonlRecordTooLarge {
@@ -190,8 +157,7 @@ fn attach_parse_warnings_to_lifecycle(
 /// # Errors
 ///
 /// Returns [`ImportError::Io`] when path open or line reads fail,
-/// [`ImportError::JsonlRecordTooLarge`] or [`ImportError::JsonlInputTooLarge`]
-/// when a fixed raw-byte intake ceiling is exceeded,
+/// [`ImportError::JsonlRecordTooLarge`] when the fixed per-record raw-byte ceiling is exceeded,
 /// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
 /// [`ImportError::ExpectedTailtriageWrapper`] for structural JSONL shape errors,
 /// and existing field/conversion errors for malformed tailtriage-tagged records
@@ -631,19 +597,19 @@ mod tests {
     fn raw_record_boundary_and_unterminated_eof_are_deterministic() {
         let valid = stable_request("request", "r1");
         let mut at_limit = valid.into_bytes();
-        at_limit.resize(MAX_JSONL_RECORD_BYTES, b' ');
+        at_limit.resize(crate::MAX_JSONL_RECORD_BYTES, b' ');
         let imported = import_jsonl_reader(Cursor::new(at_limit), ImportOptions::new("svc"))
             .expect("a valid record exactly at the ceiling must import at EOF");
         assert_eq!(imported.run().requests.len(), 1);
 
         for strict in [false, true] {
-            let over = vec![b' '; MAX_JSONL_RECORD_BYTES + 1];
+            let over = vec![b' '; crate::MAX_JSONL_RECORD_BYTES + 1];
             assert_eq!(
                 import_jsonl_reader(Cursor::new(over), ImportOptions::new("svc").strict(strict))
                     .unwrap_err(),
                 ImportError::JsonlRecordTooLarge {
                     line: 1,
-                    limit: MAX_JSONL_RECORD_BYTES,
+                    limit: crate::MAX_JSONL_RECORD_BYTES,
                 }
             );
         }
@@ -667,7 +633,7 @@ mod tests {
     #[test]
     fn unterminated_oversized_record_is_rejected_after_bounded_consumption() {
         let read = Rc::new(Cell::new(0));
-        let source_len = MAX_JSONL_RECORD_BYTES * 8;
+        let source_len = crate::MAX_JSONL_RECORD_BYTES * 8;
         let err = import_jsonl_reader(
             RepeatingReader {
                 remaining: source_len,
@@ -682,7 +648,7 @@ mod tests {
             "reader consumed {} bytes",
             read.get()
         );
-        assert!(read.get() <= MAX_JSONL_RECORD_BYTES + 16 * 1024);
+        assert!(read.get() <= crate::MAX_JSONL_RECORD_BYTES + 16 * 1024);
     }
 
     #[test]
@@ -690,7 +656,7 @@ mod tests {
         let input = format!(
             "\n{}\n{}\n{}",
             stable_request("first", "r1"),
-            "x".repeat(MAX_JSONL_RECORD_BYTES + 1),
+            "x".repeat(crate::MAX_JSONL_RECORD_BYTES + 1),
             stable_request("never", "r2")
         );
         let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
@@ -698,47 +664,19 @@ mod tests {
             err,
             ImportError::JsonlRecordTooLarge {
                 line: 3,
-                limit: MAX_JSONL_RECORD_BYTES,
+                limit: crate::MAX_JSONL_RECORD_BYTES,
             }
         );
     }
 
     #[test]
-    fn total_budget_counts_all_raw_bytes_and_is_overflow_safe() {
-        let exact = BoundedJsonlRecords::new(Cursor::new(b" \n \n"), 8, 4)
+    fn many_small_records_have_no_aggregate_byte_ceiling() {
+        let input = " \n".repeat(100);
+        let records = BoundedJsonlRecords::new(Cursor::new(input), 1)
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(exact.len(), 2);
-
-        for strict in [false, true] {
-            assert_eq!(
-                import_jsonl_reader_with_limits(
-                    Cursor::new(b" \n \n "),
-                    ImportOptions::new("svc").strict(strict),
-                    8,
-                    4,
-                )
-                .unwrap_err(),
-                ImportError::JsonlInputTooLarge { limit: 4 }
-            );
-        }
-
-        let mut records = BoundedJsonlRecords::new(Cursor::new([]), 1, usize::MAX);
-        records.total = usize::MAX;
-        assert_eq!(
-            records.account(1).unwrap_err(),
-            ImportError::JsonlInputTooLarge { limit: usize::MAX }
-        );
-    }
-
-    #[test]
-    fn many_small_records_cannot_bypass_total_budget() {
-        let input = " \n".repeat(6);
-        let records = BoundedJsonlRecords::new(Cursor::new(input), 1, 10);
-        assert_eq!(
-            records.collect::<Result<Vec<_>, _>>().unwrap_err(),
-            ImportError::JsonlInputTooLarge { limit: 10 }
-        );
+        assert_eq!(records.len(), 100);
+        assert_eq!(crate::MAX_JSONL_RECORD_BYTES, 8 * 1024 * 1024);
     }
 
     #[test]
