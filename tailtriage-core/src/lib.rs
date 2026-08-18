@@ -27,6 +27,7 @@
 // # }
 // ```
 
+mod artifact;
 mod collector;
 mod config;
 mod events;
@@ -65,6 +66,8 @@ pub use validation::{
 /// Internal integration hooks for sibling crates in this workspace.
 #[doc(hidden)]
 pub mod __internal {
+    pub use crate::artifact::{decode_run_json_path, RunJsonDecodeError, MAX_RUN_JSON_BYTES};
+
     use crate::{EffectiveTokioSamplerConfig, RuntimeSamplerRegistrationError, Tailtriage};
 
     /// Registers Tokio sampler startup metadata after real sampler preconditions pass.

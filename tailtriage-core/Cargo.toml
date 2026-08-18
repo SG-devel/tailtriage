@@ -30,3 +30,4 @@ workspace = true
 
 [dev-dependencies]
 futures-executor = "0.3"
+tempfile = "3.23.0"

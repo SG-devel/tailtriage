@@ -1,9 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-use tailtriage_core::{normalize_run_permissive, Run, RunValidationReport, SCHEMA_VERSION};
-
-const SUPPORTED_SCHEMA_VERSION: u64 = SCHEMA_VERSION;
+use tailtriage_core::__internal::{decode_run_json_path, RunJsonDecodeError};
+use tailtriage_core::{normalize_run_permissive, Run, RunValidationReport};
 
 /// A decoded run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
@@ -37,6 +35,13 @@ pub(crate) enum ArtifactLoadError {
         path: PathBuf,
         /// Underlying I/O failure.
         source: std::io::Error,
+    },
+    /// The artifact exceeded the fixed raw intake ceiling.
+    ArtifactTooLarge {
+        /// Path of the oversized artifact.
+        path: PathBuf,
+        /// Maximum accepted raw byte count.
+        limit: u64,
     },
     /// JSON parsing or schema-shape decoding failed.
     Parse {
@@ -79,6 +84,11 @@ impl std::fmt::Display for ArtifactLoadError {
             Self::Read { path, source } => {
                 write!(f, "failed to read run artifact '{}': {source}", path.display())
             }
+            Self::ArtifactTooLarge { path, limit } => write!(
+                f,
+                "run artifact '{}' exceeds the {limit}-byte intake limit; capture a smaller artifact before analysis",
+                path.display()
+            ),
             Self::Parse { path, message } => {
                 write!(f, "failed to parse run artifact '{}': {message}", path.display())
             }
@@ -123,8 +133,9 @@ impl std::error::Error for ArtifactLoadError {
 /// Loads and decodes a tailtriage run artifact from disk, then applies
 /// permissive core normalization for command-level checks.
 ///
-/// The CLI owns file/JSON/schema-envelope decoding and the analyze command
-/// requirement that at least one request remains after core normalization.
+/// Core owns bounded canonical Run JSON decoding. The CLI owns path diagnostics,
+/// finalization policy, warnings, normalization, and the analyze command's
+/// requirement that at least one request remains after normalization.
 ///
 /// Loader warnings are non-fatal findings and are returned in
 /// [`LoadedArtifact::warnings`].
@@ -147,24 +158,7 @@ pub(crate) fn load_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactL
 /// Returns [`ArtifactLoadError`] when the file cannot be read, the JSON is malformed,
 /// the schema envelope is unsupported, or the decoded shape is incompatible.
 pub(crate) fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, ArtifactLoadError> {
-    let input = std::fs::read_to_string(path).map_err(|source| ArtifactLoadError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
-
-    let raw: Value = serde_json::from_str(&input).map_err(|err| ArtifactLoadError::Parse {
-        path: path.to_path_buf(),
-        message: parse_error_message(&err),
-    })?;
-
-    validate_schema_version(&raw, path)?;
-
-    let original_run: Run = serde_json::from_value(raw).map_err(|err| ArtifactLoadError::Parse {
-        path: path.to_path_buf(),
-        message: format!(
-            "JSON shape does not match the tailtriage run schema ({err}). Check for missing required fields such as metadata.run_id and requests[]."
-        ),
-    })?;
+    let original_run = decode_run_json_path(path).map_err(|error| map_decode_error(path, error))?;
 
     if original_run.metadata.finalized_at_unix_ms.is_none() {
         return Err(ArtifactLoadError::Validation {
@@ -193,28 +187,28 @@ pub(crate) fn decode_run_artifact(path: &Path) -> Result<LoadedArtifact, Artifac
     })
 }
 
-fn validate_schema_version(raw: &Value, path: &Path) -> Result<(), ArtifactLoadError> {
-    let Some(version) = raw.get("schema_version") else {
-        return Err(ArtifactLoadError::MissingSchemaVersion {
-            path: path.to_path_buf(),
-        });
-    };
-
-    let Some(found) = version.as_u64() else {
-        return Err(ArtifactLoadError::InvalidSchemaVersionType {
-            path: path.to_path_buf(),
-        });
-    };
-
-    if found != SUPPORTED_SCHEMA_VERSION {
-        return Err(ArtifactLoadError::UnsupportedSchemaVersion {
-            path: path.to_path_buf(),
-            found,
-            supported: SUPPORTED_SCHEMA_VERSION,
-        });
+fn map_decode_error(path: &Path, error: RunJsonDecodeError) -> ArtifactLoadError {
+    let path = path.to_path_buf();
+    match error {
+        RunJsonDecodeError::Io(source) => ArtifactLoadError::Read { path, source },
+        RunJsonDecodeError::TooLarge { limit } => ArtifactLoadError::ArtifactTooLarge { path, limit },
+        RunJsonDecodeError::MissingSchemaVersion => ArtifactLoadError::MissingSchemaVersion { path },
+        RunJsonDecodeError::InvalidSchemaVersionType => ArtifactLoadError::InvalidSchemaVersionType { path },
+        RunJsonDecodeError::UnsupportedSchemaVersion { found, supported } => ArtifactLoadError::UnsupportedSchemaVersion { path, found, supported },
+        RunJsonDecodeError::Malformed(error) => {
+            let message = if error.is_eof() {
+                format!("JSON ended unexpectedly ({error}). The artifact may be truncated; re-run capture and ensure the file was fully written.")
+            } else if error.is_syntax() {
+                format!("malformed JSON ({error}).")
+            } else if error.is_data() {
+                format!("JSON data is incompatible with the expected run schema ({error}).")
+            } else {
+                format!("I/O error while parsing JSON ({error}).")
+            };
+            ArtifactLoadError::Parse { path, message }
+        }
+        RunJsonDecodeError::Shape(error) => ArtifactLoadError::Parse { path, message: format!("JSON shape does not match the tailtriage run schema ({error}). Check for missing required fields such as metadata.run_id and requests[].") },
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -229,26 +223,24 @@ fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoad
     Ok(())
 }
 
-fn parse_error_message(error: &serde_json::Error) -> String {
-    match error.classify() {
-        serde_json::error::Category::Eof => {
-            format!("JSON ended unexpectedly ({error}). The artifact may be truncated; re-run capture and ensure the file was fully written.")
-        }
-        serde_json::error::Category::Syntax => {
-            format!("malformed JSON ({error}).")
-        }
-        serde_json::error::Category::Data => {
-            format!("JSON data is incompatible with the expected run schema ({error}).")
-        }
-        serde_json::error::Category::Io => {
-            format!("I/O error while parsing JSON ({error}).")
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::load_run_artifact;
+    use super::{load_run_artifact, map_decode_error, ArtifactLoadError};
+    use std::path::Path;
+    use tailtriage_core::__internal::RunJsonDecodeError;
+
+    #[test]
+    fn maps_core_size_limit_without_reparsing() {
+        let error = map_decode_error(
+            Path::new("large run.json"),
+            RunJsonDecodeError::TooLarge { limit: 17 },
+        );
+        assert!(matches!(
+            error,
+            ArtifactLoadError::ArtifactTooLarge { limit: 17, .. }
+        ));
+        assert!(error.to_string().contains("17-byte intake limit"));
+    }
 
     #[test]
     fn rejects_malformed_json() {

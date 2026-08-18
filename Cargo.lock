@@ -850,7 +850,6 @@ name = "tailtriage-cli"
 version = "0.3.0"
 dependencies = [
  "clap",
- "serde",
  "serde_json",
  "tailtriage-analyzer",
  "tailtriage-core",
@@ -878,6 +877,7 @@ dependencies = [
  "hostname",
  "serde",
  "serde_json",
+ "tempfile",
  "uuid",
 ]
 
