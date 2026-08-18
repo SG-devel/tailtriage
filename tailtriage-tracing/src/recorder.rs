@@ -4113,7 +4113,48 @@ mod tests {
             }
         );
         assert!(!path.exists());
-        assert!(!completed_span_jsonl_temp_path(&path).exists());
+        assert_no_completed_span_jsonl_temps(&path);
+    }
+
+    #[test]
+    fn completed_jsonl_writer_preserves_existing_target_on_oversize() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("existing.jsonl");
+        let sentinel = b"existing completed-span output\n";
+        std::fs::write(&path, sentinel).unwrap();
+
+        let small = SpanRecord::new("small", 1, 2);
+        let large = SpanRecord::new("large", 1, 2).field("padding", "x".repeat(256));
+        let small_len = serde_json::to_vec(&serde_json::json!({
+            "format": "tailtriage.tracing-span.v1",
+            "span": &small,
+        }))
+        .unwrap()
+        .len();
+
+        assert_eq!(
+            write_completed_span_jsonl_with_limit(&[small, large], &path, small_len).unwrap_err(),
+            ImportError::JsonlRecordTooLarge {
+                line: 2,
+                limit: small_len,
+            }
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), sentinel);
+        assert_no_completed_span_jsonl_temps(&path);
+    }
+
+    fn assert_no_completed_span_jsonl_temps(path: &Path) {
+        let file_name = path.file_name().unwrap().to_string_lossy();
+        let temp_prefix = format!(".{file_name}.tailtriage-tmp-");
+        let leftovers = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .filter(|name| name.to_string_lossy().starts_with(&temp_prefix))
+            .collect::<Vec<_>>();
+        assert!(
+            leftovers.is_empty(),
+            "completed-span JSONL temp artifacts remain: {leftovers:?}"
+        );
     }
 
     #[test]
