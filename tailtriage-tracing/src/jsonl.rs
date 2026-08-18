@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::{run_from_span_records, ImportError, ImportOptions, ImportedRun, SpanRecord};
+use crate::{run_from_span_record_results, ImportError, ImportOptions, ImportedRun, SpanRecord};
 
 const FORMAT_MARKER: &str = "tailtriage.tracing-span.v1";
 
@@ -16,43 +16,47 @@ const FORMAT_MARKER: &str = "tailtriage.tracing-span.v1";
 /// # Errors
 ///
 /// Returns [`ImportError::Io`] for reader I/O failures,
+/// [`ImportError::JsonlRecordTooLarge`] when the fixed per-record raw-byte ceiling is exceeded,
 /// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
 /// [`ImportError::ExpectedTailtriageWrapper`] for structural JSONL shape errors,
 /// and existing field/conversion errors for malformed tailtriage span records
-/// or strict conversion violations surfaced by [`run_from_span_records`].
+/// or strict conversion violations surfaced by [`crate::run_from_span_records`].
 pub fn import_jsonl_reader<R: Read>(
     reader: R,
     options: ImportOptions,
 ) -> Result<ImportedRun, ImportError> {
-    let mut spans = Vec::new();
+    import_jsonl_reader_with_limit(reader, options, crate::MAX_JSONL_RECORD_BYTES)
+}
+
+fn import_jsonl_reader_with_limit<R: Read>(
+    reader: R,
+    options: ImportOptions,
+    record_limit: usize,
+) -> Result<ImportedRun, ImportError> {
     let mut parse_warnings = Vec::new();
-    let reader = BufReader::new(reader);
     let strict = options.strict_mode();
-
-    for (line_no, line_result) in reader.lines().enumerate() {
-        let line_no = line_no + 1;
-        let line = line_result.map_err(|err| ImportError::Io {
-            operation: "read jsonl line",
-            context: format!("line {line_no}"),
-            reason: err.to_string(),
-        })?;
-
-        if line.trim().is_empty() {
-            continue;
+    let records = BoundedJsonlRecords::new(reader, record_limit);
+    let spans = records.filter_map(|record| match record {
+        Err(error) => Some(Err(error)),
+        Ok((_line_no, line)) if line.iter().all(u8::is_ascii_whitespace) => None,
+        Ok((line_no, line)) => {
+            let value: Value = match serde_json::from_slice(&line) {
+                Ok(value) => value,
+                Err(err) => {
+                    return Some(Err(ImportError::MalformedJsonLine {
+                        line: line_no,
+                        reason: err.to_string(),
+                    }));
+                }
+            };
+            match parse_record(line_no, &value, strict, &mut parse_warnings) {
+                Ok(Some(span)) => Some(Ok(span)),
+                Ok(None) => None,
+                Err(error) => Some(Err(error)),
+            }
         }
-
-        let value: Value =
-            serde_json::from_str(&line).map_err(|err| ImportError::MalformedJsonLine {
-                line: line_no,
-                reason: err.to_string(),
-            })?;
-
-        if let Some(span) = parse_record(line_no, &value, strict, &mut parse_warnings)? {
-            spans.push(span);
-        }
-    }
-
-    let imported = run_from_span_records(spans, options)?;
+    });
+    let imported = run_from_span_record_results(spans, options)?;
     let (mut run, mut conversion_warnings, retained_sources) = imported.into_internal_parts();
     attach_parse_warnings_to_lifecycle(&mut run, &parse_warnings);
     parse_warnings.append(&mut conversion_warnings);
@@ -61,6 +65,74 @@ pub fn import_jsonl_reader<R: Read>(
         parse_warnings,
         retained_sources,
     ))
+}
+
+struct BoundedJsonlRecords<R> {
+    reader: BufReader<R>,
+    record: Vec<u8>,
+    line: usize,
+    record_limit: usize,
+    done: bool,
+}
+
+impl<R: Read> BoundedJsonlRecords<R> {
+    fn new(reader: R, record_limit: usize) -> Self {
+        Self {
+            reader: BufReader::new(reader),
+            record: Vec::new(),
+            line: 1,
+            record_limit,
+            done: false,
+        }
+    }
+}
+
+impl<R: Read> Iterator for BoundedJsonlRecords<R> {
+    type Item = Result<(usize, Vec<u8>), ImportError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        loop {
+            let (take, newline, eof) = match self.reader.fill_buf() {
+                Ok([]) => (0, false, true),
+                Ok(buf) => match buf.iter().position(|byte| *byte == b'\n') {
+                    Some(index) => (index, true, false),
+                    None => (buf.len(), false, false),
+                },
+                Err(err) => {
+                    self.done = true;
+                    return Some(Err(ImportError::Io {
+                        operation: "read jsonl record",
+                        context: format!("line {}", self.line),
+                        reason: err.to_string(),
+                    }));
+                }
+            };
+            if eof {
+                self.done = true;
+                return (!self.record.is_empty())
+                    .then(|| Ok((self.line, std::mem::take(&mut self.record))));
+            }
+            let consumed = take + usize::from(newline);
+            if self.record.len().saturating_add(take) > self.record_limit {
+                self.done = true;
+                return Some(Err(ImportError::JsonlRecordTooLarge {
+                    line: self.line,
+                    limit: self.record_limit,
+                }));
+            }
+            let buf = self.reader.fill_buf().expect("buffer was just read");
+            self.record.extend_from_slice(&buf[..take]);
+            self.reader.consume(consumed);
+            if newline {
+                let line = self.line;
+                self.line += 1;
+                return Some(Ok((line, std::mem::take(&mut self.record))));
+            }
+        }
+    }
 }
 
 fn attach_parse_warnings_to_lifecycle(
@@ -85,6 +157,7 @@ fn attach_parse_warnings_to_lifecycle(
 /// # Errors
 ///
 /// Returns [`ImportError::Io`] when path open or line reads fail,
+/// [`ImportError::JsonlRecordTooLarge`] when the fixed per-record raw-byte ceiling is exceeded,
 /// [`ImportError::MalformedJsonLine`] for malformed non-empty JSONL lines,
 /// [`ImportError::ExpectedTailtriageWrapper`] for structural JSONL shape errors,
 /// and existing field/conversion errors for malformed tailtriage-tagged records
@@ -151,7 +224,7 @@ fn parse_record(
             if strict {
                 Err(ImportError::StrictViolation(message))
             } else {
-                warnings.push(crate::ImportWarning::new(message));
+                crate::push_import_warning(warnings, crate::ImportWarning::new(message));
                 Ok(None)
             }
         }
@@ -224,6 +297,7 @@ mod tests {
     use super::*;
     use crate::{FieldValue, ImportOptions};
     use std::io::Cursor;
+    use std::{cell::Cell, rc::Rc};
 
     fn stable_request(name: &str, request_id: &str) -> String {
         format!(
@@ -517,5 +591,100 @@ mod tests {
             source.fields().get("custom"),
             Some(&FieldValue::String("kept".to_owned()))
         );
+    }
+
+    #[test]
+    fn raw_record_boundary_and_unterminated_eof_are_deterministic() {
+        let valid = stable_request("request", "r1");
+        let mut at_limit = valid.into_bytes();
+        at_limit.resize(crate::MAX_JSONL_RECORD_BYTES, b' ');
+        let imported = import_jsonl_reader(Cursor::new(at_limit), ImportOptions::new("svc"))
+            .expect("a valid record exactly at the ceiling must import at EOF");
+        assert_eq!(imported.run().requests.len(), 1);
+
+        for strict in [false, true] {
+            let over = vec![b' '; crate::MAX_JSONL_RECORD_BYTES + 1];
+            assert_eq!(
+                import_jsonl_reader(Cursor::new(over), ImportOptions::new("svc").strict(strict))
+                    .unwrap_err(),
+                ImportError::JsonlRecordTooLarge {
+                    line: 1,
+                    limit: crate::MAX_JSONL_RECORD_BYTES,
+                }
+            );
+        }
+    }
+
+    struct RepeatingReader {
+        remaining: usize,
+        read: Rc<Cell<usize>>,
+    }
+
+    impl Read for RepeatingReader {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            let count = output.len().min(self.remaining);
+            output[..count].fill(b'x');
+            self.remaining -= count;
+            self.read.set(self.read.get() + count);
+            Ok(count)
+        }
+    }
+
+    #[test]
+    fn unterminated_oversized_record_is_rejected_after_bounded_consumption() {
+        let read = Rc::new(Cell::new(0));
+        let source_len = crate::MAX_JSONL_RECORD_BYTES * 8;
+        let err = import_jsonl_reader(
+            RepeatingReader {
+                remaining: source_len,
+                read: Rc::clone(&read),
+            },
+            ImportOptions::new("svc"),
+        )
+        .unwrap_err();
+        assert!(matches!(err, ImportError::JsonlRecordTooLarge { .. }));
+        assert!(
+            read.get() < source_len / 2,
+            "reader consumed {} bytes",
+            read.get()
+        );
+        assert!(read.get() <= crate::MAX_JSONL_RECORD_BYTES + 16 * 1024);
+    }
+
+    #[test]
+    fn oversized_record_is_fatal_at_the_correct_logical_line() {
+        let input = format!(
+            "\n{}\n{}\n{}",
+            stable_request("first", "r1"),
+            "x".repeat(crate::MAX_JSONL_RECORD_BYTES + 1),
+            stable_request("never", "r2")
+        );
+        let err = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap_err();
+        assert_eq!(
+            err,
+            ImportError::JsonlRecordTooLarge {
+                line: 3,
+                limit: crate::MAX_JSONL_RECORD_BYTES,
+            }
+        );
+    }
+
+    #[test]
+    fn many_small_records_have_no_aggregate_byte_ceiling() {
+        let input = " \n".repeat(100);
+        let records = BoundedJsonlRecords::new(Cursor::new(input), 1)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(records.len(), 100);
+        assert_eq!(crate::MAX_JSONL_RECORD_BYTES, 8 * 1024 * 1024);
+    }
+
+    #[test]
+    fn malformed_contained_span_warning_sample_is_bounded() {
+        let malformed = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"bad","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request"}}}"#;
+        let input = format!("{malformed}\n").repeat(crate::MAX_IMPORT_WARNINGS + 50);
+        let imported = import_jsonl_reader(Cursor::new(input), ImportOptions::new("svc")).unwrap();
+        assert_eq!(imported.warnings().len(), crate::MAX_IMPORT_WARNINGS);
+        assert!(imported.warnings()[0].message().contains("line 1"));
     }
 }

@@ -19,6 +19,13 @@ pub enum ImportError {
         /// Underlying JSON parser error text.
         reason: String,
     },
+    /// One logical JSONL record exceeded the shared fixed raw-byte ceiling.
+    JsonlRecordTooLarge {
+        /// 1-based logical line number.
+        line: usize,
+        /// Maximum permitted raw bytes, excluding the newline delimiter.
+        limit: usize,
+    },
     /// JSONL input did not match the stable tailtriage wrapper shape required by the stable tracing JSONL wrapper contract.
     ExpectedTailtriageWrapper {
         /// Human-readable reason the wrapper shape was rejected.
@@ -78,6 +85,10 @@ impl fmt::Display for ImportError {
             Self::MalformedJsonLine { line, reason } => {
                 write!(f, "malformed JSONL at line {line}: {reason}")
             }
+            Self::JsonlRecordTooLarge { line, limit } => write!(
+                f,
+                "JSONL record at line {line} exceeds the raw-byte limit of {limit} bytes"
+            ),
             Self::ExpectedTailtriageWrapper { reason } => {
                 write!(f, "expected tailtriage wrapper JSONL record: {reason}")
             }
@@ -112,3 +123,16 @@ impl fmt::Display for ImportError {
 }
 
 impl std::error::Error for ImportError {}
+
+#[cfg(test)]
+mod tests {
+    use super::ImportError;
+
+    #[test]
+    fn jsonl_resource_errors_have_deterministic_context() {
+        assert_eq!(
+            ImportError::JsonlRecordTooLarge { line: 7, limit: 9 }.to_string(),
+            "JSONL record at line 7 exceeds the raw-byte limit of 9 bytes"
+        );
+    }
+}
