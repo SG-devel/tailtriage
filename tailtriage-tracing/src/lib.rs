@@ -61,6 +61,15 @@ pub use recorder::{
 };
 pub use types::{FieldValue, ImportOptions, ImportWarning, ImportedRun, SpanKind, SpanRecord};
 
+// Retain a deterministic diagnostic sample without allowing one allocation per input record.
+const MAX_IMPORT_WARNINGS: usize = 256;
+
+fn push_import_warning(warnings: &mut Vec<ImportWarning>, warning: ImportWarning) {
+    if warnings.len() < MAX_IMPORT_WARNINGS {
+        warnings.push(warning);
+    }
+}
+
 /// Ensures a run is suitable for persisted Run JSON artifacts intended for CLI analysis.
 ///
 /// # Errors
@@ -120,10 +129,25 @@ pub fn run_from_span_records<I>(
 where
     I: IntoIterator<Item = SpanRecord>,
 {
-    Ok(convert_span_records_with_provenance(spans, options)?.into_imported())
+    Ok(
+        convert_span_record_results_with_provenance(spans.into_iter().map(Ok), options)?
+            .into_imported(),
+    )
+}
+
+#[cfg(feature = "jsonl")]
+fn run_from_span_record_results<I>(
+    spans: I,
+    options: ImportOptions,
+) -> Result<ImportedRun, ImportError>
+where
+    I: IntoIterator<Item = Result<SpanRecord, ImportError>>,
+{
+    Ok(convert_span_record_results_with_provenance(spans, options)?.into_imported())
 }
 
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+#[cfg(test)]
 fn convert_span_records_with_provenance<I>(
     spans: I,
     options: ImportOptions,
@@ -131,19 +155,31 @@ fn convert_span_records_with_provenance<I>(
 where
     I: IntoIterator<Item = SpanRecord>,
 {
+    convert_span_record_results_with_provenance(spans.into_iter().map(Ok), options)
+}
+
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+fn convert_span_record_results_with_provenance<I>(
+    spans: I,
+    options: ImportOptions,
+) -> Result<ProvenanceImportedRun, ImportError>
+where
+    I: IntoIterator<Item = Result<SpanRecord, ImportError>>,
+{
     validate_service_name(options.service_name())?;
-    let source_spans = spans
-        .into_iter()
-        .enumerate()
-        .map(|(source_index, span)| SourceSpan { source_index, span })
-        .collect::<Vec<_>>();
+    let capture_limits = options.resolved_capture_limits();
     let mut warnings = Vec::new();
+    let mut source_spans = Vec::new();
     let mut parsed_requests = Vec::new();
     let mut parsed_stages = Vec::new();
     let mut parsed_queues = Vec::new();
 
-    for source in &source_spans {
-        let span = &source.span;
+    let mut dropped_requests = 0_u64;
+    let mut dropped_stages = 0_u64;
+    let mut dropped_queues = 0_u64;
+    for (source_index, span) in spans.into_iter().enumerate() {
+        let span = span?;
+        let span = &span;
         let kind = match get_string_field_state(span, TT_KIND) {
             StringFieldState::Missing => {
                 if span_has_tailtriage_field(span) {
@@ -209,8 +245,16 @@ where
                     };
                     let (started_at_run_us, finished_at_run_us) =
                         sanitized_run_relative_offsets(span);
+                    if parsed_requests.len() >= capture_limits.max_requests {
+                        dropped_requests = dropped_requests.saturating_add(1);
+                        continue;
+                    }
+                    source_spans.push(SourceSpan {
+                        source_index,
+                        span: span.clone(),
+                    });
                     parsed_requests.push(ParsedRequestEvent {
-                        source_index: source.source_index,
+                        source_index,
                         event: RequestEvent {
                             request_id,
                             route,
@@ -243,8 +287,16 @@ where
                     };
                     let (started_at_run_us, finished_at_run_us) =
                         sanitized_run_relative_offsets(span);
+                    if parsed_stages.len() >= capture_limits.max_stages {
+                        dropped_stages = dropped_stages.saturating_add(1);
+                        continue;
+                    }
+                    source_spans.push(SourceSpan {
+                        source_index,
+                        span: span.clone(),
+                    });
                     parsed_stages.push(ParsedStageEvent {
-                        source_index: source.source_index,
+                        source_index,
                         event: StageEvent {
                             request_id,
                             stage,
@@ -277,8 +329,16 @@ where
                         };
                     let (waited_from_run_us, waited_until_run_us) =
                         sanitized_run_relative_offsets(span);
+                    if parsed_queues.len() >= capture_limits.max_queues {
+                        dropped_queues = dropped_queues.saturating_add(1);
+                        continue;
+                    }
+                    source_spans.push(SourceSpan {
+                        source_index,
+                        span: span.clone(),
+                    });
                     parsed_queues.push(ParsedQueueEvent {
-                        source_index: source.source_index,
+                        source_index,
                         event: QueueEvent {
                             request_id,
                             queue,
@@ -300,7 +360,6 @@ where
         }
     }
     let mode = options.mode_value();
-    let capture_limits = options.resolved_capture_limits();
 
     let request_outcome_default_count = parsed_requests
         .iter()
@@ -308,7 +367,7 @@ where
         .filter(|request| request.outcome_defaulted)
         .count();
     if request_outcome_default_count > 0 {
-        warnings.push(ImportWarning::new(format!("{request_outcome_default_count} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'")));
+        push_import_warning(&mut warnings, ImportWarning::new(format!("{request_outcome_default_count} request span(s) missing optional '{TT_OUTCOME}'; assumed 'ok'")));
     }
     let stage_success_default_count = parsed_stages
         .iter()
@@ -316,21 +375,13 @@ where
         .filter(|stage| stage.success_defaulted)
         .count();
     if stage_success_default_count > 0 {
-        warnings.push(ImportWarning::new(format!("{stage_success_default_count} stage span(s) missing optional '{TT_SUCCESS}'; assumed true")));
+        push_import_warning(&mut warnings, ImportWarning::new(format!("{stage_success_default_count} stage span(s) missing optional '{TT_SUCCESS}'; assumed true")));
     }
 
     let mut truncation = TruncationSummary::default();
-    apply_retention_limit(
-        &mut parsed_requests,
-        capture_limits.max_requests,
-        |dropped| truncation.dropped_requests = dropped,
-    );
-    apply_retention_limit(&mut parsed_stages, capture_limits.max_stages, |dropped| {
-        truncation.dropped_stages = dropped;
-    });
-    apply_retention_limit(&mut parsed_queues, capture_limits.max_queues, |dropped| {
-        truncation.dropped_queues = dropped;
-    });
+    truncation.dropped_requests = dropped_requests;
+    truncation.dropped_stages = dropped_stages;
+    truncation.dropped_queues = dropped_queues;
     truncation.limits_hit = truncation.dropped_requests > 0
         || truncation.dropped_stages > 0
         || truncation.dropped_queues > 0;
@@ -400,7 +451,7 @@ where
             .iter()
             .any(|existing| existing.message() == warning)
         {
-            warnings.push(ImportWarning::new(warning));
+            push_import_warning(&mut warnings, ImportWarning::new(warning));
         }
     }
     attach_durable_conversion_warnings(&mut run, &warnings);
@@ -417,12 +468,6 @@ where
         source_outcomes,
         retained_sources,
     })
-}
-
-#[derive(Debug, Clone)]
-struct SourceSpan {
-    source_index: usize,
-    span: SpanRecord,
 }
 
 #[derive(Debug)]
@@ -444,6 +489,12 @@ impl ProvenanceImportedRun {
         );
         self.imported
     }
+}
+
+#[derive(Debug, Clone)]
+struct SourceSpan {
+    source_index: usize,
+    span: SpanRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -591,14 +642,6 @@ fn source_outcome_sort_key(outcome: &SourceOutcome) -> (usize, u8, usize) {
         _ => 3,
     };
     (outcome.source_index, section, outcome.input_index)
-}
-
-fn apply_retention_limit<T>(items: &mut Vec<T>, max: usize, set_dropped: impl FnOnce(u64)) {
-    let dropped = items.len().saturating_sub(max) as u64;
-    if items.len() > max {
-        items.truncate(max);
-    }
-    set_dropped(dropped);
 }
 
 fn strict_core_error(err: &tailtriage_core::RunValidationError) -> ImportError {
@@ -855,7 +898,7 @@ fn strict_or_warn(
     if strict {
         return Err(ImportError::StrictViolation(message));
     }
-    warnings.push(ImportWarning::new(message));
+    push_import_warning(warnings, ImportWarning::new(message));
     Ok(())
 }
 
