@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use tailtriage_core::__internal::{decode_run_json_path, RunJsonDecodeError};
-use tailtriage_core::{normalize_run_permissive, Run, RunValidationReport};
+use tailtriage_core::{
+    decode_run_json_path, normalize_run_permissive, Run, RunJsonDecodeError, RunValidationReport,
+};
 
 /// A decoded run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
@@ -36,13 +37,6 @@ pub(crate) enum ArtifactLoadError {
         /// Underlying I/O failure.
         source: std::io::Error,
     },
-    /// The artifact exceeded the fixed raw intake ceiling.
-    ArtifactTooLarge {
-        /// Path of the oversized artifact.
-        path: PathBuf,
-        /// Maximum accepted raw byte count.
-        limit: u64,
-    },
     /// JSON parsing or schema-shape decoding failed.
     Parse {
         /// Path that failed to parse.
@@ -59,16 +53,6 @@ pub(crate) enum ArtifactLoadError {
         /// Supported schema version expected by this binary.
         supported: u64,
     },
-    /// Required top-level `schema_version` key was missing.
-    MissingSchemaVersion {
-        /// Artifact path missing `schema_version`.
-        path: PathBuf,
-    },
-    /// Top-level `schema_version` existed but was not an integer.
-    InvalidSchemaVersionType {
-        /// Artifact path with invalid `schema_version` type.
-        path: PathBuf,
-    },
     /// Additional validation rejected the artifact contents.
     Validation {
         /// Artifact path that failed validation.
@@ -84,11 +68,6 @@ impl std::fmt::Display for ArtifactLoadError {
             Self::Read { path, source } => {
                 write!(f, "failed to read run artifact '{}': {source}", path.display())
             }
-            Self::ArtifactTooLarge { path, limit } => write!(
-                f,
-                "run artifact '{}' exceeds the {limit}-byte intake limit; capture a smaller artifact before analysis",
-                path.display()
-            ),
             Self::Parse { path, message } => {
                 write!(f, "failed to parse run artifact '{}': {message}", path.display())
             }
@@ -99,16 +78,6 @@ impl std::fmt::Display for ArtifactLoadError {
             } => write!(
                 f,
                 "unsupported run artifact schema_version={found}; this tailtriage version supports schema_version={supported}. Regenerate the artifact with a current tailtriage version. ('{}')",
-                path.display()
-            ),
-            Self::MissingSchemaVersion { path } => write!(
-                f,
-                "invalid run artifact in '{}': missing required top-level schema_version.",
-                path.display()
-            ),
-            Self::InvalidSchemaVersionType { path } => write!(
-                f,
-                "invalid run artifact in '{}': schema_version must be an integer.",
                 path.display()
             ),
             Self::Validation { path, message } => write!(
@@ -133,7 +102,7 @@ impl std::error::Error for ArtifactLoadError {
 /// Loads and decodes a tailtriage run artifact from disk, then applies
 /// permissive core normalization for command-level checks.
 ///
-/// Core owns bounded canonical Run JSON decoding. The CLI owns path diagnostics,
+/// Core owns canonical streaming Run JSON decoding. The CLI owns path diagnostics,
 /// finalization policy, warnings, normalization, and the analyze command's
 /// requirement that at least one request remains after normalization.
 ///
@@ -191,9 +160,6 @@ fn map_decode_error(path: &Path, error: RunJsonDecodeError) -> ArtifactLoadError
     let path = path.to_path_buf();
     match error {
         RunJsonDecodeError::Io(source) => ArtifactLoadError::Read { path, source },
-        RunJsonDecodeError::TooLarge { limit } => ArtifactLoadError::ArtifactTooLarge { path, limit },
-        RunJsonDecodeError::MissingSchemaVersion => ArtifactLoadError::MissingSchemaVersion { path },
-        RunJsonDecodeError::InvalidSchemaVersionType => ArtifactLoadError::InvalidSchemaVersionType { path },
         RunJsonDecodeError::UnsupportedSchemaVersion { found, supported } => ArtifactLoadError::UnsupportedSchemaVersion { path, found, supported },
         RunJsonDecodeError::Malformed(error) => {
             let message = if error.is_eof() {
@@ -208,6 +174,7 @@ fn map_decode_error(path: &Path, error: RunJsonDecodeError) -> ArtifactLoadError
             ArtifactLoadError::Parse { path, message }
         }
         RunJsonDecodeError::Shape(error) => ArtifactLoadError::Parse { path, message: format!("JSON shape does not match the tailtriage run schema ({error}). Check for missing required fields such as metadata.run_id and requests[].") },
+        _ => ArtifactLoadError::Parse { path, message: error.to_string() },
     }
 }
 
@@ -225,22 +192,7 @@ fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoad
 
 #[cfg(test)]
 mod tests {
-    use super::{load_run_artifact, map_decode_error, ArtifactLoadError};
-    use std::path::Path;
-    use tailtriage_core::__internal::RunJsonDecodeError;
-
-    #[test]
-    fn maps_core_size_limit_without_reparsing() {
-        let error = map_decode_error(
-            Path::new("large run.json"),
-            RunJsonDecodeError::TooLarge { limit: 17 },
-        );
-        assert!(matches!(
-            error,
-            ArtifactLoadError::ArtifactTooLarge { limit: 17, .. }
-        ));
-        assert!(error.to_string().contains("17-byte intake limit"));
-    }
+    use super::load_run_artifact;
 
     #[test]
     fn rejects_malformed_json() {
@@ -290,7 +242,8 @@ mod tests {
         let error = load_run_artifact(&path).expect_err("expected missing version failure");
         let message = error.to_string();
 
-        assert!(message.contains("missing required top-level schema_version"));
+        assert!(message.contains("JSON shape does not match"));
+        assert!(message.contains("schema_version"));
     }
 
     #[test]
@@ -306,7 +259,8 @@ mod tests {
         let error = load_run_artifact(&path).expect_err("expected schema type failure");
         let message = error.to_string();
 
-        assert!(message.contains("schema_version must be an integer"));
+        assert!(message.contains("JSON shape does not match"));
+        assert!(message.contains("invalid type"));
     }
 
     #[test]
@@ -363,14 +317,13 @@ mod tests {
     }
 
     #[test]
-    fn cli_rejects_schema_v1_before_shape_decode() {
+    fn structurally_incompatible_old_schema_fails_as_shape_error() {
         let dir = tempfile::tempdir().expect("tempdir should build");
         let path = dir.path().join("v1.json");
         std::fs::write(&path, r#"{"schema_version":1,"metadata":{"finished_at_unix_ms":2},"requests":"not decoded as v2"}"#).expect("fixture should write");
-        let error = load_run_artifact(&path).expect_err("v1 should fail at envelope");
+        let error = load_run_artifact(&path).expect_err("incompatible shape should fail");
         let message = error.to_string();
-        assert!(message.contains("unsupported run artifact schema_version=1"));
-        assert!(message.contains("supports schema_version=2"));
+        assert!(message.contains("JSON shape does not match"));
     }
 
     #[test]
