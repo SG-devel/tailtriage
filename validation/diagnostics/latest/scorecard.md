@@ -19,16 +19,16 @@
 
 Schema-version-2 accounting separates 11 analyzer-executed, accuracy-eligible observations from 34 report-contract cases. Report-contract pass rates do not contribute to analyzer accuracy; equivalent artifact encodings are one logical observation, not independent samples. Fixture labels are controlled intent, not production truth. These checks are not real-service validation and do not provide root-cause proof.
 
-Normal CI runs the deterministic benchmark against the committed diagnostics manifest and fixtures as a required validation gate. Normal CI still does not publish durable scorecards.
+Normal CI runs the deterministic benchmark against the committed diagnostics manifest and fixtures as a required validation gate. Normal CI does not publish scorecards or GitHub artifacts.
 
 ## Generated metrics snapshot
 
 Latest committed scorecard does not embed benchmark numbers directly. Generate fresh metrics with `python3 scripts/diagnostic_benchmark.py --manifest validation/diagnostics/manifest.json --output target/diagnostic-benchmark.json` and report them alongside machine/workload context when publishing.
 
-## Versioned/manual scorecards
+## Local/manual scorecards
 
 The committed scorecard is a stable repository note, not an automatically updated latest-run file.
 
-For a versioned or manually requested snapshot, run the `validation-snapshot.yml` workflow. It uploads a generated scorecard plus `benchmark-summary.json` and `environment.json` as a GitHub Actions artifact. Snapshot artifacts include the `tailtriage` package version, git metadata, runner metadata, software/hardware metadata, manifest hash, referenced-artifact hash, thresholds, and deterministic benchmark metrics.
+For a manually requested snapshot, run `scripts/generate_diagnostic_scorecard.py`. It writes a generated scorecard plus `benchmark-summary.json` and `environment.json` locally. Snapshot outputs include the `tailtriage` package version, git metadata, runner metadata when available, software/hardware metadata, manifest hash, referenced-artifact hash, thresholds, and deterministic benchmark metrics. They remain local evidence unless a maintainer separately archives them.
 
-Normal CI does not publish durable diagnostic scorecards and does not auto-overwrite this committed file.
+Normal CI does not publish diagnostic scorecards or GitHub artifacts and does not auto-overwrite this committed, manually reviewed stable status/reference note.

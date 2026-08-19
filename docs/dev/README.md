@@ -92,7 +92,7 @@ types, parsing, overrides, and validation where applicable.
 | Hosted CI | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) owns hosted docs contracts, cross-platform Cargo checks, and its documented extended validation/smoke split. The workflow itself is the authority for what CI currently enforces. |
 | Unified validation | [`scripts/validate_all.py`](../../scripts/validate_all.py) orchestrates named profiles; [VALIDATION.md](VALIDATION.md) classifies the tracks and their CI/manual/release status. Focused scripts remain the owners of their domains. |
 | Focused validation | Diagnostic corpus, repeated-run, mitigation, runtime-cost, and collector-limit entry points are mapped in [VALIDATION.md](VALIDATION.md) and the [`validation/` domain documentation](../../validation/diagnostics/README.md). |
-| Diagnostic snapshot | [`.github/workflows/validation-snapshot.yml`](../../.github/workflows/validation-snapshot.yml) is a manually dispatched diagnostic snapshot workflow. It is not scheduled and is not a release workflow; it has no tag or release behavior. |
+| Diagnostic snapshot | `scripts/generate_diagnostic_scorecard.py` generates provenance-rich deterministic snapshots locally/manually. Generated outputs remain local unless separately archived; there is no dedicated snapshot workflow. |
 | Package/release preflight | [`scripts/check_release.py`](../../scripts/check_release.py) is a local, check-only preflight. It may validate/package and print inert manual publication commands; it does not publish. |
 | Manual release | [`RELEASING.md`](RELEASING.md) alone owns the step-by-step manual procedure. |
 

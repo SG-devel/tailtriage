@@ -4,7 +4,7 @@ This directory defines the deterministic diagnostic-validation corpus used by `s
 
 Demos teach; validation measures.
 
-The analyzer artifacts are manually authored and committed. `analyzer-fixtures.lock.json` uses the self-identifying `tailtriage.analyzer-fixture-lock.v1` format to record their manifest-owned inventory, exact bytes, text formatting, and compact structural shape. It is an integrity lock, not a fixture generator. The checker also rejects byte-identical analyzer inputs assigned to distinct accuracy observations; multiple encodings for the same observation may share bytes. Normal CI checks the lock before running the deterministic corpus benchmark against `validation/diagnostics/manifest.json`; durable/versioned scorecards remain manually generated snapshot artifacts from `.github/workflows/validation-snapshot.yml`.
+The analyzer artifacts are manually authored and committed. `analyzer-fixtures.lock.json` uses the self-identifying `tailtriage.analyzer-fixture-lock.v1` format to record their manifest-owned inventory, exact bytes, text formatting, and compact structural shape. It is an integrity lock, not a fixture generator. The checker also rejects byte-identical analyzer inputs assigned to distinct accuracy observations; multiple encodings for the same observation may share bytes. Normal CI checks the lock before running the deterministic corpus benchmark against `validation/diagnostics/manifest.json`; `scripts/generate_diagnostic_scorecard.py` produces local/manual deterministic scorecard evidence that is not automatically published.
 
 ## Validation classes and schema
 
@@ -64,7 +64,7 @@ For profile-based orchestration across validation tracks, use `scripts/validate_
 
 
 ## Manual scorecard generation
-Use `.github/workflows/validation-snapshot.yml` to generate durable diagnostic snapshots through manual workflow dispatch. Normal CI does not upload durable diagnostic scorecards.
+Use `scripts/generate_diagnostic_scorecard.py` to generate provenance-rich diagnostic snapshots locally/manually. Normal CI does not upload scorecards or GitHub artifacts, and generated outputs remain local unless a maintainer separately archives them.
 
 Snapshot output directory: `target/validation/diagnostics/`
 - `benchmark-summary.json`

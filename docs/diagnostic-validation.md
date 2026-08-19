@@ -8,7 +8,7 @@ The schema-version-2 benchmark separates three concepts. An analyzer-executed ca
 Top-1 means the observation primary equals ground truth. Top-2 means ground truth is primary or first secondary. High-confidence-wrong means a high-confidence primary falls outside `expected_primary_kinds`. Ground truth is controlled fixture intent, not production truth or root-cause proof. Equivalent encodings must agree on ordered diagnosis visibility and confidence bucket.
 
 ## Deterministic vs repeated-run validation
-Deterministic fixture validation is mandatory in normal CI; durable scorecards remain manually generated snapshot outputs. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
+Deterministic fixture validation is mandatory in normal CI; deterministic scorecards are local/manual generated evidence. Report-contract checks cover Report fields, warnings, evidence, next checks, confidence, routes, and temporal output but are not analyzer accuracy. Repeated-run validation is a separate manual/local, machine/workload-scoped track.
 
 ## Validation responsibilities
 
@@ -105,8 +105,8 @@ You can run diagnostic validation directly with domain scripts or orchestrate tr
 The unified runner coordinates existing validation scripts and outputs; it does not replace or redefine diagnostics-specific validation semantics.
 
 
-## Versioned/manual snapshot workflow
-Use `.github/workflows/validation-snapshot.yml` for auditable snapshots. It generates `benchmark-summary.json`, `environment.json`, and `scorecard.md` under `target/validation/diagnostics` and uploads them as an artifact.
+## Local/manual deterministic snapshots
+For a provenance-rich deterministic snapshot, run `scripts/generate_diagnostic_scorecard.py` locally. It generates `benchmark-summary.json`, `environment.json`, and `scorecard.md` under the selected output directory. These files remain local evidence unless a maintainer separately archives them; normal CI does not publish GitHub artifacts.
 
 The snapshot captures deterministic benchmark metrics, thresholds, `tailtriage` workspace and per-crate versions, git metadata, GitHub Actions runner metadata (when available), software metadata, hardware metadata, and manifest/referenced-artifact hashes.
 

@@ -120,9 +120,9 @@ contained artifact-path and integrity boundary and owns CLI/analyzer execution a
 
 `validation/diagnostics/latest/scorecard.md` is a stable committed status/reference note, not the
 latest run on a machine. `scripts/generate_diagnostic_scorecard.py` produces machine/environment
-qualified snapshot output under `target/validation/diagnostics/`; the manually dispatched
-`validation-snapshot.yml` workflow is the only durable snapshot workflow. Updating the committed
-note is manual-reviewed; normal CI does not overwrite it.
+qualified snapshot output under `target/validation/diagnostics/`. This local/manual generated
+evidence is not automatically published or durable. Updating the committed note requires manual
+review; normal CI does not overwrite it.
 
 ## Demo analysis and comparison artifacts
 
