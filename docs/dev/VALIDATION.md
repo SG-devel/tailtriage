@@ -57,6 +57,20 @@ repeat the same full CI matrix. There is no dedicated GitHub Actions diagnostic 
 the local scorecard generator supplies the same deterministic summary and provenance without a
 redundant remote-execution, workflow-input, and publication surface that adds no independent proof.
 
+### Remote Action pin review
+
+Remote GitHub Actions must use full 40-character commit SHAs, but 40 hexadecimal characters alone
+are not sufficient review. When adding or updating a pin, maintainers must verify its upstream
+provenance and expected retention, preferring a release commit or a commit retained in the
+maintained default-branch history. Do not pin generated commits that belong only to moving
+convenience refs when upstream may replace or garbage-collect them. For
+`dtolnay/rust-toolchain`, pin a retained `master` commit and pass the desired toolchain, such as
+`stable`, explicitly through `with:`. For `taiki-e/install-action`, pin a retained normal release
+commit and pass the exact tool and version through `with:` instead of pinning a generated tool
+alias such as `@cargo-deny`. Green hosted CI proves only that a commit is reachable and functional
+now; it does not establish long-term upstream retention. The credential-free offline workflow
+checker enforces mechanically verifiable syntax and configuration, not provenance or retention.
+
 ## Evidence levels
 
 | Level | Runs in CI? | What it supports | What it does not prove |

@@ -113,13 +113,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action revision
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
         with:
           toolchain: stable
           components: rustfmt, clippy
       - name: Install cargo-deny
         if: matrix.os == 'ubuntu-latest' && matrix.profile == 'release'
-        uses: taiki-e/install-action@1d92235f62ef9ca1b374840a5dfe9f918f4ef0c3 # cargo-deny
+        uses: taiki-e/install-action@5b4d68e2e660441203ab128a23676f1e4faf1532 # v2.86.3
         with:
           tool: cargo-deny@0.20.2
           fallback: none
@@ -158,7 +158,7 @@ jobs:
         with:
           python-version: "3.x"
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action revision
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
         with:
           toolchain: stable
       - name: Cache Rust build artifacts
@@ -211,7 +211,7 @@ jobs:
         with:
           python-version: "3.x"
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action revision
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
         with:
           toolchain: stable
       - name: Cache Rust build artifacts
@@ -251,7 +251,7 @@ jobs:
         with:
           python-version: "3.x"
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action revision
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
         with:
           toolchain: stable
       - name: Cache Rust build artifacts
