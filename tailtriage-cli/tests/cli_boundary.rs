@@ -54,14 +54,14 @@ fn artifact_warning_controls_are_visible_on_stderr_but_preserved_in_json() {
         .expect("cli should run");
     assert!(output.status.success(), "cli failed: {output:?}");
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("warning first\\\\nforged\\\\u{1b}[31m"));
+    assert!(stderr.contains("warning first\\nforged\\u{1b}[31m"));
     assert_eq!(stderr.lines().count(), 1);
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(report["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|warning| warning.as_str() == Some("warning first\nforged\u{1b}[31m")));
+    let stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&artifact_path).unwrap()).unwrap();
+    assert_eq!(
+        stored["metadata"]["lifecycle_warnings"][0].as_str(),
+        Some("warning first\nforged\u{1b}[31m")
+    );
 }
 
 #[test]

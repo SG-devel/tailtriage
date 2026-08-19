@@ -1,16 +1,6 @@
 use super::{Confidence, EvidenceQualityLevel, Report, TemporalSegment};
 
-fn escape_human_text(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    for ch in input.chars() {
-        if ch.is_control() {
-            output.extend(ch.escape_default());
-        } else {
-            output.push(ch);
-        }
-    }
-    output
-}
+use tailtriage_core::__internal::escape_human_text;
 
 fn fmt_opt_u64(value: Option<u64>) -> String {
     match value {
@@ -172,23 +162,5 @@ fn append_temporal_segment_text(lines: &mut Vec<String>, segments: &[TemporalSeg
             seg.primary_suspect.kind.as_str(),
             fmt_confidence(seg.primary_suspect.confidence)
         ));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::escape_human_text;
-
-    #[test]
-    fn human_text_escaping_is_visible_idempotent_and_unicode_preserving() {
-        let input = "plain\\slash café 東京\n\r\t\u{1b}\u{7}\u{8}\u{7f}\u{85}";
-        let escaped = escape_human_text(input);
-        assert_eq!(
-            escaped,
-            "plain\\slash café 東京\\n\\r\\t\\u{1b}\\u{7}\\u{8}\\u{7f}\\u{85}"
-        );
-        assert!(!escaped.chars().any(char::is_control));
-        assert_eq!(escape_human_text(&escaped), escaped);
-        assert_eq!(escape_human_text("café 東京"), "café 東京");
     }
 }

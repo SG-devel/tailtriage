@@ -9,20 +9,9 @@ use artifact::{decode_run_artifact, ArtifactLoadError};
 use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text};
 
-fn escape_human_text(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    for ch in input.chars() {
-        if ch.is_control() {
-            output.extend(ch.escape_default());
-        } else {
-            output.push(ch);
-        }
-    }
-    output
-}
 use tailtriage_core::{
-    validate_run_strict, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink,
-    RunValidationSeverity,
+    __internal::escape_human_text, validate_run_strict, CaptureLimitsOverride, CaptureMode,
+    LocalJsonSink, RunSink, RunValidationSeverity,
 };
 use tailtriage_tracing::{ensure_persistable_run_has_requests, import_jsonl_path, ImportOptions};
 

@@ -554,14 +554,14 @@ fn write_completed_span_jsonl_with_candidates(
             reason: "all 8 exclusive temporary-file candidates already exist".to_string(),
         });
     };
-    write_completed_span_jsonl_to_owned_temp(retained_sources, path, record_limit, temp_path, file)
+    write_completed_span_jsonl_to_owned_temp(retained_sources, path, record_limit, &temp_path, file)
 }
 
 fn write_completed_span_jsonl_to_owned_temp<W: Write>(
     retained_sources: &[SpanRecord],
     path: &Path,
     record_limit: usize,
-    temp_path: PathBuf,
+    temp_path: &Path,
     mut file: W,
 ) -> Result<(), ImportError> {
     let write_result = (|| -> Result<(), ImportError> {
@@ -610,12 +610,12 @@ fn write_completed_span_jsonl_to_owned_temp<W: Write>(
     drop(file);
 
     if let Err(err) = write_result {
-        let _ = std::fs::remove_file(&temp_path);
+        let _ = std::fs::remove_file(temp_path);
         return Err(err);
     }
 
-    std::fs::rename(&temp_path, path).map_err(|err| {
-        let _ = std::fs::remove_file(&temp_path);
+    std::fs::rename(temp_path, path).map_err(|err| {
+        let _ = std::fs::remove_file(temp_path);
         ImportError::Io {
             operation: "rename completed span jsonl temp file",
             context: format!("{} -> {}", temp_path.display(), path.display()),
@@ -1547,6 +1547,18 @@ mod tests {
     use super::*;
     use tailtriage_analyzer::{analyze_run, AnalyzeOptions};
     use tracing_subscriber::prelude::*;
+
+    struct FailingWriter(std::fs::File);
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("injected write failure"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.0.flush()
+        }
+    }
 
     fn with_recorder<T>(f: impl FnOnce(&LiveRecorder) -> T) -> T {
         let recorder = LiveRecorder::builder("svc").run_id("rid").build().unwrap();
@@ -4246,22 +4258,13 @@ mod tests {
             .write(true)
             .open(&owned)
             .unwrap();
-        struct FailingWriter(std::fs::File);
-        impl Write for FailingWriter {
-            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-                Err(io::Error::other("injected write failure"))
-            }
-            fn flush(&mut self) -> io::Result<()> {
-                self.0.flush()
-            }
-        }
         let source = SpanRecord::new("request", 1, 2);
 
         assert!(write_completed_span_jsonl_to_owned_temp(
             &[source],
             &path,
             usize::MAX,
-            owned.clone(),
+            &owned,
             FailingWriter(file),
         )
         .is_err());

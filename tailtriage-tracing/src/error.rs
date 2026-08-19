@@ -1,16 +1,6 @@
 use core::fmt;
 
-fn escape_human_text(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    for ch in input.chars() {
-        if ch.is_control() {
-            output.extend(ch.escape_default());
-        } else {
-            output.push(ch);
-        }
-    }
-    output
-}
+use tailtriage_core::__internal::escape_human_text;
 
 /// Import failures for tracing-shaped span ingestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,18 +154,19 @@ impl std::error::Error for ImportError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_human_text, ImportError};
+    use super::ImportError;
 
     #[test]
-    fn human_text_escaping_is_visible_idempotent_and_unicode_preserving() {
-        let input = "plain\\slash café 東京\n\r\t\u{1b}\u{7}\u{8}\u{7f}\u{85}";
-        let escaped = escape_human_text(input);
+    fn import_error_display_escapes_dynamic_fields_and_preserves_layout() {
+        let error = ImportError::ZeroRequestArtifactWithWarnings {
+            guidance: "retry\nnow".to_owned(),
+            warnings: vec!["hostile\u{1b}warning".to_owned()],
+        };
+
         assert_eq!(
-            escaped,
-            "plain\\slash café 東京\\n\\r\\t\\u{1b}\\u{7}\\u{8}\\u{7f}\\u{85}"
+            error.to_string(),
+            "retry\\nnow\nwarnings observed during tracing intake:\n- hostile\\u{1b}warning\n"
         );
-        assert!(!escaped.chars().any(char::is_control));
-        assert_eq!(escape_human_text(&escaped), escaped);
     }
 
     #[test]

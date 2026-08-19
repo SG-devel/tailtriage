@@ -1,20 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use tailtriage_core::{
-    decode_run_json_path, normalize_run_permissive, Run, RunJsonDecodeError, RunValidationReport,
+    __internal::escape_human_text, decode_run_json_path, normalize_run_permissive, Run,
+    RunJsonDecodeError, RunValidationReport,
 };
-
-fn escape_human_text(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    for ch in input.chars() {
-        if ch.is_control() {
-            output.extend(ch.escape_default());
-        } else {
-            output.push(ch);
-        }
-    }
-    output
-}
 
 fn display_path(path: &Path) -> String {
     escape_human_text(&path.display().to_string())
@@ -209,19 +198,7 @@ fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoad
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_human_text, load_run_artifact};
-
-    #[test]
-    fn human_text_escaping_is_visible_idempotent_and_unicode_preserving() {
-        let input = "plain\\slash café 東京\n\r\t\u{1b}\u{7}\u{8}\u{7f}\u{85}";
-        let escaped = escape_human_text(input);
-        assert_eq!(
-            escaped,
-            "plain\\slash café 東京\\n\\r\\t\\u{1b}\\u{7}\\u{8}\\u{7f}\\u{85}"
-        );
-        assert!(!escaped.chars().any(char::is_control));
-        assert_eq!(escape_human_text(&escaped), escaped);
-    }
+    use super::load_run_artifact;
 
     #[test]
     fn rejects_malformed_json() {
