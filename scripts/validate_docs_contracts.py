@@ -1176,22 +1176,27 @@ def validate_validation_docs_ci_contract(
         raise ValueError("validation docs contain stale CI wording:\n" + "\n".join(failures))
 
     combined_text = "\n".join(combined_text_parts)
-    if ".github/workflows/validation-snapshot.yml" not in combined_text:
-        raise ValueError(
-            "validation docs must state durable/versioned scorecards are produced by "
-            ".github/workflows/validation-snapshot.yml"
-        )
-
-    if re.search(
-        r"normal\s+CI.{0,160}(?:does\s+not|doesn't).{0,120}"
-        r"(?:publish|upload|auto-overwrite).{0,120}"
-        r"(?:durable\s+)?(?:diagnostic\s+)?scorecards?",
-        combined_text,
-        flags=re.IGNORECASE | re.DOTALL,
-    ) is None:
-        raise ValueError(
-            "validation docs must state normal CI does not publish durable diagnostic scorecards"
-        )
+    ownership_contracts = (
+        (
+            r"normal\s+(?:mandatory\s+)?CI.{0,200}deterministic.{0,120}(?:gate|benchmark|corpus)",
+            "normal CI owns the deterministic diagnostics gate",
+        ),
+        (
+            r"scripts/generate_diagnostic_scorecard\.py.{0,180}(?:local/manual|locally|local evidence)",
+            "local/manual deterministic scorecards use scripts/generate_diagnostic_scorecard.py",
+        ),
+        (
+            r"scripts/validate_all\.py.{0,60}--profile\s+publish",
+            "local/manual release readiness uses scripts/validate_all.py --profile publish",
+        ),
+        (
+            r"normal\s+CI.{0,180}(?:does\s+not|doesn't).{0,120}(?:publish|upload).{0,100}(?:GitHub\s+artifacts?|scorecards?)",
+            "normal CI does not automatically publish scorecards or GitHub artifacts",
+        ),
+    )
+    for pattern, description in ownership_contracts:
+        if re.search(pattern, combined_text, flags=re.IGNORECASE | re.DOTALL) is None:
+            raise ValueError(f"validation docs must state that {description}")
 
 
 def validate_architecture_contract() -> None:

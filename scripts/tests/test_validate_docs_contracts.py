@@ -676,8 +676,9 @@ jobs:
         doc_text = """# Validation
 
 Deterministic corpus: no in normal PR CI.
-Durable scorecards come from `.github/workflows/validation-snapshot.yml`.
-Normal CI does not publish durable diagnostic scorecards.
+Normal CI owns the deterministic benchmark gate and does not publish GitHub artifacts.
+Use scripts/generate_diagnostic_scorecard.py locally for local/manual scorecards.
+Use scripts/validate_all.py --profile publish for local/manual release-readiness.
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             doc_path = Path(tmp_dir) / "VALIDATION.md"
@@ -688,17 +689,17 @@ Normal CI does not publish durable diagnostic scorecards.
                     doc_paths=(doc_path,)
                 )
 
-    def test_validation_docs_contract_requires_snapshot_workflow_scorecard_source(self) -> None:
+    def test_validation_docs_contract_requires_local_scorecard_source(self) -> None:
         doc_text = """# Validation
 
-Durable scorecards come from normal CI artifacts.
-Normal CI does not publish durable diagnostic scorecards.
+Normal CI owns the deterministic benchmark gate and does not publish GitHub artifacts.
+Use scripts/validate_all.py --profile publish for local/manual release-readiness.
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             doc_path = Path(tmp_dir) / "VALIDATION.md"
             doc_path.write_text(doc_text, encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, r"validation-snapshot.yml"):
+            with self.assertRaisesRegex(ValueError, r"generate_diagnostic_scorecard"):
                 validate_docs_contracts.validate_validation_docs_ci_contract(
                     doc_paths=(doc_path,)
                 )

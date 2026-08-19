@@ -33,13 +33,13 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 |---|---|---:|---:|
 | `scripts/diagnostic_benchmark.py` | Deterministic diagnostics corpus gate for committed manifest/fixtures | Yes | No |
 | `scripts/validate_docs_contracts.py` | Public-doc and validation-doc truth contract | Yes | No |
-| `.github/workflows/validation-snapshot.yml` | Manual diagnostic scorecard snapshot | Manual | Yes |
+| `scripts/generate_diagnostic_scorecard.py` | Local/manual deterministic scorecard generation with provenance | No, local/manual | Local outputs only |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/run_mitigation_matrix.py` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
 | `scripts/run_operational_validation.py` | Runtime-cost and collector-limit operational validation | Manual/local; some narrower smoke checks exist elsewhere | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
 
-Normal CI keeps deterministic diagnostics and docs contracts as gates but does not publish durable scorecards. Durable scorecard publication remains limited to the manual snapshot workflow.
+Normal CI owns the deterministic diagnostic regression gate and does not publish scorecards or GitHub artifacts. `scripts/generate_diagnostic_scorecard.py` owns local/manual deterministic scorecard generation; its outputs are local evidence unless a maintainer separately archives them.
 
 ### Normal CI ownership and cadence
 
@@ -53,15 +53,30 @@ smoke checks. These proof classes run in parallel when code changes are applicab
 `CI required` aggregates the applicable mandatory job results and performs no additional proof.
 Docs-only pull requests run docs contracts without unnecessarily running code jobs. A manual
 `workflow_dispatch` runs the full workflow, while a normal merge to `main` does not automatically
-repeat the same full CI matrix. `.github/workflows/validation-snapshot.yml` remains a separate,
-manual `workflow_dispatch` path for durable diagnostic artifacts.
+repeat the same full CI matrix. There is no dedicated GitHub Actions diagnostic snapshot workflow:
+the local scorecard generator supplies the same deterministic summary and provenance without a
+redundant remote-execution, workflow-input, and publication surface that adds no independent proof.
+
+### Remote Action pin review
+
+Remote GitHub Actions must use full 40-character commit SHAs, but 40 hexadecimal characters alone
+are not sufficient review. When adding or updating a pin, maintainers must verify its upstream
+provenance and expected retention, preferring a release commit or a commit retained in the
+maintained default-branch history. Do not pin generated commits that belong only to moving
+convenience refs when upstream may replace or garbage-collect them. For
+`dtolnay/rust-toolchain`, pin a retained `master` commit and pass the desired toolchain, such as
+`stable`, explicitly through `with:`. For `taiki-e/install-action`, pin a retained normal release
+commit and pass the exact tool and version through `with:` instead of pinning a generated tool
+alias such as `@cargo-deny`. Green hosted CI proves only that a commit is reachable and functional
+now; it does not establish long-term upstream retention. The credential-free offline workflow
+checker enforces mechanically verifiable syntax and configuration, not provenance or retention.
 
 ## Evidence levels
 
 | Level | Runs in CI? | What it supports | What it does not prove |
 |---|---|---|---|
 | Unit/helper tests | Yes | script/helper correctness checks for validation tooling | end-to-end diagnostic behavior by itself |
-| Deterministic corpus | Yes in normal CI and in `validation-snapshot.yml` | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
+| Deterministic corpus | Yes in normal CI | bounded analyzer/report behavior on committed fixtures | production root cause certainty or universal accuracy |
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
 | Runtime-cost measurement | Yes (bounded hard-gated smoke in CI) + manual/local deeper runs | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
@@ -167,9 +182,9 @@ Demos teach scenarios; validation measures bounded diagnostic behavior.
 
 
 ## Manual diagnostic snapshots
-Durable diagnostic validation scorecards are generated only by `.github/workflows/validation-snapshot.yml` through manual `workflow_dispatch`. Normal CI does not publish durable diagnostic scorecards and does not auto-overwrite `validation/diagnostics/latest/scorecard.md`.
+For a provenance-rich deterministic snapshot, run `scripts/generate_diagnostic_scorecard.py` locally. Generated `benchmark-summary.json`, `environment.json`, and `scorecard.md` files are local evidence, not automatically published or durable artifacts, and normal CI does not auto-overwrite `validation/diagnostics/latest/scorecard.md`. Broader credential-free, check-only release-readiness validation is local/manual through `python3 scripts/validate_all.py --profile publish --profile-mode release`; it publishes neither crates nor GitHub artifacts.
 
-Snapshot artifacts include deterministic benchmark metrics, thresholds, git/ref metadata, `tailtriage` workspace/package version metadata, GitHub Actions metadata when available, software/hardware metadata, and manifest/referenced-artifact hashes.
+Snapshot outputs include deterministic benchmark metrics, thresholds, git/ref metadata, `tailtriage` workspace/package version metadata, GitHub Actions metadata when available, software/hardware metadata, and manifest/referenced-artifact hashes.
 
 
 Optional manifest fields can validate expanded analyzer report surface on selected cases only: `expected_evidence_quality`, `expected_signal_statuses`, `must_include_confidence_notes`, `expected_route_breakdowns`, `expected_temporal_segments`, `must_include_route_warning`, `must_include_temporal_warning`, and `expected_top_level_warnings`. These checks are fixture-scoped and optional; cases that omit them continue to validate under the existing suspect/evidence/warning contract.
