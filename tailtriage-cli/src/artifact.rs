@@ -1,8 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use tailtriage_core::{
-    decode_run_json_path, normalize_run_permissive, Run, RunJsonDecodeError, RunValidationReport,
+    __internal::escape_control_chars, decode_run_json_path, normalize_run_permissive, Run,
+    RunJsonDecodeError, RunValidationReport,
 };
+
+fn display_path(path: &Path) -> String {
+    escape_control_chars(&path.display().to_string())
+}
 
 /// A decoded run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
@@ -66,10 +71,10 @@ impl std::fmt::Display for ArtifactLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Read { path, source } => {
-                write!(f, "failed to read run artifact '{}': {source}", path.display())
+                write!(f, "failed to read run artifact '{}': {source}", display_path(path))
             }
             Self::Parse { path, message } => {
-                write!(f, "failed to parse run artifact '{}': {message}", path.display())
+                write!(f, "failed to parse run artifact '{}': {}", display_path(path), escape_control_chars(message))
             }
             Self::UnsupportedSchemaVersion {
                 path,
@@ -78,12 +83,13 @@ impl std::fmt::Display for ArtifactLoadError {
             } => write!(
                 f,
                 "unsupported run artifact schema_version={found}; this tailtriage version supports schema_version={supported}. Regenerate the artifact with a current tailtriage version. ('{}')",
-                path.display()
+                display_path(path)
             ),
             Self::Validation { path, message } => write!(
                 f,
                 "invalid run artifact '{}': {message}",
-                path.display()
+                display_path(path),
+                message = escape_control_chars(message)
             ),
         }
     }

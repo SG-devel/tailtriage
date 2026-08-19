@@ -1,5 +1,7 @@
 use super::{Confidence, EvidenceQualityLevel, Report, TemporalSegment};
 
+use tailtriage_core::__internal::escape_control_chars;
+
 fn fmt_opt_u64(value: Option<u64>) -> String {
     match value {
         Some(value) => value.to_string(),
@@ -65,25 +67,25 @@ pub fn render_text(report: &Report) -> String {
             .evidence_quality
             .limitations
             .first()
-            .map_or_else(String::new, |l| format!(" ({l})"))
+            .map_or_else(String::new, |l| format!(" ({})", escape_control_chars(l)))
     ));
 
     if !report.warnings.is_empty() {
         lines.push("Warnings:".to_string());
         for warning in &report.warnings {
-            lines.push(format!("- {warning}"));
+            lines.push(format!("- {}", escape_control_chars(warning)));
         }
     }
     if !report.primary_suspect.evidence.is_empty() {
         lines.push("Evidence:".to_string());
         for evidence in &report.primary_suspect.evidence {
-            lines.push(format!("- {evidence}"));
+            lines.push(format!("- {}", escape_control_chars(evidence)));
         }
     }
     if !report.primary_suspect.next_checks.is_empty() {
         lines.push("Next checks:".to_string());
         for next_check in &report.primary_suspect.next_checks {
-            lines.push(format!("- {next_check}"));
+            lines.push(format!("- {}", escape_control_chars(next_check)));
         }
     }
     if !report.secondary_suspects.is_empty() {
@@ -102,7 +104,7 @@ pub fn render_text(report: &Report) -> String {
         for route in &report.route_breakdowns {
             lines.push(format!(
                 "- {}: requests {}, p95 {}us, suspect {} ({} confidence)",
-                route.route,
+                escape_control_chars(&route.route),
                 route.request_count,
                 fmt_opt_u64(route.p95_latency_us),
                 route.primary_suspect.kind.as_str(),
@@ -114,7 +116,11 @@ pub fn render_text(report: &Report) -> String {
         lines.push("Analyzer config:".to_string());
         lines.push(format!("- schema_version: {}", config.schema_version));
         for item in &config.non_default_options {
-            lines.push(format!("- {}={}", item.path, item.value));
+            lines.push(format!(
+                "- {}={}",
+                escape_control_chars(&item.path),
+                escape_control_chars(&item.value)
+            ));
         }
     }
     append_temporal_segment_text(&mut lines, &report.temporal_segments);
@@ -133,7 +139,12 @@ fn render_inflight_trend(trend: &crate::InflightTrend) -> String {
     );
     format!(
         "Inflight latest activity episode: gauge '{}', samples {}, peak {}, p95 {}, {}, {}",
-        trend.gauge, trend.sample_count, trend.peak_count, trend.p95_count, direction, rate,
+        escape_control_chars(&trend.gauge),
+        trend.sample_count,
+        trend.peak_count,
+        trend.p95_count,
+        direction,
+        rate,
     )
 }
 
@@ -145,7 +156,7 @@ fn append_temporal_segment_text(lines: &mut Vec<String>, segments: &[TemporalSeg
     for seg in segments {
         lines.push(format!(
             "- {}: requests {}, p95 {}us, suspect {} ({} confidence)",
-            seg.name,
+            escape_control_chars(&seg.name),
             seg.request_count,
             fmt_opt_u64(seg.p95_latency_us),
             seg.primary_suspect.kind.as_str(),

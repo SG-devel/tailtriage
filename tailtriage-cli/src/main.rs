@@ -8,9 +8,10 @@ use analyze_config::{analyzer_options_help_text, build_analyze_options};
 use artifact::{decode_run_artifact, ArtifactLoadError};
 use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text};
+
 use tailtriage_core::{
-    validate_run_strict, CaptureLimitsOverride, CaptureMode, LocalJsonSink, RunSink,
-    RunValidationSeverity,
+    __internal::escape_control_chars, validate_run_strict, CaptureLimitsOverride, CaptureMode,
+    LocalJsonSink, RunSink, RunValidationSeverity,
 };
 use tailtriage_tracing::{ensure_persistable_run_has_requests, import_jsonl_path, ImportOptions};
 
@@ -177,7 +178,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .into());
             }
             for warning in &loaded.warnings {
-                eprintln!("warning: {warning}");
+                eprintln!("warning: {}", escape_control_chars(warning));
             }
             let options = build_analyze_options(analyzer_config.as_deref(), &analyzer_set)?;
             let report = analyze_run(&loaded.original_run, options)?;
@@ -230,7 +231,11 @@ fn validate_cli_strict_artifact(run: &tailtriage_core::Run) -> Result<(), std::i
                     location.push('.');
                     location.push_str(field);
                 }
-                format!("{} at {location}: {}", issue.code.as_str(), issue.message)
+                format!(
+                    "{} at {location}: {}",
+                    issue.code.as_str(),
+                    escape_control_chars(&issue.message)
+                )
             })
             .collect::<Vec<_>>();
         if error_count > detail_limit {
@@ -266,7 +271,7 @@ fn emit_permissive_validation_warnings(report: &tailtriage_core::RunValidationRe
         eprintln!(
             "warning: permissive Run normalization {} at {location}: {}",
             issue.code.as_str(),
-            issue.message
+            escape_control_chars(&issue.message)
         );
     }
 }
@@ -345,7 +350,7 @@ fn import_tracing_spans_jsonl(
         }
     })?;
     for warning in imported.warnings() {
-        eprintln!("warning: {}", warning.message());
+        eprintln!("warning: {}", escape_control_chars(warning.message()));
     }
     if let Err(err) = ensure_persistable_run_has_requests(imported.run()) {
         let message = format!("{err}\n{}", wrapper_only_rejection_guidance());

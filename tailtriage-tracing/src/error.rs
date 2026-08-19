@@ -1,5 +1,7 @@
 use core::fmt;
 
+use tailtriage_core::__internal::escape_control_chars;
+
 /// Import failures for tracing-shaped span ingestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportError {
@@ -81,33 +83,64 @@ impl fmt::Display for ImportError {
                 operation,
                 context,
                 reason,
-            } => write!(f, "io error while {operation} ({context}): {reason}"),
+            } => write!(
+                f,
+                "io error while {operation} ({}): {}",
+                escape_control_chars(context),
+                escape_control_chars(reason)
+            ),
             Self::MalformedJsonLine { line, reason } => {
-                write!(f, "malformed JSONL at line {line}: {reason}")
+                write!(
+                    f,
+                    "malformed JSONL at line {line}: {}",
+                    escape_control_chars(reason)
+                )
             }
             Self::JsonlRecordTooLarge { line, limit } => write!(
                 f,
                 "JSONL record at line {line} exceeds the raw-byte limit of {limit} bytes"
             ),
             Self::ExpectedTailtriageWrapper { reason } => {
-                write!(f, "expected tailtriage wrapper JSONL record: {reason}")
+                write!(
+                    f,
+                    "expected tailtriage wrapper JSONL record: {}",
+                    escape_control_chars(reason)
+                )
             }
             Self::MissingField(field) => write!(f, "missing required field: {field}"),
             Self::InvalidField { field, reason } => {
-                write!(f, "invalid field `{field}`: {reason}")
+                write!(
+                    f,
+                    "invalid field `{field}`: {}",
+                    escape_control_chars(reason)
+                )
             }
             Self::InvalidConfiguration { option, reason } => {
-                write!(f, "invalid configuration `{option}`: {reason}")
+                write!(
+                    f,
+                    "invalid configuration `{option}`: {}",
+                    escape_control_chars(reason)
+                )
             }
-            Self::StrictViolation(message) => write!(f, "strict import violation: {message}"),
+            Self::StrictViolation(message) => {
+                write!(
+                    f,
+                    "strict import violation: {}",
+                    escape_control_chars(message)
+                )
+            }
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
-            Self::InvalidRunEvent(message) => write!(f, "invalid run event: {message}"),
-            Self::ZeroRequestArtifact { guidance } => write!(f, "{guidance}"),
+            Self::InvalidRunEvent(message) => {
+                write!(f, "invalid run event: {}", escape_control_chars(message))
+            }
+            Self::ZeroRequestArtifact { guidance } => {
+                write!(f, "{}", escape_control_chars(guidance))
+            }
             Self::ZeroRequestArtifactWithWarnings { guidance, warnings } => {
-                writeln!(f, "{guidance}")?;
+                writeln!(f, "{}", escape_control_chars(guidance))?;
                 writeln!(f, "warnings observed during tracing intake:")?;
                 for warning in warnings.iter().take(8) {
-                    writeln!(f, "- {warning}")?;
+                    writeln!(f, "- {}", escape_control_chars(warning))?;
                 }
                 let omitted = warnings.len().saturating_sub(8);
                 if omitted > 0 {
@@ -116,7 +149,12 @@ impl fmt::Display for ImportError {
                 Ok(())
             }
             Self::RunJsonWrite { path, reason } => {
-                write!(f, "failed to write run JSON at {path}: {reason}")
+                write!(
+                    f,
+                    "failed to write run JSON at {}: {}",
+                    escape_control_chars(path),
+                    escape_control_chars(reason)
+                )
             }
         }
     }
@@ -127,6 +165,19 @@ impl std::error::Error for ImportError {}
 #[cfg(test)]
 mod tests {
     use super::ImportError;
+
+    #[test]
+    fn import_error_display_escapes_dynamic_fields_and_preserves_layout() {
+        let error = ImportError::ZeroRequestArtifactWithWarnings {
+            guidance: "retry\nnow".to_owned(),
+            warnings: vec!["hostile\u{1b}warning".to_owned()],
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "retry\\nnow\nwarnings observed during tracing intake:\n- hostile\\u{1b}warning\n"
+        );
+    }
 
     #[test]
     fn jsonl_resource_errors_have_deterministic_context() {
