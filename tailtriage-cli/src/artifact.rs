@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use tailtriage_core::{
-    __internal::escape_human_text, decode_run_json_path, normalize_run_permissive, Run,
+    __internal::escape_control_chars, decode_run_json_path, normalize_run_permissive, Run,
     RunJsonDecodeError, RunValidationReport,
 };
 
 fn display_path(path: &Path) -> String {
-    escape_human_text(&path.display().to_string())
+    escape_control_chars(&path.display().to_string())
 }
 
 /// A decoded run artifact plus non-fatal loader warnings.
@@ -74,7 +74,7 @@ impl std::fmt::Display for ArtifactLoadError {
                 write!(f, "failed to read run artifact '{}': {source}", display_path(path))
             }
             Self::Parse { path, message } => {
-                write!(f, "failed to parse run artifact '{}': {}", display_path(path), escape_human_text(message))
+                write!(f, "failed to parse run artifact '{}': {}", display_path(path), escape_control_chars(message))
             }
             Self::UnsupportedSchemaVersion {
                 path,
@@ -89,7 +89,7 @@ impl std::fmt::Display for ArtifactLoadError {
                 f,
                 "invalid run artifact '{}': {message}",
                 display_path(path),
-                message = escape_human_text(message)
+                message = escape_control_chars(message)
             ),
         }
     }

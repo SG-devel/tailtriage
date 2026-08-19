@@ -74,7 +74,7 @@ pub mod __internal {
     /// This is not a general serialization or Unicode security mechanism. It is a doc-hidden,
     /// unsupported integration hook for rendering dynamic fields at human-output boundaries.
     #[must_use]
-    pub fn escape_human_text(input: &str) -> String {
+    pub fn escape_control_chars(input: &str) -> String {
         let mut output = String::with_capacity(input.len());
         for ch in input.chars() {
             if ch.is_control() {
@@ -105,19 +105,19 @@ pub mod __internal {
 
     #[cfg(test)]
     mod tests {
-        use super::escape_human_text;
+        use super::escape_control_chars;
 
         #[test]
         fn human_text_escaping_preserves_the_internal_integration_contract() {
             let input = "plain\\slash café 東京\n\r\t\u{1b}\u{7}\u{8}\u{7f}\u{85}";
-            let escaped = escape_human_text(input);
+            let escaped = escape_control_chars(input);
 
             assert_eq!(
                 escaped,
                 "plain\\slash café 東京\\n\\r\\t\\u{1b}\\u{7}\\u{8}\\u{7f}\\u{85}"
             );
             assert!(!escaped.chars().any(char::is_control));
-            assert_eq!(escape_human_text(&escaped), escaped);
+            assert_eq!(escape_control_chars(&escaped), escaped);
         }
     }
 }

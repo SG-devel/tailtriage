@@ -1,6 +1,6 @@
 use core::fmt;
 
-use tailtriage_core::__internal::escape_human_text;
+use tailtriage_core::__internal::escape_control_chars;
 
 /// Import failures for tracing-shaped span ingestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,14 +86,14 @@ impl fmt::Display for ImportError {
             } => write!(
                 f,
                 "io error while {operation} ({}): {}",
-                escape_human_text(context),
-                escape_human_text(reason)
+                escape_control_chars(context),
+                escape_control_chars(reason)
             ),
             Self::MalformedJsonLine { line, reason } => {
                 write!(
                     f,
                     "malformed JSONL at line {line}: {}",
-                    escape_human_text(reason)
+                    escape_control_chars(reason)
                 )
             }
             Self::JsonlRecordTooLarge { line, limit } => write!(
@@ -104,33 +104,43 @@ impl fmt::Display for ImportError {
                 write!(
                     f,
                     "expected tailtriage wrapper JSONL record: {}",
-                    escape_human_text(reason)
+                    escape_control_chars(reason)
                 )
             }
             Self::MissingField(field) => write!(f, "missing required field: {field}"),
             Self::InvalidField { field, reason } => {
-                write!(f, "invalid field `{field}`: {}", escape_human_text(reason))
+                write!(
+                    f,
+                    "invalid field `{field}`: {}",
+                    escape_control_chars(reason)
+                )
             }
             Self::InvalidConfiguration { option, reason } => {
                 write!(
                     f,
                     "invalid configuration `{option}`: {}",
-                    escape_human_text(reason)
+                    escape_control_chars(reason)
                 )
             }
             Self::StrictViolation(message) => {
-                write!(f, "strict import violation: {}", escape_human_text(message))
+                write!(
+                    f,
+                    "strict import violation: {}",
+                    escape_control_chars(message)
+                )
             }
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
             Self::InvalidRunEvent(message) => {
-                write!(f, "invalid run event: {}", escape_human_text(message))
+                write!(f, "invalid run event: {}", escape_control_chars(message))
             }
-            Self::ZeroRequestArtifact { guidance } => write!(f, "{}", escape_human_text(guidance)),
+            Self::ZeroRequestArtifact { guidance } => {
+                write!(f, "{}", escape_control_chars(guidance))
+            }
             Self::ZeroRequestArtifactWithWarnings { guidance, warnings } => {
-                writeln!(f, "{}", escape_human_text(guidance))?;
+                writeln!(f, "{}", escape_control_chars(guidance))?;
                 writeln!(f, "warnings observed during tracing intake:")?;
                 for warning in warnings.iter().take(8) {
-                    writeln!(f, "- {}", escape_human_text(warning))?;
+                    writeln!(f, "- {}", escape_control_chars(warning))?;
                 }
                 let omitted = warnings.len().saturating_sub(8);
                 if omitted > 0 {
@@ -142,8 +152,8 @@ impl fmt::Display for ImportError {
                 write!(
                     f,
                     "failed to write run JSON at {}: {}",
-                    escape_human_text(path),
-                    escape_human_text(reason)
+                    escape_control_chars(path),
+                    escape_control_chars(reason)
                 )
             }
         }

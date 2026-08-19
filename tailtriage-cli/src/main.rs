@@ -10,7 +10,7 @@ use clap::{Parser, ValueEnum};
 use tailtriage_analyzer::{analyze_run, render_json_pretty, render_text};
 
 use tailtriage_core::{
-    __internal::escape_human_text, validate_run_strict, CaptureLimitsOverride, CaptureMode,
+    __internal::escape_control_chars, validate_run_strict, CaptureLimitsOverride, CaptureMode,
     LocalJsonSink, RunSink, RunValidationSeverity,
 };
 use tailtriage_tracing::{ensure_persistable_run_has_requests, import_jsonl_path, ImportOptions};
@@ -178,7 +178,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .into());
             }
             for warning in &loaded.warnings {
-                eprintln!("warning: {}", escape_human_text(warning));
+                eprintln!("warning: {}", escape_control_chars(warning));
             }
             let options = build_analyze_options(analyzer_config.as_deref(), &analyzer_set)?;
             let report = analyze_run(&loaded.original_run, options)?;
@@ -234,7 +234,7 @@ fn validate_cli_strict_artifact(run: &tailtriage_core::Run) -> Result<(), std::i
                 format!(
                     "{} at {location}: {}",
                     issue.code.as_str(),
-                    escape_human_text(&issue.message)
+                    escape_control_chars(&issue.message)
                 )
             })
             .collect::<Vec<_>>();
@@ -271,7 +271,7 @@ fn emit_permissive_validation_warnings(report: &tailtriage_core::RunValidationRe
         eprintln!(
             "warning: permissive Run normalization {} at {location}: {}",
             issue.code.as_str(),
-            escape_human_text(&issue.message)
+            escape_control_chars(&issue.message)
         );
     }
 }
@@ -350,7 +350,7 @@ fn import_tracing_spans_jsonl(
         }
     })?;
     for warning in imported.warnings() {
-        eprintln!("warning: {}", escape_human_text(warning.message()));
+        eprintln!("warning: {}", escape_control_chars(warning.message()));
     }
     if let Err(err) = ensure_persistable_run_has_requests(imported.run()) {
         let message = format!("{err}\n{}", wrapper_only_rejection_guidance());
