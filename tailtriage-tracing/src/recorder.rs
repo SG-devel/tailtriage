@@ -513,18 +513,57 @@ fn write_completed_span_jsonl_with_limit(
     record_limit: usize,
 ) -> Result<(), ImportError> {
     create_output_parent_dir(path, "create completed span jsonl parent directory")?;
-    let temp_path = completed_span_jsonl_temp_path(path);
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&temp_path)
-        .map_err(|err| ImportError::Io {
-            operation: "open completed span jsonl path",
-            context: temp_path.display().to_string(),
-            reason: err.to_string(),
-        })?;
+    write_completed_span_jsonl_with_candidates(retained_sources, path, record_limit, |attempt| {
+        completed_span_jsonl_temp_path(path, attempt)
+    })
+}
 
+fn write_completed_span_jsonl_with_candidates(
+    retained_sources: &[SpanRecord],
+    path: &Path,
+    record_limit: usize,
+    mut candidate: impl FnMut(usize) -> PathBuf,
+) -> Result<(), ImportError> {
+    const MAX_TEMP_ATTEMPTS: usize = 8;
+    let mut owned = None;
+    for attempt in 0..MAX_TEMP_ATTEMPTS {
+        let temp_path = candidate(attempt);
+        match std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp_path)
+        {
+            Ok(file) => {
+                owned = Some((temp_path, file));
+                break;
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(err) => {
+                return Err(ImportError::Io {
+                    operation: "create completed span jsonl temp file",
+                    context: temp_path.display().to_string(),
+                    reason: err.to_string(),
+                });
+            }
+        }
+    }
+    let Some((temp_path, file)) = owned else {
+        return Err(ImportError::Io {
+            operation: "create completed span jsonl temp file",
+            context: path.display().to_string(),
+            reason: "all 8 exclusive temporary-file candidates already exist".to_string(),
+        });
+    };
+    write_completed_span_jsonl_to_owned_temp(retained_sources, path, record_limit, temp_path, file)
+}
+
+fn write_completed_span_jsonl_to_owned_temp<W: Write>(
+    retained_sources: &[SpanRecord],
+    path: &Path,
+    record_limit: usize,
+    temp_path: PathBuf,
+    mut file: W,
+) -> Result<(), ImportError> {
     let write_result = (|| -> Result<(), ImportError> {
         for (index, span) in retained_sources.iter().enumerate() {
             let wrapped = CompletedSpanJsonlRecord {
@@ -601,7 +640,7 @@ fn create_output_parent_dir(path: &Path, operation: &'static str) -> Result<(), 
     })
 }
 
-fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
+fn completed_span_jsonl_temp_path(path: &Path, attempt: usize) -> PathBuf {
     let file_name = path.file_name().map_or_else(
         || "completed-spans.jsonl".to_string(),
         |name| name.to_string_lossy().into_owned(),
@@ -610,8 +649,8 @@ fn completed_span_jsonl_temp_path(path: &Path) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
     let temp_name = format!(
-        ".{file_name}.tailtriage-tmp-{}-{nanos_since_unix_epoch}",
-        std::process::id(),
+        ".{file_name}.tailtriage-tmp-{}-{nanos_since_unix_epoch}-{attempt}",
+        std::process::id()
     );
     path.with_file_name(temp_name)
 }
@@ -4143,6 +4182,94 @@ mod tests {
         assert_no_completed_span_jsonl_temps(&path);
     }
 
+    #[test]
+    fn completed_jsonl_writer_retries_exclusive_collisions_without_modifying_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("final.jsonl");
+        let first = dir.path().join("first.tmp");
+        let second = dir.path().join("second.tmp");
+        let sentinel = b"do not modify";
+        std::fs::write(&first, sentinel).unwrap();
+        let source = SpanRecord::new("request", 1, 2);
+
+        write_completed_span_jsonl_with_candidates(&[source], &path, usize::MAX, |attempt| {
+            if attempt == 0 {
+                first.clone()
+            } else {
+                second.clone()
+            }
+        })
+        .unwrap();
+
+        assert_eq!(std::fs::read(&first).unwrap(), sentinel);
+        assert!(path.exists());
+        assert!(!second.exists());
+    }
+
+    #[test]
+    fn completed_jsonl_writer_exhausts_eight_collisions_without_modification() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("final.jsonl");
+        let candidates = (0..8)
+            .map(|attempt| dir.path().join(format!("collision-{attempt}.tmp")))
+            .collect::<Vec<_>>();
+        for candidate in &candidates {
+            std::fs::write(candidate, b"sentinel").unwrap();
+        }
+
+        let err = write_completed_span_jsonl_with_candidates(&[], &path, usize::MAX, |attempt| {
+            candidates[attempt].clone()
+        })
+        .unwrap_err();
+        assert_eq!(
+            err,
+            ImportError::Io {
+                operation: "create completed span jsonl temp file",
+                context: path.display().to_string(),
+                reason: "all 8 exclusive temporary-file candidates already exist".to_string(),
+            }
+        );
+        for candidate in &candidates {
+            assert_eq!(std::fs::read(candidate).unwrap(), b"sentinel");
+        }
+    }
+
+    #[test]
+    fn completed_jsonl_writer_failure_removes_only_owned_candidate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("final.jsonl");
+        let collision = dir.path().join("collision.tmp");
+        let owned = dir.path().join("owned.tmp");
+        std::fs::write(&collision, b"sentinel").unwrap();
+        let file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&owned)
+            .unwrap();
+        struct FailingWriter(std::fs::File);
+        impl Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("injected write failure"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                self.0.flush()
+            }
+        }
+        let source = SpanRecord::new("request", 1, 2);
+
+        assert!(write_completed_span_jsonl_to_owned_temp(
+            &[source],
+            &path,
+            usize::MAX,
+            owned.clone(),
+            FailingWriter(file),
+        )
+        .is_err());
+        assert_eq!(std::fs::read(&collision).unwrap(), b"sentinel");
+        assert!(!owned.exists());
+        assert!(!path.exists());
+    }
+
     fn assert_no_completed_span_jsonl_temps(path: &Path) {
         let file_name = path.file_name().unwrap().to_string_lossy();
         let temp_prefix = format!(".{file_name}.tailtriage-tmp-");
@@ -5045,7 +5172,7 @@ mod tests {
             other => panic!("unexpected error: {other}"),
         }
         assert!(!spans_path.exists());
-        assert!(completed_span_jsonl_temp_path(&spans_path)
+        assert!(completed_span_jsonl_temp_path(&spans_path, 0)
             .file_name()
             .unwrap()
             .to_string_lossy()

@@ -4,6 +4,22 @@ use tailtriage_core::{
     decode_run_json_path, normalize_run_permissive, Run, RunJsonDecodeError, RunValidationReport,
 };
 
+fn escape_human_text(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if ch.is_control() {
+            output.extend(ch.escape_default());
+        } else {
+            output.push(ch);
+        }
+    }
+    output
+}
+
+fn display_path(path: &Path) -> String {
+    escape_human_text(&path.display().to_string())
+}
+
 /// A decoded run artifact plus non-fatal loader warnings.
 #[derive(Debug)]
 pub(crate) struct LoadedArtifact {
@@ -66,10 +82,10 @@ impl std::fmt::Display for ArtifactLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Read { path, source } => {
-                write!(f, "failed to read run artifact '{}': {source}", path.display())
+                write!(f, "failed to read run artifact '{}': {source}", display_path(path))
             }
             Self::Parse { path, message } => {
-                write!(f, "failed to parse run artifact '{}': {message}", path.display())
+                write!(f, "failed to parse run artifact '{}': {}", display_path(path), escape_human_text(message))
             }
             Self::UnsupportedSchemaVersion {
                 path,
@@ -78,12 +94,13 @@ impl std::fmt::Display for ArtifactLoadError {
             } => write!(
                 f,
                 "unsupported run artifact schema_version={found}; this tailtriage version supports schema_version={supported}. Regenerate the artifact with a current tailtriage version. ('{}')",
-                path.display()
+                display_path(path)
             ),
             Self::Validation { path, message } => write!(
                 f,
                 "invalid run artifact '{}': {message}",
-                path.display()
+                display_path(path),
+                message = escape_human_text(message)
             ),
         }
     }
@@ -192,7 +209,19 @@ fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoad
 
 #[cfg(test)]
 mod tests {
-    use super::load_run_artifact;
+    use super::{escape_human_text, load_run_artifact};
+
+    #[test]
+    fn human_text_escaping_is_visible_idempotent_and_unicode_preserving() {
+        let input = "plain\\slash café 東京\n\r\t\u{1b}\u{7}\u{8}\u{7f}\u{85}";
+        let escaped = escape_human_text(input);
+        assert_eq!(
+            escaped,
+            "plain\\slash café 東京\\n\\r\\t\\u{1b}\\u{7}\\u{8}\\u{7f}\\u{85}"
+        );
+        assert!(!escaped.chars().any(char::is_control));
+        assert_eq!(escape_human_text(&escaped), escaped);
+    }
 
     #[test]
     fn rejects_malformed_json() {

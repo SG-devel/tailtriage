@@ -35,6 +35,36 @@ fn cli_json_output_is_valid_report_json() {
 }
 
 #[test]
+fn artifact_warning_controls_are_visible_on_stderr_but_preserved_in_json() {
+    let dir = tempfile::tempdir().expect("tempdir should build");
+    let artifact_path = dir.path().join("run.json");
+    let hostile = "warning first\\nforged\\u001b[31m";
+    let artifact = valid_cli_artifact_with_requests().replace(
+        "\"lifecycle_warnings\":[]",
+        &format!("\"lifecycle_warnings\":[\"{hostile}\"]"),
+    );
+    std::fs::write(&artifact_path, artifact).expect("fixture should write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_tailtriage"))
+        .arg("analyze")
+        .arg(&artifact_path)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("cli should run");
+    assert!(output.status.success(), "cli failed: {output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("warning first\\\\nforged\\\\u{1b}[31m"));
+    assert_eq!(stderr.lines().count(), 1);
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(report["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|warning| warning.as_str() == Some("warning first\nforged\u{1b}[31m")));
+}
+
+#[test]
 fn cli_loader_rejects_empty_requests_but_analyzer_accepts_zero_request_run() {
     let dir = tempfile::tempdir().expect("tempdir should build");
     let artifact_path = dir.path().join("empty-requests.json");

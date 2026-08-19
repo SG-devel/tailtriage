@@ -2762,6 +2762,30 @@ fn render_text_marks_one_sample_inflight_trend_unknown() {
 }
 
 #[test]
+fn render_text_escapes_artifact_controls_without_changing_report_json() {
+    let mut report = analyze_run(
+        &queue_bonus_run(vec![inflight("hostile\n\u{1b}[31m", 1, Some(1), 7)]),
+        AnalyzeOptions::default(),
+    )
+    .expect("analyzer options should be valid");
+    report.warnings.push("first\nforged\u{7}".to_owned());
+
+    let text = render_text(&report);
+    assert!(text.contains("gauge 'hostile\\n\\u{1b}[31m'"));
+    assert!(text.contains("- first\\nforged\\u{7}"));
+    assert!(!text.lines().any(|line| line == "forged"));
+
+    let json = render_json(&report).expect("report should serialize");
+    let decoded: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(decoded["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|warning| warning.as_str() == Some("first\nforged\u{7}")));
+    assert_eq!(decoded["inflight_trend"]["gauge"], "hostile\n\u{1b}[31m");
+}
+
+#[test]
 fn render_text_formats_inflight_trend_fields() {
     let report = Report {
         request_count: 2,

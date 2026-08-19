@@ -1,5 +1,17 @@
 use core::fmt;
 
+fn escape_human_text(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if ch.is_control() {
+            output.extend(ch.escape_default());
+        } else {
+            output.push(ch);
+        }
+    }
+    output
+}
+
 /// Import failures for tracing-shaped span ingestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportError {
@@ -81,33 +93,54 @@ impl fmt::Display for ImportError {
                 operation,
                 context,
                 reason,
-            } => write!(f, "io error while {operation} ({context}): {reason}"),
+            } => write!(
+                f,
+                "io error while {operation} ({}): {}",
+                escape_human_text(context),
+                escape_human_text(reason)
+            ),
             Self::MalformedJsonLine { line, reason } => {
-                write!(f, "malformed JSONL at line {line}: {reason}")
+                write!(
+                    f,
+                    "malformed JSONL at line {line}: {}",
+                    escape_human_text(reason)
+                )
             }
             Self::JsonlRecordTooLarge { line, limit } => write!(
                 f,
                 "JSONL record at line {line} exceeds the raw-byte limit of {limit} bytes"
             ),
             Self::ExpectedTailtriageWrapper { reason } => {
-                write!(f, "expected tailtriage wrapper JSONL record: {reason}")
+                write!(
+                    f,
+                    "expected tailtriage wrapper JSONL record: {}",
+                    escape_human_text(reason)
+                )
             }
             Self::MissingField(field) => write!(f, "missing required field: {field}"),
             Self::InvalidField { field, reason } => {
-                write!(f, "invalid field `{field}`: {reason}")
+                write!(f, "invalid field `{field}`: {}", escape_human_text(reason))
             }
             Self::InvalidConfiguration { option, reason } => {
-                write!(f, "invalid configuration `{option}`: {reason}")
+                write!(
+                    f,
+                    "invalid configuration `{option}`: {}",
+                    escape_human_text(reason)
+                )
             }
-            Self::StrictViolation(message) => write!(f, "strict import violation: {message}"),
+            Self::StrictViolation(message) => {
+                write!(f, "strict import violation: {}", escape_human_text(message))
+            }
             Self::EmptyServiceName => write!(f, "service name must not be empty"),
-            Self::InvalidRunEvent(message) => write!(f, "invalid run event: {message}"),
-            Self::ZeroRequestArtifact { guidance } => write!(f, "{guidance}"),
+            Self::InvalidRunEvent(message) => {
+                write!(f, "invalid run event: {}", escape_human_text(message))
+            }
+            Self::ZeroRequestArtifact { guidance } => write!(f, "{}", escape_human_text(guidance)),
             Self::ZeroRequestArtifactWithWarnings { guidance, warnings } => {
-                writeln!(f, "{guidance}")?;
+                writeln!(f, "{}", escape_human_text(guidance))?;
                 writeln!(f, "warnings observed during tracing intake:")?;
                 for warning in warnings.iter().take(8) {
-                    writeln!(f, "- {warning}")?;
+                    writeln!(f, "- {}", escape_human_text(warning))?;
                 }
                 let omitted = warnings.len().saturating_sub(8);
                 if omitted > 0 {
@@ -116,7 +149,12 @@ impl fmt::Display for ImportError {
                 Ok(())
             }
             Self::RunJsonWrite { path, reason } => {
-                write!(f, "failed to write run JSON at {path}: {reason}")
+                write!(
+                    f,
+                    "failed to write run JSON at {}: {}",
+                    escape_human_text(path),
+                    escape_human_text(reason)
+                )
             }
         }
     }
@@ -126,7 +164,19 @@ impl std::error::Error for ImportError {}
 
 #[cfg(test)]
 mod tests {
-    use super::ImportError;
+    use super::{escape_human_text, ImportError};
+
+    #[test]
+    fn human_text_escaping_is_visible_idempotent_and_unicode_preserving() {
+        let input = "plain\\slash café 東京\n\r\t\u{1b}\u{7}\u{8}\u{7f}\u{85}";
+        let escaped = escape_human_text(input);
+        assert_eq!(
+            escaped,
+            "plain\\slash café 東京\\n\\r\\t\\u{1b}\\u{7}\\u{8}\\u{7f}\\u{85}"
+        );
+        assert!(!escaped.chars().any(char::is_control));
+        assert_eq!(escape_human_text(&escaped), escaped);
+    }
 
     #[test]
     fn jsonl_resource_errors_have_deterministic_context() {
