@@ -29,6 +29,19 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("scripts.tests.test_run_mitigation_matrix", joined)
         self.assertIn("scripts.tests.test_run_operational_validation", joined)
         self.assertIn("scripts.tests.test_validate_docs_contracts", joined)
+        self.assertIn("scripts.tests.test_validate_invariant_proofs", joined)
+
+    def test_every_profile_validates_invariant_linkage(self):
+        for profile in ("smoke", "ci", "full", "publish"):
+            with self.subTest(profile=profile):
+                joined = "\n".join(" ".join(c.argv) for c in va.build_plan(self.args(profile)))
+                self.assertIn("python3 scripts/validate_invariant_proofs.py", joined)
+
+    def test_helper_test_profiles_run_invariant_linkage_tests(self):
+        for profile in ("ci", "full", "publish"):
+            with self.subTest(profile=profile):
+                joined = "\n".join(" ".join(c.argv) for c in va.build_plan(self.args(profile)))
+                self.assertIn("scripts.tests.test_validate_invariant_proofs", joined)
 
     def test_ci_plan_deterministic_benchmark_uses_ci_thresholds(self):
         plan = va.build_plan(self.args("ci"))

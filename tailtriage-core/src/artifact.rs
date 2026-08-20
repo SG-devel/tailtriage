@@ -90,6 +90,7 @@ fn map_json_error(error: serde_json::Error) -> RunJsonDecodeError {
     }
 }
 
+// TT-INVARIANT: S02 primary
 #[cfg(test)]
 mod tests {
     use super::*;

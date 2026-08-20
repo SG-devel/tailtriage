@@ -196,6 +196,9 @@ fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoad
     Ok(())
 }
 
+// TT-INVARIANT: L02 primary
+// TT-INVARIANT: S02 primary
+// TT-INVARIANT: S04 primary
 #[cfg(test)]
 mod tests {
     use super::load_run_artifact;

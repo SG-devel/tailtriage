@@ -45,17 +45,34 @@ def cargo_deny_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
     return errors
 
 
+def ci_source_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
+    """Check narrow, repository-specific CI trust-boundary source contracts."""
+    errors: list[str] = []
+    if not re.search(r"(?m)^\s{2}workflow_dispatch:\s*(?:\{\s*\})?\s*$", text):
+        errors.append(f"{name}: workflow_dispatch must be present and input-free")
+    if re.search(r"(?m)^\s{4}inputs:\s*", text):
+        errors.append(f"{name}: workflow_dispatch must not define inputs")
+    if not re.search(r"(?m)^permissions:\s*\n\s{2}contents:\s*read\s*$", text):
+        errors.append(f"{name}: workflow permissions must be exactly contents: read")
+    if not re.search(r"(?m)^\s+toolchain:\s*[^\s#]+", text):
+        errors.append(f"{name}: pinned Rust setup must select an explicit toolchain")
+    return errors
+
+
 def check_repository(
     *, workflows_dir: Path = WORKFLOWS_DIR, ci_workflow: Path = CI_WORKFLOW
 ) -> list[str]:
     """Return all workflow security policy failures for a repository checkout."""
     errors: list[str] = []
     workflows = sorted((*workflows_dir.glob("*.yml"), *workflows_dir.glob("*.yaml")))
+    if [workflow.name for workflow in workflows] != ["ci.yml"]:
+        errors.append("workflow inventory must contain only ci.yml")
     for workflow in workflows:
         errors.extend(workflow_policy_errors(workflow.read_text(encoding="utf-8"), name=str(workflow)))
     errors.extend(
         cargo_deny_policy_errors(ci_workflow.read_text(encoding="utf-8"), name=str(ci_workflow))
     )
+    errors.extend(ci_source_policy_errors(ci_workflow.read_text(encoding="utf-8"), name=str(ci_workflow)))
     return errors
 
 

@@ -292,6 +292,9 @@ fn wrapper_error(line_no: usize, reason: impl Into<String>) -> ImportError {
     }
 }
 
+// TT-INVARIANT: R01 primary
+// TT-INVARIANT: F02 primary
+// TT-INVARIANT: S01 primary
 #[cfg(test)]
 mod tests {
     use super::*;

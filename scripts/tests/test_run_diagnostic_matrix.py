@@ -6,6 +6,7 @@ from pathlib import Path
 from scripts import run_diagnostic_matrix as rdm
 
 
+# TT-INVARIANT: D02 primary
 class RunDiagnosticMatrixTests(unittest.TestCase):
     def sample_report(self, primary_kind="application_queue_saturation", confidence="high", p95=100, p99=200, second=None):
         return {

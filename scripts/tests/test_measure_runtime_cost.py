@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import measure_runtime_cost  # noqa: E402
 
 
+# TT-INVARIANT: O01 primary
 class RuntimeCostSummaryTests(unittest.TestCase):
     def _base_row(self, mode: str, round_idx: int, latency_p95_ms: float = 2.0, throughput_rps: float = 1000.0) -> dict:
         row = {

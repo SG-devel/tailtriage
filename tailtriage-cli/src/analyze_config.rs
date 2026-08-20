@@ -100,6 +100,7 @@ pub(crate) fn analyzer_options_help_text() -> String {
     out
 }
 
+// TT-INVARIANT: L04 primary
 #[cfg(test)]
 mod tests {
     use super::*;

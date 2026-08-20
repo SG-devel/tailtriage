@@ -1,3 +1,4 @@
+// TT-INVARIANT: F03 primary
 #![allow(clippy::semicolon_if_nothing_returned)]
 #[path = "support/equivalence_harness.rs"]
 mod equivalence_harness;

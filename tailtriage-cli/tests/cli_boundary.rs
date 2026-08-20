@@ -1,3 +1,7 @@
+// TT-INVARIANT: V03 primary
+// TT-INVARIANT: L01 primary
+// TT-INVARIANT: L03 primary
+// TT-INVARIANT: S04 primary
 #[path = "../src/artifact.rs"]
 #[allow(dead_code)]
 mod artifact;

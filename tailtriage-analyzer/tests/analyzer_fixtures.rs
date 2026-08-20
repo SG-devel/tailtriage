@@ -1,3 +1,4 @@
+// TT-INVARIANT: F01 primary
 use std::path::Path;
 
 use tailtriage_analyzer::{

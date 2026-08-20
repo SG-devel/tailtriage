@@ -1558,6 +1558,11 @@ mod helper_tests {
     }
 }
 
+// TT-INVARIANT: T01 primary
+// TT-INVARIANT: T02 primary
+// TT-INVARIANT: T03 primary
+// TT-INVARIANT: T04 primary
+// TT-INVARIANT: T05 primary
 #[cfg(test)]
 mod prompt09_tokio_partial_tests {
     use std::future::Future;

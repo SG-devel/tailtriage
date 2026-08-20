@@ -1,3 +1,18 @@
+// TT-INVARIANT: A01 primary
+// TT-INVARIANT: A02 primary
+// TT-INVARIANT: A03 primary
+// TT-INVARIANT: A04 primary
+// TT-INVARIANT: A05 primary
+// TT-INVARIANT: A06 primary
+// TT-INVARIANT: A07 primary
+// TT-INVARIANT: A08 primary
+// TT-INVARIANT: A09 primary
+// TT-INVARIANT: A10 primary
+// TT-INVARIANT: A11 primary
+// TT-INVARIANT: A12 primary
+// TT-INVARIANT: A13 primary
+// TT-INVARIANT: Q01 primary
+// TT-INVARIANT: S04 primary
 use tailtriage_core::{
     CaptureMode, EffectiveCoreConfig, InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata,
     RuntimeSnapshot, StageEvent, SCHEMA_VERSION,

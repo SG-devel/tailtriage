@@ -11,6 +11,7 @@ import unittest
 SOURCE = Path(__file__).parents[1] / "check_diagnostic_fixture_integrity.py"
 
 
+# TT-INVARIANT: F04 primary
 class FixtureIntegrityTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

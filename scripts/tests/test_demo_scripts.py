@@ -20,6 +20,7 @@ import _demo_runner  # noqa: E402
 from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
+# TT-INVARIANT: F05 primary
 class DemoWrapperTests(unittest.TestCase):
     def test_shared_scenario_metadata_owns_all_demo_paths(self) -> None:
         self.assertEqual(set(demo_tool.SCENARIOS), set(_demo_runner.SCENARIOS))

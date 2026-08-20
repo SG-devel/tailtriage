@@ -1041,6 +1041,10 @@ fn parse_depth_at_start(
     }
 }
 
+// TT-INVARIANT: R02 primary
+// TT-INVARIANT: R05 primary
+// TT-INVARIANT: S01 primary
+// TT-INVARIANT: S04 primary
 #[cfg(test)]
 mod tests {
     use super::*;

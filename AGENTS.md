@@ -321,6 +321,18 @@ Before considering a task done, run:
 - `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
 - `cargo test --workspace --all-targets --all-features --locked`
 - `python3 scripts/validate_docs_contracts.py`
+- `python3 scripts/validate_invariant_proofs.py`
+
+## Invariant-proof maintenance
+
+`docs/dev/INVARIANT_PROOF_MATRIX.md` owns stable invariant semantics and proof-boundary
+classification; adjacent `TT-INVARIANT` comments own exact executable proof linkage. When changing
+an intentionally owning test or check, update its marker in the same change. Add, remove, or rename
+an invariant ID in the registry and markers together. When a material release or security contract
+gains durable proof, add a stable invariant rather than hiding it under an unrelated row. Ordinary
+helper tests need no markers: semantic proof matters, not global test, file, target, or module
+counts. Volatile audit SHAs, counts, and timings do not belong in living docs unless mechanically
+owned and materially useful; historical measurements belong in review or release evidence.
 
 If a task touches benchmarks or performance-sensitive code, also include:
 
