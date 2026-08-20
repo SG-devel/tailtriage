@@ -77,6 +77,7 @@ fn base_run() -> Run {
     }
 }
 
+// TT-TEST: A01 primary
 #[test]
 fn queue_share_threshold_uses_300_permille_boundary() {
     let mut below = base_run();
@@ -124,6 +125,7 @@ fn queue_share_threshold_uses_300_permille_boundary() {
     );
 }
 
+// TT-TEST: A01 primary
 #[test]
 fn blocking_and_executor_pressure_require_nonzero_p95_depth() {
     let mut zero = base_run();
@@ -202,6 +204,7 @@ fn blocking_and_executor_pressure_require_nonzero_p95_depth() {
     assert!(kinds.contains(&DiagnosisKind::ExecutorPressureSuspected));
 }
 
+// TT-TEST: A01 primary
 #[test]
 fn downstream_stage_requires_at_least_three_samples() {
     let mut two_samples = base_run();
@@ -284,6 +287,7 @@ fn downstream_stage_requires_at_least_three_samples() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn mixed_signal_fixtures_preserve_stronger_evidence_ordering() {
     let queue_vs_blocking = analyze_run(

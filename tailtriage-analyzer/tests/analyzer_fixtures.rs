@@ -1,4 +1,3 @@
-// TT-INVARIANT: F01 primary
 use std::path::Path;
 
 use tailtriage_analyzer::{
@@ -12,6 +11,7 @@ fn load_fixture(name: &str) -> Run {
     serde_json::from_str(&content).expect("fixture should deserialize")
 }
 
+// TT-TEST: F01 primary
 #[test]
 fn fixture_reports_match_canonical_pretty_json_golden_files() {
     for fixture in [
@@ -36,6 +36,7 @@ fn fixture_reports_match_canonical_pretty_json_golden_files() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn scoped_route_fixture_preserves_breakdown_contract() {
     let report = analyze_run(
@@ -74,6 +75,7 @@ fn scoped_route_fixture_preserves_breakdown_contract() {
             == "Runtime and in-flight signals are global and are not attributed to this route.")));
 }
 
+// TT-TEST: support
 #[test]
 fn scoped_temporal_fixture_preserves_windowed_evidence_contract() {
     let report = analyze_run(
@@ -114,6 +116,7 @@ fn scoped_temporal_fixture_preserves_windowed_evidence_contract() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn fixture_categories_produce_expected_primary_suspect() {
     let cases = [
@@ -155,6 +158,7 @@ fn fixture_categories_produce_expected_primary_suspect() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn fixture_reports_render_to_text_and_json() {
     let run = load_fixture("queue_saturation.json");
@@ -175,6 +179,7 @@ fn fixture_reports_render_to_text_and_json() {
     assert!(json.contains("p95_service_share_permille"));
 }
 
+// TT-TEST: support
 #[test]
 fn fixture_reports_include_expected_request_time_shares() {
     let queue_run = load_fixture("queue_saturation.json");
@@ -190,6 +195,7 @@ fn fixture_reports_include_expected_request_time_shares() {
     assert_eq!(downstream_report.p95_service_share_permille, Some(1000));
 }
 
+// TT-TEST: support
 #[test]
 fn queue_fixture_includes_inflight_trend_evidence() {
     let run = load_fixture("queue_saturation.json");

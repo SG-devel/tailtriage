@@ -258,6 +258,8 @@ fn edit_distance(a: &str, b: &str) -> usize {
 mod tests {
     use super::*;
 
+    // TT-TEST: support
+
     #[test]
     fn every_entry_reapplies_its_own_typed_value_without_change() {
         for entry in OPTION_ENTRIES {

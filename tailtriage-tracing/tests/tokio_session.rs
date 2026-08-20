@@ -1,4 +1,3 @@
-// TT-INVARIANT: R04 primary
 #![cfg(feature = "tokio")]
 
 use std::time::Duration;
@@ -24,6 +23,7 @@ async fn wait_for_runtime_snapshot(session: &TracingSession) {
     }
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn tracing_session_snapshot_is_unfinalized() {
     let session = TracingSession::builder("svc")
@@ -36,6 +36,7 @@ async fn tracing_session_snapshot_is_unfinalized() {
     session.shutdown().await.expect("shutdown session");
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn tracing_session_shutdown_output_is_finalized() {
     let session = TracingSession::builder("svc")
@@ -108,6 +109,7 @@ async fn tracing_session_shutdown_output_is_finalized() {
     assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
 }
 
+// TT-TEST: support
 #[test]
 fn start_outside_runtime_fails_clearly() {
     let err = TracingSession::builder("svc")
@@ -123,6 +125,7 @@ fn start_outside_runtime_fails_clearly() {
     ));
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn tracing_tokio_session_start_rejects_blank_service_name() {
     let err = TracingSession::builder("   ")
@@ -132,6 +135,7 @@ async fn tracing_tokio_session_start_rejects_blank_service_name() {
     assert!(matches!(err, ImportError::EmptyServiceName));
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn zero_sampler_interval_fails_clearly() {
     let err = TracingSession::builder("svc")
@@ -145,6 +149,7 @@ async fn zero_sampler_interval_fails_clearly() {
     ));
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn zero_sampler_interval_fails_even_with_manual_runtime_snapshots() {
     let err = TracingSession::builder("svc")
@@ -159,6 +164,7 @@ async fn zero_sampler_interval_fails_even_with_manual_runtime_snapshots() {
     ));
 }
 
+// TT-TEST: R04 primary
 #[tokio::test(flavor = "current_thread")]
 async fn a1_bare_tokio_feature_session_rejects_manual_runtime_recording() {
     let session = TracingSession::builder("svc")
@@ -186,6 +192,7 @@ async fn a1_bare_tokio_feature_session_rejects_manual_runtime_recording() {
     assert!(imported.run().metadata.lifecycle_warnings.is_empty());
 }
 
+// TT-TEST: R04 primary
 #[tokio::test(flavor = "current_thread")]
 async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
     let session = TracingSession::builder("svc")
@@ -248,6 +255,7 @@ async fn a2_manual_runtime_snapshots_retains_snapshot_without_sampler() {
         }));
 }
 
+// TT-TEST: R04 primary
 #[tokio::test(flavor = "current_thread")]
 async fn a3_sampler_interval_starts_background_and_retains_manual_snapshot() {
     let session = TracingSession::builder("svc")
@@ -287,6 +295,7 @@ async fn a3_sampler_interval_starts_background_and_retains_manual_snapshot() {
         .any(|warning| { warning.contains("background runtime sampling disabled") }));
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn a5_ordinary_live_session_captures_request_stage_queue_without_runtime_config() {
     let session = TracingSession::builder("svc")
@@ -328,6 +337,7 @@ async fn a5_ordinary_live_session_captures_request_stage_queue_without_runtime_c
     assert!(imported.run().metadata.lifecycle_warnings.is_empty());
 }
 
+// TT-TEST: R04 primary
 #[tokio::test(flavor = "current_thread")]
 async fn active_sampler_shutdown_stops_before_outputs_and_keeps_runtime_run_only() {
     let dir = tempfile::tempdir().expect("tempdir");

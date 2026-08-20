@@ -17,11 +17,9 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import validate_docs_contracts  # noqa: E402
 
 
-# TT-INVARIANT: M01 primary
-# TT-INVARIANT: M02 primary
-# TT-INVARIANT: Z02 primary
 class ValidateDocsContractsTests(unittest.TestCase):
 
+    # TT-TEST: M01 primary
     def test_analyzer_rationale_contract_accepts_structure_and_index_link(self) -> None:
         rationale = """# Analyzer rationale
 
@@ -49,6 +47,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                 rationale_path=rationale_path, docs_index_path=index_path
             )
 
+    # TT-TEST: M01 primary
     def test_analyzer_rationale_contract_rejects_missing_revision_criteria(self) -> None:
         rationale = """Classification: recorded intent; present-purpose inference; unknown provenance.
 [Mechanics](diagnostics.md).
@@ -72,6 +71,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     rationale_path=rationale_path, docs_index_path=index_path
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_rejects_stale_current_run_v1_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "README.md"
@@ -84,6 +84,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_rejects_stale_current_run_v1_colon_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "README.md"
@@ -96,6 +97,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_rejects_stale_current_run_json_v1_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "README.md"
@@ -108,6 +110,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_accepts_unrelated_v1_domains(self) -> None:
         body = """Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp. Active snapshots use null finalization. Persisted CLI artifacts require numeric finalization. Schema-v1 Run JSON is rejected. Event-level completion timestamps remain unchanged. The tracing wrapper is `tailtriage.tracing-span.v1`; analyzer TOML uses `schema_version = 1`; validation output schema version 1 remains independent; event-level `finished_at_unix_ms` and `SpanRecord.finished_at_unix_ms` remain unchanged."""
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -118,6 +121,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,)
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_rejects_removed_run_metadata_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "SPEC.md"
@@ -133,6 +137,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_rejects_missing_canonical_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "SPEC.md"
@@ -145,6 +150,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=(path,)
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_accepts_validation_output_v1_json(self) -> None:
         body = """Unrelated validation output:
 ```json
@@ -159,6 +165,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_accepts_noncanonical_without_boilerplate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "notes.md"
@@ -171,6 +178,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_accepts_historical_schema_v1_prose(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "CHANGELOG.md"
@@ -183,6 +191,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_rejects_removed_rust_model_field(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "SPEC.md"
@@ -198,6 +207,7 @@ Classification uses recorded intent, present-purpose inference, and unknown prov
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_run_schema_v2_public_contract_accepts_event_level_finish_fields(self) -> None:
         body = """RequestEvent.finished_at_unix_ms
 StageEvent.finished_at_unix_ms
@@ -211,6 +221,7 @@ SpanRecord.finished_at_unix_ms
                     doc_paths=(path,), required_current_paths=()
                 )
 
+    # TT-TEST: M01 primary
     def test_governance_strictness_contract_accepts_distinct_policies(self) -> None:
         spec_text = """# Spec
 
@@ -229,6 +240,7 @@ Schema contract:
             with mock.patch.object(validate_docs_contracts, "SPEC_PATH", spec_path):
                 validate_docs_contracts.validate_governance_strictness_contract()
 
+    # TT-TEST: M01 primary
     def test_governance_strictness_contract_rejects_cli_import_conflation(self) -> None:
         spec_text = """# Spec
 
@@ -247,6 +259,7 @@ Schema contract:
                 with self.assertRaisesRegex(ValueError, r"conflates strict Run artifact validation"):
                     validate_docs_contracts.validate_governance_strictness_contract()
 
+    # TT-TEST: M01 primary
     def test_analyzer_strictness_ownership_rejects_analyzer_strict_alternatives(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "README.md"
@@ -260,16 +273,13 @@ Schema contract:
             ):
                 validate_docs_contracts.validate_analyzer_strictness_ownership_contract(path=path)
 
-    def test_governance_pending_state_contract_accepts_unsealed_shutdown_wording(self) -> None:
+    # TT-TEST: M01 primary
+    def test_governance_pending_state_contract_accepts_bounded_admission_wording(self) -> None:
         design_text = """# Notes
 
-Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
 
-`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity.
-
-Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound.
-
-Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting. An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector; the requests may still complete before shutdown is retried. Documentation must not attribute the request-capacity bound to shutdown.
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
@@ -278,31 +288,65 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
             with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
                 validate_docs_contracts.validate_governance_pending_state_contract()
 
-    def test_governance_pending_state_contract_rejects_shutdown_as_boundary(self) -> None:
+    # TT-TEST: M01 primary
+    def test_governance_pending_state_contract_rejects_unbounded_admission_regression(self) -> None:
         design_text = """# Notes
 
-Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests until those requests complete or the run shuts down.
-Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
-`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity.
-Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound.
-Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
+Pending/unfinished request state can grow unbounded with admitted requests.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting. An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector. Documentation must not attribute the request-capacity bound to shutdown.
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
             design_path.write_text(design_text, encoding="utf-8")
 
             with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
-                with self.assertRaisesRegex(ValueError, r"shutdown clears pending request state"):
+                with self.assertRaisesRegex(ValueError, r"pending request state grows with admissions"):
                     validate_docs_contracts.validate_governance_pending_state_contract()
 
+    # TT-TEST: M01 primary
+    def test_governance_pending_state_contract_rejects_obsolete_summary_wording(self) -> None:
+        design_text = """# Notes
+
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
+Pending request bookkeeping is not capture-limited.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting. An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector. Documentation must not attribute the request-capacity bound to shutdown.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
+            design_path.write_text(design_text, encoding="utf-8")
+            with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
+                with self.assertRaisesRegex(ValueError, r"obsolete pending-bookkeeping summary"):
+                    validate_docs_contracts.validate_governance_pending_state_contract()
+
+    # TT-TEST: M01 primary
+    def test_governance_pending_state_contract_keeps_shutdown_lifecycle_separate(self) -> None:
+        design_text = """# Notes
+
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting and establishes the request-capacity bound by clearing pending bookkeeping.
+An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector.
+Documentation must not attribute the request-capacity bound to shutdown.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
+            design_path.write_text(design_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
+                with self.assertRaisesRegex(ValueError, r"shutdown lifecycle separate from admission bounds"):
+                    validate_docs_contracts.validate_governance_pending_state_contract()
+
+    # TT-TEST: M01 primary
     def test_run_end_policy_variants_include_expected_kinds(self) -> None:
         kinds = validate_docs_contracts.extract_run_end_policy_kinds_from_source()
         self.assertEqual(kinds, {"continue_after_limits_hit", "auto_seal_on_limits_hit"})
 
 
+    # TT-TEST: M01 primary
     def test_crate_rustdocs_include_readmes_contract(self) -> None:
         validate_docs_contracts.validate_crate_rustdocs_include_readmes()
 
+    # TT-TEST: M01 primary
     def test_crate_rustdocs_include_readmes_contract_fails_when_missing_include(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -336,6 +380,7 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                 with self.assertRaisesRegex(ValueError, r"README directive"):
                     validate_docs_contracts.validate_crate_rustdocs_include_readmes()
 
+    # TT-TEST: M02 primary
     def test_residual_public_api_cleanup_contract_accepts_private_cli_internals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -352,6 +397,7 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
             with mock.patch.object(validate_docs_contracts, "REPO_ROOT", root):
                 validate_docs_contracts.validate_residual_public_api_cleanup()
 
+    # TT-TEST: M02 primary
     def test_residual_public_api_cleanup_contract_rejects_cli_helper_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -369,12 +415,15 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                 with self.assertRaisesRegex(ValueError, "removed residual public API"):
                     validate_docs_contracts.validate_residual_public_api_cleanup()
 
+    # TT-TEST: M01 primary
     def test_markdown_examples_validate_against_contract(self) -> None:
         validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation(self) -> None:
         validate_docs_contracts.validate_analyzer_ownership_navigation()
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation_rejects_missing_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -385,6 +434,7 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                     required_links={path: ("analyzer-guide.md",)}, repo_root=repo_root
                 )
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation_accepts_exact_relative_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -398,6 +448,7 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                 required_links={source: ("diagnostics.md",)}, repo_root=repo_root
             )
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation_accepts_fragment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -410,6 +461,7 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                 required_links={source: ("diagnostics.md",)}, repo_root=repo_root
             )
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation_rejects_prefix_lookalike(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -423,6 +475,7 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                     required_links={source: ("diagnostics.md",)}, repo_root=repo_root
                 )
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation_rejects_missing_local_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -434,6 +487,7 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                     required_links={source: ("diagnostics.md",)}, repo_root=repo_root
                 )
 
+    # TT-TEST: M01 primary
     def test_analyzer_ownership_navigation_rejects_repository_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             workspace = Path(tmp_dir)
@@ -448,24 +502,31 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                     required_links={source: ("../outside.md",)}, repo_root=repo_root
                 )
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract(self) -> None:
         validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_root_readme_docs_link(self) -> None:
         validate_docs_contracts.validate_root_readme_docs_link()
 
+    # TT-TEST: M01 primary
     def test_user_guide_contract(self) -> None:
         validate_docs_contracts.validate_user_guide_contract()
 
+    # TT-TEST: M01 primary
     def test_tracing_completed_jsonl_public_contract(self) -> None:
         validate_docs_contracts.validate_tracing_completed_jsonl_public_contract()
 
+    # TT-TEST: M01 primary
     def test_live_tracing_session_public_contract(self) -> None:
         validate_docs_contracts.validate_live_tracing_session_public_contract()
 
+    # TT-TEST: M01 primary
     def test_operations_guide_contract(self) -> None:
         validate_docs_contracts.validate_operations_guide_contract()
 
+    # TT-TEST: M01 primary
     def test_operations_guide_contract_fails_when_required_concepts_missing(self) -> None:
         incomplete = """# Production operations guide
 
@@ -479,6 +540,7 @@ but intentionally omits required operational concepts.
                 with self.assertRaisesRegex(ValueError, r"missing required concept/token"):
                     validate_docs_contracts.validate_operations_guide_contract()
 
+    # TT-TEST: M01 primary
     def test_operations_guide_contract_passes_with_complete_content(self) -> None:
         complete = """# Production operations guide
 
@@ -497,6 +559,7 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
             with mock.patch.object(validate_docs_contracts, "OPERATIONS_PATH", operations_path):
                 validate_docs_contracts.validate_operations_guide_contract()
 
+    # TT-TEST: M01 primary
     def test_user_guide_uses_controller_scoped_toml_shape(self) -> None:
         text = validate_docs_contracts.USER_GUIDE_PATH.read_text(encoding="utf-8")
         self.assertIn("[controller]", text)
@@ -505,12 +568,15 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
         self.assertNotIn("\n[activation]\n", text)
         self.assertNotIn("\n[activation.sink]\n", text)
 
+    # TT-TEST: M01 primary
     def test_diagnostics_contract_truthfulness(self) -> None:
         validate_docs_contracts.validate_diagnostics_contract_truthfulness()
 
+    # TT-TEST: M01 primary
     def test_analyzer_config_example_contract(self) -> None:
         validate_docs_contracts.validate_analyzer_config_example_contract()
 
+    # TT-TEST: M01 primary
     def test_analyzer_config_example_contract_rejects_missing_schema_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "analyzer-config.toml"
@@ -518,6 +584,7 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
             with self.assertRaisesRegex(ValueError, r"schema_version = 1"):
                 validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
+    # TT-TEST: M01 primary
     def test_analyzer_config_example_contract_rejects_missing_analyzer_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "analyzer-config.toml"
@@ -525,6 +592,7 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
             with self.assertRaisesRegex(ValueError, r"\[analyzer\]"):
                 validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
+    # TT-TEST: M01 primary
     def test_analyzer_config_example_contract_rejects_missing_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "analyzer-config.toml"
@@ -535,6 +603,7 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
             with self.assertRaisesRegex(ValueError, r"temporal"):
                 validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
+    # TT-TEST: M01 primary
     def test_analyzer_config_example_contract_rejects_root_level_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "analyzer-config.toml"
@@ -545,6 +614,7 @@ See VALIDATION.md, diagnostics.md, runtime-cost.md, and collector-limits.md.
             with self.assertRaisesRegex(ValueError, r"root-level analyzer groups"):
                 validate_docs_contracts.validate_analyzer_config_example_contract(config_path=path)
 
+    # TT-TEST: M01 primary
     def test_extract_analyzer_paths_for_validation(self) -> None:
         text = """
 Use `queueing.trigger_permille`, queueing.trigger_permille=400,
@@ -558,17 +628,20 @@ Ignore file names like docs/operations.md, foo.bar, and include queuing.trigger_
         self.assertNotIn("foo.bar", paths)
         self.assertNotIn("docs/operations.md", paths)
 
+    # TT-TEST: M01 primary
     def test_analyzer_tuning_docs_contracts_on_committed_docs(self) -> None:
         validate_docs_contracts.validate_analyzer_tuning_tokens_contract()
         validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs()
         validate_docs_contracts.validate_analyzer_override_paths_contract()
 
+    # TT-TEST: M01 primary
     def test_worker_normalized_executor_option_is_a_valid_documented_path(self) -> None:
         self.assertIn(
             "executor.min_runnable_queue_per_worker_p95_milli_for_signal",
             validate_docs_contracts.ANALYZER_V1_VALID_PATHS,
         )
 
+    # TT-TEST: M01 primary
     def test_analyzer_no_root_level_docs_rejects_root_level_table_header(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -580,12 +653,14 @@ Ignore file names like docs/operations.md, foo.bar, and include queuing.trigger_
                 with self.assertRaisesRegex(ValueError, r"invalid root-level TOML header"):
                     validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs(doc_paths=(path,))
 
+    # TT-TEST: M01 primary
     def test_analyzer_no_root_level_docs_allows_namespaced_table_header(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "docs.md"
             path.write_text("[analyzer.queueing]\ntrigger_permille = 400\n", encoding="utf-8")
             validate_docs_contracts.validate_no_root_level_analyzer_toml_in_docs(doc_paths=(path,))
 
+    # TT-TEST: M01 primary
     def test_analyzer_override_paths_contract_rejects_invalid_paths(self) -> None:
         invalid_candidates = (
             "confidence.high_threshold",
@@ -605,10 +680,12 @@ Ignore file names like docs/operations.md, foo.bar, and include queuing.trigger_
                                 doc_paths=(doc,)
                             )
 
+    # TT-TEST: M01 primary
     def test_validation_ci_contract_checks_committed_workflow_and_docs(self) -> None:
         validate_docs_contracts.validate_diagnostic_benchmark_ci_contract()
         validate_docs_contracts.validate_validation_docs_ci_contract()
 
+    # TT-TEST: M01 primary
     def test_validation_ci_contract_fails_without_diagnostic_benchmark_command(self) -> None:
         workflow_text = """name: CI
 
@@ -629,6 +706,7 @@ jobs:
                     workflow_path=workflow_path
                 )
 
+    # TT-TEST: M01 primary
     def test_validation_ci_contract_fails_without_required_benchmark_args(self) -> None:
         workflow_text = """name: CI
 
@@ -651,6 +729,7 @@ jobs:
                     workflow_path=workflow_path
                 )
 
+    # TT-TEST: M01 primary
     def test_validation_ci_contract_fails_when_benchmark_step_can_continue_on_error(self) -> None:
         workflow_text = """name: CI
 
@@ -675,6 +754,7 @@ jobs:
                     workflow_path=workflow_path
                 )
 
+    # TT-TEST: M01 primary
     def test_validation_docs_contract_fails_on_stale_normal_pr_ci_wording(self) -> None:
         doc_text = """# Validation
 
@@ -692,6 +772,7 @@ Use scripts/validate_all.py --profile publish for local/manual release-readiness
                     doc_paths=(doc_path,)
                 )
 
+    # TT-TEST: M01 primary
     def test_validation_docs_contract_requires_local_scorecard_source(self) -> None:
         doc_text = """# Validation
 
@@ -708,15 +789,19 @@ Use scripts/validate_all.py --profile publish for local/manual release-readiness
                 )
 
 
+    # TT-TEST: M01 primary
     def test_cli_not_presented_as_library_analyzer_api_contract(self) -> None:
         validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
+    # TT-TEST: M01 primary
     def test_analyzer_cli_docs_split_contract(self) -> None:
         validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
+    # TT-TEST: M01 primary
     def test_capture_readmes_analyzer_cli_wording_contract(self) -> None:
         validate_docs_contracts.validate_capture_readmes_analyzer_cli_wording_contract()
 
+    # TT-TEST: M01 primary
     def test_capture_readme_wording_rejects_cli_only_stale_phrase(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -753,6 +838,7 @@ Use scripts/validate_all.py --profile publish for local/manual release-readiness
                 with self.assertRaisesRegex(ValueError, r"stale CLI-only analyzer wording"):
                     validate_docs_contracts.validate_capture_readmes_analyzer_cli_wording_contract()
 
+    # TT-TEST: M01 primary
     def test_capture_readme_requires_analyzer_and_cli_mentions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -784,6 +870,7 @@ Use scripts/validate_all.py --profile publish for local/manual release-readiness
                 with self.assertRaisesRegex(ValueError, r"must mention tailtriage-analyzer"):
                     validate_docs_contracts.validate_capture_readmes_analyzer_cli_wording_contract()
 
+    # TT-TEST: M01 primary
     def test_cli_readme_positive_when_cli_invokes_analyzer(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
@@ -814,6 +901,7 @@ CLI does not consume Report JSON as input.
             with mock.patch.object(validate_docs_contracts, "REPO_ROOT", repo_root):
                 validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
+    # TT-TEST: M01 primary
     def test_analyzer_readme_validation_fails_when_json_renderer_tokens_missing(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values with typed Report output.
@@ -839,6 +927,7 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
                 with self.assertRaisesRegex(ValueError, r"render_json"):
                     validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
+    # TT-TEST: M01 primary
     def test_cli_readme_validation_fails_without_report_vs_run_artifact_distinction(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
@@ -867,6 +956,7 @@ Rust in-process users should use tailtriage-analyzer.
                     validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
 
+    # TT-TEST: M01 primary
     def test_published_analyzer_readmes_reject_repo_relative_docs_links(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
@@ -901,6 +991,7 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
                         with self.assertRaisesRegex(ValueError, r"must not use.*\.\./docs/"):
                             validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
+    # TT-TEST: M01 primary
     def test_repository_navigation_links_to_analyzer_guide_resolve(self) -> None:
         for path in (validate_docs_contracts.README_PATH, validate_docs_contracts.DOCS_INDEX_PATH):
             with self.subTest(path=path):
@@ -909,6 +1000,7 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
                 self.assertEqual(len(guide_links), 1)
                 self.assertTrue((path.parent / guide_links[0]).resolve().is_file())
 
+    # TT-TEST: M01 primary
     def test_analyzer_readme_contract_fails_when_interpret_heading_missing(self) -> None:
         analyzer_text = """
 tailtriage-analyzer is in-process analysis for completed Run values and returns a typed Report.
@@ -937,15 +1029,19 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
                 with self.assertRaisesRegex(ValueError, r"How to interpret a report"):
                     validate_docs_contracts.validate_analyzer_cli_docs_split_contract()
 
+    # TT-TEST: M01 primary
     def test_architecture_contract(self) -> None:
         validate_docs_contracts.validate_architecture_contract()
 
+    # TT-TEST: M01 primary
     def test_docs_no_history_framing(self) -> None:
         validate_docs_contracts.validate_docs_no_history_framing()
 
+    # TT-TEST: M01 primary
     def test_user_facing_wording_has_no_facade_term(self) -> None:
         validate_docs_contracts.validate_no_user_facing_facade_wording()
 
+    # TT-TEST: M01 primary
     def test_user_facing_wording_validation_fails_when_facade_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             temp_path = Path(tmp_dir) / "README.md"
@@ -960,6 +1056,7 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
                     validate_docs_contracts.validate_no_user_facing_facade_wording()
 
 
+    # TT-TEST: M01 primary
     def test_cli_library_analyzer_api_contract_fails_on_banned_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             temp_path = Path(tmp_dir) / "README.md"
@@ -969,6 +1066,7 @@ Run artifact JSON is input; Report JSON is output; CLI does not consume Report J
                 with self.assertRaisesRegex(ValueError, r"tailtriage_cli::analyze"):
                     validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
+    # TT-TEST: M01 primary
     def test_analyzer_readme_migration_note_allows_old_token_only_in_migration_block(self) -> None:
         readme_text = """# tailtriage-analyzer
 
@@ -981,6 +1079,7 @@ use tailtriage_cli::analyze::{analyze_run, render_text};
         stripped = validate_docs_contracts._strip_allowed_analyzer_migration_note(readme_text)
         self.assertNotIn("tailtriage_cli::analyze", stripped)
 
+    # TT-TEST: M01 primary
     def test_analyzer_readme_contract_fails_on_old_token_outside_migration_note(self) -> None:
         analyzer_text = """# tailtriage-analyzer
 
@@ -1025,10 +1124,12 @@ use tailtriage_cli::analyze::{analyze_run, render_text};
                 with self.assertRaisesRegex(ValueError, r"tailtriage_cli::analyze"):
                     validate_docs_contracts.validate_cli_not_presented_as_library_analyzer_api()
 
+    # TT-TEST: M01 primary
     def test_controller_readme_does_not_use_misleading_dependency_example_flow(self) -> None:
         readme_text = validate_docs_contracts.CONTROLLER_README_PATH.read_text(encoding="utf-8")
         self.assertFalse(validate_docs_contracts.is_misleading_controller_example_flow(readme_text))
 
+    # TT-TEST: M01 primary
     def test_sampler_forge_method_detector_flags_public_methods(self) -> None:
         source = """
 impl Tailtriage {
@@ -1042,9 +1143,11 @@ impl Tailtriage {
             ["register_tokio_runtime_sampler", "runtime_sampler_stats"],
         )
 
+    # TT-TEST: M01 primary
     def test_sampler_integration_boundary_contract_validates(self) -> None:
         validate_docs_contracts.validate_sampler_integration_boundary()
 
+    # TT-TEST: M01 primary
     def test_controller_readme_toml_validation_allows_equivalent_headings(self) -> None:
         readme_text = """# tailtriage-controller
 
@@ -1107,6 +1210,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
                 validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_controller_readme_toml_validation_fails_without_field_reference_section(self) -> None:
         readme_text = """# tailtriage-controller
 
@@ -1163,6 +1267,7 @@ kind = "continue_after_limits_hit"
                 ):
                     validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_controller_readme_toml_validation_fails_when_important_tokens_missing(self) -> None:
         readme_text = """# tailtriage-controller
 
@@ -1227,6 +1332,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override
                 ):
                     validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_controller_readme_toml_validation_fails_when_expanded_example_missing_sections(self) -> None:
         readme_text = """# tailtriage-controller
 
@@ -1275,6 +1381,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
                 ):
                     validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_controller_readme_toml_validation_accepts_semantic_precedence_wording(self) -> None:
         readme_text = """# tailtriage-controller
 
@@ -1337,6 +1444,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             with mock.patch.object(validate_docs_contracts, "CONTROLLER_README_PATH", readme_path):
                 validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_controller_readme_toml_validation_fails_without_precedence_semantics(self) -> None:
         readme_text = """# tailtriage-controller
 
@@ -1397,6 +1505,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
                 with self.assertRaisesRegex(ValueError, r"precedence guidance missing semantic rule"):
                     validate_docs_contracts.validate_controller_readme_toml()
 
+    # TT-TEST: M01 primary
     def test_validate_docs_index_contract_checks_paths_not_link_labels(self) -> None:
         docs_index = """# Documentation index
 
@@ -1435,6 +1544,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             ):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract_accepts_normalized_fragments_and_schemes(self) -> None:
         docs_index = """# Documentation index
 
@@ -1472,6 +1582,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             ):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract_rejects_required_markdown_omitted_from_index(self) -> None:
         docs_index = """# Documentation index
 
@@ -1500,6 +1611,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             ):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract_excludes_developer_docs_by_directory(self) -> None:
         docs_index = """# Documentation index
 
@@ -1526,6 +1638,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             ):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract_rejects_dead_local_markdown_target(self) -> None:
         docs_index = """# Documentation index
 
@@ -1555,6 +1668,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             ):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract_checks_deliberate_developer_doc_link(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)
@@ -1580,6 +1694,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             ):
                 validate_docs_contracts.validate_docs_index_contract()
 
+    # TT-TEST: M01 primary
     def test_moved_developer_contract_paths_are_canonical(self) -> None:
         self.assertEqual(
             validate_docs_contracts.DESIGN_NOTES_PATH,
@@ -1594,6 +1709,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
             validate_docs_contracts.RUN_SCHEMA_CURRENT_CLAIM_PATHS,
         )
 
+    # TT-TEST: M01 primary
     def test_docs_index_contract_rejects_repository_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             workspace = Path(tmp_dir)
@@ -1613,6 +1729,7 @@ service_name initially_enabled mode strict_lifecycle capture_limits_override max
                 validate_docs_contracts.validate_docs_index_contract()
 
 
+    # TT-TEST: M01 primary
     def test_tracing_readme_migration_section_contract_rejects_duplicate_sentence(self) -> None:
         readme_text = """# README
 
@@ -1632,6 +1749,7 @@ Use `TracingSession` as the sole current live entry point for capture-to-Run wor
                 with self.assertRaisesRegex(ValueError, r"duplicated TracingSession"):
                     validate_docs_contracts.validate_tracing_readme_migration_section_contract()
 
+    # TT-TEST: M01 primary
     def test_tracing_readme_migration_section_contract_requires_one_heading(self) -> None:
         readme_text = """# README
 
@@ -1654,6 +1772,7 @@ Duplicate.
                     validate_docs_contracts.validate_tracing_readme_migration_section_contract()
 
 
+    # TT-TEST: Z02 primary
     def test_manual_release_boundary_accepts_non_mutating_automation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -1693,6 +1812,7 @@ jobs:
                     workflow_paths=(workflow,), release_script_paths=(script,)
                 )
 
+    # TT-TEST: Z02 primary
     def test_manual_release_boundary_rejects_executable_release_script_mutation(self) -> None:
         prohibited_cases = {
             "cargo publish": ('command(["cargo", "publish", "--locked"])\n', "cargo publish"),
@@ -1716,6 +1836,7 @@ jobs:
                         workflow_paths=(), release_script_paths=(script,)
                     )
 
+    # TT-TEST: Z02 primary
     def test_manual_release_boundary_rejects_workflow_mutation_commands(self) -> None:
         prohibited_cases = {
             "cargo publish": ("cargo publish --locked", "cargo publish"),
@@ -1744,6 +1865,7 @@ jobs:
                         workflow_paths=(workflow,), release_script_paths=()
                     )
 
+    # TT-TEST: Z02 primary
     def test_manual_release_boundary_rejects_release_actions_and_credentials(self) -> None:
         prohibited_cases = {
             "release action": (
@@ -1773,6 +1895,7 @@ jobs:
                         workflow_paths=(workflow,), release_script_paths=()
                     )
 
+    # TT-TEST: Z02 primary
     def test_manual_release_boundary_rejects_contents_write_permissions(self) -> None:
         prohibited_cases = {
             "workflow": "permissions:\n  contents: write\njobs: {}\n",
@@ -1828,6 +1951,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
             if missing not in expected:
                 self.assertNotIn(missing, message)
 
+    # TT-TEST: support
     def test_checkpoint_contract_accepts_current_canonical_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "canonical.md"
@@ -1837,6 +1961,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                     markdown_paths=(path,), canonical_paths=(path,)
                 )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_obsolete_analyzer_phrase_with_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "README.md"
@@ -1849,6 +1974,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                     markdown_paths=(path,), canonical_paths=()
                 )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_misleading_cancellation_case_insensitively(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "docs" / "operations.md"
@@ -1862,6 +1988,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                     markdown_paths=(path,), canonical_paths=()
                 )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_missing_schema_token(self) -> None:
         body = self.canonical_checkpoint_body().replace(
             "Run JSON schema version 2 uses `metadata.finalized_at_unix_ms` as the sole run-level finalization timestamp; this is `RunMetadata::finalized_at_unix_ms` in Rust. Active snapshots have `None`, finalized Runs have `Some(timestamp)`, and Event-level completion timestamps remain unchanged.\n",
@@ -1880,6 +2007,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                 "SPEC.md missing checkpoint contract tokens for schema v2 finalization",
             )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_missing_request_cancellation_distinction(self) -> None:
         body = self.canonical_checkpoint_body().replace(
             "Dropping an admitted request-completion token while capture is open records one request outcome `cancelled`; that Drop does not itself fabricate child evidence; an independently polled-and-dropped queue/stage helper records one bounded partial child event; a queue/stage helper that was polled and then dropped while capture remains open records one bounded partial child event; tracing spans remain completed-only; late Drop after finalization is inert.\n",
@@ -1898,6 +2026,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                 "SPEC.md missing checkpoint contract tokens for request cancellation versus partial child Drop",
             )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_missing_overlap_safe_attribution(self) -> None:
         body = self.canonical_checkpoint_body().replace(
             "Overlap-safe queue and same-name stage attribution use request-scoped bounded attribution and do not double-count overlap.\n",
@@ -1917,6 +2046,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                 "docs/operations.md missing checkpoint contract tokens for overlap-safe attribution",
             )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_missing_partial_lower_bound_token(self) -> None:
         body = self.canonical_checkpoint_body().replace(
             "Completed queue/stage distributions exclude partial observations.\nPartial durations are an observed lower bound.\nMaterially partial-reliant queue/stage candidates cannot exceed medium confidence.\n",
@@ -1936,6 +2066,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                 "docs/operations.md missing checkpoint contract tokens for partial lower-bound interpretation",
             )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_missing_completed_only_tracing(self) -> None:
         body = self.canonical_checkpoint_body().replace(
             "Tracing intake remains completed-only.\n",
@@ -1954,6 +2085,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                 "SPEC.md missing checkpoint contract tokens for completed-only tracing",
             )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_missing_confidence_first_ordering_token(self) -> None:
         body = self.canonical_checkpoint_body().replace(
             "The deterministic order is final confidence descending, then raw score descending, then stable suspect-kind rank, with InsufficientEvidence last.\n",
@@ -1972,6 +2104,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                 "SPEC.md missing checkpoint contract tokens for confidence-first ordering",
             )
 
+    # TT-TEST: support
     def test_checkpoint_contract_rejects_missing_ambiguity_cluster_cap(self) -> None:
         body = self.canonical_checkpoint_body().replace(
             "Raw-score proximity controls ambiguity membership, and ambiguity-cluster members are capped uniformly.\n",
@@ -1991,6 +2124,7 @@ Raw-score proximity controls ambiguity membership, and ambiguity-cluster members
                 "docs/operations.md missing checkpoint contract tokens for ambiguity cluster cap",
             )
 
+    # TT-TEST: support
     def test_checkpoint_contract_scans_tracked_markdown_repository_wide(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)

@@ -86,12 +86,16 @@ mod tests {
         attributed.duration_us
     }
 
+    // TT-TEST: support
+
     #[test]
     fn empty_intervals_are_precise_zero() {
         let attributed = attributed_elapsed_duration(&[], 100);
         assert_eq!(attributed.mode, AttributionMode::Precise);
         assert_eq!(attributed.duration_us, 0);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn nonempty_imprecise_input_with_zero_cap_is_approximate_zero() {
@@ -106,6 +110,8 @@ mod tests {
         assert_eq!(attributed.duration_us, 0);
         assert_eq!(attributed.mode, AttributionMode::Approximate);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn approximate_fallback_sums_all_authoritative_durations_before_cap() {
@@ -127,40 +133,56 @@ mod tests {
         assert_eq!(attributed.mode, AttributionMode::Approximate);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn one_interval() {
         assert_eq!(precise_duration(&[(10, 40)], 100), 30);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn disjoint_intervals_sum_covered_time() {
         assert_eq!(precise_duration(&[(0, 20), (40, 70)], 100), 50);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn touching_intervals_are_merged() {
         assert_eq!(precise_duration(&[(0, 20), (20, 50)], 100), 50);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn nested_intervals_do_not_inflate_time() {
         assert_eq!(precise_duration(&[(0, 80), (20, 40)], 100), 80);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn partially_overlapping_intervals_are_union_attributed() {
         assert_eq!(precise_duration(&[(0, 60), (40, 90)], 100), 90);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn exact_duplicate_intervals_count_once() {
         assert_eq!(precise_duration(&[(0, 60), (0, 60)], 100), 60);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn unsorted_input_is_sorted_before_union() {
         assert_eq!(precise_duration(&[(50, 90), (0, 20), (15, 30)], 100), 70);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn zero_length_intervals_do_not_add_time() {

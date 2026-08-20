@@ -631,12 +631,16 @@ mod tests {
     use tailtriage_core::{Outcome, RequestEvent, Run, RunBuilder, RunBuilderOptions};
     use tailtriage_tracing::ImportedRun;
 
+    // TT-TEST: support
+
     #[test]
     fn demo_args_default_instrumentation_is_native() {
         let args = parse_demo_args_from(&["out.json".to_string()], "ignored").expect("parse args");
         assert_eq!(args.mode, DemoMode::Baseline);
         assert_eq!(args.instrumentation, InstrumentationMode::Native);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn demo_args_explicit_native_instrumentation() {
@@ -652,6 +656,8 @@ mod tests {
         assert_eq!(args.instrumentation, InstrumentationMode::Native);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn demo_args_explicit_tracing_instrumentation() {
         let args = parse_demo_args_from(
@@ -665,6 +671,8 @@ mod tests {
         .expect("parse args");
         assert_eq!(args.instrumentation, InstrumentationMode::Tracing);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn demo_args_unsupported_instrumentation_errors() {
@@ -680,6 +688,8 @@ mod tests {
         assert!(err.to_string().contains("unsupported instrumentation"));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn demo_args_old_positional_mode_aliases_still_work() {
         let before_args =
@@ -693,11 +703,15 @@ mod tests {
         assert_eq!(after_args.mode, DemoMode::Mitigated);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn outcome_other_preserves_custom_label() {
         let outcome = Outcome::Other("custom".to_string());
         assert_eq!(outcome.as_str(), "custom");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn tracing_shutdown_writer_rejects_zero_requests_without_writing() {
@@ -708,6 +722,8 @@ mod tests {
         assert!(err.to_string().contains("zero request events"));
         assert!(!output.exists());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn tracing_shutdown_writer_persists_non_empty_run_json() {

@@ -1,3 +1,4 @@
+// TT-TEST: support
 #[cfg(feature = "tracing-live")]
 #[test]
 fn tracing_live_facade_exposes_builder_layer_snapshot_and_async_shutdown() {
@@ -14,6 +15,7 @@ fn tracing_live_facade_exposes_builder_layer_snapshot_and_async_shutdown() {
     assert_eq!(final_run.run().metadata.service_name, "svc");
 }
 
+// TT-TEST: support
 #[cfg(feature = "tracing-tokio")]
 #[tokio::test(flavor = "current_thread")]
 async fn tracing_tokio_facade_exposes_runtime_methods_and_async_shutdown() {
@@ -62,6 +64,7 @@ async fn tracing_tokio_facade_exposes_runtime_methods_and_async_shutdown() {
         .any(|snapshot| snapshot.at_unix_ms == 88 && snapshot.alive_tasks == Some(12)));
 }
 
+// TT-TEST: support
 #[cfg(feature = "tracing")]
 #[test]
 fn tracing_facade_exposes_stable_jsonl_reader_and_path_imports() {

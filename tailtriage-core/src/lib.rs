@@ -107,6 +107,8 @@ pub mod __internal {
     mod tests {
         use super::escape_control_chars;
 
+        // TT-TEST: S04 primary
+
         #[test]
         fn human_text_escaping_preserves_the_internal_integration_contract() {
             let input = "plain\\slash café 東京\n\r\t\u{1b}\u{7}\u{8}\u{7f}\u{85}";
@@ -122,6 +124,5 @@ pub mod __internal {
     }
 }
 
-// TT-INVARIANT: S04 primary
 #[cfg(test)]
 mod tests;

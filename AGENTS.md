@@ -326,13 +326,15 @@ Before considering a task done, run:
 ## Invariant-proof maintenance
 
 `docs/dev/INVARIANT_PROOF_MATRIX.md` owns stable invariant semantics and proof-boundary
-classification; adjacent `TT-INVARIANT` comments own exact executable proof linkage. When changing
-an intentionally owning test or check, update its marker in the same change. Add, remove, or rename
-an invariant ID in the registry and markers together. When a material release or security contract
-gains durable proof, add a stable invariant rather than hiding it under an unrelated row. Ordinary
-helper tests need no markers: semantic proof matters, not global test, file, target, or module
-counts. Volatile audit SHAs, counts, and timings do not belong in living docs unless mechanically
-owned and materially useful; historical measurements belong in review or release evidence.
+classification. Every repository-owned Rust and Python test must carry an adjacent `TT-TEST`
+classification. Primary and secondary proof classifications use stable registry IDs; tests that
+do not own a stable invariant use `TT-TEST: support`. File-, module-, and class-level markers do
+not count. Add or move a test with its classification in the same change, and add, remove, or
+rename an invariant ID together with its concrete test markers. Ordinary support coverage must
+not cause fake invariants to be created. Run `python3 scripts/validate_invariant_proofs.py` before
+considering work complete. Volatile audit SHAs, counts, and timings do not belong in living docs
+unless mechanically owned and materially useful; historical measurements belong in review or
+release evidence.
 
 If a task touches benchmarks or performance-sensitive code, also include:
 

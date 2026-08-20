@@ -11,6 +11,7 @@ class ValidateAllTests(unittest.TestCase):
     def args(self, profile="smoke"):
         return SimpleNamespace(profile=profile, out=f"target/validation/{profile}", runs=1, profile_mode="dev", skip_cargo=False, no_fail_thresholds=False, python="python3")
 
+    # TT-TEST: support
     def test_smoke_plan(self):
         plan = va.build_plan(self.args("smoke"))
         names = " ".join(c.name for c in plan)
@@ -21,6 +22,7 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("runtime-cost smoke", names)
         self.assertIn("collector-limits smoke", names)
 
+    # TT-TEST: support
     def test_ci_plan_has_tests(self):
         plan = va.build_plan(self.args("ci"))
         joined = "\n".join(" ".join(c.argv) for c in plan)
@@ -31,18 +33,21 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("scripts.tests.test_validate_docs_contracts", joined)
         self.assertIn("scripts.tests.test_validate_invariant_proofs", joined)
 
+    # TT-TEST: support
     def test_every_profile_validates_invariant_linkage(self):
         for profile in ("smoke", "ci", "full", "publish"):
             with self.subTest(profile=profile):
                 joined = "\n".join(" ".join(c.argv) for c in va.build_plan(self.args(profile)))
                 self.assertIn("python3 scripts/validate_invariant_proofs.py", joined)
 
+    # TT-TEST: support
     def test_helper_test_profiles_run_invariant_linkage_tests(self):
         for profile in ("ci", "full", "publish"):
             with self.subTest(profile=profile):
                 joined = "\n".join(" ".join(c.argv) for c in va.build_plan(self.args(profile)))
                 self.assertIn("scripts.tests.test_validate_invariant_proofs", joined)
 
+    # TT-TEST: support
     def test_ci_plan_deterministic_benchmark_uses_ci_thresholds(self):
         plan = va.build_plan(self.args("ci"))
         benchmark = next(
@@ -67,6 +72,7 @@ class ValidateAllTests(unittest.TestCase):
             "0",
         )
 
+    # TT-TEST: support
     def test_full_includes_live_tracks(self):
         a = self.args("full"); a.runs = 7
         plan = va.build_plan(a)
@@ -88,6 +94,7 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("--runs", collector_limits.argv)
         self.assertIn("7", collector_limits.argv)
 
+    # TT-TEST: support
     def test_publish_has_separate_operational_tracks(self):
         plan = va.build_plan(self.args("publish"))
         names = [c.name for c in plan]
@@ -95,6 +102,7 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("collector-limits full", names)
         self.assertNotIn("operational full", names)
 
+    # TT-TEST: support
     def test_operational_commands_include_artifact_root(self):
         for profile in ("smoke", "full", "publish"):
             a = self.args(profile)
@@ -107,10 +115,12 @@ class ValidateAllTests(unittest.TestCase):
                 self.assertIn("--artifact-root", joined)
                 self.assertIn(expected, joined)
 
+    # TT-TEST: support
     def test_publish_default_dir(self):
         p = va.derive_publish_dir()
         self.assertIn("validation/artifacts", str(p))
 
+    # TT-TEST: support
     def test_cargo_baseline_matches_ci_flags(self):
         a = self.args("smoke")
         cargo = {c.name: c.argv for c in va.build_plan(a) if c.track == "cargo"}
@@ -141,18 +151,21 @@ class ValidateAllTests(unittest.TestCase):
             ],
         )
 
+    # TT-TEST: support
     def test_skip_cargo(self):
         a = self.args("ci")
         self.assertTrue(any(c.track == "cargo" for c in va.build_plan(a)))
         a.skip_cargo = True
         self.assertFalse(any(c.track == "cargo" for c in va.build_plan(a)))
 
+    # TT-TEST: support
     def test_profile_mode_propagates(self):
         a = self.args("smoke"); a.profile_mode = "release"
         plan = va.build_plan(a)
         joined = "\n".join(" ".join(c.argv) for c in plan)
         self.assertIn("--profile release", joined)
 
+    # TT-TEST: support
     def test_summary_and_logs(self):
         spec_ok = va.CommandSpec("ok", "runtime_cost", ["echo", "ok"])
         spec_bad = va.CommandSpec("bad", "collector_limits", ["false"])
@@ -173,6 +186,7 @@ class ValidateAllTests(unittest.TestCase):
             va.write_scorecard(sc, s)
             self.assertIn("Tailtriage validation scorecard", sc.read_text())
 
+    # TT-TEST: support
     def test_environment_best_effort(self):
         env = va.collect_environment("dev")
         self.assertIn("schema_version", env)

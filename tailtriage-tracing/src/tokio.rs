@@ -126,6 +126,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn merge_runtime_data_preserves_active_input_lifecycle() {
         let imported = ImportedRun::new(base_run(100, None), Vec::new());
@@ -150,6 +152,8 @@ mod tests {
         assert_eq!(run.runtime_snapshots[0].at_run_us, None);
         assert_eq!(run.runtime_snapshots[0].worker_count, Some(3));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn merge_runtime_data_preserves_finalized_input_lifecycle() {

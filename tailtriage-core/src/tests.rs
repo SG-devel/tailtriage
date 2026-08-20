@@ -1,16 +1,3 @@
-// TT-INVARIANT: C01 primary
-// TT-INVARIANT: C02 primary
-// TT-INVARIANT: C03 primary
-// TT-INVARIANT: C04 primary
-// TT-INVARIANT: C05 primary
-// TT-INVARIANT: C06 primary
-// TT-INVARIANT: C07 primary
-// TT-INVARIANT: C08 primary
-// TT-INVARIANT: V01 primary
-// TT-INVARIANT: V02 primary
-// TT-INVARIANT: V04 primary
-// TT-INVARIANT: K01 primary
-// TT-INVARIANT: K02 primary
 use std::future::ready;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
@@ -40,6 +27,7 @@ fn build_for_test(name: &str, filename: &str) -> Tailtriage {
         .expect("build should succeed")
 }
 
+// TT-TEST: support
 #[test]
 fn rejects_blank_service_name() {
     let err = Tailtriage::builder("   ")
@@ -48,6 +36,7 @@ fn rejects_blank_service_name() {
     assert_eq!(err, BuildError::EmptyServiceName);
 }
 
+// TT-TEST: C01 primary
 #[test]
 fn started_request_records_request_event() {
     let tailtriage = build_for_test("payments", "tailtriage-core-request.json");
@@ -70,6 +59,7 @@ fn started_request_records_request_event() {
     assert_eq!(snapshot.stages.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn generated_request_ids_are_unique() {
     let tailtriage = build_for_test("payments", "tailtriage-core-generated-id.json");
@@ -80,6 +70,7 @@ fn generated_request_ids_are_unique() {
     second.completion.finish_ok();
 }
 
+// TT-TEST: support
 #[test]
 fn generated_default_run_ids_are_unique() {
     let first = Tailtriage::builder("payments")
@@ -95,6 +86,7 @@ fn generated_default_run_ids_are_unique() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn active_snapshot_has_no_finalization_timestamp() {
     let tailtriage = Tailtriage::builder("payments")
@@ -110,6 +102,7 @@ fn active_snapshot_has_no_finalization_timestamp() {
     assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
 }
 
+// TT-TEST: C08 primary
 #[test]
 fn serialized_completed_run_uses_schema_v2_finalization_shape() {
     let run = crate::RunBuilder::new(
@@ -131,6 +124,7 @@ fn serialized_completed_run_uses_schema_v2_finalization_shape() {
     );
 }
 
+// TT-TEST: V04 primary
 #[test]
 fn runtime_snapshot_worker_count_serde_is_optional_and_schema_v2_compatible() {
     let json = r#"{"schema_version":2,"metadata":{"run_id":"r","service_name":"s","started_at_unix_ms":1,"finalized_at_unix_ms":2,"mode":"light"},"requests":[],"stages":[],"queues":[],"inflight":[],"runtime_snapshots":[{"at_unix_ms":1,"at_run_us":null,"alive_tasks":1,"global_queue_depth":0,"local_queue_depth":null,"blocking_queue_depth":null,"remote_schedule_count":null}]}"#;
@@ -150,6 +144,7 @@ fn runtime_snapshot_worker_count_serde_is_optional_and_schema_v2_compatible() {
     assert_eq!(round_trip.runtime_snapshots[0].worker_count, Some(4));
 }
 
+// TT-TEST: support
 #[test]
 fn serialized_run_has_no_metadata_finished_at_unix_ms() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
@@ -159,6 +154,7 @@ fn serialized_run_has_no_metadata_finished_at_unix_ms() {
     assert!(serialized["metadata"].get("finished_at_unix_ms").is_none());
 }
 
+// TT-TEST: support
 #[test]
 fn explicit_run_id_is_preserved() {
     let run = Tailtriage::builder("payments")
@@ -169,6 +165,7 @@ fn explicit_run_id_is_preserved() {
     assert_eq!(run.snapshot().metadata.run_id, "user-supplied-run-id");
 }
 
+// TT-TEST: support
 #[test]
 fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
     let tailtriage = build_for_test("payments", "tailtriage-core-duplicate-explicit-id.json");
@@ -193,6 +190,7 @@ fn duplicate_explicit_request_ids_are_tracked_and_finished_independently() {
         .all(|warning| !warning.contains("duplicate_completed_request_id")));
 }
 
+// TT-TEST: support
 #[test]
 fn generated_request_ids_remain_warning_free_after_completion() {
     let tailtriage = build_for_test("payments", "tailtriage-core-generated-id-no-warning.json");
@@ -215,6 +213,7 @@ fn generated_request_ids_remain_warning_free_after_completion() {
         .all(|warning| !warning.contains("duplicate completed request_id")));
 }
 
+// TT-TEST: support
 #[test]
 fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
     let sink = Arc::new(RecordingSink::default());
@@ -250,6 +249,7 @@ fn duplicate_explicit_request_id_warning_is_persisted_on_shutdown() {
     assert!(finalized >= written.metadata.started_at_unix_ms);
 }
 
+// TT-TEST: support
 #[test]
 fn active_snapshot_preserves_pending_request_child_evidence_without_lifecycle_normalization() {
     let tailtriage = build_for_test(
@@ -287,6 +287,7 @@ fn active_snapshot_preserves_pending_request_child_evidence_without_lifecycle_no
     assert_eq!(completed.queues[0].request_id, "req-active");
 }
 
+// TT-TEST: C06 primary
 #[test]
 fn shutdown_normalizes_unfinished_request_children_without_fabricating_completion() {
     let sink = Arc::new(RecordingSink::default());
@@ -334,6 +335,7 @@ fn shutdown_normalizes_unfinished_request_children_without_fabricating_completio
     }));
 }
 
+// TT-TEST: support
 #[test]
 fn queue_stage_and_inflight_are_recorded() {
     let tailtriage = build_for_test("payments", "tailtriage-core-timers.json");
@@ -358,6 +360,7 @@ fn queue_stage_and_inflight_are_recorded() {
     assert_eq!(snapshot.stages.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn request_stage_and_queue_timing_preserves_order_after_sleep() {
     let tailtriage = build_for_test("payments", "tailtriage-core-sleep-timing.json");
@@ -415,6 +418,7 @@ fn request_stage_and_queue_timing_preserves_order_after_sleep() {
     assert!(queue.wait_us > 0);
 }
 
+// TT-TEST: support
 #[test]
 fn unfinished_requests_still_trigger_strict_lifecycle_errors() {
     let sink = Arc::new(RecordingSink::default());
@@ -443,6 +447,7 @@ fn unfinished_requests_still_trigger_strict_lifecycle_errors() {
     );
 }
 
+// TT-TEST: C08 primary
 #[test]
 fn shutdown_sets_one_finalization_timestamp() {
     let output = std::env::temp_dir().join("tailtriage-core-shutdown.json");
@@ -487,6 +492,7 @@ fn shutdown_sets_one_finalization_timestamp() {
     assert!(typed_finalized >= run.metadata.started_at_unix_ms);
 }
 
+// TT-TEST: support
 #[test]
 fn shutdown_with_discard_sink_succeeds() {
     let tailtriage = Tailtriage::builder("payments")
@@ -497,6 +503,7 @@ fn shutdown_with_discard_sink_succeeds() {
     tailtriage.shutdown().expect("shutdown should succeed");
 }
 
+// TT-TEST: support
 #[test]
 fn memory_sink_stores_finalized_run_after_shutdown() {
     let sink = MemorySink::new();
@@ -512,6 +519,7 @@ fn memory_sink_stores_finalized_run_after_shutdown() {
     assert_eq!(run.requests.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn memory_sink_last_run_returns_clone_without_clearing() {
     let sink = MemorySink::new();
@@ -527,6 +535,7 @@ fn memory_sink_last_run_returns_clone_without_clearing() {
     assert_eq!(first, second);
 }
 
+// TT-TEST: support
 #[test]
 fn memory_sink_take_run_returns_and_clears() {
     let sink = MemorySink::new();
@@ -539,6 +548,7 @@ fn memory_sink_take_run_returns_and_clears() {
     assert!(sink.last_run().is_none(), "take should clear stored run");
 }
 
+// TT-TEST: support
 #[test]
 fn memory_sink_clear_removes_stored_run() {
     let sink = MemorySink::new();
@@ -551,6 +561,7 @@ fn memory_sink_clear_removes_stored_run() {
     assert!(sink.last_run().is_none());
 }
 
+// TT-TEST: support
 #[test]
 fn memory_sink_clone_handle_observes_builder_write() {
     let sink = MemorySink::new();
@@ -568,6 +579,7 @@ fn memory_sink_clone_handle_observes_builder_write() {
     );
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn capture_limits_apply_to_all_sections() {
     let limits = CaptureLimits {
@@ -625,6 +637,7 @@ fn capture_limits_apply_to_all_sections() {
     assert_eq!(snapshot.runtime_snapshots.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn mode_defaults_differ_between_light_and_investigation() {
     assert_ne!(
@@ -633,6 +646,7 @@ fn mode_defaults_differ_between_light_and_investigation() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn capture_limits_remains_full_override() {
     let full_override = CaptureLimits {
@@ -658,6 +672,7 @@ fn capture_limits_remains_full_override() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn capture_limits_override_applies_selected_fields_on_mode_defaults() {
     let tailtriage = Tailtriage::builder("payments")
@@ -676,6 +691,7 @@ fn capture_limits_override_applies_selected_fields_on_mode_defaults() {
     assert_eq!(tailtriage.effective_core_config().capture_limits, expected);
 }
 
+// TT-TEST: support
 #[test]
 fn strict_lifecycle_is_unchanged_by_mode() {
     let light = Tailtriage::builder("payments")
@@ -693,6 +709,7 @@ fn strict_lifecycle_is_unchanged_by_mode() {
     assert!(investigation.effective_core_config().strict_lifecycle);
 }
 
+// TT-TEST: support
 #[test]
 fn selected_mode_and_effective_config_are_preserved_in_metadata() {
     let tailtriage = Tailtriage::builder("payments")
@@ -722,6 +739,7 @@ fn selected_mode_and_effective_config_are_preserved_in_metadata() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn runtime_sampler_registration_is_single_start_and_metadata_cannot_be_overwritten() {
     let tailtriage = Tailtriage::builder("payments")
@@ -757,6 +775,7 @@ fn runtime_sampler_registration_is_single_start_and_metadata_cannot_be_overwritt
     );
 }
 
+// TT-TEST: support
 #[test]
 fn limit_hit_flag_is_set_when_truncation_occurs() {
     let tailtriage = Tailtriage::builder("payments")
@@ -778,6 +797,7 @@ fn limit_hit_flag_is_set_when_truncation_occurs() {
     assert!(snapshot.truncation.dropped_requests > 0);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn saturation_preserves_exact_drop_counts_across_sections() {
     let tailtriage = Tailtriage::builder("payments")
@@ -839,6 +859,7 @@ fn saturation_preserves_exact_drop_counts_across_sections() {
     assert_eq!(snapshot.truncation.dropped_runtime_snapshots, 2);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn request_admission_bounds_retained_plus_pending_and_makes_refused_children_inert() {
     let tailtriage = Tailtriage::builder("request-admission-bound")
@@ -888,6 +909,7 @@ fn request_admission_bounds_retained_plus_pending_and_makes_refused_children_ine
     assert!(run.truncation.limits_hit);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn shutdown_counts_only_admitted_pending_requests_after_saturation() {
     let sink = MemorySink::new();
@@ -923,6 +945,7 @@ fn shutdown_counts_only_admitted_pending_requests_after_saturation() {
     drop(refused.completion);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn concurrent_request_admission_cannot_exceed_retained_plus_pending_limit() {
     const CALLERS: usize = 8;
@@ -964,6 +987,7 @@ fn concurrent_request_admission_cannot_exceed_retained_plus_pending_limit() {
     assert!(run.truncation.limits_hit);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn shutdown_artifact_includes_post_saturation_drops() {
     let sink = Arc::new(RecordingSink::default());
@@ -1027,6 +1051,7 @@ fn shutdown_artifact_includes_post_saturation_drops() {
     assert_eq!(artifact.truncation.dropped_runtime_snapshots, 2);
 }
 
+// TT-TEST: support
 #[test]
 fn unsaturated_runs_keep_zero_truncation_counters() {
     let tailtriage = Tailtriage::builder("payments")
@@ -1068,6 +1093,7 @@ fn unsaturated_runs_keep_zero_truncation_counters() {
     assert_eq!(snapshot.truncation.dropped_runtime_snapshots, 0);
 }
 
+// TT-TEST: support
 #[test]
 fn mode_does_not_change_event_types_or_lifecycle_shape() {
     let light = Tailtriage::builder("payments")
@@ -1104,6 +1130,7 @@ fn mode_does_not_change_event_types_or_lifecycle_shape() {
     assert_eq!(investigation_snapshot.stages.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn schema_v2_artifact_without_effective_core_config_deserializes_as_unknown() {
     let legacy = serde_json::json!({
@@ -1184,6 +1211,7 @@ fn schema_v2_artifact_without_effective_core_config_deserializes_as_unknown() {
     assert_eq!(parsed.runtime_snapshots[0].at_run_us, None);
 }
 
+// TT-TEST: support
 #[test]
 fn run_deserialization_ignores_unknown_metadata_fields() {
     let with_extra = serde_json::json!({
@@ -1257,6 +1285,7 @@ fn run_deserialization_ignores_unknown_metadata_fields() {
     assert_eq!(parsed.metadata.finalized_at_unix_ms, Some(2));
 }
 
+// TT-TEST: C01 primary
 #[test]
 fn finish_records_outcome() {
     let tailtriage = build_for_test("payments", "tailtriage-core-finish.json");
@@ -1270,6 +1299,7 @@ fn finish_records_outcome() {
     assert_eq!(snapshot.requests[0].outcome, "ok");
 }
 
+// TT-TEST: support
 #[test]
 fn finish_result_maps_result_to_request_outcome() {
     let tailtriage = build_for_test("payments", "tailtriage-core-finish-result.json");
@@ -1294,6 +1324,7 @@ fn finish_result_maps_result_to_request_outcome() {
     assert_eq!(snapshot.requests[1].outcome, "error");
 }
 
+// TT-TEST: C02 primary
 #[test]
 fn owned_started_request_maps_result_to_request_outcome() {
     let tailtriage = Arc::new(build_for_test(
@@ -1331,6 +1362,7 @@ async fn stage_in_helper_layer(
         .await
 }
 
+// TT-TEST: C02 primary
 #[test]
 fn request_handle_supports_fractured_code_usage() {
     let tailtriage = build_for_test("payments", "tailtriage-core-fractured.json");
@@ -1355,6 +1387,7 @@ fn request_handle_supports_fractured_code_usage() {
     assert_eq!(snapshot.queues.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn shutdown_warns_with_unfinished_requests() {
     let tailtriage = build_for_test("payments", "tailtriage-core-unfinished.json");
@@ -1370,6 +1403,7 @@ fn shutdown_warns_with_unfinished_requests() {
     assert!(!snapshot.metadata.lifecycle_warnings.is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn strict_lifecycle_fails_shutdown_with_unfinished_requests() {
     let tailtriage = Tailtriage::builder("payments")
@@ -1388,6 +1422,7 @@ fn strict_lifecycle_fails_shutdown_with_unfinished_requests() {
     ));
 }
 
+// TT-TEST: support
 #[test]
 fn custom_sink_receives_shutdown_run() {
     let sink = Arc::new(RecordingSink::default());
@@ -1411,6 +1446,7 @@ fn custom_sink_receives_shutdown_run() {
     assert_eq!(stored.requests.len(), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn dropping_unfinished_completion_records_cancelled_without_panic() {
     let tailtriage = build_for_test("payments", "tailtriage-core-drop-unfinished.json");
@@ -1426,6 +1462,7 @@ fn dropping_unfinished_completion_records_cancelled_without_panic() {
     assert_eq!(snapshot.requests[0].outcome, "cancelled");
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_creates_empty_run_with_explicit_metadata() {
     let limits = CaptureLimits {
@@ -1488,12 +1525,14 @@ fn run_builder_creates_empty_run_with_explicit_metadata() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_rejects_blank_service_name() {
     let err = crate::RunBuilder::new(crate::RunBuilderOptions::new("  ")).expect_err("should fail");
     assert_eq!(err, BuildError::EmptyServiceName);
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_default_run_ids_are_unique() {
     let first = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
@@ -1505,6 +1544,7 @@ fn run_builder_default_run_ids_are_unique() {
     assert_ne!(first.metadata.run_id, second.metadata.run_id);
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_defaults_host_and_pid_to_none() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
@@ -1514,6 +1554,7 @@ fn run_builder_defaults_host_and_pid_to_none() {
     assert!(run.metadata.pid.is_none());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_defaults_start_and_finalization_from_one_timestamp() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
@@ -1525,6 +1566,7 @@ fn run_builder_defaults_start_and_finalization_from_one_timestamp() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_preserves_explicit_start_and_finalization() {
     let run = crate::RunBuilder::new(
@@ -1538,6 +1580,7 @@ fn run_builder_preserves_explicit_start_and_finalization() {
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(777));
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_preserves_explicit_start_with_default_finalization() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").started_at_unix_ms(100))
@@ -1546,6 +1589,7 @@ fn run_builder_preserves_explicit_start_with_default_finalization() {
     assert!(run.metadata.finalized_at_unix_ms.expect("finalized") >= 100);
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_preserves_explicit_finalization_with_default_start() {
     let run =
@@ -1555,6 +1599,7 @@ fn run_builder_preserves_explicit_finalization_with_default_start() {
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(u64::MAX));
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_allows_equal_timestamp_bounds() {
     let run = crate::RunBuilder::new(
@@ -1569,6 +1614,7 @@ fn run_builder_allows_equal_timestamp_bounds() {
     assert_eq!(run.metadata.finalized_at_unix_ms, Some(100));
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_rejects_finalization_before_start() {
     let err = crate::RunBuilder::new(
@@ -1587,6 +1633,7 @@ fn run_builder_rejects_finalization_before_start() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_default_timestamps_produce_valid_finalized_run() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc"))
@@ -1599,6 +1646,7 @@ fn run_builder_default_timestamps_produce_valid_finalized_run() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_strict_lifecycle_in_effective_core_config() {
     let run = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc").strict_lifecycle(true))
@@ -1612,6 +1660,7 @@ fn run_builder_strict_lifecycle_in_effective_core_config() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_set_run_end_reason_if_absent_only_sets_once() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -1624,6 +1673,7 @@ fn run_builder_set_run_end_reason_if_absent_only_sets_once() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_preserves_lifecycle_warnings() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -1636,6 +1686,7 @@ fn run_builder_preserves_lifecycle_warnings() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_preserves_unfinished_requests() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -1693,6 +1744,7 @@ fn test_queue_event(request_id: &str, queue: &str) -> crate::QueueEvent {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_applies_request_limit_and_updates_truncation() {
     let limits = CaptureLimits {
@@ -1723,6 +1775,7 @@ fn run_builder_applies_request_limit_and_updates_truncation() {
     assert!(run.truncation.is_truncated());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_applies_stage_limit_and_updates_truncation() {
     let limits = CaptureLimits {
@@ -1756,6 +1809,7 @@ fn run_builder_applies_stage_limit_and_updates_truncation() {
     assert!(run.truncation.is_truncated());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_applies_queue_limit_and_updates_truncation() {
     let limits = CaptureLimits {
@@ -1789,6 +1843,7 @@ fn run_builder_applies_queue_limit_and_updates_truncation() {
     assert!(run.truncation.is_truncated());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
     let limits = CaptureLimits {
@@ -1829,6 +1884,7 @@ fn run_builder_applies_inflight_snapshot_limit_and_updates_truncation() {
     assert!(run.truncation.is_truncated());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
     let limits = CaptureLimits {
@@ -1877,6 +1933,7 @@ fn run_builder_applies_runtime_snapshot_limit_and_updates_truncation() {
     assert!(run.truncation.is_truncated());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_does_not_report_truncation_within_limits() {
     let limits = CaptureLimits {
@@ -1933,6 +1990,7 @@ fn run_builder_does_not_report_truncation_within_limits() {
     assert!(!run.truncation.is_truncated());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_uses_mode_default_limits_when_limits_not_explicit() {
     let default_limits = CaptureMode::Light.core_defaults();
@@ -1951,6 +2009,7 @@ fn run_builder_uses_mode_default_limits_when_limits_not_explicit() {
     assert!(run.truncation.is_truncated());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_valid_pushes_return_ok() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -1981,6 +2040,7 @@ fn run_builder_valid_pushes_return_ok() {
         .is_ok());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_event_validation_rejects_invalid_shapes() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2055,6 +2115,7 @@ fn run_builder_event_validation_rejects_invalid_shapes() {
         .is_err());
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_rejects_inverted_request_run_relative_offsets() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2075,6 +2136,7 @@ fn run_builder_rejects_inverted_request_run_relative_offsets() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_rejects_inverted_stage_run_relative_offsets() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2095,6 +2157,7 @@ fn run_builder_rejects_inverted_stage_run_relative_offsets() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_rejects_inverted_queue_run_relative_offsets() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2115,6 +2178,7 @@ fn run_builder_rejects_inverted_queue_run_relative_offsets() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_accepts_incomplete_run_relative_offsets() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2143,6 +2207,7 @@ fn run_builder_accepts_incomplete_run_relative_offsets() {
     assert_eq!(run.queues[0].waited_until_run_us, None);
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_accepts_authoritative_request_latency_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2158,6 +2223,7 @@ fn run_builder_accepts_authoritative_request_latency_when_timestamps_disagree() 
     assert_eq!(run.requests[0].latency_us, 50_000);
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_accepts_authoritative_stage_latency_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2176,6 +2242,7 @@ fn run_builder_accepts_authoritative_stage_latency_when_timestamps_disagree() {
     assert_eq!(run.stages[0].latency_us, 50_000);
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_accepts_authoritative_queue_wait_when_timestamps_disagree() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2194,6 +2261,7 @@ fn run_builder_accepts_authoritative_queue_wait_when_timestamps_disagree() {
     assert_eq!(run.queues[0].wait_us, 50_000);
 }
 
+// TT-TEST: support
 #[test]
 fn run_builder_zero_duration_timestamps_with_zero_duration_are_accepted() {
     let mut builder = crate::RunBuilder::new(crate::RunBuilderOptions::new("svc")).expect("ok");
@@ -2205,6 +2273,7 @@ fn run_builder_zero_duration_timestamps_with_zero_duration_are_accepted() {
     assert!(builder.push_request(request).is_ok());
 }
 
+// TT-TEST: support
 #[test]
 fn record_runtime_snapshot_stamps_run_relative_time_when_missing() {
     let tailtriage = build_for_test("runtime", "runtime-run-relative.json");
@@ -2243,6 +2312,8 @@ mod run_validation_contract {
             run_end_reason: None,
         })
     }
+
+    // TT-TEST: V04 primary
 
     #[test]
     fn invalid_worker_count_is_rejected_strictly_and_cleared_permissively() {
@@ -2294,6 +2365,8 @@ mod run_validation_contract {
             assert!(!summaries[0].contains("excluded"));
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn multiple_invalid_worker_counts_are_grouped_and_each_snapshot_is_retained() {
@@ -2355,6 +2428,8 @@ mod run_validation_contract {
             assert!(!summaries[0].contains("excluded"));
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn positive_and_absent_worker_counts_are_valid() {
@@ -2420,6 +2495,8 @@ mod run_validation_contract {
         }
     }
 
+    // TT-TEST: V01 primary
+
     #[test]
     fn issue_code_labels_are_stable() {
         assert_eq!(
@@ -2468,6 +2545,8 @@ mod run_validation_contract {
         );
     }
 
+    // TT-TEST: V02 primary
+
     #[test]
     fn timing_errors_clear_offsets_but_retain_duration_authority() {
         let mut run = base_run();
@@ -2490,6 +2569,8 @@ mod run_validation_contract {
             .iter()
             .any(|i| i.code == RunValidationIssueCode::DurationMismatch));
     }
+
+    // TT-TEST: V02 primary
 
     #[test]
     fn duplicates_are_all_excluded_with_children() {
@@ -2522,6 +2603,8 @@ mod run_validation_contract {
             .any(|i| i.code == RunValidationIssueCode::AmbiguousParentRequestId));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn mixed_invalid_and_valid_same_id_retains_valid_parent_and_child() {
         let mut run = base_run();
@@ -2550,6 +2633,8 @@ mod run_validation_contract {
             )
         }));
     }
+
+    // TT-TEST: V02 primary
 
     #[test]
     fn parent_states_classify_unique_ambiguous_excluded_only_and_absent_children() {
@@ -2581,6 +2666,8 @@ mod run_validation_contract {
         }
     }
 
+    // TT-TEST: V02 primary
+
     #[test]
     fn run_builder_excludes_child_only_stage_and_queue_with_durable_orphan_summary() {
         let mut builder = RunBuilder::new(RunBuilderOptions::new("svc")).expect("builder");
@@ -2602,6 +2689,8 @@ mod run_validation_contract {
             warning.contains("orphan_request_scoped_event") && warning.contains("queue")
         }));
     }
+
+    // TT-TEST: V01 primary
 
     #[test]
     fn validation_summaries_describe_actual_effects_exactly() {
@@ -2639,6 +2728,8 @@ mod run_validation_contract {
         );
     }
 
+    // TT-TEST: V01 primary
+
     #[test]
     fn validation_summaries_use_stable_labels_and_lifecycle_filtering() {
         let mut run = base_run();
@@ -2662,6 +2753,8 @@ mod run_validation_contract {
             .iter()
             .any(|summary| summary.contains("orphan_request_scoped_event")));
     }
+
+    // TT-TEST: support
 
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -2904,6 +2997,8 @@ mod run_validation_contract {
             .any(|issue| issue.severity == RunValidationSeverity::Error));
     }
 
+    // TT-TEST: support
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn zero_request_runs_are_generically_valid_but_other_sections_are_inspected() {
@@ -3052,6 +3147,8 @@ mod run_validation_contract {
         assert_eq!(indices, (0..retained_count).collect::<Vec<_>>());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn orphan_outside_and_legacy_duration_only_child_policy_is_deterministic() {
         let mut run = base_run();
@@ -3113,6 +3210,7 @@ mod run_validation_contract {
     }
 }
 
+// TT-TEST: C03 primary
 #[test]
 fn borrowed_completion_drop_records_cancelled_request() {
     let sink = MemorySink::new();
@@ -3142,6 +3240,7 @@ fn borrowed_completion_drop_records_cancelled_request() {
     assert_eq!(run.metadata.unfinished_requests.count, 0);
 }
 
+// TT-TEST: C03 primary
 #[test]
 fn owned_completion_drop_records_cancelled_request() {
     let sink = MemorySink::new();
@@ -3168,6 +3267,7 @@ fn owned_completion_drop_records_cancelled_request() {
     assert_eq!(run.metadata.unfinished_requests.count, 0);
 }
 
+// TT-TEST: C04 primary
 #[test]
 fn explicit_finish_disarms_drop_without_duplicate_cancelled_event() {
     let tailtriage = build_for_test("payments", "tailtriage-core-explicit-disarms.json");
@@ -3180,6 +3280,7 @@ fn explicit_finish_disarms_drop_without_duplicate_cancelled_event() {
     assert_eq!(snapshot.requests[0].outcome, "error");
 }
 
+// TT-TEST: C03 primary
 #[test]
 fn completion_drop_during_unwind_is_non_panicking_and_cancelled() {
     let tailtriage = Tailtriage::builder("payments")
@@ -3214,6 +3315,7 @@ impl crate::RunSink for Arc<CountingFailSink> {
     }
 }
 
+// TT-TEST: C05 primary
 #[test]
 fn sink_failure_is_terminal_and_late_mutations_are_inert() {
     let sink = Arc::new(CountingFailSink::default());
@@ -3247,6 +3349,7 @@ fn sink_failure_is_terminal_and_late_mutations_are_inert() {
     assert_eq!(tailtriage.snapshot(), before);
 }
 
+// TT-TEST: C07 primary
 #[test]
 fn strict_shutdown_with_pending_is_side_effect_free_and_retryable_after_drop() {
     let sink = Arc::new(RecordingSink::default());
@@ -3295,6 +3398,7 @@ impl crate::RunSink for Arc<BlockingSink> {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn shutdown_wins_before_drop_keeps_request_unfinished_only() {
     let (entered_tx, entered_rx) = std::sync::mpsc::channel();
@@ -3346,6 +3450,7 @@ fn inflight_counts(run: &crate::Run) -> Vec<u64> {
     run.inflight.iter().map(|snapshot| snapshot.count).collect()
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn inflight_drop_records_zero_then_removes_live_entry() {
     let tailtriage = Tailtriage::builder("inflight-zero")
@@ -3357,6 +3462,7 @@ fn inflight_drop_records_zero_then_removes_live_entry() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn inflight_label_reuse_records_one_zero_one_zero() {
     let tailtriage = Tailtriage::builder("inflight-reuse")
@@ -3369,6 +3475,7 @@ fn inflight_label_reuse_records_one_zero_one_zero() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn inflight_many_distinct_labels_leave_no_live_entries() {
     const LABELS: usize = 32;
@@ -3392,6 +3499,7 @@ fn inflight_many_distinct_labels_leave_no_live_entries() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn inflight_concurrent_same_label_records_exact_balanced_sequence() {
     const N: usize = 8;
@@ -3419,6 +3527,7 @@ fn inflight_concurrent_same_label_records_exact_balanced_sequence() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn inflight_zero_cleanup_survives_snapshot_retention_saturation() {
     let tailtriage = Tailtriage::builder("inflight-saturated")
@@ -3436,6 +3545,7 @@ fn inflight_zero_cleanup_survives_snapshot_retention_saturation() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn inflight_distinct_label_admission_is_bounded_and_refused_guard_is_inert() {
     let tailtriage = Tailtriage::builder("inflight-label-bound")
@@ -3472,6 +3582,7 @@ fn inflight_distinct_label_admission_is_bounded_and_refused_guard_is_inert() {
     assert!(run.truncation.limits_hit);
 }
 
+// TT-TEST: K01 primary
 #[test]
 fn concurrent_distinct_inflight_admission_cannot_exceed_limit() {
     const CALLERS: usize = 8;
@@ -3509,6 +3620,7 @@ fn concurrent_distinct_inflight_admission_cannot_exceed_limit() {
     assert!(run.truncation.limits_hit);
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_drop_before_shutdown_persists_zero() {
     let sink = MemorySink::new();
@@ -3522,6 +3634,7 @@ fn inflight_drop_before_shutdown_persists_zero() {
     assert_eq!(inflight_counts(&sink.last_run().unwrap()), vec![1, 0]);
 }
 
+// TT-TEST: C05 primary
 #[test]
 fn shutdown_before_inflight_drop_keeps_late_drop_inert() {
     let (entered_tx, entered_rx) = std::sync::mpsc::channel();
@@ -3556,6 +3669,7 @@ fn shutdown_before_inflight_drop_keeps_late_drop_inert() {
     assert_eq!(sink.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_drop_during_unwind_is_non_panicking() {
     let tailtriage = Tailtriage::builder("inflight-unwind")
@@ -3571,6 +3685,7 @@ fn inflight_drop_during_unwind_is_non_panicking() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_drop_contains_panicking_limits_listener() {
     let tailtriage = Tailtriage::builder("inflight-listener-panic")
@@ -3592,6 +3707,7 @@ fn inflight_drop_contains_panicking_limits_listener() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_snapshot_serialization_contract_and_schema_stay_unchanged() {
     assert_eq!(crate::SCHEMA_VERSION, 2);
@@ -3631,17 +3747,23 @@ mod prompt09_partial_events {
             .unwrap()
     }
 
+    // TT-TEST: support
+
     #[test]
     fn legacy_stage_event_missing_completed_deserializes_true() {
         let event: StageEvent = serde_json::from_str(r#"{"request_id":"r","stage":"db","started_at_unix_ms":1,"finished_at_unix_ms":2,"latency_us":3,"success":true}"#).unwrap();
         assert!(event.completed);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn legacy_queue_event_missing_completed_deserializes_true() {
         let event: QueueEvent = serde_json::from_str(r#"{"request_id":"r","queue":"q","waited_from_unix_ms":1,"waited_until_unix_ms":2,"wait_us":3,"depth_at_start":7}"#).unwrap();
         assert!(event.completed);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_stage_and_queue_json_omit_completed_and_schema_stays_two() {
@@ -3657,6 +3779,8 @@ mod prompt09_partial_events {
             r#"{"request_id":"r","queue":"q","waited_from_unix_ms":4,"waited_until_unix_ms":5,"wait_us":6,"depth_at_start":7}"#
         );
     }
+
+    // TT-TEST: K02 primary
 
     #[test]
     fn partial_stage_and_queue_json_serialize_completed_false_and_round_trip() {
@@ -3696,6 +3820,8 @@ mod prompt09_partial_events {
         );
     }
 
+    // TT-TEST: K02 primary
+
     #[test]
     fn partial_stage_and_queue_validate_and_normalize_without_rewriting_completed() {
         let mut run = capture().snapshot();
@@ -3727,6 +3853,8 @@ mod prompt09_partial_events {
         assert_eq!(normalized.queues[0], run.queues[0]);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stage_await_on_immediate_ready_records_one_completed_event() {
         let tt = capture();
@@ -3743,6 +3871,8 @@ mod prompt09_partial_events {
         assert!(ev.success);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stage_await_value_immediate_ready_records_successful_completed_event() {
         let tt = capture();
@@ -3752,6 +3882,8 @@ mod prompt09_partial_events {
         assert!(ev.completed);
         assert!(ev.success);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn queue_immediate_ready_records_one_completed_event() {
@@ -3769,6 +3901,8 @@ mod prompt09_partial_events {
         assert_eq!(ev.depth_at_start, Some(9));
         assert!(ev.completed);
     }
+
+    // TT-TEST: K02 primary
 
     #[test]
     fn stage_pending_then_drop_records_one_partial_event() {
@@ -3791,6 +3925,8 @@ mod prompt09_partial_events {
         assert!(ev.latency_us <= ev.finished_at_run_us.unwrap_or(u64::MAX));
     }
 
+    // TT-TEST: K02 primary
+
     #[test]
     fn queue_pending_then_drop_records_one_partial_event_with_depth() {
         let tt = capture();
@@ -3812,6 +3948,8 @@ mod prompt09_partial_events {
         assert!(!ev.completed);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stage_never_polled_drop_records_no_event() {
         let tt = capture();
@@ -3824,6 +3962,8 @@ mod prompt09_partial_events {
         assert!(tt.snapshot().stages.is_empty());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn queue_never_polled_drop_records_no_event() {
         let tt = capture();
@@ -3835,6 +3975,8 @@ mod prompt09_partial_events {
         drop(fut);
         assert!(tt.snapshot().queues.is_empty());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn repeated_pending_polls_then_ready_records_completed_without_partial() {
@@ -3855,6 +3997,8 @@ mod prompt09_partial_events {
         assert!(run.stages[0].completed);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn queue_repeated_pending_polls_then_ready_records_completed_without_partial() {
         let tt = capture();
@@ -3873,6 +4017,8 @@ mod prompt09_partial_events {
         assert_eq!(run.queues.len(), 1);
         assert!(run.queues[0].completed);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn stage_panic_after_arming_does_not_double_panic_and_records_at_most_one_partial() {
@@ -3894,6 +4040,8 @@ mod prompt09_partial_events {
             assert!(!ev.success);
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn queue_panic_after_arming_does_not_double_panic_and_records_at_most_one_partial() {
@@ -3949,6 +4097,8 @@ mod prompt09_partial_events {
         assert!(!events[0].completed);
         assert_eq!(events[0].depth_at_start, Some(expected_depth));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn partial_stage_and_queue_are_preserved_through_owned_and_borrowed_handles() {
@@ -4047,6 +4197,8 @@ mod prompt09_partial_events {
         assert_one_partial_queue(&run, "owned-queue-request", "owned-queue", 9);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn pending_helper_drop_plus_completion_token_drop_records_partial_child_and_cancelled_request()
     {
@@ -4066,6 +4218,8 @@ mod prompt09_partial_events {
         assert_eq!(run.requests.len(), 1);
         assert_eq!(run.requests[0].outcome, Outcome::Cancelled.as_str());
     }
+
+    // TT-TEST: C05 primary
 
     #[test]
     fn armed_stage_and_queue_drop_after_finalization_leave_persisted_run_unchanged() {

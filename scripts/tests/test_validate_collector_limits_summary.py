@@ -16,6 +16,7 @@ import validate_collector_limits_summary  # noqa: E402
 
 
 class ValidateCollectorLimitsSummaryTests(unittest.TestCase):
+    # TT-TEST: O02 primary
     def test_accepts_summary_with_required_shape(self) -> None:
         summary = {
             "measurement_kind": "collector_limits",
@@ -32,6 +33,7 @@ class ValidateCollectorLimitsSummaryTests(unittest.TestCase):
 
         validate_collector_limits_summary.validate_summary_shape(summary)
 
+    # TT-TEST: O02 primary
     def test_rejects_summary_missing_sampler_dense_case(self) -> None:
         summary = {
             "measurement_kind": "collector_limits",

@@ -555,6 +555,7 @@ fn micros_to_millis_f64(m: u64) -> anyhow::Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // TT-TEST: support
     #[tokio::test(flavor = "current_thread")]
     async fn native_finalize_reads_finalized_run_from_memory_sink() {
         let output_dir = std::env::temp_dir().join(format!(
@@ -583,6 +584,8 @@ mod tests {
             output_dir.join("run-core_light.json")
         );
     }
+
+    // TT-TEST: support
 
     #[tokio::test(flavor = "current_thread")]
     async fn baked_in_no_request_context_finalizes_and_skips_analyzer_render() {
@@ -623,6 +626,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn mode_parse_accepts_tracing_modes() {
         assert_eq!(Mode::parse("tracing_light"), Some(Mode::TracingLight));
@@ -635,10 +640,12 @@ mod tests {
             Some(Mode::TracingLightDropPath)
         );
     }
+    // TT-TEST: support
     #[test]
     fn mode_parse_rejects_unknown() {
         assert_eq!(Mode::parse("wat"), None);
     }
+    // TT-TEST: support
     #[test]
     fn mode_classification_works() {
         let m = Mode::TracingLightTokioSampler;

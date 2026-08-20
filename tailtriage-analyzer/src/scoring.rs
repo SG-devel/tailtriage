@@ -698,6 +698,8 @@ mod worker_normalized_tests {
         run
     }
 
+    // TT-TEST: support
+
     #[test]
     fn classifies_all_worker_evidence_statuses() {
         assert_eq!(
@@ -725,6 +727,8 @@ mod worker_normalized_tests {
         );
     }
 
+    // TT-TEST: A02 primary
+
     #[test]
     fn normalized_contribution_boundaries_are_exact() {
         for (p95, expected) in [
@@ -743,6 +747,8 @@ mod worker_normalized_tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn normalization_floors_scales_and_clamps_with_u128_intermediates() {
         assert_eq!(queue_per_worker_milli(1, None, 3), 333);
@@ -754,6 +760,8 @@ mod worker_normalized_tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn percentile_combines_each_snapshots_global_and_local_depth_first() {
         let combined = [
@@ -762,6 +770,8 @@ mod worker_normalized_tests {
         ];
         assert_eq!(percentile(&combined, 95, 100), Some(5000));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn normalized_pressure_is_monotonic_and_scale_invariant() {
@@ -805,6 +815,8 @@ mod worker_normalized_tests {
             }
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn normalized_contribution_is_monotonic() {

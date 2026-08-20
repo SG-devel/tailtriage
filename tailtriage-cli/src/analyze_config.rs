@@ -100,7 +100,6 @@ pub(crate) fn analyzer_options_help_text() -> String {
     out
 }
 
-// TT-INVARIANT: L04 primary
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +109,8 @@ mod tests {
             "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille={trigger_permille}\n"
         )
     }
+
+    // TT-TEST: L04 primary
 
     #[test]
     fn positive_config_composition_cases() {
@@ -141,6 +142,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: L04 primary
+
     #[test]
     fn misspelled_path_reports_suggestion() {
         let err = build_analyze_options(None, &["queuing.trigger_permille=400".to_string()])
@@ -148,6 +151,8 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("queueing.trigger_permille"));
     }
+
+    // TT-TEST: L04 primary
 
     #[test]
     fn invalid_type_reports_expected_type() {
@@ -157,6 +162,8 @@ mod tests {
         assert!(msg.contains("u64"));
         assert!(matches!(err, CliAnalyzeConfigError::Analyzer(_)));
     }
+
+    // TT-TEST: L04 primary
 
     #[test]
     fn missing_config_returns_read_config_error_with_path() {
@@ -174,6 +181,8 @@ mod tests {
             CliAnalyzeConfigError::ReadConfig { ref path, .. } if path == &missing_path
         ));
     }
+
+    // TT-TEST: L04 primary
 
     #[test]
     fn invalid_toml_returns_analyzer_error() {

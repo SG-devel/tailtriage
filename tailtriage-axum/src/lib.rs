@@ -154,6 +154,8 @@ mod tests {
     use axum::http::StatusCode;
     use tailtriage_core::Outcome;
 
+    // TT-TEST: X02 primary
+
     #[test]
     fn default_status_mapping_matches_http_contract() {
         assert_eq!(default_status_to_outcome(StatusCode::OK), Outcome::Ok);

@@ -59,7 +59,6 @@ def manifest(*cases):
     return {"schema_version": 2, "cases": list(cases)}
 
 
-# TT-INVARIANT: D01 primary
 class Result:
     def __init__(self, code=0, out="", err=""):
         self.returncode = code
@@ -80,6 +79,7 @@ class Tests(unittest.TestCase):
         with mock.patch.object(db, "_invoke", side_effect=outputs) as inv:
             return db.run(p, 0, 0, 99), inv
 
+    # TT-TEST: support
     def test_report_only_manifest_fails_with_zero_analyzer_executions(self):
         c = case("r", "analysis_report", False)
         with tempfile.TemporaryDirectory() as td:
@@ -91,6 +91,7 @@ class Tests(unittest.TestCase):
         self.assertIn("diagnostic corpus contains zero analyzer-executed cases", f)
         inv.assert_not_called()
 
+    # TT-TEST: support
     def test_analyzer_execution_without_accuracy_observations_fails_distinctly(self):
         c = case(eligible=False)
         with tempfile.TemporaryDirectory() as td:
@@ -103,6 +104,7 @@ class Tests(unittest.TestCase):
         self.assertNotIn("diagnostic corpus contains zero analyzer-executed cases", f)
         inv.assert_called_once()
 
+    # TT-TEST: support
     def test_report_contract_results_do_not_change_analyzer_accuracy(self):
         a = case()
         r = case("r", "analysis_report", False)
@@ -117,6 +119,7 @@ class Tests(unittest.TestCase):
                 vals.append(m["analyzer_accuracy"])
         self.assertEqual(vals[0], vals[1])
 
+    # TT-TEST: D01 primary
     def test_run_artifact_executes_cli_analyzer(self):
         c = case()
         with tempfile.TemporaryDirectory() as td:
@@ -131,6 +134,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(m["analyzer_execution"]["run_artifact_count"], 1)
         self.assertEqual(m["report_contract"]["case_count"], 0)
 
+    # TT-TEST: D01 primary
     def test_tracing_jsonl_executes_import_then_analyzer(self):
         c = case("trace", "tracing_span_jsonl")
 
@@ -150,6 +154,7 @@ class Tests(unittest.TestCase):
         self.assertIn("analyze", inv.call_args_list[1].args[0])
         self.assertEqual(m["analyzer_execution"]["tracing_jsonl_count"], 1)
 
+    # TT-TEST: support
     def test_equivalent_encodings_share_one_accuracy_observation(self):
         a = case("a")
         b = case("b", observation_id="a")
@@ -163,6 +168,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(m["analyzer_accuracy"]["encoding_count"], 2)
         self.assertEqual(m["analyzer_accuracy"]["observation_count"], 1)
 
+    # TT-TEST: support
     def test_equivalent_encoding_diagnosis_disagreement_fails_observation(self):
         a = case("a")
         b = case("b", observation_id="a")
@@ -181,6 +187,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(x["member_case_ids"], ["a", "b"])
         self.assertEqual(m["analyzer_accuracy"]["observation_count"], 0)
 
+    # TT-TEST: support
     def test_equivalent_encoding_confidence_disagreement_fails_observation(self):
         a = case("a")
         b = case("b", observation_id="a")
@@ -197,6 +204,7 @@ class Tests(unittest.TestCase):
             "confidence disagreement", m["failed_analyzer_cases"][-1]["error"]
         )
 
+    # TT-TEST: support
     def test_observation_labels_must_match(self):
         changes = {
             "ground_truth": "blocking_pool_pressure",
@@ -215,6 +223,7 @@ class Tests(unittest.TestCase):
                 ):
                     db.validate_manifest(manifest(a, b))
 
+    # TT-TEST: support
     def test_accuracy_ground_truth_must_be_in_both_contract_lists(self):
         variants = [
             ({"expected_primary_kinds": ["blocking_pool_pressure"]}, False),
@@ -248,6 +257,7 @@ class Tests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "ground_truth must be in"):
                         db.validate_manifest(manifest(c))
 
+    # TT-TEST: support
     def test_ground_truth_top1_cannot_be_high_confidence_wrong(self):
         c = case(
             expected_primary_kinds=[
@@ -260,6 +270,7 @@ class Tests(unittest.TestCase):
             (m, _), _ = self.runmock(p, [Result(out=json.dumps(report()))])
         self.assertEqual(m["analyzer_accuracy"]["high_confidence_wrong_count"], 0)
 
+    # TT-TEST: support
     def test_class_type_and_eligibility_matrix(self):
         bad = [
             case("x", "analysis_report", False, validation_class="analyzer_execution"),
@@ -292,11 +303,13 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     db.validate_manifest(manifest(c))
 
+    # TT-TEST: support
     def test_version_1_fields_are_rejected(self):
         for key in db.OLD:
             with self.assertRaisesRegex(ValueError, "version-1"):
                 db.validate_manifest(manifest(case(**{key: []})))
 
+    # TT-TEST: support
     def test_expected_execution_failure_is_checked_not_skipped(self):
         base = case(
             eligible=False,
@@ -333,6 +346,7 @@ class Tests(unittest.TestCase):
             (m, _), _ = self.runmock(p, [Result(1, "", "bad")])
             self.assertFalse(m["analyzer_execution"]["cases"][0]["passed"])
 
+    # TT-TEST: support
     def test_expected_failure_diagnostics_are_stderr_only(self):
         base = case(
             eligible=False,
@@ -373,6 +387,7 @@ class Tests(unittest.TestCase):
                 if result.stdout == "needed" and not result.stderr:
                     self.assertIn("missing stderr diagnostic", row["error"])
 
+    # TT-TEST: support
     def test_optional_contract_fields_are_strictly_validated(self):
         valid = {
             "exact_primary_kind": "application_queue_saturation",
@@ -421,6 +436,7 @@ class Tests(unittest.TestCase):
                         )
                     )
 
+    # TT-TEST: support
     def test_extract_rejects_malformed_report_shapes(self):
         mutations = [
             lambda r: r.update(secondary_suspects=[42]),
@@ -475,6 +491,7 @@ class Tests(unittest.TestCase):
         r["primary_suspect"]["confidence_notes"] = ["note"]
         db.extract(r)
 
+    # TT-TEST: support
     def test_incomplete_equivalent_encoding_group_is_not_scored(self):
         bad_outputs = [
             Result(1, "", "boom"),
@@ -519,6 +536,7 @@ class Tests(unittest.TestCase):
             m["analyzer_accuracy"]["observations"][0]["observation_id"], "c"
         )
 
+    # TT-TEST: support
     def test_artifact_policy_is_typed(self):
         db.validate_manifest(manifest(case()))
         db.validate_manifest(manifest(case(artifact_policy="allow_ambiguous")))
@@ -535,6 +553,7 @@ class Tests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 db.validate_manifest(manifest(c))
 
+    # TT-TEST: D01 primary
     def test_committed_manifest_invariants(self):
         p = Path(__file__).parents[2] / "validation/diagnostics/manifest.json"
         m = json.loads(p.read_text())

@@ -260,6 +260,8 @@ mod tests {
         })
     }
 
+    // TT-TEST: support
+
     #[test]
     fn local_sink_write_creates_deserializable_artifact() {
         let output = unique_path("success");
@@ -276,11 +278,15 @@ mod tests {
         let _ = std::fs::remove_file(output);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn discard_sink_write_succeeds() {
         let sink = DiscardSink;
         sink.write(&sample_run()).expect("discard should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn memory_sink_replaces_previous_run() {
@@ -308,6 +314,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn memory_sink_recovers_from_poisoned_mutex_operations() {
         let sink = MemorySink::new();
@@ -327,6 +335,8 @@ mod tests {
         sink.write(&sample_run()).expect("write should recover");
         assert!(sink.last_run().is_some(), "write should store run");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn local_sink_write_replaces_existing_destination_with_new_run() {
@@ -360,6 +370,8 @@ mod tests {
         let _ = std::fs::remove_file(output);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn failed_finalization_keeps_existing_destination_unchanged() {
         let output = unique_path("finalization-failure");
@@ -376,6 +388,8 @@ mod tests {
 
         let _ = std::fs::remove_file(output);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn local_sink_failed_finalization_cleans_up_temp_file_and_preserves_final_path() {
