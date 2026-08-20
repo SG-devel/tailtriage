@@ -49,14 +49,27 @@ def _action_steps(text: str) -> list[tuple[str, dict[str, str]]]:
     for index, line in enumerate(lines):
         match = USES_RE.match(line)
         if not match: continue
-        indent = len(line) - len(line.lstrip()); values = {}; j = index + 1
+        step_indent = len(line) - len(line.lstrip())
+        indent = step_indent + (2 if line.lstrip().startswith("-") else 0)
+        values = {}; j = index + 1
+        with_indent = None
         # ``uses`` and ``with`` are siblings inside a list step; stop at the next list item.
         while j < len(lines) and not (
             lines[j].strip().startswith("-")
-            and len(lines[j]) - len(lines[j].lstrip()) <= indent
+            and len(lines[j]) - len(lines[j].lstrip()) <= step_indent
         ):
-            child = re.match(r"^\s+([A-Za-z0-9_-]+):\s*([^#\s]+)", lines[j])
-            if child: values[child.group(1)] = child.group(2).strip("'\"")
+            current = lines[j]
+            current_indent = len(current) - len(current.lstrip())
+            if re.match(r"^\s*with:\s*(?:#.*)?$", current) and current_indent == indent:
+                with_indent = current_indent
+            elif with_indent is not None:
+                # Only direct scalar children of this step's sibling `with:` mapping count.
+                if current.strip() and current_indent <= with_indent:
+                    with_indent = None
+                elif current_indent > with_indent:
+                    child = re.match(r"^\s+([A-Za-z0-9_-]+):\s*([^#\s]+)\s*(?:#.*)?$", current)
+                    if child and current_indent == with_indent + 2:
+                        values[child.group(1)] = child.group(2).strip("'\"")
             j += 1
         result.append((match.group(1).strip("'\""), values))
     return result

@@ -16,8 +16,11 @@ import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
-HEADER = ["ID", "Primary linkage", "Invariant / contract", "Behavior owner",
+HEADER = ["ID", "Invariant / contract", "Behavior owner",
           "Primary proof boundary", "Secondary boundary / non-claim", "Proof class / cadence"]
+# P03 is proved by its canonical workspace command, not by an individual test.  Keeping the
+# single exception here avoids adding registry metadata solely to model one command-owned proof.
+COMMAND_OWNED_IDS = {"P03"}
 ID_RE = re.compile(r"^[A-Z][0-9]{2}$")
 MARK_RE = re.compile(r"^(?://|#) TT-TEST: (?:(support)|([A-Z][0-9]{2}) (primary|secondary))$")
 LEGACY_MARKER = "TT-" + "INVARIANT"
@@ -39,10 +42,11 @@ class Test:
 def fail(path: Path, line: int, message: str) -> None:
     raise ValidationError(f"{path}:{line}: {message}")
 
-def parse_registry(path: Path) -> dict[str, str]:
+def parse_registry(path: Path) -> set[str]:
     lines = path.read_text(encoding="utf-8").splitlines()
-    try: start = lines.index("## Invariant registry") + 1
-    except ValueError: fail(path, 1, "expected exactly one '## Invariant registry' heading")
+    headings = [i for i, line in enumerate(lines) if line == "## Invariant registry"]
+    if len(headings) != 1: fail(path, 1, "expected exactly one '## Invariant registry' heading")
+    start = headings[0] + 1
     while start < len(lines) and not lines[start].strip(): start += 1
     rows = []
     for index in range(start, len(lines)):
@@ -53,15 +57,19 @@ def parse_registry(path: Path) -> dict[str, str]:
             continue
         if not (line.startswith("|") and line.endswith("|")): fail(path, index + 1, "invalid registry row")
         rows.append((index + 1, [c.strip() for c in line[1:-1].split("|")]))
-    if len(rows) < 3 or rows[0][1] != HEADER: fail(path, start + 1, "registry header must match the required seven columns exactly")
-    registry = {}
+    if len(rows) < 3 or rows[0][1] != HEADER: fail(path, start + 1, "registry header must match the required six columns exactly")
+    if len(rows[1][1]) != 6 or any(re.fullmatch(r":?-{3,}:?", cell) is None for cell in rows[1][1]):
+        fail(path, rows[1][0], "registry separator must contain exactly six valid Markdown separator cells")
+    registry = set()
     for line, cells in rows[2:]:
-        if len(cells) != 7: fail(path, line, f"registry row has {len(cells)} cells; expected 7")
-        key, linkage = cells[:2]
+        if len(cells) != 6: fail(path, line, f"registry row has {len(cells)} cells; expected 6")
+        if any(not cell for cell in cells): fail(path, line, "registry invariant row contains an empty cell")
+        key = cells[0]
         if not ID_RE.fullmatch(key): fail(path, line, f"invalid invariant ID {key!r}")
         if key in registry: fail(path, line, f"duplicate invariant ID {key}")
-        if linkage not in {"test", "command"}: fail(path, line, f"invalid primary linkage {linkage!r}; expected test or command")
-        registry[key] = linkage
+        registry.add(key)
+    unknown_commands = COMMAND_OWNED_IDS - registry
+    if unknown_commands: fail(path, 1, "command-owned invariant IDs missing from registry: " + ", ".join(sorted(unknown_commands)))
     return registry
 
 def source_files(root: Path, suffix: str):
@@ -140,9 +148,9 @@ def validate(root: Path, matrix: Path | None = None) -> None:
             roles={r for i,r in marks if i==identifier}
             if len(roles)>1: fail(test.path,test.marker_lines[0],f"test `{test.name}` is both primary and secondary for {identifier}")
             if role=="primary":
-                if registry[identifier]=="command": fail(test.path,test.marker_lines[0],f"command invariant {identifier} cannot have a primary test marker")
+                if identifier in COMMAND_OWNED_IDS: fail(test.path,test.marker_lines[0],f"command invariant {identifier} cannot have a primary test marker")
                 primary.add(identifier)
-    missing=[i for i,l in registry.items() if l=="test" and i not in primary]
+    missing=sorted(registry - COMMAND_OWNED_IDS - primary)
     if missing: fail(matrix,1,"test invariants missing primary tests: " + ", ".join(missing))
 
 def main() -> int:

@@ -35,7 +35,7 @@ fn cli_json_output_is_valid_report_json() {
     assert!(report.get("primary_suspect").is_some());
 }
 
-// TT-TEST: support
+// TT-TEST: S04 primary
 #[test]
 fn artifact_warning_controls_are_visible_on_stderr_but_preserved_in_json() {
     let dir = tempfile::tempdir().expect("tempdir should build");

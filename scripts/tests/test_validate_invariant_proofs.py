@@ -3,24 +3,27 @@ import unittest
 from pathlib import Path
 from scripts.validate_invariant_proofs import ValidationError, validate
 
-HEADER = """# Test\n\n## Invariant registry\n\n| ID | Primary linkage | Invariant / contract | Behavior owner | Primary proof boundary | Secondary boundary / non-claim | Proof class / cadence |\n| --- | --- | --- | --- | --- | --- | --- |\n"""
+HEADER = """# Test\n\n## Invariant registry\n\n| ID | Invariant / contract | Behavior owner | Primary proof boundary | Secondary boundary / non-claim | Proof class / cadence |\n| --- | --- | --- | --- | --- | --- |\n"""
 
 class InvariantProofValidatorTests(unittest.TestCase):
     def check(self, rows=None, rust="", python=""):
         temporary=tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup); root=Path(temporary.name)
         matrix=root/'docs/dev/INVARIANT_PROOF_MATRIX.md'; matrix.parent.mkdir(parents=True)
-        matrix.write_text(HEADER+(rows or self.row()),encoding='utf-8')
+        registry_rows = rows or self.row()
+        if "| P03 |" not in registry_rows:
+            registry_rows += self.row("P03")
+        matrix.write_text(HEADER+registry_rows,encoding='utf-8')
         if rust: (root/'proof.rs').write_text(rust,encoding='utf-8')
         if python: (root/'proof.py').write_text(python,encoding='utf-8')
         return lambda: validate(root,matrix)
-    def row(self, identifier='A01', linkage='test'):
-        return f'| {identifier} | {linkage} | contract | owner | proof | boundary | unit CI |\n'
+    def row(self, identifier='A01'):
+        return f'| {identifier} | contract | owner | proof | boundary | unit CI |\n'
     # TT-TEST: support
     def test_valid_rust_primary(self): self.check(rust='// TT-TEST: A01 primary\n#[test]\nfn proof() {}\n')()
     # TT-TEST: support
     def test_valid_rust_secondary_and_primary(self): self.check(rust='// TT-TEST: A01 secondary\n#[test]\nfn edge() {}\n// TT-TEST: A01 primary\n#[test]\nfn proof() {}\n')()
     # TT-TEST: support
-    def test_valid_rust_support(self): self.check(rows=self.row(linkage='command'),rust='// TT-TEST: support\n#[test]\nfn helper() {}\n')()
+    def test_valid_rust_support(self): self.check(rows=self.row('P03'),rust='// TT-TEST: support\n#[test]\nfn helper() {}\n')()
     # TT-TEST: support
     def test_tokio_forms_and_cfg_attribute(self):
         rust='// TT-TEST: A01 primary\n#[cfg(unix)]\n#[tokio::test]\nasync fn one() {}\n// TT-TEST: support\n#[tokio::test(flavor = "current_thread")]\nasync fn two() {}\n'
@@ -63,13 +66,35 @@ class InvariantProofValidatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError,'missing primary'): self.check(rust='// TT-TEST: A01 secondary\n#[test]\nfn edge() {}\n')()
         self.check(rust='// TT-TEST: A01 primary\n#[test]\nfn one() {}\n// TT-TEST: A01 primary\n#[test]\nfn two() {}\n')()
     # TT-TEST: support
+    def test_duplicate_registry_heading_rejected(self):
+        with self.assertRaisesRegex(ValidationError, "exactly one"):
+            self.check(rows=self.row() + "\n## Invariant registry\n")()
+    # TT-TEST: support
+    def test_malformed_registry_separator_rejected(self):
+        bad = HEADER.replace("| --- | --- | --- | --- | --- | --- |", "| --- | -- | --- | --- | --- | --- |")
+        temporary=tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup); root=Path(temporary.name)
+        matrix=root/'matrix.md'; matrix.write_text(bad+self.row(), encoding='utf-8')
+        with self.assertRaisesRegex(ValidationError, "separator"): validate(root, matrix)
+    # TT-TEST: support
+    def test_empty_registry_cell_rejected(self):
+        with self.assertRaisesRegex(ValidationError, "empty cell"):
+            self.check(rows='| A01 | contract | | proof | boundary | unit CI |\n')()
+    # TT-TEST: support
+    def test_malformed_registry_cell_count_rejected(self):
+        with self.assertRaisesRegex(ValidationError, "expected 6"):
+            self.check(rows='| A01 | contract | owner | proof | boundary |\n')()
+    # TT-TEST: support
+    def test_duplicate_registry_id_rejected(self):
+        with self.assertRaisesRegex(ValidationError, "duplicate invariant ID"):
+            self.check(rows=self.row()+self.row())()
+    # TT-TEST: support
     def test_command_primary_rejected_secondary_accepted(self):
-        with self.assertRaisesRegex(ValidationError,'command invariant'): self.check(rows=self.row(linkage='command'),rust='// TT-TEST: A01 primary\n#[test]\nfn proof() {}\n')()
-        self.check(rows=self.row(linkage='command'),rust='// TT-TEST: A01 secondary\n#[test]\nfn edge() {}\n')()
+        with self.assertRaisesRegex(ValidationError,'command invariant'): self.check(rows=self.row('P03'),rust='// TT-TEST: P03 primary\n#[test]\nfn proof() {}\n')()
+        self.check(rows=self.row('P03'),rust='// TT-TEST: P03 secondary\n#[test]\nfn edge() {}\n')()
     # TT-TEST: support
     def test_legacy_marker_rejected(self):
         legacy='TT-'+'INVARIANT'
-        with self.assertRaisesRegex(ValidationError,'legacy'): self.check(rows=self.row(linkage='command'),rust=f'// {legacy}: A01 primary\n')()
+        with self.assertRaisesRegex(ValidationError,'legacy'): self.check(rows=self.row('P03'),rust=f'// {legacy}: A01 primary\n')()
     # TT-TEST: support
     def test_current_repository_linkage_passes(self): validate(Path(__file__).resolve().parents[2])
 

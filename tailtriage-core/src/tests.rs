@@ -859,7 +859,7 @@ fn saturation_preserves_exact_drop_counts_across_sections() {
     assert_eq!(snapshot.truncation.dropped_runtime_snapshots, 2);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn request_admission_bounds_retained_plus_pending_and_makes_refused_children_inert() {
     let tailtriage = Tailtriage::builder("request-admission-bound")
@@ -909,7 +909,7 @@ fn request_admission_bounds_retained_plus_pending_and_makes_refused_children_ine
     assert!(run.truncation.limits_hit);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn shutdown_counts_only_admitted_pending_requests_after_saturation() {
     let sink = MemorySink::new();
@@ -945,7 +945,7 @@ fn shutdown_counts_only_admitted_pending_requests_after_saturation() {
     drop(refused.completion);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn concurrent_request_admission_cannot_exceed_retained_plus_pending_limit() {
     const CALLERS: usize = 8;
@@ -3450,7 +3450,7 @@ fn inflight_counts(run: &crate::Run) -> Vec<u64> {
     run.inflight.iter().map(|snapshot| snapshot.count).collect()
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn inflight_drop_records_zero_then_removes_live_entry() {
     let tailtriage = Tailtriage::builder("inflight-zero")
@@ -3462,7 +3462,7 @@ fn inflight_drop_records_zero_then_removes_live_entry() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn inflight_label_reuse_records_one_zero_one_zero() {
     let tailtriage = Tailtriage::builder("inflight-reuse")
@@ -3475,7 +3475,7 @@ fn inflight_label_reuse_records_one_zero_one_zero() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn inflight_many_distinct_labels_leave_no_live_entries() {
     const LABELS: usize = 32;
@@ -3499,7 +3499,7 @@ fn inflight_many_distinct_labels_leave_no_live_entries() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn inflight_concurrent_same_label_records_exact_balanced_sequence() {
     const N: usize = 8;
@@ -3527,7 +3527,7 @@ fn inflight_concurrent_same_label_records_exact_balanced_sequence() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn inflight_zero_cleanup_survives_snapshot_retention_saturation() {
     let tailtriage = Tailtriage::builder("inflight-saturated")
@@ -3545,7 +3545,7 @@ fn inflight_zero_cleanup_survives_snapshot_retention_saturation() {
     assert_eq!(tailtriage.live_inflight_gauge_count(), 0);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn inflight_distinct_label_admission_is_bounded_and_refused_guard_is_inert() {
     let tailtriage = Tailtriage::builder("inflight-label-bound")
@@ -3582,7 +3582,7 @@ fn inflight_distinct_label_admission_is_bounded_and_refused_guard_is_inert() {
     assert!(run.truncation.limits_hit);
 }
 
-// TT-TEST: support
+// TT-TEST: K01 primary
 #[test]
 fn concurrent_distinct_inflight_admission_cannot_exceed_limit() {
     const CALLERS: usize = 8;

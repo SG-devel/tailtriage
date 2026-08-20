@@ -2838,7 +2838,7 @@ fn render_text_marks_one_sample_inflight_trend_unknown() {
     assert!(!text.contains("net growth +0"));
 }
 
-// TT-TEST: support
+// TT-TEST: S04 primary
 #[test]
 fn render_text_escapes_artifact_controls_without_changing_report_json() {
     let mut report = analyze_run(

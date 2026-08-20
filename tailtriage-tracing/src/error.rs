@@ -166,7 +166,7 @@ impl std::error::Error for ImportError {}
 mod tests {
     use super::ImportError;
 
-    // TT-TEST: support
+    // TT-TEST: S04 primary
 
     #[test]
     fn import_error_display_escapes_dynamic_fields_and_preserves_layout() {

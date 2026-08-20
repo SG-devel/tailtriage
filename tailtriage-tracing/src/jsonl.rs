@@ -646,7 +646,7 @@ mod tests {
         );
     }
 
-    // TT-TEST: support
+    // TT-TEST: S01 primary
 
     #[test]
     fn raw_record_boundary_and_unterminated_eof_are_deterministic() {
@@ -685,7 +685,7 @@ mod tests {
         }
     }
 
-    // TT-TEST: support
+    // TT-TEST: S01 primary
 
     #[test]
     fn unterminated_oversized_record_is_rejected_after_bounded_consumption() {
@@ -708,7 +708,7 @@ mod tests {
         assert!(read.get() <= crate::MAX_JSONL_RECORD_BYTES + 16 * 1024);
     }
 
-    // TT-TEST: support
+    // TT-TEST: S01 primary
 
     #[test]
     fn oversized_record_is_fatal_at_the_correct_logical_line() {
@@ -728,7 +728,7 @@ mod tests {
         );
     }
 
-    // TT-TEST: support
+    // TT-TEST: S01 primary
 
     #[test]
     fn many_small_records_have_no_aggregate_byte_ceiling() {
@@ -740,7 +740,7 @@ mod tests {
         assert_eq!(crate::MAX_JSONL_RECORD_BYTES, 8 * 1024 * 1024);
     }
 
-    // TT-TEST: support
+    // TT-TEST: S01 primary
 
     #[test]
     fn malformed_contained_span_warning_sample_is_bounded() {

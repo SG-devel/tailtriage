@@ -106,6 +106,16 @@ class WorkflowSecurityTests(unittest.TestCase):
         deny = f"- uses: taiki-e/install-action@{SHA}\n- name: unrelated\n  with:\n    tool: cargo-deny@0.20.2\n    fallback: none\n"
         self.assertTrue(check_workflow_security.cargo_deny_policy_errors(deny))
 
+    # TT-TEST: S05 primary
+    def test_rust_toolchain_env_value_does_not_satisfy_action_input(self) -> None:
+        text = f"on:\n  workflow_dispatch:\npermissions:\n  contents: read\n- uses: dtolnay/rust-toolchain@{SHA}\n  env:\n    toolchain: stable\n"
+        self.assertTrue(check_workflow_security.ci_source_policy_errors(text))
+
+    # TT-TEST: S05 primary
+    def test_cargo_deny_env_values_do_not_satisfy_action_inputs(self) -> None:
+        text = f"- uses: taiki-e/install-action@{SHA}\n  env:\n    tool: cargo-deny@0.20.2\n    fallback: none\n"
+        self.assertTrue(check_workflow_security.cargo_deny_policy_errors(text))
+
     # TT-TEST: support
     def test_repository_scan_checks_yaml_and_yml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
