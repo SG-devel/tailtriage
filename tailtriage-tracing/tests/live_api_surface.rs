@@ -2,6 +2,7 @@
 
 use tailtriage_tracing::{RecorderLimits, TailtriageLayer, TracingSession, TracingSessionBuilder};
 
+// TT-TEST: R03 primary
 #[test]
 fn public_live_api_imports_only_session_layer_and_limits() {
     fn accepts_builder(_: TracingSessionBuilder) {}
@@ -16,6 +17,7 @@ fn public_live_api_imports_only_session_layer_and_limits() {
     assert_eq!(imported.run().metadata.service_name, "svc");
 }
 
+// TT-TEST: support
 #[cfg(feature = "tokio")]
 #[tokio::test(flavor = "current_thread")]
 async fn direct_crate_tokio_methods_compile_and_work() {

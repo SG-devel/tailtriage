@@ -58,11 +58,13 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         summ.write_text(json.dumps(summary), encoding="utf-8")
         return raw, summ, tmp
 
+    # TT-TEST: O01 primary
     def test_valid_fixture_passes(self) -> None:
         raw, summ, tmp = self._write(self._summary())
         with tmp:
             validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_missing_mode_fails(self) -> None:
         summary = self._summary()
         del summary["absolute_metrics"]["tracing_light"]
@@ -70,6 +72,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         with tmp, self.assertRaises(SystemExit):
             validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_missing_tracing_runtime_snapshots_fails(self) -> None:
         summary = self._summary()
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["runtime_snapshots"]["median"] = 0
@@ -77,6 +80,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         with tmp, self.assertRaises(SystemExit):
             validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_missing_sampler_metadata_fails(self) -> None:
         summary = self._summary()
         summary["absolute_metrics"]["tracing_light_tokio_sampler"]["effective_tokio_sampler_config_present_rounds"] = 0
@@ -84,6 +88,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         with tmp, self.assertRaises(SystemExit):
             validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_missing_drop_path_signal_fails(self) -> None:
         summary = self._summary()
         summary["absolute_metrics"]["tracing_light_drop_path"]["drop_path_signal_present_rounds"] = 0
@@ -91,6 +96,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         with tmp, self.assertRaises(SystemExit):
             validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_nan_or_infinite_ratio_fails(self) -> None:
         for bad in (math.nan, math.inf):
             summary = self._summary()
@@ -99,6 +105,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
             with tmp, self.assertRaises(SystemExit):
                 validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_missing_required_ratio_key_fails(self) -> None:
         summary = self._summary()
         del summary["tracing_vs_native_ratios"]["tracing_light_drop_path_vs_core_light_drop_path_throughput"]
@@ -106,6 +113,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         with tmp, self.assertRaises(SystemExit):
             validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_fewer_measured_rounds_fails(self) -> None:
         summary = self._summary()
         summary["measured_rounds"] = 2
@@ -113,6 +121,7 @@ class ValidateRuntimeCostSummaryTests(unittest.TestCase):
         with tmp, self.assertRaises(SystemExit):
             validate_runtime_cost_summary.validate(raw, summ)
 
+    # TT-TEST: O01 primary
     def test_insufficient_data_quality_fails(self) -> None:
         summary = self._summary()
         summary["measurement_quality"] = "insufficient_data"

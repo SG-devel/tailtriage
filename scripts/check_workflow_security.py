@@ -34,28 +34,59 @@ def workflow_policy_errors(text: str, *, name: str = "workflow") -> list[str]:
 def cargo_deny_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
     """Return failures in the repository's exact cargo-deny installer policy."""
     errors: list[str] = []
-    tool_values = re.findall(r"(?m)^\s*tool:\s*([^\s#]+)", text)
-    deny_values = [value.strip("'\"") for value in tool_values if value.startswith("cargo-deny")]
-    if deny_values != ["cargo-deny@0.20.2"]:
-        errors.append(f"{name}: cargo-deny tool must be exactly cargo-deny@0.20.2")
-
-    fallback_values = re.findall(r"(?m)^\s*fallback:\s*([^\s#]+)", text)
-    if [value.strip("'\"") for value in fallback_values] != ["none"]:
-        errors.append(f"{name}: cargo-deny installer fallback must be exactly none")
+    steps = _action_steps(text)
+    deny = [values for action, values in steps if action.startswith("taiki-e/install-action@")]
+    if len(deny) != 1 or deny[0].get("tool") != "cargo-deny@0.20.2":
+        errors.append(f"{name}: cargo-deny installer step must set tool to cargo-deny@0.20.2")
+    if len(deny) != 1 or deny[0].get("fallback") != "none":
+        errors.append(f"{name}: cargo-deny installer step must set fallback to none")
     return errors
+
+
+def _action_steps(text: str) -> list[tuple[str, dict[str, str]]]:
+    """Extract only action-step ``uses`` and its own immediate ``with`` scalar mapping."""
+    lines = text.splitlines(); result = []
+    for index, line in enumerate(lines):
+        match = USES_RE.match(line)
+        if not match: continue
+        indent = len(line) - len(line.lstrip()); values = {}; j = index + 1
+        # ``uses`` and ``with`` are siblings inside a list step; stop at the next list item.
+        while j < len(lines) and not (
+            lines[j].strip().startswith("-")
+            and len(lines[j]) - len(lines[j].lstrip()) <= indent
+        ):
+            child = re.match(r"^\s+([A-Za-z0-9_-]+):\s*([^#\s]+)", lines[j])
+            if child: values[child.group(1)] = child.group(2).strip("'\"")
+            j += 1
+        result.append((match.group(1).strip("'\""), values))
+    return result
 
 
 def ci_source_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
     """Check narrow, repository-specific CI trust-boundary source contracts."""
     errors: list[str] = []
-    if not re.search(r"(?m)^\s{2}workflow_dispatch:\s*(?:\{\s*\})?\s*$", text):
+    dispatch = re.search(r"(?m)^(\s*)workflow_dispatch:\s*(?:\{\s*\})?\s*$", text)
+    if not dispatch:
         errors.append(f"{name}: workflow_dispatch must be present and input-free")
-    if re.search(r"(?m)^\s{4}inputs:\s*", text):
-        errors.append(f"{name}: workflow_dispatch must not define inputs")
-    if not re.search(r"(?m)^permissions:\s*\n\s{2}contents:\s*read\s*$", text):
+    else:
+        indent=len(dispatch.group(1)); tail=text[dispatch.end():].splitlines()
+        for line in tail:
+            if line.strip() and len(line)-len(line.lstrip()) <= indent: break
+            if re.match(r"^\s*inputs:\s*", line): errors.append(f"{name}: workflow_dispatch must not define inputs"); break
+    permission = re.search(r"(?m)^permissions:\s*$", text)
+    approved = False
+    if permission:
+        children=[]
+        for line in text[permission.end():].splitlines():
+            if line.strip() and not line.startswith(" "): break
+            match=re.match(r"^\s+([\w-]+):\s*([^#\s]+)",line)
+            if match: children.append((match.group(1),match.group(2)))
+        approved = children == [("contents", "read")]
+    if not approved or re.search(r"(?m)^[ \t]+permissions:\s*", text):
         errors.append(f"{name}: workflow permissions must be exactly contents: read")
-    if not re.search(r"(?m)^\s+toolchain:\s*[^\s#]+", text):
-        errors.append(f"{name}: pinned Rust setup must select an explicit toolchain")
+    rust_steps=[values for action,values in _action_steps(text) if action.startswith("dtolnay/rust-toolchain@")]
+    if not rust_steps or any(values.get("toolchain") != "stable" for values in rust_steps):
+        errors.append(f"{name}: every pinned Rust setup step must select toolchain stable")
     return errors
 
 

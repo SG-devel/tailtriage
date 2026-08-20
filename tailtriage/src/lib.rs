@@ -36,14 +36,15 @@ pub use tailtriage_tokio as tokio;
 /// expose progressively richer live and Tokio-coupled session APIs.
 pub use tailtriage_tracing as tracing;
 
-// TT-INVARIANT: P01 primary
-// TT-INVARIANT: P02 primary
 #[cfg(test)]
 mod tests {
+    // TT-TEST: P01 primary
     #[test]
     fn core_reexport_exposes_tailtriage() {
         let _builder = crate::Tailtriage::builder("default-smoke");
     }
+
+    // TT-TEST: P01 primary
 
     #[cfg(feature = "tokio")]
     #[test]
@@ -55,6 +56,8 @@ mod tests {
         ));
     }
 
+    // TT-TEST: P01 primary
+
     #[cfg(feature = "tokio")]
     #[test]
     fn tokio_helper_trait_reexport_path_compiles() {
@@ -64,17 +67,25 @@ mod tests {
         assert_trait::<crate::RequestHandle<'_>>();
     }
 
+    // TT-TEST: P01 primary
+
     #[cfg(feature = "controller")]
     #[test]
     fn controller_namespace_reexport_compiles() {
         let _builder = crate::controller::TailtriageController::builder("default-controller");
     }
 
+    // TT-TEST: P01 primary
+    // TT-TEST: P02 primary
+
     #[cfg(feature = "axum")]
     #[test]
     fn axum_namespace_reexport_compiles() {
         std::hint::black_box(crate::axum::middleware);
     }
+
+    // TT-TEST: P01 primary
+    // TT-TEST: P02 primary
 
     #[cfg(feature = "tracing")]
     #[test]

@@ -12,6 +12,7 @@ fn load_fixture(name: &str) -> Run {
     serde_json::from_str(&content).expect("fixture should deserialize")
 }
 
+// TT-TEST: support
 #[test]
 fn public_api_supports_checked_analysis_and_canonical_renderers() {
     let run = load_fixture("queue_saturation.json");

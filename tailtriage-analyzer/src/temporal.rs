@@ -293,6 +293,8 @@ mod tests {
         options
     }
 
+    // TT-TEST: A09 primary
+
     #[test]
     fn p95_shift_is_inclusive_and_distinguishes_adjacent_values() {
         let options = options_with_ratio(3, 2);
@@ -300,6 +302,8 @@ mod tests {
         assert!(!has_material_p95_shift(Some(20), Some(29), &options));
         assert!(has_material_p95_shift(Some(20), Some(31), &options));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn p95_shift_orders_values_symmetrically() {
@@ -310,6 +314,8 @@ mod tests {
         assert!(!has_material_p95_shift(Some(20), Some(29), &options));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn p95_shift_rejects_zero_and_missing_baselines() {
         let options = options_with_ratio(3, 2);
@@ -317,6 +323,8 @@ mod tests {
         assert!(!has_material_p95_shift(None, Some(30), &options));
         assert!(!has_material_p95_shift(Some(30), None, &options));
     }
+
+    // TT-TEST: A09 primary
 
     #[test]
     fn p95_shift_uses_exact_arithmetic_near_u64_max() {

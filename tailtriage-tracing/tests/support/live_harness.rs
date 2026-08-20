@@ -697,6 +697,7 @@ fn find_primary_suspect_line(rendered: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+// TT-TEST: support
 #[test]
 fn parity_report_detects_queue_name_mismatch() {
     let native = deterministic_native_run();
@@ -715,6 +716,7 @@ fn parity_report_detects_queue_name_mismatch() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn normalization_replaces_unstable_id_and_timestamp_lines() {
     let run_id_a = normalize_rendered_report("Run ID: abc123");
@@ -730,6 +732,7 @@ fn normalization_replaces_unstable_id_and_timestamp_lines() {
     assert_eq!(generated_a, generated_b);
 }
 
+// TT-TEST: support
 #[test]
 fn normalization_replaces_unstable_timestamp_field_lines() {
     let cases = [
@@ -753,6 +756,7 @@ fn normalization_replaces_unstable_timestamp_field_lines() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn normalization_preserves_semantic_content() {
     let a = "## Summary
@@ -791,6 +795,7 @@ Next checks:
     );
 }
 
+// TT-TEST: support
 #[test]
 fn parity_report_detects_request_outcome_mismatch() {
     let native = deterministic_native_run();
@@ -814,6 +819,7 @@ fn parity_report_detects_request_outcome_mismatch() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn live_session_preserves_event_shape_and_outputs_analyzable_run() {
     let (run, warnings) = live_tracing_run();

@@ -1542,9 +1542,6 @@ impl Visit for FieldVisitor {
     }
 }
 
-// TT-INVARIANT: R03 primary
-// TT-INVARIANT: R06 primary
-// TT-INVARIANT: S03 primary
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1752,6 +1749,8 @@ mod tests {
             .collect()
     }
 
+    // TT-TEST: support
+
     #[test]
     fn open_span_from_start_sample_uses_supplied_start_times() {
         let started_at_unix_ms = 123_456_789;
@@ -1776,6 +1775,8 @@ mod tests {
         assert_eq!(open.started_instant, started_instant);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn live_recorder_request_conversion_populates_run_relative_fields() {
         with_recorder(|recorder| {
@@ -1798,6 +1799,8 @@ mod tests {
             assert!(finish >= start);
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn live_recorder_stage_conversion_populates_run_relative_fields() {
@@ -1825,6 +1828,8 @@ mod tests {
             assert!(finish >= start);
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn live_recorder_queue_conversion_populates_run_relative_fields() {
@@ -1855,6 +1860,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: R03 primary
+
     #[test]
     fn request_span_collected() {
         with_recorder(|recorder| {
@@ -1869,6 +1876,8 @@ mod tests {
             assert_eq!(run.run().requests.len(), 1);
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn strict_snapshot_run_succeeds_for_completed_request_span() {
@@ -1887,6 +1896,8 @@ mod tests {
         let snapshot = recorder.snapshot_run().unwrap();
         assert_eq!(snapshot.run().requests.len(), 1);
     }
+
+    // TT-TEST: support
 
     #[tokio::test(flavor = "current_thread")]
     async fn live_completed_request_records_close_wall_clock_and_monotonic_latency() {
@@ -1913,6 +1924,8 @@ mod tests {
         assert!(request.latency_us > 0);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn duration_uses_captured_close_instant_not_current_time() {
         let started_instant = std::time::Instant::now();
@@ -1924,6 +1937,8 @@ mod tests {
         assert!((1_000..=2_000).contains(&duration_us));
         assert!(duration_us < 10_000);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn live_finished_wall_clock_is_not_synthesized_from_duration() {
@@ -1958,6 +1973,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stage_span_collected() {
         with_recorder(|recorder| {
@@ -1985,6 +2002,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn queue_span_collected() {
         with_recorder(|recorder| {
@@ -2008,6 +2027,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn on_record_updates_field() {
         with_recorder(|recorder| {
@@ -2025,6 +2046,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn unrelated_span_ignored() {
         with_recorder(|recorder| {
@@ -2036,6 +2059,8 @@ mod tests {
             assert!(run.run().queues.is_empty());
         });
     }
+
+    // TT-TEST: R03 primary
 
     #[test]
     fn snapshot_run_is_non_consuming_and_shutdown_consumes_owned_handle() {
@@ -2069,6 +2094,8 @@ mod tests {
         assert_eq!(run.run().requests[0].request_id, "r2");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn builder_metadata_applies_to_imported_run() {
         let recorder = LiveRecorder::builder("checkout-service")
@@ -2094,6 +2121,8 @@ mod tests {
         assert_eq!(run.run().metadata.run_id, "run-42");
     }
 
+    // TT-TEST: R03 primary
+
     #[test]
     fn strict_mode_errors_on_malformed_request() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -2105,6 +2134,8 @@ mod tests {
 
         assert!(recorder.snapshot_run().is_err());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn tt_kind_recorded_later_is_captured() {
@@ -2124,6 +2155,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn non_tailtriage_fields_do_not_make_span_candidate() {
         with_recorder(|recorder| {
@@ -2142,6 +2175,8 @@ mod tests {
             assert!(run.warnings().is_empty());
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn debug_or_invalid_tt_kind_does_not_become_valid_kind() {
@@ -2168,6 +2203,8 @@ mod tests {
             assert!(run.run().queues.is_empty());
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn display_formatted_tt_kind_request_is_imported() {
@@ -2200,6 +2237,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn debug_formatted_string_tt_kind_is_rejected_with_invalid_kind_warning() {
         with_recorder(|recorder| {
@@ -2226,6 +2265,8 @@ mod tests {
                 .any(|msg| msg.contains("invalid tt.kind")));
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn shutdown_output_is_analyzable_and_has_no_runtime_snapshots() {
@@ -2264,6 +2305,8 @@ mod tests {
             assert_eq!(report.request_count, 1);
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_candidate_cap_emits_warning_and_sets_limits_hit_non_strict() {
@@ -2306,6 +2349,8 @@ mod tests {
         assert_eq!(imported.run().truncation.dropped_queues, 0);
         assert_eq!(imported.run().requests[0].request_id, "r1");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_candidate_cap_preserves_request_over_children_non_strict() {
@@ -2353,6 +2398,8 @@ mod tests {
                 || warning_text.contains("evicted 1 completed child candidate span")
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn raw_cap_does_not_evict_retained_request_child_for_later_unretained_request() {
@@ -2411,6 +2458,8 @@ mod tests {
         assert!(!warning_text.contains("dropped 1 completed request candidate span"));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn raw_cap_still_preserves_request_root_when_within_semantic_request_limit() {
         let recorder = LiveRecorder::builder("svc")
@@ -2468,6 +2517,8 @@ mod tests {
         assert!(!warning_text.contains("dropped 1 completed request candidate span"));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_errors_when_completed_candidate_cap_drops_spans() {
         let recorder = LiveRecorder::builder("svc")
@@ -2500,6 +2551,8 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn strict_mode_errors_when_completed_candidate_cap_evicts_child_for_request() {
@@ -2541,6 +2594,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn completed_candidate_conversion_order_is_request_stage_queue() {
         let mut state = RecorderState::default();
@@ -2554,6 +2609,8 @@ mod tests {
         assert_eq!(ordered[1].name(), "stage");
         assert_eq!(ordered[2].name(), "queue");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn raw_completed_candidate_cap_is_separate_from_semantic_capture_limits() {
@@ -2588,6 +2645,8 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn raw_completed_candidate_cap_drops_incoming_request_when_full_of_requests() {
@@ -2647,6 +2706,8 @@ mod tests {
         }));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn request_arriving_at_full_child_containing_cap_evicts_child_regardless_of_identity() {
         let recorder = LiveRecorder::builder("svc")
@@ -2703,6 +2764,8 @@ mod tests {
         }));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_errors_when_raw_cap_evicts_child_before_core_excludes_ambiguous_requests() {
         let recorder = LiveRecorder::builder("svc")
@@ -2754,6 +2817,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn full_request_only_raw_cap_drops_incoming_request_regardless_of_identity() {
         let recorder = LiveRecorder::builder("svc")
@@ -2803,6 +2868,8 @@ mod tests {
                 && w.message().contains("max_completed_candidate_spans=2")
         }));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn retained_sources_follow_live_recorder_section_order_with_exact_identity() {
@@ -2876,6 +2943,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn snapshots_are_non_consuming_and_shutdown_retained_sources_are_deterministic() {
         let build = || {
@@ -2915,6 +2984,8 @@ mod tests {
         assert_eq!(first.warnings(), shutdown.warnings());
         assert_eq!(first.retained_sources(), shutdown.retained_sources());
     }
+
+    // TT-TEST: support
 
     #[cfg(feature = "tokio")]
     #[tokio::test(flavor = "current_thread")]
@@ -2958,6 +3029,8 @@ mod tests {
                     == Some(&FieldValue::String("completed-by-hook".to_owned()))
         }));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn semantic_request_limit_applies_after_raw_recorder_retention() {
@@ -3005,6 +3078,8 @@ mod tests {
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_errors_when_max_open_spans_drops_candidate_spans() {
         let recorder = LiveRecorder::builder("svc")
@@ -3041,6 +3116,8 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn strict_mode_combines_recorder_drop_and_conversion_strict_violations() {
@@ -3079,6 +3156,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn incomplete_request_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
         let recorder = LiveRecorder::builder("svc")
@@ -3111,6 +3190,8 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn incomplete_stage_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
@@ -3157,6 +3238,8 @@ mod tests {
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn incomplete_queue_does_not_consume_completed_candidate_cap_in_non_strict_mode() {
         let recorder = LiveRecorder::builder("svc")
@@ -3202,6 +3285,8 @@ mod tests {
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn invalid_numeric_required_fields_do_not_consume_completed_candidate_cap() {
         let recorder = LiveRecorder::builder("svc")
@@ -3236,6 +3321,8 @@ mod tests {
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn whitespace_only_required_field_reports_incomplete_candidate_not_invalid_run_event() {
         let recorder = LiveRecorder::builder("svc")
@@ -3269,6 +3356,8 @@ mod tests {
             .iter()
             .any(|w| w.message().contains("InvalidRunEvent")));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn invalid_numeric_stage_does_not_consume_completed_candidate_cap() {
@@ -3312,6 +3401,8 @@ mod tests {
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn invalid_numeric_queue_does_not_consume_completed_candidate_cap() {
         let recorder = LiveRecorder::builder("svc")
@@ -3354,6 +3445,8 @@ mod tests {
             .any(|w| w.message().contains("max_completed_candidate_spans")));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn source_valid_orphan_stage_consumes_semantic_stage_retention_before_core_exclusion() {
         let recorder = LiveRecorder::builder("svc")
@@ -3390,6 +3483,8 @@ mod tests {
         assert!(imported.run().stages.is_empty());
         assert_eq!(imported.run().truncation.dropped_stages, 1);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn source_valid_orphan_queue_consumes_semantic_queue_retention_before_core_exclusion() {
@@ -3428,6 +3523,8 @@ mod tests {
         assert_eq!(imported.run().truncation.dropped_queues, 1);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_fails_for_malformed_request_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3442,6 +3539,8 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn strict_mode_fails_for_invalid_numeric_request_route() {
@@ -3464,6 +3563,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_fails_for_malformed_stage_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3485,6 +3586,8 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn strict_mode_fails_for_invalid_numeric_stage_field() {
@@ -3514,6 +3617,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_fails_for_malformed_queue_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3535,6 +3640,8 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn strict_mode_fails_for_invalid_numeric_queue_field() {
@@ -3564,6 +3671,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_fails_for_orphan_stage_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3580,6 +3689,8 @@ mod tests {
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_mode_fails_for_orphan_queue_span() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3595,6 +3706,8 @@ mod tests {
         let err = recorder.snapshot_run().unwrap_err();
         assert!(matches!(err, ImportError::StrictViolation(_)));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn open_span_saturation_emits_warning_and_sets_limits_hit() {
@@ -3633,6 +3746,8 @@ mod tests {
             .any(|w| w.contains("dropped 1 candidate spans")));
         assert!(imported.run().truncation.limits_hit);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn non_strict_mode_reports_drop_warnings_and_truncation() {
@@ -3697,6 +3812,8 @@ mod tests {
         assert!(imported.run().truncation.limits_hit);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn unrelated_spans_do_not_consume_open_limit() {
         let recorder = LiveRecorder::builder("svc")
@@ -3721,17 +3838,23 @@ mod tests {
         assert!(imported.warnings().is_empty());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn live_recorder_builder_rejects_blank_service_name() {
         let err = LiveRecorder::builder("   ").build().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn tracing_intake_session_builder_rejects_blank_service_name() {
         let err = TracingSession::builder("   ").build().unwrap_err();
         assert!(matches!(err, ImportError::EmptyServiceName));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn closed_candidate_missing_tt_kind_warns_non_strict() {
@@ -3764,6 +3887,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn closed_candidate_unknown_tt_kind_warns_non_strict() {
         with_recorder(|recorder| {
@@ -3789,6 +3914,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn closed_candidate_malformed_tt_kind_warns_non_strict() {
         with_recorder(|recorder| {
@@ -3813,6 +3940,8 @@ mod tests {
             assert!(msg.contains("r-malformed"));
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn invalid_kind_warning_aggregates_missing_unknown_and_malformed_counts() {
@@ -3848,6 +3977,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn closed_candidate_missing_tt_kind_errors_strict() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3873,6 +4004,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn closed_candidate_missing_tt_kind_shutdown_errors_strict() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3897,6 +4030,8 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn strict_mode_reports_open_and_closed_missing_kind_causes_together() {
@@ -3930,6 +4065,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn unrelated_closed_span_still_ignored_without_warning() {
         with_recorder(|recorder| {
@@ -3942,6 +4079,7 @@ mod tests {
             assert!(imported.warnings().is_empty());
         });
     }
+    // TT-TEST: support
     #[test]
     fn strict_mode_rejects_open_candidate_spans_without_fabricating_completions() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -3964,6 +4102,8 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn open_candidate_span_warns_on_snapshot_and_shutdown_non_strict() {
@@ -3993,6 +4133,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: R03 primary
+
     #[test]
     fn open_candidate_span_errors_in_strict_mode() {
         let recorder = LiveRecorder::builder("svc").strict(true).build().unwrap();
@@ -4005,6 +4147,8 @@ mod tests {
         });
     }
 
+    // TT-TEST: support
+
     #[test]
     fn unrelated_open_span_does_not_warn() {
         with_recorder(|recorder| {
@@ -4013,6 +4157,8 @@ mod tests {
             assert!(snapshot.warnings().is_empty());
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn open_candidate_with_empty_tt_kind_still_warns() {
@@ -4029,6 +4175,8 @@ mod tests {
                 .contains("open candidate span(s) at snapshot/shutdown")));
         });
     }
+
+    // TT-TEST: support
 
     #[test]
     fn direct_completed_span_jsonl_writer_preserves_exact_retained_sources() {
@@ -4091,6 +4239,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: S01 primary
+
     #[test]
     fn completed_jsonl_writer_enforces_per_record_bytes_without_total_ceiling() {
         let dir = tempfile::tempdir().unwrap();
@@ -4145,6 +4295,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn completed_jsonl_writer_reports_line_and_cleans_temp_on_oversize() {
         let dir = tempfile::tempdir().unwrap();
@@ -4169,6 +4321,8 @@ mod tests {
         assert!(!path.exists());
         assert_no_completed_span_jsonl_temps(&path);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_jsonl_writer_preserves_existing_target_on_oversize() {
@@ -4197,6 +4351,8 @@ mod tests {
         assert_no_completed_span_jsonl_temps(&path);
     }
 
+    // TT-TEST: S03 primary
+
     #[test]
     fn completed_jsonl_writer_retries_exclusive_collisions_without_modifying_them() {
         let dir = tempfile::tempdir().unwrap();
@@ -4220,6 +4376,8 @@ mod tests {
         assert!(path.exists());
         assert!(!second.exists());
     }
+
+    // TT-TEST: S03 primary
 
     #[test]
     fn completed_jsonl_writer_exhausts_eight_collisions_without_modification() {
@@ -4248,6 +4406,8 @@ mod tests {
             assert_eq!(std::fs::read(candidate).unwrap(), b"sentinel");
         }
     }
+
+    // TT-TEST: S03 primary
 
     #[test]
     fn completed_jsonl_writer_failure_removes_only_owned_candidate() {
@@ -4289,6 +4449,8 @@ mod tests {
             "completed-span JSONL temp artifacts remain: {leftovers:?}"
         );
     }
+
+    // TT-TEST: R06 primary
 
     #[test]
     fn production_completed_span_jsonl_writer_output_reimports_expected_fields() {
@@ -4338,6 +4500,8 @@ mod tests {
             Some(&FieldValue::String("kept".to_owned()))
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn direct_completed_span_jsonl_writer_excludes_core_excluded_sources() {
@@ -4436,6 +4600,8 @@ mod tests {
             .field("tt.request_id", id)
             .field("tt.queue", name)
     }
+
+    // TT-TEST: support
 
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -4687,6 +4853,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn repaired_optional_precision_writer_emits_original_source_values() {
@@ -4802,6 +4970,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn semantic_unavailable_records_are_not_written_to_completed_jsonl() {
         let semantic_dir = tempfile::tempdir().unwrap();
@@ -4875,6 +5045,8 @@ mod tests {
             ]
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn raw_unavailable_records_are_not_written_to_completed_jsonl() {
@@ -4971,6 +5143,8 @@ mod tests {
         futures_executor::block_on(session.shutdown()).unwrap()
     }
 
+    // TT-TEST: support
+
     #[test]
     fn live_session_completed_jsonl_is_section_grouped_and_byte_deterministic() {
         let first_dir = tempfile::tempdir().unwrap();
@@ -5036,6 +5210,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stable_wrapper_import_reemits_precise_and_repairable_sources_byte_identically() {
         assert_stable_wrapper_reemits_byte_identically(
@@ -5074,6 +5250,8 @@ mod tests {
             ],
         );
     }
+
+    // TT-TEST: support
 
     #[cfg(feature = "tokio")]
     #[tokio::test(flavor = "current_thread")]
@@ -5151,6 +5329,8 @@ mod tests {
         // evidence only; runtime snapshots remain Run-only metadata.
     }
 
+    // TT-TEST: support
+
     #[test]
     fn completed_jsonl_missing_retained_sources_error_is_deterministic_without_output() {
         let dir = tempfile::tempdir().unwrap();
@@ -5185,6 +5365,8 @@ mod tests {
             .contains("tailtriage-tmp"));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn intake_session_wrapper_jsonl_and_truncate_behavior() {
         let dir = tempfile::tempdir().unwrap();
@@ -5215,6 +5397,8 @@ mod tests {
         let lines: Vec<_> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 1);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn intake_session_emits_wrapper_shape_and_round_trips_wrapper_only() {
@@ -5257,6 +5441,8 @@ mod tests {
         assert_eq!(imported.run().requests[0].request_id, "r1");
         assert_eq!(imported.run().requests[0].route, "/a");
     }
+
+    // TT-TEST: R06 primary
 
     #[test]
     fn session_shutdown_writes_retained_original_sources_directly() {
@@ -5313,6 +5499,8 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&run_path).unwrap()).unwrap();
         assert_eq!(&run_json, imported.run());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_jsonl_matches_retained_run_counts() {
@@ -5372,6 +5560,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: R06 primary
+
     #[test]
     fn intake_session_write_failure_returns_io_on_shutdown() {
         let dir = tempfile::tempdir().unwrap();
@@ -5398,6 +5588,8 @@ mod tests {
             .to_string()
             .contains("create completed span jsonl parent directory"));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn intake_session_non_strict_write_failure_returns_io_on_shutdown() {
@@ -5426,6 +5618,8 @@ mod tests {
             .contains("create completed span jsonl parent directory"));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn intake_session_run_json_path_writes_valid_run_json() {
         let dir = tempfile::tempdir().unwrap();
@@ -5450,6 +5644,8 @@ mod tests {
         assert_eq!(run.requests.len(), 1);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn session_shutdown_succeeds_when_request_span_handle_is_dropped_before_shutdown() {
         let dir = tempfile::tempdir().unwrap();
@@ -5472,6 +5668,8 @@ mod tests {
         futures_executor::block_on(session.shutdown()).unwrap();
         assert!(run_path.exists());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn session_shutdown_rejects_open_request_span_for_persisted_output() {
@@ -5512,6 +5710,8 @@ mod tests {
         drop(span);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn intake_session_run_json_path_creates_nested_parent_directories() {
         let dir = tempfile::tempdir().unwrap();
@@ -5533,6 +5733,8 @@ mod tests {
         assert!(run_path.exists());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn intake_session_run_json_path_rejects_zero_requests_without_creating_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -5545,6 +5747,8 @@ mod tests {
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert!(!run_path.exists());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn intake_session_zero_request_persisted_error_includes_intake_warnings() {
@@ -5576,6 +5780,8 @@ mod tests {
         assert!(!run_path.exists());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn shutdown_with_completed_span_jsonl_only_and_zero_requests_writes_no_artifact() {
         let dir = tempfile::tempdir().unwrap();
@@ -5589,12 +5795,16 @@ mod tests {
         assert!(!spans_path.exists());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn shutdown_with_no_persisted_paths_and_zero_requests_still_returns_imported_run() {
         let session = TracingSession::builder("svc").build().unwrap();
         let imported = futures_executor::block_on(session.shutdown()).unwrap();
         assert_eq!(imported.run().requests.len(), 0);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn intake_session_run_json_path_rejects_zero_requests_without_overwriting_existing_file() {
@@ -5609,6 +5819,8 @@ mod tests {
         assert!(matches!(err, ImportError::ZeroRequestArtifact { .. }));
         assert_eq!(std::fs::read_to_string(&run_path).unwrap(), "keep-me");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn shutdown_with_both_outputs_and_zero_requests_writes_no_final_or_temp_artifacts() {
@@ -5626,6 +5838,8 @@ mod tests {
         assert!(!run_path.exists());
         assert_no_temp_artifacts(dir.path());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_jsonl_failure_prevents_run_json_transaction() {
@@ -5670,6 +5884,8 @@ mod tests {
         assert!(!spans_path.exists());
         assert_no_temp_artifacts(dir.path());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_jsonl_remains_finalized_when_run_json_write_fails() {
@@ -5723,6 +5939,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn intake_session_persisted_success_keeps_warnings_and_writes_outputs() {
         let dir = tempfile::tempdir().unwrap();
@@ -5759,6 +5977,8 @@ mod tests {
         assert!(run_path.exists());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn completed_span_jsonl_success_writes_final_wrapper_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -5787,6 +6007,8 @@ mod tests {
         assert!(value["span"].is_object());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn completed_span_jsonl_path_creates_nested_parent_directories() {
         let dir = tempfile::tempdir().unwrap();
@@ -5808,11 +6030,15 @@ mod tests {
         assert!(spans_path.exists());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn create_output_parent_dir_skips_filename_only_path() {
         create_output_parent_dir(Path::new("run.json"), "create run json parent directory")
             .unwrap();
     }
+
+    // TT-TEST: support
 
     #[test]
     fn unrelated_spans_are_ignored_by_completed_span_jsonl_writer() {
@@ -5840,6 +6066,8 @@ mod tests {
         assert!(line.contains("\"tt.request_id\":\"r1\""));
         assert!(!line.contains("unrelated"));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn completed_jsonl_excludes_malformed_and_orphan_stage_queue_spans() {
@@ -5885,6 +6113,8 @@ mod tests {
         assert_eq!(imported.run().stages.len(), 0);
         assert_eq!(imported.run().queues.len(), 0);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn intake_session_captures_request_stage_queue() {

@@ -11,6 +11,7 @@ fn unique_path(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("tailtriage-{name}-{nanos}.json"))
 }
 
+// TT-TEST: C01 secondary
 #[tokio::test(flavor = "current_thread")]
 async fn queue_and_stage_data_drives_ranked_suspects() {
     let artifact = unique_path("e2e-queue");
@@ -53,6 +54,7 @@ async fn queue_and_stage_data_drives_ranked_suspects() {
     );
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn downstream_heavy_stage_is_ranked() {
     let artifact = unique_path("e2e-downstream");
@@ -113,6 +115,7 @@ async fn downstream_heavy_stage_is_ranked() {
     );
 }
 
+// TT-TEST: support
 #[tokio::test(flavor = "current_thread")]
 async fn low_evidence_run_yields_insufficient_signal() {
     let artifact = unique_path("e2e-insufficient");

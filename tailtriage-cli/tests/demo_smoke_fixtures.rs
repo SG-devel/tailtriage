@@ -42,6 +42,7 @@ fn assert_primary_evidence_contains_any(report: &Value, cues: &[&str], fixture: 
     );
 }
 
+// TT-TEST: support
 #[test]
 fn queue_demo_fixture_reports_application_queue_saturation() {
     let fixture = "demos/queue_service/fixtures/before-analysis.json";
@@ -51,6 +52,7 @@ fn queue_demo_fixture_reports_application_queue_saturation() {
     assert_primary_score_floor(&report, 70, fixture);
 }
 
+// TT-TEST: support
 #[test]
 fn blocking_demo_fixture_reports_blocking_pool_pressure() {
     let fixture = "demos/blocking_service/fixtures/before-analysis.json";
@@ -60,6 +62,7 @@ fn blocking_demo_fixture_reports_blocking_pool_pressure() {
     assert_primary_score_floor(&report, 70, fixture);
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_demo_fixture_reports_downstream_stage_dominance() {
     let fixture = "demos/downstream_service/fixtures/before-analysis.json";
@@ -69,6 +72,7 @@ fn downstream_demo_fixture_reports_downstream_stage_dominance() {
     assert_primary_score_floor(&report, 60, fixture);
 }
 
+// TT-TEST: support
 #[test]
 fn executor_demo_fixture_reports_executor_pressure() {
     let fixture = "demos/executor_pressure_service/fixtures/before-analysis.json";
@@ -78,6 +82,7 @@ fn executor_demo_fixture_reports_executor_pressure() {
     assert_primary_score_floor(&report, 60, fixture);
 }
 
+// TT-TEST: support
 #[test]
 fn mixed_contention_baseline_fixture_has_queue_primary_with_secondary_contention_cues() {
     let fixture = "demos/mixed_contention_service/fixtures/baseline-analysis.json";
@@ -99,6 +104,7 @@ fn mixed_contention_baseline_fixture_has_queue_primary_with_secondary_contention
     assert_primary_score_floor(&report, 70, fixture);
 }
 
+// TT-TEST: support
 #[test]
 fn cold_start_burst_before_fixture_has_cold_start_queue_evidence() {
     let fixture = "demos/cold_start_burst_service/fixtures/before-analysis.json";
@@ -125,6 +131,7 @@ fn cold_start_burst_before_fixture_has_cold_start_queue_evidence() {
     assert_primary_score_floor(&report, 70, fixture);
 }
 
+// TT-TEST: support
 #[test]
 fn db_pool_saturation_before_fixture_preserves_queue_signal_floor() {
     let fixture = "demos/db_pool_saturation_service/fixtures/before-analysis.json";
@@ -139,6 +146,7 @@ fn db_pool_saturation_before_fixture_preserves_queue_signal_floor() {
     assert_primary_score_floor(&report, 65, fixture);
 }
 
+// TT-TEST: support
 #[test]
 fn retry_storm_before_fixture_preserves_downstream_retry_cues() {
     let fixture = "demos/retry_storm_service/fixtures/before-analysis.json";

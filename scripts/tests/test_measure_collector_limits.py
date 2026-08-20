@@ -14,8 +14,6 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import measure_collector_limits  # noqa: E402
 
 
-# TT-INVARIANT: O02 primary
-# TT-INVARIANT: K01 primary
 class CollectorLimitsSummaryTests(unittest.TestCase):
     def _make_row(
         self,
@@ -93,6 +91,7 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
             "measurement_notes": ["collector synthetic note"],
         }
 
+    # TT-TEST: O02 primary
     def test_parse_modes_validation(self) -> None:
         parsed = measure_collector_limits.parse_modes(" baseline , core_light ")
         self.assertEqual(parsed, ("baseline", "core_light"))
@@ -102,6 +101,7 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             measure_collector_limits.parse_modes("baseline,unknown_mode")
 
+    # TT-TEST: O02 primary
     def test_pct_delta(self) -> None:
         self.assertEqual(measure_collector_limits.pct_delta(100.0, 125.0), 25.0)
         self.assertEqual(measure_collector_limits.pct_delta(10.0, 8.0), -20.0)
@@ -109,6 +109,7 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
         self.assertIsNone(measure_collector_limits.pct_delta(10.0, None))
         self.assertIsNone(measure_collector_limits.pct_delta(0.0, 1.0))
 
+    # TT-TEST: O02 primary
     def test_summarize_values_handles_empty_and_nonempty(self) -> None:
         self.assertEqual(
             measure_collector_limits.summarize_values([]),
@@ -130,6 +131,7 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
         self.assertEqual(summary["max"], 3.0)
         self.assertEqual(summary["stdev"], 1.0)
 
+    # TT-TEST: O02 primary
     def test_group_rows_groups_by_case_and_mode(self) -> None:
         rows = [
             {"case_id": "baseline_shape", "mode": "baseline", "run_id": 1},
@@ -141,6 +143,7 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
         self.assertEqual(set(grouped), {"baseline_shape::baseline", "high_concurrency::baseline"})
         self.assertEqual([row["run_id"] for row in grouped["baseline_shape::baseline"]], [1, 2])
 
+    # TT-TEST: O02 primary
     def test_signal_for_mode_handles_derived_and_missing_metrics(self) -> None:
         summary_by_case_mode = {
             "low_concurrency::core_light": {
@@ -197,6 +200,8 @@ class CollectorLimitsSummaryTests(unittest.TestCase):
             },
         )
 
+    # TT-TEST: O02 primary
+    # TT-TEST: K01 secondary
     def test_summarize_synthetic_rows_exposes_structure_mode_filtering_sampler_and_onset(self) -> None:
         mode = "core_light_tokio_sampler"
         rows = [

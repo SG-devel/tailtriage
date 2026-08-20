@@ -1,18 +1,3 @@
-// TT-INVARIANT: A01 primary
-// TT-INVARIANT: A02 primary
-// TT-INVARIANT: A03 primary
-// TT-INVARIANT: A04 primary
-// TT-INVARIANT: A05 primary
-// TT-INVARIANT: A06 primary
-// TT-INVARIANT: A07 primary
-// TT-INVARIANT: A08 primary
-// TT-INVARIANT: A09 primary
-// TT-INVARIANT: A10 primary
-// TT-INVARIANT: A11 primary
-// TT-INVARIANT: A12 primary
-// TT-INVARIANT: A13 primary
-// TT-INVARIANT: Q01 primary
-// TT-INVARIANT: S04 primary
 use tailtriage_core::{
     CaptureMode, EffectiveCoreConfig, InFlightSnapshot, QueueEvent, RequestEvent, Run, RunMetadata,
     RuntimeSnapshot, StageEvent, SCHEMA_VERSION,
@@ -190,6 +175,7 @@ fn finalized_literal_order(
     suspects.into_iter().map(|s| s.suspect.kind).collect()
 }
 
+// TT-TEST: A05 primary
 #[test]
 fn final_confidence_ranking_selects_primary_before_raw_score() {
     let expected = vec![
@@ -226,6 +212,7 @@ fn final_confidence_ranking_selects_primary_before_raw_score() {
     assert_eq!(finalized_literal_order(reversed), expected);
 }
 
+// TT-TEST: A05 primary
 #[test]
 fn final_confidence_ties_break_by_raw_score_then_kind() {
     let candidates = vec![
@@ -383,6 +370,7 @@ fn scoped_evidence(
     )
 }
 
+// TT-TEST: support
 #[test]
 fn ambiguity_cluster_membership_uses_raw_scores_only() {
     let options = AnalyzeOptions::default().with_confidence(|o| {
@@ -427,6 +415,7 @@ fn ambiguity_cluster_membership_uses_raw_scores_only() {
     }
 }
 
+// TT-TEST: A05 primary
 #[test]
 fn evidence_cap_can_promote_lower_raw_score_candidate() {
     let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default())
@@ -494,6 +483,7 @@ fn evidence_cap_can_promote_lower_raw_score_candidate() {
     );
 }
 
+// TT-TEST: A05 primary
 #[test]
 fn cap_induced_primary_flip_has_exact_json() {
     let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default())
@@ -502,6 +492,7 @@ fn cap_induced_primary_flip_has_exact_json() {
     assert_eq!(render_json(&report).unwrap(), expected_json);
 }
 
+// TT-TEST: A05 primary
 #[test]
 fn cap_induced_primary_flip_has_exact_text() {
     let report = analyze_run(&cap_flip_run(), AnalyzeOptions::default())
@@ -510,6 +501,7 @@ fn cap_induced_primary_flip_has_exact_text() {
     assert_eq!(render_text(&report), expected_text);
 }
 
+// TT-TEST: A06 primary
 #[test]
 fn raw_score_ambiguity_caps_all_cluster_members_uniformly() {
     let mut run = cap_flip_run();
@@ -599,6 +591,7 @@ fn raw_score_ambiguity_caps_all_cluster_members_uniformly() {
     }
 }
 
+// TT-TEST: A06 primary
 #[test]
 fn equal_final_confidence_without_raw_score_proximity_is_not_ambiguous() {
     let mut run = cap_flip_run();
@@ -649,6 +642,7 @@ fn equal_final_confidence_without_raw_score_proximity_is_not_ambiguous() {
             .any(|n| n.contains("capped by ambiguity"))));
 }
 
+// TT-TEST: support
 #[test]
 fn candidate_order_is_stable_under_irrelevant_input_reordering() {
     let run = cap_flip_run();
@@ -698,6 +692,7 @@ fn scoped_flip_report() -> Report {
     analyze_run(&run, options).expect("analyzer options should be valid")
 }
 
+// TT-TEST: support
 #[test]
 fn global_route_and_temporal_share_final_confidence_ordering() {
     let report = scoped_flip_report();
@@ -786,6 +781,7 @@ fn global_route_and_temporal_share_final_confidence_ordering() {
     assert!(late.warnings.is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_overlap_uses_request_scoped_stage_attribution_for_score() {
     let mut run = test_run();
@@ -820,6 +816,7 @@ fn downstream_overlap_uses_request_scoped_stage_attribution_for_score() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_eligibility_uses_distinct_request_samples_not_raw_events() {
     let mut run = test_run();
@@ -847,6 +844,7 @@ fn downstream_eligibility_uses_distinct_request_samples_not_raw_events() {
         .all(|s| s.kind != DiagnosisKind::DownstreamStageDominates));
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_approximate_stage_group_warns_only_with_canonical_precision_warning() {
     let mut run = test_run();
@@ -886,6 +884,7 @@ fn downstream_approximate_stage_group_warns_only_with_canonical_precision_warnin
     assert!(!report.warnings.iter().any(|w| w.contains("attribution")));
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_stage_attribution_respects_normalization_boundary() {
     let mut run = test_run();
@@ -928,6 +927,7 @@ fn downstream_stage_attribution_respects_normalization_boundary() {
     assert!(!report.warnings.iter().any(|w| w.contains("attribution")));
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_stage_input_order_invariance_extends_to_canonical_json() {
     let mut first = test_run();
@@ -968,6 +968,7 @@ fn downstream_stage_input_order_invariance_extends_to_canonical_json() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_non_overlap_single_event_per_request_behavior_remains_stable() {
     let mut run = test_run();
@@ -999,6 +1000,7 @@ fn downstream_non_overlap_single_event_per_request_behavior_remains_stable() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn overlapping_precise_queues_are_union_attributed() {
     let mut run = test_run();
@@ -1015,6 +1017,7 @@ fn overlapping_precise_queues_are_union_attributed() {
     assert_eq!(report.p95_service_share_permille, Some(100));
 }
 
+// TT-TEST: support
 #[test]
 fn missing_run_relative_queue_endpoint_falls_back_to_capped_duration_sum() {
     let mut run = test_run();
@@ -1045,6 +1048,7 @@ fn missing_run_relative_queue_endpoint_falls_back_to_capped_duration_sum() {
         .any(|warning| warning.contains("precise_interval_validation_unavailable")));
 }
 
+// TT-TEST: support
 #[test]
 fn out_of_parent_precise_queue_is_excluded_before_attribution_not_clipped() {
     let mut run = test_run();
@@ -1066,6 +1070,7 @@ fn out_of_parent_precise_queue_is_excluded_before_attribution_not_clipped() {
             && warning.contains("queue")));
 }
 
+// TT-TEST: support
 #[test]
 fn non_overlapping_queue_attribution_remains_stable() {
     let mut run = test_run();
@@ -1082,6 +1087,7 @@ fn non_overlapping_queue_attribution_remains_stable() {
     assert_eq!(report.p95_service_share_permille, Some(500));
 }
 
+// TT-TEST: support
 #[test]
 fn repeated_analysis_is_deterministic_for_overlap_safe_queue_attribution() {
     let mut run = test_run();
@@ -1103,6 +1109,7 @@ fn repeated_analysis_is_deterministic_for_overlap_safe_queue_attribution() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn interleaved_queue_events_group_by_request_and_preserve_request_order() {
     let mut run = test_run();
@@ -1125,6 +1132,7 @@ fn interleaved_queue_events_group_by_request_and_preserve_request_order() {
     assert_eq!(report.p95_service_share_permille, Some(600));
 }
 
+// TT-TEST: support
 #[test]
 fn duplicate_completed_request_ids_emit_warning_without_panic() {
     let mut run = test_run();
@@ -1152,6 +1160,7 @@ fn duplicate_completed_request_ids_emit_warning_without_panic() {
             && warning.contains("request_id")));
 }
 
+// TT-TEST: support
 #[test]
 fn unique_completed_request_ids_do_not_emit_duplicate_warning() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -1163,6 +1172,7 @@ fn unique_completed_request_ids_do_not_emit_duplicate_warning() {
         .any(|warning| warning.contains("duplicate_completed_request_id")));
 }
 
+// TT-TEST: support
 #[test]
 fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
     let mut run = test_run();
@@ -1201,6 +1211,7 @@ fn permissive_analysis_warns_but_accepts_orphan_request_scoped_events() {
     }));
 }
 
+// TT-TEST: support
 #[test]
 fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
     let mut run = test_run();
@@ -1238,6 +1249,7 @@ fn matching_unique_request_scoped_events_do_not_add_request_id_limitations() {
             == "Stage or queue evidence with no matching completed request_id cannot be reliably attributed."));
 }
 
+// TT-TEST: support
 #[test]
 fn latency_percentiles_use_duration_fields_not_timestamp_subtraction() {
     let mut run = test_run();
@@ -1371,6 +1383,7 @@ fn suspect_position(report: &Report, kind: &DiagnosisKind) -> usize {
         .unwrap_or_else(|| panic!("missing expected suspect {kind:?}"))
 }
 
+// TT-TEST: support
 #[test]
 fn normalized_executor_remains_secondary_to_strong_blocking_pressure() {
     let report = analyze_run(
@@ -1395,6 +1408,7 @@ fn normalized_executor_remains_secondary_to_strong_blocking_pressure() {
         .any(|e| { e.contains("2000 milli-tasks per worker") && e.contains("worker_count=4") }));
 }
 
+// TT-TEST: support
 #[test]
 fn normalized_executor_remains_secondary_to_strong_downstream_stage() {
     let report = analyze_run(
@@ -1420,6 +1434,7 @@ fn normalized_executor_remains_secondary_to_strong_downstream_stage() {
         .any(|e| e.contains("Stage 'database' has p95 latency 970 us across 45 samples")));
 }
 
+// TT-TEST: support
 #[test]
 fn application_queue_controls_preserve_normalized_executor_visibility_and_order() {
     let cases = [
@@ -1454,6 +1469,7 @@ fn application_queue_controls_preserve_normalized_executor_visibility_and_order(
     }
 }
 
+// TT-TEST: support
 #[test]
 fn clear_normalized_executor_remains_primary_against_weak_competing_signals() {
     let report = analyze_run(
@@ -1477,6 +1493,7 @@ fn clear_normalized_executor_remains_primary_against_weak_competing_signals() {
         .all(|suspect| suspect.score < report.primary_suspect.score));
 }
 
+// TT-TEST: support
 #[test]
 fn normalized_lower_bound_cap_keeps_higher_score_executor_below_high_confidence_stage() {
     let mut run = competing_executor_run(140, 60, 0, None, Some(500));
@@ -1555,6 +1572,7 @@ fn temporal_worker_report(run: &Run) -> Report {
     .expect("analyzer options should be valid")
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_worker_evidence_is_classified_within_each_original_window() {
     let report = temporal_worker_report(&worker_test_run());
@@ -1577,6 +1595,7 @@ fn temporal_worker_evidence_is_classified_within_each_original_window() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn excluded_requests_do_not_change_canonical_temporal_segments() {
     let baseline = worker_test_run();
@@ -1610,6 +1629,7 @@ fn excluded_requests_do_not_change_canonical_temporal_segments() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn cleared_optional_request_timing_defines_temporal_order_and_windows() {
     let mut invalid = worker_test_run();
@@ -1643,6 +1663,7 @@ fn cleared_optional_request_timing_defines_temporal_order_and_windows() {
         .any(|warning| warning == TEMPORAL_WALL_CLOCK_FALLBACK_WARNING));
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_partial_invalid_and_missing_local_limit_only_the_affected_window() {
     for (name, mutate, expected) in [
@@ -1692,6 +1713,7 @@ fn temporal_partial_invalid_and_missing_local_limit_only_the_affected_window() {
     }
 }
 
+// TT-TEST: A03 primary
 #[test]
 fn ambiguous_worker_fallbacks_match_historical_score_and_explain_the_cap() {
     let mut historical = worker_test_run();
@@ -1734,6 +1756,7 @@ fn ambiguous_worker_fallbacks_match_historical_score_and_explain_the_cap() {
     }
 }
 
+// TT-TEST: A03 primary
 #[test]
 fn missing_local_depth_remains_normalized_lower_bound() {
     let mut run = worker_test_run();
@@ -1758,6 +1781,7 @@ fn missing_local_depth_remains_normalized_lower_bound() {
     assert_ne!(suspect.confidence, Confidence::High);
 }
 
+// TT-TEST: support
 #[test]
 fn normalized_local_queue_signal_does_not_attribute_contention_to_zero_global_depth() {
     let mut run = worker_test_run();
@@ -1778,6 +1802,7 @@ fn normalized_local_queue_signal_does_not_attribute_contention_to_zero_global_de
     }));
 }
 
+// TT-TEST: support
 #[test]
 fn worker_count_enables_normalized_executor_scoring() {
     let mut historical = test_run();
@@ -1820,6 +1845,7 @@ fn executor_arithmetic_run(samples: usize, global: u64, local: u64, alive: u64) 
     run
 }
 
+// TT-TEST: A03 primary
 #[test]
 fn historical_executor_arithmetic_boundaries_are_exact() {
     let no_signal = executor_arithmetic_run(20, 0, 60, 400);
@@ -1869,6 +1895,7 @@ fn historical_executor_arithmetic_boundaries_are_exact() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn historical_clean_extreme_requires_thirty_samples_and_absence_has_no_worker_cap() {
     for (samples, expected_score) in [(29, 94), (30, 96)] {
@@ -1899,6 +1926,7 @@ fn historical_clean_extreme_requires_thirty_samples_and_absence_has_no_worker_ca
     }
 }
 
+// TT-TEST: support
 #[test]
 fn normalized_executor_score_ignores_alive_tasks_and_queue_redistribution() {
     let mut baseline = executor_arithmetic_run(20, 32, 32, 1);
@@ -1935,6 +1963,7 @@ fn normalized_executor_score_ignores_alive_tasks_and_queue_redistribution() {
     assert_eq!(baseline_score, redistributed_score);
 }
 
+// TT-TEST: A04 primary
 #[test]
 fn worker_confidence_limits_compose_with_existing_caps_without_duplicate_notes() {
     let mut ambiguous = executor_arithmetic_run(20, 140, 60, 400);
@@ -1983,6 +2012,7 @@ fn worker_confidence_limits_compose_with_existing_caps_without_duplicate_notes()
     }
 }
 
+// TT-TEST: A02 primary
 #[test]
 fn clear_blocking_pressure_selects_blocking_pool() {
     let mut run = test_run();
@@ -2003,6 +2033,7 @@ fn clear_blocking_pressure_selects_blocking_pool() {
         .any(|evidence| evidence.contains("Blocking queue depth")));
 }
 
+// TT-TEST: A02 primary
 #[test]
 fn clear_scheduler_pressure_selects_executor_pressure() {
     let mut run = test_run();
@@ -2023,6 +2054,7 @@ fn clear_scheduler_pressure_selects_executor_pressure() {
         .any(|evidence| evidence.contains("Runtime global queue depth")));
 }
 
+// TT-TEST: A02 primary
 #[test]
 fn downstream_stage_tie_break_is_deterministic() {
     let mut run = test_run();
@@ -2108,11 +2140,13 @@ fn downstream_stage_tie_break_is_deterministic() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_trend_is_none_for_empty_series() {
     assert!(super::dominant_inflight_trend(&[]).is_none());
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_trend_handles_constant_series() {
     let trend = super::dominant_inflight_trend(&[
@@ -2136,6 +2170,7 @@ fn inflight_trend_handles_constant_series() {
     assert_eq!(trend.growth_delta, 0);
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_trend_handles_monotonic_increase() {
     let trend = super::dominant_inflight_trend(&[
@@ -2180,6 +2215,7 @@ fn inflight(
     }
 }
 
+// TT-TEST: support
 #[test]
 fn latest_active_inflight_episode_outranks_closed_historical_spike() {
     let trend = super::dominant_inflight_trend(&[
@@ -2204,6 +2240,7 @@ fn latest_active_inflight_episode_outranks_closed_historical_spike() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn reused_inflight_label_uses_only_latest_episode() {
     let counts = [1, 9, 0, 2, 3, 5];
@@ -2225,6 +2262,7 @@ fn reused_inflight_label_uses_only_latest_episode() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn leading_and_consecutive_zero_snapshots_do_not_create_episodes() {
     let samples = [0, 0, 2, 4, 0, 0, 3, 0]
@@ -2239,6 +2277,7 @@ fn leading_and_consecutive_zero_snapshots_do_not_create_episodes() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn all_zero_inflight_label_has_no_candidate() {
     assert!(super::dominant_inflight_trend(&[
@@ -2248,6 +2287,7 @@ fn all_zero_inflight_label_has_no_candidate() {
     .is_none());
 }
 
+// TT-TEST: support
 #[test]
 fn run_relative_time_orders_inflight_samples_before_wall_clock() {
     let trend = super::dominant_inflight_trend(&[
@@ -2262,6 +2302,7 @@ fn run_relative_time_orders_inflight_samples_before_wall_clock() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_wall_clock_fallback_is_deterministic_without_rate() {
     let trend = super::dominant_inflight_trend(&[
@@ -2272,6 +2313,7 @@ fn inflight_wall_clock_fallback_is_deterministic_without_rate() {
     assert_eq!((trend.growth_delta, trend.growth_per_sec_milli), (3, None));
 }
 
+// TT-TEST: support
 #[test]
 fn distinct_timestamp_reordering_preserves_inflight_selection() {
     let a = vec![
@@ -2286,6 +2328,7 @@ fn distinct_timestamp_reordering_preserves_inflight_selection() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn equal_timestamp_inflight_order_uses_original_input_index() {
     let forward = super::dominant_inflight_trend(&[
@@ -2302,6 +2345,7 @@ fn equal_timestamp_inflight_order_uses_original_input_index() {
     assert_eq!(forward.growth_per_sec_milli, None);
 }
 
+// TT-TEST: support
 #[test]
 fn one_sample_inflight_episode_is_unknown_and_adds_no_bonus() {
     let trend = super::dominant_inflight_trend(&[inflight("single", 1, Some(1), 7)]).unwrap();
@@ -2325,6 +2369,7 @@ fn assert_dominant_inflight(
     assert_eq!(super::dominant_inflight_trend(samples), Some(expected));
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_active_over_closed() {
     assert_dominant_inflight(
@@ -2346,6 +2391,7 @@ fn inflight_candidate_order_prefers_active_over_closed() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_positive_over_unknown() {
     let samples = [
@@ -2366,6 +2412,7 @@ fn inflight_candidate_order_prefers_positive_over_unknown() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_positive_over_non_growing() {
     for (label, counts) in [("flat", [20, 20]), ("declining", [20, 10])] {
@@ -2389,6 +2436,7 @@ fn inflight_candidate_order_prefers_positive_over_non_growing() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_larger_positive_delta() {
     let samples = [
@@ -2410,6 +2458,7 @@ fn inflight_candidate_order_prefers_larger_positive_delta() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_available_positive_rate() {
     assert_dominant_inflight(
@@ -2430,6 +2479,7 @@ fn inflight_candidate_order_prefers_available_positive_rate() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_larger_positive_rate() {
     let samples = [
@@ -2451,6 +2501,7 @@ fn inflight_candidate_order_prefers_larger_positive_rate() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_larger_p95() {
     let mut samples = (1..=21)
@@ -2473,6 +2524,7 @@ fn inflight_candidate_order_prefers_larger_p95() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_prefers_larger_peak() {
     let mut samples = vec![inflight("larger-peak", 1, Some(1), 10)];
@@ -2491,6 +2543,7 @@ fn inflight_candidate_order_prefers_larger_peak() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_candidate_order_uses_lexical_label_last() {
     assert_dominant_inflight(
@@ -2511,6 +2564,7 @@ fn inflight_candidate_order_uses_lexical_label_last() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn truncated_inflight_history_does_not_infer_missing_zero() {
     let mut run = test_run();
@@ -2526,6 +2580,7 @@ fn truncated_inflight_history_does_not_infer_missing_zero() {
     assert_eq!((trend.sample_count, trend.growth_delta), (2, 1));
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_trend_json_shape_and_values_remain_unchanged() {
     let value = serde_json::to_value(InflightTrend {
@@ -2604,6 +2659,7 @@ fn suspect_evidence<'a>(report: &'a Report, kind: &DiagnosisKind) -> &'a [String
         .evidence
 }
 
+// TT-TEST: support
 #[test]
 fn closed_historical_inflight_spike_adds_no_bonus_when_active_flat_episode_wins() {
     let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
@@ -2641,6 +2697,7 @@ fn closed_historical_inflight_spike_adds_no_bonus_when_active_flat_episode_wins(
     );
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_growth_evidence_states_unix_fallback_without_rate() {
     let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
@@ -2669,6 +2726,7 @@ fn inflight_growth_evidence_states_unix_fallback_without_rate() {
     assert!(!evidence.contains("rate="));
 }
 
+// TT-TEST: support
 #[test]
 fn inflight_growth_evidence_states_unavailable_run_relative_rate() {
     let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
@@ -2696,6 +2754,7 @@ fn inflight_growth_evidence_states_unavailable_run_relative_rate() {
     assert!(!evidence.contains("Unix-ms fallback"));
 }
 
+// TT-TEST: A02 primary
 #[test]
 fn queue_inflight_growth_bonus_remains_exactly_five() {
     let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
@@ -2715,6 +2774,7 @@ fn queue_inflight_growth_bonus_remains_exactly_five() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn executor_inflight_growth_bonus_remains_exactly_four() {
     let mut baseline = option_run_twenty_requests();
@@ -2741,6 +2801,7 @@ fn executor_inflight_growth_bonus_remains_exactly_four() {
         .any(|e| e.contains("latest active episode") && e.contains("run-relative rate=2000")));
 }
 
+// TT-TEST: support
 #[test]
 fn declining_inflight_episode_adds_no_growth_bonus() {
     let baseline = analyze_run(&queue_bonus_run(vec![]), AnalyzeOptions::default())
@@ -2764,6 +2825,7 @@ fn declining_inflight_episode_adds_no_growth_bonus() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn render_text_marks_one_sample_inflight_trend_unknown() {
     let report = analyze_run(
@@ -2776,6 +2838,7 @@ fn render_text_marks_one_sample_inflight_trend_unknown() {
     assert!(!text.contains("net growth +0"));
 }
 
+// TT-TEST: support
 #[test]
 fn render_text_escapes_artifact_controls_without_changing_report_json() {
     let mut report = analyze_run(
@@ -2800,6 +2863,7 @@ fn render_text_escapes_artifact_controls_without_changing_report_json() {
     assert_eq!(decoded["inflight_trend"]["gauge"], "hostile\n\u{1b}[31m");
 }
 
+// TT-TEST: support
 #[test]
 fn render_text_formats_inflight_trend_fields() {
     let report = Report {
@@ -2862,6 +2926,7 @@ fn render_text_formats_inflight_trend_fields() {
     assert!(text.contains("Request time at p95: queue 10.0%, non-queue service 90.0%"));
 }
 
+// TT-TEST: support
 #[test]
 fn render_text_marks_missing_inflight_trend() {
     let report = Report {
@@ -2913,6 +2978,7 @@ fn render_text_marks_missing_inflight_trend() {
     assert!(text.contains("- Capture truncated requests."));
 }
 
+// TT-TEST: A07 primary
 #[test]
 fn analyze_run_emits_truncation_warnings() {
     let mut run = test_run();
@@ -2936,6 +3002,7 @@ fn analyze_run_emits_truncation_warnings() {
         .any(|warning| warning.contains("dropped 1 entries")));
 }
 
+// TT-TEST: support
 #[test]
 fn low_request_count_warning_appears() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -2946,6 +3013,7 @@ fn low_request_count_warning_appears() {
         .any(|w| w.contains("Low completed-request count")));
 }
 
+// TT-TEST: support
 #[test]
 fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
     let mut run = test_run();
@@ -2996,6 +3064,7 @@ fn no_runtime_warning_not_emitted_for_clean_queue_primary() {
         .any(|w| w.contains("No runtime snapshots captured")));
 }
 
+// TT-TEST: support
 #[test]
 fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
     let mut run = test_run();
@@ -3048,6 +3117,7 @@ fn runtime_missing_warning_uses_configured_high_confidence_threshold() {
     assert!(strict_report.analyzer_config.is_some());
 }
 
+// TT-TEST: support
 #[test]
 fn runtime_warning_emitted_when_insufficient_evidence() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -3058,6 +3128,7 @@ fn runtime_warning_emitted_when_insufficient_evidence() {
         .any(|w| w.contains("No runtime snapshots captured")));
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_beats_weak_blocking() {
     let mut run = test_run();
@@ -3105,6 +3176,7 @@ fn downstream_beats_weak_blocking() {
     );
 }
 
+// TT-TEST: A01 primary
 #[test]
 fn score_100_is_reserved_for_overwhelming_queue_evidence() {
     let mut run = test_run();
@@ -3145,6 +3217,7 @@ fn score_100_is_reserved_for_overwhelming_queue_evidence() {
     assert!(report.primary_suspect.score >= 95);
 }
 
+// TT-TEST: support
 #[test]
 fn ambiguity_warning_requires_close_calibrated_scores() {
     let suspects = vec![
@@ -3164,6 +3237,7 @@ fn ambiguity_warning_requires_close_calibrated_scores() {
     assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
 }
 
+// TT-TEST: support
 #[test]
 fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
     let mut run = test_run();
@@ -3208,6 +3282,7 @@ fn blocking_like_stage_does_not_outrank_strong_blocking_runtime_signal() {
         .any(|s| s.kind == DiagnosisKind::DownstreamStageDominates));
 }
 
+// TT-TEST: support
 #[test]
 fn retry_or_db_stage_is_not_treated_as_blocking_correlated_stage() {
     assert!(!super::scoring::stage_correlates_with_blocking_pool(
@@ -3224,6 +3299,7 @@ fn retry_or_db_stage_is_not_treated_as_blocking_correlated_stage() {
     ));
 }
 
+// TT-TEST: support
 #[test]
 fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
     let mut run = test_run();
@@ -3274,6 +3350,7 @@ fn downstream_blocking_correlation_margin_changes_downstream_cap_behavior() {
     assert!(large_margin_score < no_margin_score);
 }
 
+// TT-TEST: support
 #[test]
 fn non_default_overrides_are_sorted_and_include_downstream_margin_override() {
     let options = AnalyzeOptions::default()
@@ -3293,6 +3370,7 @@ fn non_default_overrides_are_sorted_and_include_downstream_margin_override() {
         .any(|o| { o.path == "downstream.blocking_correlation_score_margin" && o.value == "7" }));
 }
 
+// TT-TEST: support
 #[test]
 fn truncation_warnings_remain_additive() {
     let mut run = test_run();
@@ -3315,6 +3393,7 @@ fn truncation_warnings_remain_additive() {
         .any(|w| w.contains("dropped 1 entries after reaching max_runtime_snapshots")));
 }
 
+// TT-TEST: support
 #[test]
 fn evidence_quality_weak_for_low_requests() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -3326,6 +3405,7 @@ fn evidence_quality_weak_for_low_requests() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn evidence_quality_requests_missing_when_zero_requests_even_if_dropped() {
     let mut run = test_run();
@@ -3339,6 +3419,7 @@ fn evidence_quality_requests_missing_when_zero_requests_even_if_dropped() {
     );
 }
 
+// TT-TEST: A07 primary
 #[test]
 fn evidence_quality_partial_for_runtime_partial_fields() {
     let mut run = test_run();
@@ -3383,6 +3464,7 @@ fn evidence_quality_partial_for_runtime_partial_fields() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() {
     let mut run = test_run();
@@ -3437,6 +3519,7 @@ fn evidence_quality_strong_without_runtime_snapshots_when_queue_stage_present() 
     );
 }
 
+// TT-TEST: A07 primary
 #[test]
 fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
     let mut run = test_run();
@@ -3497,6 +3580,7 @@ fn evidence_quality_marks_queue_signal_truncated_and_not_strong() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn confidence_caps_do_not_change_score_ordering() {
     let mut run = test_run();
@@ -3551,6 +3635,7 @@ fn confidence_caps_do_not_change_score_ordering() {
     assert!(scores.windows(2).all(|w| w[0] >= w[1]));
 }
 
+// TT-TEST: A04 primary
 #[test]
 fn low_request_count_caps_primary_confidence_and_adds_note() {
     let mut run = test_run();
@@ -3592,6 +3677,7 @@ fn low_request_count_caps_primary_confidence_and_adds_note() {
         .any(|n| n == "Low completed-request count caps confidence."));
 }
 
+// TT-TEST: support
 #[test]
 fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
     let mut run = test_run();
@@ -3647,6 +3733,7 @@ fn clean_strong_queue_evidence_keeps_high_confidence_without_notes() {
     assert!(report.primary_suspect.confidence_notes.is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
     let mut run = test_run();
@@ -3694,6 +3781,7 @@ fn queue_truncation_uses_truncation_note_not_missing_queue_note() {
         .any(|n| n == "Missing queue instrumentation limits queue-saturation confidence."));
 }
 
+// TT-TEST: support
 #[test]
 fn missing_queue_instrumentation_uses_missing_queue_note() {
     let mut run = test_run();
@@ -3718,6 +3806,7 @@ fn missing_queue_instrumentation_uses_missing_queue_note() {
         .any(|n| n == "Missing queue instrumentation limits queue-saturation confidence."));
 }
 
+// TT-TEST: support
 #[test]
 fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
     let mut run = test_run();
@@ -3765,6 +3854,7 @@ fn stage_truncation_uses_truncation_note_not_missing_stage_note() {
         .any(|n| n == "Missing stage instrumentation limits downstream-stage confidence."));
 }
 
+// TT-TEST: support
 #[test]
 fn missing_stage_instrumentation_uses_missing_stage_note() {
     let mut run = test_run();
@@ -3789,6 +3879,7 @@ fn missing_stage_instrumentation_uses_missing_stage_note() {
         .any(|n| n == "Missing stage instrumentation limits downstream-stage confidence."));
 }
 
+// TT-TEST: A04 primary
 #[test]
 fn runtime_partial_fields_cap_executor_or_blocking_confidence() {
     let mut run = test_run();
@@ -3829,6 +3920,7 @@ fn runtime_partial_fields_cap_executor_or_blocking_confidence() {
         .any(|n| n == "Missing runtime snapshots limit executor/blocking confidence."));
 }
 
+// TT-TEST: support
 #[test]
 fn missing_runtime_snapshots_use_missing_runtime_note() {
     let mut run = test_run();
@@ -3853,6 +3945,7 @@ fn missing_runtime_snapshots_use_missing_runtime_note() {
         .any(|n| n == "Missing runtime snapshots limit executor/blocking confidence."));
 }
 
+// TT-TEST: A04 primary
 #[test]
 fn ambiguity_cap_adds_note_to_close_top_suspects() {
     let mut suspects = vec![
@@ -3884,6 +3977,7 @@ fn ambiguity_cap_adds_note_to_close_top_suspects() {
         .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
 }
 
+// TT-TEST: A06 primary
 #[test]
 fn ambiguity_capping_preserves_order_and_scores() {
     let mut suspects = vec![
@@ -3918,6 +4012,7 @@ fn ambiguity_capping_preserves_order_and_scores() {
         .any(|n| n == "Top suspects are close in score; confidence is capped by ambiguity."));
 }
 
+// TT-TEST: support
 #[test]
 fn non_ambiguous_clean_evidence_keeps_high_confidence() {
     let mut run = test_run();
@@ -3970,6 +4065,7 @@ fn non_ambiguous_clean_evidence_keeps_high_confidence() {
     assert!(suspects[0].confidence_notes.is_empty());
 }
 
+// TT-TEST: A08 primary
 #[test]
 fn route_breakdowns_empty_for_single_route() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -3981,6 +4077,7 @@ fn route_breakdowns_empty_for_single_route() {
         .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
 }
 
+// TT-TEST: support
 #[test]
 fn single_route_executor_signals_do_not_emit_route_breakdowns_or_divergence_warning() {
     let mut run = test_run();
@@ -3994,6 +4091,7 @@ fn single_route_executor_signals_do_not_emit_route_breakdowns_or_divergence_warn
         .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
 }
 
+// TT-TEST: A08 primary
 #[test]
 fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
     let mut run = test_run();
@@ -4084,6 +4182,7 @@ fn multi_route_divergence_emits_sorted_breakdowns_and_stable_warning() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_p95_disparity() {
     let mut run = test_run();
@@ -4145,6 +4244,7 @@ fn route_divergence_warning_respects_emit_toggle_even_when_breakdowns_emit_from_
         .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
 }
 
+// TT-TEST: support
 #[test]
 fn multi_route_same_primary_keeps_route_breakdowns_empty() {
     let mut run = test_run();
@@ -4185,6 +4285,7 @@ fn multi_route_same_primary_keeps_route_breakdowns_empty() {
         .all(|warning| warning != ROUTE_DIVERGENCE_WARNING));
 }
 
+// TT-TEST: A08 primary
 #[test]
 fn route_breakdowns_do_not_change_global_primary_suspect() {
     let mut run = test_run();
@@ -4200,6 +4301,7 @@ fn route_breakdowns_do_not_change_global_primary_suspect() {
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
 }
 
+// TT-TEST: A09 primary
 #[test]
 fn temporal_segments_present_and_empty_below_threshold() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -4209,6 +4311,7 @@ fn temporal_segments_present_and_empty_below_threshold() {
     assert!(report.temporal_segments.is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segment_window_uses_max_finish_timestamp() {
     let mut run = test_run();
@@ -4247,6 +4350,7 @@ fn temporal_segment_window_uses_max_finish_timestamp() {
     assert_eq!(early.finished_at_unix_ms, Some(1000));
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
     let mut run = test_run();
@@ -4316,6 +4420,7 @@ fn temporal_sort_prefers_run_relative_start_when_unix_starts_match() {
     );
 }
 
+// TT-TEST: A09 primary
 #[test]
 fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
     let mut run = test_run();
@@ -4398,6 +4503,7 @@ fn temporal_runtime_and_inflight_filtering_uses_run_relative_times() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
     let mut run = test_run();
@@ -4493,6 +4599,7 @@ fn temporal_runtime_and_inflight_mixed_clock_snapshots_fall_back_per_sample() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_fallback_for_older_artifacts_warns() {
     let mut run = test_run();
@@ -4548,6 +4655,7 @@ fn temporal_segments_fallback_for_older_artifacts_warns() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_with_complete_run_relative_fields_do_not_warn_about_fallback() {
     let mut run = test_run();
@@ -4572,6 +4680,7 @@ fn temporal_segments_with_complete_run_relative_fields_do_not_warn_about_fallbac
     }
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_sort_complete_run_relative_starts_by_run_time() {
     let mut run = test_run();
@@ -4599,6 +4708,7 @@ fn temporal_segments_sort_complete_run_relative_starts_by_run_time() {
     assert_eq!(report.temporal_segments[1].p95_latency_us, Some(6_000));
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_sort_partial_run_relative_starts_by_unix_time() {
     let mut run = test_run();
@@ -4634,6 +4744,7 @@ fn temporal_segments_sort_partial_run_relative_starts_by_unix_time() {
     assert_eq!(report.temporal_segments[1].p95_latency_us, Some(6_000));
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_not_emitted_when_no_meaningful_difference() {
     let mut run = test_run();
@@ -4647,6 +4758,7 @@ fn temporal_segments_not_emitted_when_no_meaningful_difference() {
         .any(|w| w == TEMPORAL_SUSPECT_SHIFT_WARNING));
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_emitted_when_primary_suspects_differ() {
     let mut run = test_run();
@@ -4694,6 +4806,7 @@ fn temporal_segments_emitted_when_primary_suspects_differ() {
         .any(|w| w == TEMPORAL_P95_SHIFT_WARNING));
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
     let mut run = test_run();
@@ -4728,6 +4841,7 @@ fn temporal_p95_shift_emits_segments_and_ignores_missing_or_zero_lower_p95() {
     ));
 }
 
+// TT-TEST: A09 primary
 #[test]
 fn temporal_segments_do_not_change_global_primary_suspect_or_score() {
     let mut run = test_run();
@@ -4838,6 +4952,7 @@ fn run_with_temporal_shift_and_run_relative_offsets() -> Run {
     run
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_warn_only_when_run_relative_timing_is_incomplete() {
     let complete_report = analyze_run(
@@ -4869,6 +4984,7 @@ fn temporal_segments_warn_only_when_run_relative_timing_is_incomplete() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segments() {
     let mut run = test_run();
@@ -4894,6 +5010,7 @@ fn sparse_timestamp_filtered_runtime_inflight_alone_do_not_emit_temporal_segment
     assert!(report.temporal_segments.is_empty());
 }
 
+// TT-TEST: support
 #[test]
 fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sparse() {
     let mut run = test_run();
@@ -4953,6 +5070,7 @@ fn queue_to_downstream_shift_emits_temporal_segments_when_runtime_samples_are_sp
     assert_eq!(report.primary_suspect.score, global.primary_suspect.score);
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply() {
     let mut run = test_run();
@@ -4999,6 +5117,7 @@ fn temporal_segments_emit_both_global_warnings_when_p95_and_suspect_shift_apply(
         .any(|w| w == TEMPORAL_P95_SHIFT_WARNING));
 }
 
+// TT-TEST: support
 #[test]
 fn overlapping_temporal_windows_warn_runtime_inflight_attribution_is_approximate() {
     let mut run = test_run();
@@ -5023,6 +5142,7 @@ fn overlapping_temporal_windows_warn_runtime_inflight_attribution_is_approximate
     }
 }
 
+// TT-TEST: support
 #[test]
 fn non_overlapping_temporal_windows_do_not_add_overlap_warning() {
     let mut run = test_run();
@@ -5047,6 +5167,7 @@ fn non_overlapping_temporal_windows_do_not_add_overlap_warning() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
     let mut run = test_run();
@@ -5077,6 +5198,7 @@ fn missing_late_finish_timestamp_does_not_add_overlap_warning() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn public_api_supports_report_text_and_json_contract_fields() {
     let run = test_run();
@@ -5093,6 +5215,7 @@ fn public_api_supports_report_text_and_json_contract_fields() {
     assert!(report_json.contains("\"temporal_segments\""));
 }
 
+// TT-TEST: A12 primary
 #[test]
 fn render_json_pretty_matches_serde_json_pretty() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -5102,6 +5225,7 @@ fn render_json_pretty_matches_serde_json_pretty() {
     assert_eq!(actual, expected);
 }
 
+// TT-TEST: A12 primary
 #[test]
 fn render_json_matches_serde_json_compact() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -5111,6 +5235,7 @@ fn render_json_matches_serde_json_compact() {
     assert_eq!(actual, expected);
 }
 
+// TT-TEST: A12 primary
 #[test]
 fn compact_and_pretty_report_json_are_value_equivalent() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -5124,6 +5249,7 @@ fn compact_and_pretty_report_json_are_value_equivalent() {
     assert_eq!(compact_value, pretty_value);
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_options_defaults_match_v1_surface() {
     let options = AnalyzeOptions::default();
@@ -5165,11 +5291,13 @@ fn analyze_options_defaults_match_v1_surface() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn analyze_options_default_validates() {
     assert!(AnalyzeOptions::default().validate().is_ok());
 }
 
+// TT-TEST: Q01 primary
 #[test]
 fn analyze_options_validate_rejects_invalid_classes() {
     assert!(AnalyzeOptions::default()
@@ -5249,6 +5377,7 @@ fn analyze_options_validate_rejects_invalid_classes() {
         .is_err());
 }
 
+// TT-TEST: Q01 primary
 #[test]
 fn validate_ratio_zero_denominators_report_exact_paths() {
     let err = AnalyzeOptions::default()
@@ -5288,6 +5417,7 @@ fn validate_ratio_zero_denominators_report_exact_paths() {
     ));
 }
 
+// TT-TEST: A11 primary
 #[test]
 fn analyze_run_rejects_invalid_options() {
     let run = test_run();
@@ -5301,6 +5431,7 @@ fn analyze_run_rejects_invalid_options() {
     ));
 }
 
+// TT-TEST: A11 primary
 #[test]
 fn analyze_run_still_works_with_default_options() {
     let run = test_run();
@@ -5309,6 +5440,7 @@ fn analyze_run_still_works_with_default_options() {
     assert_eq!(report.request_count, 3);
 }
 
+// TT-TEST: support
 #[test]
 fn queueing_trigger_descriptor_direction_text_is_correct() {
     let descriptor = crate::analyze_option_descriptors()
@@ -5325,6 +5457,8 @@ fn queueing_trigger_descriptor_direction_text_is_correct() {
         .contains("easier"));
 }
 
+// TT-TEST: A13 primary
+// TT-TEST: Q01 primary
 #[test]
 fn descriptors_have_unique_and_exact_v1_paths() {
     let descriptors = crate::analyze_option_descriptors();
@@ -5370,6 +5504,7 @@ fn descriptors_have_unique_and_exact_v1_paths() {
     assert_eq!(paths, expected);
 }
 
+// TT-TEST: support
 #[test]
 #[allow(clippy::too_many_lines)]
 fn descriptor_defaults_match_analyze_options_defaults() {
@@ -5525,6 +5660,7 @@ fn assert_default_report_has_no_analyzer_config(report: &Report) {
     assert!(report.analyzer_config.is_none());
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_queue_saturation_case() {
     let mut run = test_run();
@@ -5552,6 +5688,7 @@ fn default_options_compat_queue_saturation_case() {
     assert_default_report_has_no_analyzer_config(&report);
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_blocking_pool_pressure_case() {
     let mut run = test_run();
@@ -5581,6 +5718,7 @@ fn default_options_compat_blocking_pool_pressure_case() {
     assert_default_report_has_no_analyzer_config(&report);
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_insufficient_and_weak_evidence_case() {
     let report = analyze_run(&test_run(), AnalyzeOptions::default())
@@ -5597,6 +5735,7 @@ fn default_options_compat_insufficient_and_weak_evidence_case() {
     assert_default_report_has_no_analyzer_config(&report);
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_downstream_stage_dominates_case() {
     let mut run = test_run();
@@ -5625,6 +5764,7 @@ fn default_options_compat_downstream_stage_dominates_case() {
     assert_default_report_has_no_analyzer_config(&report);
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_truncated_evidence_case() {
     let mut run = test_run();
@@ -5640,6 +5780,7 @@ fn default_options_compat_truncated_evidence_case() {
     assert_default_report_has_no_analyzer_config(&report);
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_ambiguous_top_suspects_case() {
     let suspects = vec![
@@ -5659,6 +5800,7 @@ fn default_options_compat_ambiguous_top_suspects_case() {
     assert!(super::ambiguity_warning(&suspects, &AnalyzeOptions::default()).is_some());
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_route_breakdowns_case() {
     let mut run = test_run();
@@ -5712,6 +5854,7 @@ fn default_options_compat_route_breakdowns_case() {
     assert_default_report_has_no_analyzer_config(&report);
 }
 
+// TT-TEST: support
 #[test]
 fn default_options_compat_temporal_segments_case() {
     let mut run = test_run();
@@ -5766,6 +5909,7 @@ fn default_options_compat_temporal_segments_case() {
     assert_default_report_has_no_analyzer_config(&report);
 }
 
+// TT-TEST: support
 #[test]
 fn analyzer_config_transparency_default_report_omits_config() {
     let run = test_run();
@@ -5787,6 +5931,7 @@ fn analyzer_config_transparency_default_report_omits_config() {
     );
 }
 
+// TT-TEST: A13 primary
 #[test]
 fn analyzer_config_transparency_non_default_report_includes_config() {
     let run = test_run();
@@ -5860,6 +6005,7 @@ fn option_run_twenty_requests() -> Run {
     run
 }
 
+// TT-TEST: support
 #[test]
 fn option_queueing_trigger_permille_changes_queue_suspect() {
     let mut run = option_run_twenty_requests();
@@ -5890,6 +6036,7 @@ fn option_queueing_trigger_permille_changes_queue_suspect() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn option_blocking_min_nonzero_samples_changes_signal_emission() {
     let mut run = option_run_twenty_requests();
@@ -5909,6 +6056,7 @@ fn option_blocking_min_nonzero_samples_changes_signal_emission() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn option_executor_min_global_queue_p95_changes_signal_emission() {
     let mut run = option_run_twenty_requests();
@@ -5927,6 +6075,7 @@ fn option_executor_min_global_queue_p95_changes_signal_emission() {
     );
 }
 
+// TT-TEST: support
 #[test]
 fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
     let mut run = option_run_twenty_requests();
@@ -5963,6 +6112,7 @@ fn option_confidence_high_score_threshold_changes_scoring_suspect_bucket() {
     assert_eq!(strict_report.primary_suspect.confidence, Confidence::Medium);
 }
 
+// TT-TEST: A13 primary
 #[test]
 fn analyzer_toml_full_parses() {
     let input = include_str!("../../examples/analyzer-config.toml");
@@ -5970,6 +6120,7 @@ fn analyzer_toml_full_parses() {
     assert_eq!(options.queueing.trigger_permille, 400);
 }
 
+// TT-TEST: support
 #[test]
 fn analyzer_toml_sparse_preserves_defaults() {
     let input = "[analyzer]\nschema_version=1\n[analyzer.queueing]\ntrigger_permille=450\n";
@@ -5978,6 +6129,7 @@ fn analyzer_toml_sparse_preserves_defaults() {
     assert_eq!(options.blocking, AnalyzeOptions::default().blocking);
 }
 
+// TT-TEST: support
 #[test]
 fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
     let base = AnalyzeOptions::default().with_blocking(|o| o.strong_p95_threshold = 99);
@@ -5988,6 +6140,7 @@ fn analyzer_toml_merge_sparse_preserves_unrelated_non_default_base_values() {
     assert_eq!(merged.blocking.strong_p95_threshold, 99);
 }
 
+// TT-TEST: support
 #[test]
 fn analyzer_toml_missing_analyzer_fails() {
     assert!(matches!(
@@ -5995,6 +6148,7 @@ fn analyzer_toml_missing_analyzer_fails() {
         Err(AnalyzeConfigError::MissingAnalyzerTable)
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_root_level_queueing_group_is_rejected() {
     assert!(matches!(
@@ -6003,6 +6157,7 @@ fn analyzer_toml_root_level_queueing_group_is_rejected() {
     ));
 }
 
+// TT-TEST: support
 #[test]
 fn analyzer_toml_missing_schema_fails() {
     assert!(matches!(
@@ -6010,6 +6165,7 @@ fn analyzer_toml_missing_schema_fails() {
         Err(AnalyzeConfigError::MissingSchemaVersion)
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_unsupported_schema_fails() {
     assert!(matches!(
@@ -6020,11 +6176,13 @@ fn analyzer_toml_unsupported_schema_fails() {
         })
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_unknown_top_level_sibling_ignored() {
     let input = "[controller]\nmode='light'\n[analyzer]\nschema_version=1\n";
     assert!(AnalyzeOptions::from_toml_str(input).is_ok());
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_unknown_field_under_analyzer_fails() {
     assert!(matches!(
@@ -6032,6 +6190,7 @@ fn analyzer_toml_unknown_field_under_analyzer_fails() {
         Err(AnalyzeConfigError::InvalidToml { .. })
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_unknown_subgroup_fails() {
     assert!(matches!(
@@ -6039,6 +6198,7 @@ fn analyzer_toml_unknown_subgroup_fails() {
         Err(AnalyzeConfigError::InvalidToml { .. })
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_unknown_field_in_known_subgroup_fails() {
     assert!(matches!(
@@ -6048,6 +6208,7 @@ fn analyzer_toml_unknown_field_in_known_subgroup_fails() {
         Err(AnalyzeConfigError::InvalidToml { .. })
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_invalid_type_fails() {
     assert!(matches!(
@@ -6057,6 +6218,7 @@ fn analyzer_toml_invalid_type_fails() {
         Err(AnalyzeConfigError::InvalidToml { .. })
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_invalid_range_fails_validation() {
     let err = AnalyzeOptions::from_toml_str(
@@ -6071,12 +6233,14 @@ fn analyzer_toml_invalid_range_fails_validation() {
         }
     ));
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_canonical_example_path_parses() {
     let _ = AnalyzeOptions::from_toml_str(include_str!("../../examples/analyzer-config.toml"))
         .expect("canonical repo-root example parse");
 }
 
+// TT-TEST: support
 #[test]
 fn analyzer_toml_example_file_has_v1_namespaced_groups_only() {
     let input = include_str!("../../examples/analyzer-config.toml");
@@ -6096,6 +6260,7 @@ fn analyzer_toml_example_file_has_v1_namespaced_groups_only() {
         assert!(!input.contains(&format!("[{group}]")));
     }
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_downstream_patterns_list_parses() {
     let input = "[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['db','cache']\n";
@@ -6105,6 +6270,7 @@ fn analyzer_toml_downstream_patterns_list_parses() {
         vec!["db", "cache"]
     );
 }
+// TT-TEST: support
 #[test]
 fn analyzer_toml_empty_pattern_fails_validation() {
     let err = AnalyzeOptions::from_toml_str("[analyzer]\nschema_version=1\n[analyzer.downstream]\nblocking_correlated_stage_patterns=['']\n").expect_err("must fail");
@@ -6117,6 +6283,7 @@ fn analyzer_toml_empty_pattern_fails_validation() {
     ));
 }
 
+// TT-TEST: support
 #[test]
 fn prompt09_partial_events_are_now_visible_without_contaminating_completed_percentiles() {
     let completed = partial_policy_run(false, false);
@@ -6139,6 +6306,7 @@ fn prompt09_partial_events_are_now_visible_without_contaminating_completed_perce
         .any(|w| w == super::partial_evidence::PARTIAL_WARNING));
 }
 
+// TT-TEST: A10 primary
 #[test]
 fn partial_queue_events_do_not_enter_completed_queue_percentiles() {
     let completed = partial_policy_run(false, false);
@@ -6166,6 +6334,7 @@ fn partial_queue_events_do_not_enter_completed_queue_percentiles() {
     );
 }
 
+// TT-TEST: A10 primary
 #[test]
 fn partial_only_queue_evidence_can_rank_queue_suspect_but_caps_confidence() {
     let mut run = partial_policy_run(true, false);
@@ -6188,6 +6357,7 @@ fn partial_only_queue_evidence_can_rank_queue_suspect_but_caps_confidence() {
         .contains(&super::partial_evidence::PARTIAL_QUEUE_CONFIDENCE_NOTE.to_string()));
 }
 
+// TT-TEST: A10 primary
 #[test]
 fn partial_stage_events_do_not_enter_completed_stage_percentiles() {
     let completed = partial_policy_run(false, false);
@@ -6210,6 +6380,7 @@ fn partial_stage_events_do_not_enter_completed_stage_percentiles() {
     assert!(bsus.evidence[0].contains("observed lower-bound"));
 }
 
+// TT-TEST: A10 primary
 #[test]
 fn partial_only_stage_evidence_can_rank_downstream_suspect_but_caps_confidence() {
     let mut run = partial_policy_run(false, true);
@@ -6237,6 +6408,7 @@ fn partial_only_stage_evidence_can_rank_downstream_suspect_but_caps_confidence()
         .contains(&super::partial_evidence::PARTIAL_STAGE_CONFIDENCE_NOTE.to_string()));
 }
 
+// TT-TEST: support
 #[test]
 fn completed_only_report_json_text_scores_and_rankings_remain_exact() {
     let run = partial_policy_run(false, false);
@@ -6278,6 +6450,7 @@ fn completed_only_report_json_text_scores_and_rankings_remain_exact() {
     assert_eq!(report.p95_service_share_permille, Some(100));
 }
 
+// TT-TEST: support
 #[test]
 fn completed_only_warning_and_limitation_order_remains_stable() {
     let mut run = partial_policy_run(false, false);
@@ -6299,6 +6472,7 @@ fn completed_only_warning_and_limitation_order_remains_stable() {
         ]
     );
 }
+// TT-TEST: support
 #[test]
 fn mixed_queue_evidence_uses_higher_basis_and_labels_material_partial_reliance() {
     let mut run = partial_policy_run(false, false);
@@ -6373,6 +6547,7 @@ fn mixed_queue_evidence_uses_higher_basis_and_labels_material_partial_reliance()
     );
 }
 
+// TT-TEST: support
 #[test]
 fn fully_overlapped_partial_queue_does_not_cap_completed_candidate() {
     let mut run = partial_policy_run(false, false);
@@ -6435,6 +6610,7 @@ fn fully_overlapped_partial_queue_does_not_cap_completed_candidate() {
     assert_eq!(r.evidence_quality.limitations[0], "Partial evidence captured: queues 45 completed/1 partial; stages 45 completed/0 partial. Partial durations are observed lower bounds.");
 }
 
+// TT-TEST: support
 #[test]
 fn mixed_stage_evidence_uses_higher_basis_and_labels_material_partial_reliance() {
     let mut run = partial_policy_run(false, false);
@@ -6501,6 +6677,7 @@ fn mixed_stage_evidence_uses_higher_basis_and_labels_material_partial_reliance()
     );
 }
 
+// TT-TEST: support
 #[test]
 fn fully_overlapped_partial_stage_does_not_cap_completed_candidate() {
     let mut run = partial_policy_run(false, false);
@@ -6550,6 +6727,7 @@ fn fully_overlapped_partial_stage_does_not_cap_completed_candidate() {
     assert_eq!(r.evidence_quality.stage_event_count, 46);
     assert_eq!(r.evidence_quality.limitations[0], "Partial evidence captured: queues 45 completed/0 partial; stages 45 completed/1 partial. Partial durations are observed lower bounds.");
 }
+// TT-TEST: support
 #[test]
 fn partial_counts_and_signal_statuses_are_deterministic() {
     let run = partial_policy_run(true, true);
@@ -6561,6 +6739,7 @@ fn partial_counts_and_signal_statuses_are_deterministic() {
     assert_eq!(r.evidence_quality.quality, EvidenceQualityLevel::Partial);
     assert_eq!(r.evidence_quality.limitations[0],"Partial evidence captured: queues 0 completed/45 partial; stages 0 completed/45 partial. Partial durations are observed lower bounds.");
 }
+// TT-TEST: A07 primary
 #[test]
 fn partial_and_truncated_family_reports_truncated_status() {
     let mut run = partial_policy_run(true, true);
@@ -6617,6 +6796,7 @@ fn assert_no_duplicate_warnings(values: &[String]) {
     assert_eq!(values.len(), set.len(), "duplicate warnings: {values:?}");
 }
 
+// TT-TEST: support
 #[test]
 fn global_partial_warning_is_emitted_once_and_not_copied_to_nested_warnings() {
     let run = scoped_partial_acceptance_run();
@@ -6791,6 +6971,7 @@ fn assert_partial_scoped_projection(report: &Report, name: &str, route_warning: 
         .all(|w| w != super::partial_evidence::PARTIAL_WARNING));
 }
 
+// TT-TEST: support
 #[test]
 fn route_breakdowns_apply_completed_distribution_and_partial_confidence_policy() {
     let run = scoped_partial_acceptance_run();
@@ -6882,6 +7063,7 @@ fn route_breakdowns_apply_completed_distribution_and_partial_confidence_policy()
     );
 }
 
+// TT-TEST: support
 #[test]
 fn temporal_segments_apply_completed_distribution_and_partial_confidence_policy() {
     let run = scoped_partial_acceptance_run();
@@ -6949,6 +7131,7 @@ fn temporal_segments_apply_completed_distribution_and_partial_confidence_policy(
     );
 }
 
+// TT-TEST: support
 #[test]
 fn cancelled_requests_with_partial_children_are_qualified_without_fabricated_failure() {
     let mut run = partial_policy_run(false, true);
@@ -7024,6 +7207,7 @@ fn cancelled_requests_with_partial_children_are_qualified_without_fabricated_fai
     }
 }
 
+// TT-TEST: support
 #[test]
 fn validation_corpus_completed_defaults_and_partial_flags_deserialize() {
     let paths = [

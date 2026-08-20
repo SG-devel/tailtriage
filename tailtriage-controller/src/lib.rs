@@ -1884,11 +1884,6 @@ fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64
     }
 }
 
-// TT-INVARIANT: G01 primary
-// TT-INVARIANT: G02 primary
-// TT-INVARIANT: G03 primary
-// TT-INVARIANT: G04 primary
-// TT-INVARIANT: G05 primary
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -2256,6 +2251,8 @@ mod tests {
         fs::write(path, content).expect("complete config write should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn enable_capture_disable_finalizes_generation() {
         let output = test_output("enable-capture-disable");
@@ -2287,6 +2284,8 @@ mod tests {
 
         fs::remove_file(expected).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -2458,6 +2457,8 @@ mod tests {
         fs::remove_file(generation_two.artifact_path).expect("cleanup generation 2 artifact");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn active_generation_started_at_matches_underlying_run_metadata() {
         let output = test_output("generation-started-at-run-metadata");
@@ -2479,6 +2480,8 @@ mod tests {
         ));
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn initially_enabled_build_starts_first_active_generation() {
@@ -2505,6 +2508,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn disabled_status_reports_next_generation() {
         let controller = TailtriageController::builder("checkout-service")
@@ -2516,6 +2521,8 @@ mod tests {
             GenerationState::Disabled { next_generation: 1 }
         ));
     }
+
+    // TT-TEST: G01 primary
 
     #[test]
     fn enable_disable_reenable_creates_distinct_generation_and_artifact() {
@@ -2543,6 +2550,8 @@ mod tests {
         fs::remove_file(first.artifact_path).expect("cleanup first artifact should succeed");
         fs::remove_file(second.artifact_path).expect("cleanup second artifact should succeed");
     }
+
+    // TT-TEST: G02 secondary
 
     #[test]
     fn request_started_before_disable_can_finish_after_disable() {
@@ -2576,6 +2585,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn no_new_admissions_after_disable() {
         let output = test_output("no-admissions");
@@ -2594,6 +2605,8 @@ mod tests {
         started.completion.finish_ok();
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn default_policy_preserves_cheap_drop_after_saturation() {
@@ -2652,6 +2665,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn auto_seal_policy_ends_generation_after_limits_hit() {
         let output = test_output("auto-seal-policy");
@@ -2691,6 +2706,8 @@ mod tests {
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn admitted_request_alone_controls_auto_seal_drain() {
@@ -2741,6 +2758,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn request_limit_synchronous_callback_returns_without_gate_reentry() {
         let output = test_output("synchronous-request-limit-callback");
@@ -2788,6 +2807,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn zero_request_capacity_refuses_without_controller_inflight() {
         let output = test_output("zero-request-capacity");
@@ -2821,6 +2842,8 @@ mod tests {
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn runtime_snapshot_saturation_triggers_auto_seal() {
@@ -2874,6 +2897,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[tokio::test(flavor = "current_thread")]
     async fn queue_saturation_triggers_auto_seal_and_waits_for_inflight_drain() {
         let output = test_output("auto-seal-queue-saturation");
@@ -2925,6 +2950,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn auto_seal_then_next_enable_creates_fresh_generation() {
         let output = test_output("auto-seal-next-generation");
@@ -2958,6 +2985,8 @@ mod tests {
         fs::remove_file(second.artifact_path).expect("cleanup second should succeed");
     }
 
+    // TT-TEST: G01 primary
+
     #[test]
     fn one_active_generation_at_a_time() {
         let controller = TailtriageController::builder("checkout-service")
@@ -2982,6 +3011,8 @@ mod tests {
         ));
         fs::remove_file(first.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: G02 primary
 
     #[test]
     fn request_completion_remains_bound_to_original_generation_after_reenable() {
@@ -3030,6 +3061,8 @@ mod tests {
         fs::remove_file(gen_b.artifact_path).expect("cleanup generation B should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn disabled_begin_request_is_inert_and_never_joins_later_generation() {
         let output = test_output("disabled-admission");
@@ -3060,6 +3093,8 @@ mod tests {
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn disabled_handle_and_completion_operations_are_noop() {
@@ -3104,6 +3139,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn inert_disabled_request_id_contract_preserves_explicit_and_generates_fallback() {
         let output = test_output("inert-disabled-request-id");
@@ -3127,6 +3164,8 @@ mod tests {
             implicit_b.handle.request_id()
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn inert_closing_request_id_contract_preserves_explicit_and_generates_fallback() {
@@ -3159,6 +3198,8 @@ mod tests {
         ));
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn rapid_enable_disable_boundaries_keep_generation_isolation() {
@@ -3205,6 +3246,9 @@ mod tests {
         }
     }
 
+    // TT-TEST: C04 secondary
+    // TT-TEST: G03 primary
+
     #[test]
     fn completion_drain_finalizes_once_without_duplicate_side_effects() {
         let output = test_output("single-finalize");
@@ -3237,6 +3281,8 @@ mod tests {
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: C03 secondary
 
     #[test]
     fn dropped_controller_completion_drains_closing_generation_as_cancelled() {
@@ -3271,6 +3317,8 @@ mod tests {
         assert!(!run.contains("unfinished request(s) remained at shutdown"));
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: C08 secondary
 
     #[test]
     fn controller_output_is_finalized_schema_v2() {
@@ -3322,6 +3370,8 @@ mod tests {
         started.completion.finish_ok();
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: G03 primary
 
     #[test]
     fn drain_finalization_sink_failure_is_observable_and_terminal() {
@@ -3381,6 +3431,9 @@ mod tests {
         );
     }
 
+    // TT-TEST: C07 secondary
+    // TT-TEST: G03 primary
+
     #[test]
     fn drain_finalization_strict_lifecycle_failure_is_observable_and_retriable() {
         let output = test_output("strict-drain-failure");
@@ -3435,6 +3488,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn disable_error_prefix_collision_formats_original_and_typed_replay_identically() {
         const EXPECTED_DISABLE: &str = "failed to finalize generation: I/O error while writing run output: failed to finalize generation: sentinel";
@@ -3449,6 +3504,8 @@ mod tests {
         ));
         assert_eq!(replay.to_string(), EXPECTED_DISABLE);
     }
+
+    // TT-TEST: support
 
     #[test]
     #[allow(clippy::too_many_lines)]
@@ -3587,6 +3644,8 @@ mod tests {
         fs::remove_file(gen2.artifact_path).expect("cleanup gen2 artifact should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn generation_bound_terminal_failure_replays_after_rollover() {
         let output_dir = std::env::temp_dir().join(format!(
@@ -3653,6 +3712,8 @@ mod tests {
         fs::remove_dir_all(output_dir).expect("cleanup output dir should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn strict_lifecycle_failure_leaves_generation_result_pending_until_retry() {
         let output = test_output("strict-generation-result-pending");
@@ -3703,6 +3764,8 @@ mod tests {
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn drain_finalization_sink_failure_is_not_retried_after_environment_fix() {
         let output_dir = std::env::temp_dir().join(format!(
@@ -3752,6 +3815,8 @@ mod tests {
         fs::remove_dir_all(output_dir).expect("cleanup output dir should succeed");
     }
 
+    // TT-TEST: G05 primary
+
     #[test]
     fn toml_parsing_success_and_failure() {
         let output = test_output("toml-parse");
@@ -3787,6 +3852,8 @@ mod tests {
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn builder_direct_reload_and_config_reload_share_template_resolution() {
@@ -3868,6 +3935,8 @@ mod tests {
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn toml_parses_windows_style_escaped_output_path() {
         let config_toml = r#"[controller]
@@ -3891,6 +3960,8 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
             }
         );
     }
+
+    // TT-TEST: G04 primary
 
     #[test]
     fn reload_updates_next_activation_template_only() {
@@ -3921,6 +3992,8 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
+
+    // TT-TEST: G04 primary
 
     #[test]
     fn invalid_direct_reload_is_transactional_and_side_effect_free() {
@@ -3958,6 +4031,8 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
         assert!(!super::generated_artifact_path(&before.template.sink_template, 1).exists());
     }
 
+    // TT-TEST: G04 primary
+
     #[test]
     fn sampler_template_reload_is_side_effect_free_until_enable() {
         let output = test_output("sampler-reload-side-effect-free");
@@ -3990,6 +4065,8 @@ output_path = "C:\\Users\\someone\\AppData\\Local\\Temp\\tailtriage.json"
             GenerationState::Disabled { next_generation: 1 }
         ));
     }
+
+    // TT-TEST: G04 primary
 
     #[test]
     fn invalid_config_reload_is_transactional_and_side_effect_free() {
@@ -4041,6 +4118,8 @@ kind = "continue_after_limits_hit"
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn controller_recovers_after_poisoned_lifecycle_lock() {
         let output = test_output("poisoned-lock-recovery");
@@ -4068,6 +4147,8 @@ kind = "continue_after_limits_hit"
             GenerationState::Disabled { .. }
         ));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn active_generation_keeps_original_config_after_reload() {
@@ -4131,6 +4212,8 @@ kind = "continue_after_limits_hit"
         fs::remove_file(gen2.artifact_path).expect("cleanup gen2 should succeed");
         fs::remove_file(config).expect("config cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn build_from_toml_initially_enabled_starts_generation_with_toml_activation_settings() {
@@ -4202,6 +4285,8 @@ kind = "continue_after_limits_hit"
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn enable_with_sampler_without_tokio_runtime_returns_missing_runtime_error() {
         let output = test_output("missing-runtime");
@@ -4233,6 +4318,8 @@ kind = "continue_after_limits_hit"
         ));
         assert!(!expected_artifact.exists());
     }
+
+    // TT-TEST: G05 primary
 
     #[test]
     fn sparse_toml_uses_builder_fallbacks_and_activation_defaults() {
@@ -4284,6 +4371,8 @@ kind = "continue_after_limits_hit"
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn build_with_missing_config_path_returns_config_load_error() {
         let config = test_config_path("missing-config-build");
@@ -4298,6 +4387,8 @@ kind = "continue_after_limits_hit"
             ControllerBuildError::ConfigLoad(super::ConfigLoadError::Io { .. })
         ));
     }
+
+    // TT-TEST: G05 primary
 
     #[test]
     fn config_service_name_overrides_builder_service_name_when_present() {
@@ -4317,6 +4408,8 @@ kind = "continue_after_limits_hit"
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn blank_builder_service_name_uses_non_blank_toml_service_name() {
         let output = test_output("build-blank-builder-uses-toml");
@@ -4335,6 +4428,8 @@ kind = "continue_after_limits_hit"
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn blank_builder_service_name_without_config_fails_build() {
         let err = TailtriageController::builder("   ")
@@ -4342,6 +4437,8 @@ kind = "continue_after_limits_hit"
             .expect_err("blank builder service_name without config should fail");
         assert!(matches!(err, ControllerBuildError::EmptyServiceName));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn blank_builder_and_blank_toml_service_name_fail_build() {
@@ -4357,6 +4454,8 @@ kind = "continue_after_limits_hit"
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn build_from_toml_with_blank_service_name_returns_empty_service_name_error() {
@@ -4383,6 +4482,8 @@ output_path = "tailtriage-run.json"
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
+
+    // TT-TEST: G05 primary
 
     #[test]
     fn build_from_toml_with_invalid_mode_returns_parse_error() {
@@ -4411,6 +4512,8 @@ output_path = "tailtriage-run.json"
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn build_from_toml_with_invalid_run_end_policy_kind_returns_parse_error() {
@@ -4443,6 +4546,8 @@ kind = "not-a-real-policy"
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn build_from_toml_with_run_end_policy_table_missing_kind_returns_parse_error() {
         let config = test_config_path("toml-run-end-policy-missing-kind");
@@ -4473,6 +4578,8 @@ output_path = "tailtriage-run.json"
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn build_from_toml_with_invalid_sink_type_returns_parse_error() {
         let config = test_config_path("toml-invalid-sink-type");
@@ -4500,6 +4607,8 @@ output_path = "tailtriage-run.json"
 
         fs::remove_file(config).expect("config cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn build_from_toml_initially_enabled_sampler_without_runtime_returns_initial_enable_error() {
@@ -4535,6 +4644,8 @@ max_runtime_snapshots = 10
         fs::remove_file(config).expect("config cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn reload_config_after_config_file_deleted_returns_load_error() {
         let output = test_output("reload-deleted-config");
@@ -4552,6 +4663,8 @@ max_runtime_snapshots = 10
             Err(ReloadConfigError::Load(super::ConfigLoadError::Io { .. }))
         ));
     }
+
+    // TT-TEST: support
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn armed_generation_with_sampler_enabled_records_effective_metadata() {
@@ -4595,6 +4708,8 @@ max_runtime_snapshots = 10
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
 
+    // TT-TEST: support
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn armed_generation_with_sampler_disabled_keeps_sampler_metadata_empty() {
         let output = test_output("sampler-disabled");
@@ -4622,6 +4737,8 @@ max_runtime_snapshots = 10
 
         fs::remove_file(active.artifact_path).expect("cleanup should succeed");
     }
+
+    // TT-TEST: support
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn sampler_stops_on_disarm_and_reenable_uses_fresh_generation_sampler_lifecycle() {

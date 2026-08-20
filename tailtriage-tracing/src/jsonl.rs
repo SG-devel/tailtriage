@@ -292,9 +292,6 @@ fn wrapper_error(line_no: usize, reason: impl Into<String>) -> ImportError {
     }
 }
 
-// TT-INVARIANT: R01 primary
-// TT-INVARIANT: F02 primary
-// TT-INVARIANT: S01 primary
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +317,9 @@ mod tests {
         }
     }
 
+    // TT-TEST: R01 primary
+    // TT-TEST: F02 primary
+
     #[test]
     fn stable_wrapper_fixture_imports() {
         let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -327,6 +327,8 @@ mod tests {
         let imported = import_jsonl_path(fixture, ImportOptions::new("svc")).unwrap();
         assert!(!imported.run().requests.is_empty());
     }
+
+    // TT-TEST: R01 primary
 
     #[test]
     fn rejects_raw_top_level_span_record() {
@@ -337,6 +339,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: R01 primary
+
     #[test]
     fn rejects_unversioned_span_envelope() {
         assert_wrapper_rejected(
@@ -345,6 +349,8 @@ mod tests {
             "unversioned",
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn rejects_start_unix_ms_and_end_unix_ms_aliases() {
@@ -355,6 +361,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn rejects_top_level_tt_fields() {
         assert_wrapper_rejected(
@@ -363,6 +371,8 @@ mod tests {
             "unversioned",
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn rejects_outer_fields_compatibility_input() {
@@ -373,6 +383,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn rejects_mixed_compatibility_field_locations() {
         assert_wrapper_rejected(
@@ -381,6 +393,8 @@ mod tests {
             "unversioned",
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn stable_wrapper_rejects_wrapper_level_fields() {
@@ -391,6 +405,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stable_wrapper_rejects_wrapper_level_tt_key() {
         assert_wrapper_rejected(
@@ -400,6 +416,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stable_wrapper_rejects_mixed_compatibility_placement_deterministically() {
         assert_wrapper_rejected(
@@ -408,6 +426,8 @@ mod tests {
             "forbidden wrapper-level compatibility key 'fields'",
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn stable_wrapper_rejects_alias_only_timestamps_in_strict_and_non_strict() {
@@ -420,6 +440,8 @@ mod tests {
         assert!(err.to_string().contains("start_unix_ms"));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stable_wrapper_rejects_canonical_timestamps_plus_aliases() {
         assert_wrapper_rejected(
@@ -429,6 +451,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn stable_wrapper_accepts_unrelated_wrapper_extension_key() {
         let input = r#"{"format":"tailtriage.tracing-span.v1","producer":"example","span":{"name":"request","started_at_unix_ms":1,"finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/"}}}"#;
@@ -436,6 +460,8 @@ mod tests {
         assert_eq!(imported.retained_sources().len(), 1);
         assert_eq!(imported.retained_sources()[0].name(), "request");
     }
+
+    // TT-TEST: R01 primary
 
     #[test]
     fn rejects_ordinary_tracing_formatter_json() {
@@ -446,15 +472,21 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn rejects_missing_format() {
         assert_wrapper_rejected(r#"{"message":"x"}"#, 1, "missing field 'format'");
     }
 
+    // TT-TEST: support
+
     #[test]
     fn rejects_non_string_format() {
         assert_wrapper_rejected(r#"{"format":1,"span":{}}"#, 1, "invalid field 'format'");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn rejects_unsupported_format_marker() {
@@ -465,6 +497,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn rejects_missing_span() {
         assert_wrapper_rejected(
@@ -474,6 +508,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn rejects_non_object_span() {
         assert_wrapper_rejected(
@@ -482,6 +518,8 @@ mod tests {
             "invalid field 'span'",
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn rejects_malformed_json_with_line_number() {
@@ -493,10 +531,14 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn rejects_non_object_json_value() {
         assert_wrapper_rejected("[]", 1, "JSONL record must be an object");
     }
+
+    // TT-TEST: R01 primary
 
     #[test]
     fn structural_errors_are_fatal_even_non_strict() {
@@ -516,6 +558,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: S01 primary
+
     #[test]
     fn valid_only_multiline_preserves_source_order() {
         let input = format!(
@@ -529,6 +573,8 @@ mod tests {
         assert_eq!(retained[0].name(), "req-a");
         assert_eq!(retained[1].name(), "req-b");
     }
+
+    // TT-TEST: support
 
     #[test]
     fn stable_wrapper_duration_us_is_authoritative_when_wall_timestamps_disagree() {
@@ -546,6 +592,8 @@ mod tests {
         assert!(err.to_string().contains("duration_mismatch"));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn invalid_contained_span_warns_non_strict_and_errors_strict() {
         let input = r#"{"format":"tailtriage.tracing-span.v1","span":{"name":"req","started_at_unix_ms":"bad","finished_at_unix_ms":2,"fields":{"tt.kind":"request","tt.request_id":"r1","tt.route":"/a"}}}"#;
@@ -559,6 +607,8 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("line 1"));
     }
+
+    // TT-TEST: R06 primary
 
     #[test]
     fn stable_writer_output_reimports_with_explicit_evidence() {
@@ -595,6 +645,8 @@ mod tests {
             Some(&FieldValue::String("kept".to_owned()))
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn raw_record_boundary_and_unterminated_eof_are_deterministic() {
@@ -633,6 +685,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn unterminated_oversized_record_is_rejected_after_bounded_consumption() {
         let read = Rc::new(Cell::new(0));
@@ -654,6 +708,8 @@ mod tests {
         assert!(read.get() <= crate::MAX_JSONL_RECORD_BYTES + 16 * 1024);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn oversized_record_is_fatal_at_the_correct_logical_line() {
         let input = format!(
@@ -672,6 +728,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn many_small_records_have_no_aggregate_byte_ceiling() {
         let input = " \n".repeat(100);
@@ -681,6 +739,8 @@ mod tests {
         assert_eq!(records.len(), 100);
         assert_eq!(crate::MAX_JSONL_RECORD_BYTES, 8 * 1024 * 1024);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn malformed_contained_span_warning_sample_is_bounded() {

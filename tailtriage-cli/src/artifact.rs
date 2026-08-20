@@ -196,12 +196,12 @@ fn validate_required_sections(run: &Run, path: &Path) -> Result<(), ArtifactLoad
     Ok(())
 }
 
-// TT-INVARIANT: L02 primary
-// TT-INVARIANT: S02 primary
-// TT-INVARIANT: S04 primary
 #[cfg(test)]
 mod tests {
     use super::load_run_artifact;
+
+    // TT-TEST: L02 primary
+    // TT-TEST: S02 secondary
 
     #[test]
     fn rejects_malformed_json() {
@@ -215,6 +215,8 @@ mod tests {
         assert!(message.contains("failed to parse run artifact"));
         assert!(message.contains("malformed JSON"));
     }
+
+    // TT-TEST: L02 primary
 
     #[test]
     fn rejects_missing_required_fields() {
@@ -230,6 +232,8 @@ mod tests {
         assert!(message.contains("missing required fields"));
     }
 
+    // TT-TEST: L02 primary
+
     #[test]
     fn rejects_empty_requests_section() {
         let dir = tempfile::tempdir().expect("tempdir should build");
@@ -241,6 +245,8 @@ mod tests {
 
         assert!(message.contains("requests section is empty"));
     }
+
+    // TT-TEST: L02 primary
 
     #[test]
     fn rejects_missing_schema_version() {
@@ -254,6 +260,8 @@ mod tests {
         assert!(message.contains("JSON shape does not match"));
         assert!(message.contains("schema_version"));
     }
+
+    // TT-TEST: L02 primary
 
     #[test]
     fn rejects_non_integer_schema_versions() {
@@ -272,6 +280,8 @@ mod tests {
         assert!(message.contains("invalid type"));
     }
 
+    // TT-TEST: L02 primary
+
     #[test]
     fn rejects_unsupported_schema_versions() {
         let dir = tempfile::tempdir().expect("tempdir should build");
@@ -286,6 +296,8 @@ mod tests {
         assert!(message.contains("schema_version=99"));
     }
 
+    // TT-TEST: L02 primary
+
     #[test]
     fn flags_truncation_like_parse_errors() {
         let dir = tempfile::tempdir().expect("tempdir should build");
@@ -297,6 +309,8 @@ mod tests {
 
         assert!(message.contains("may be truncated"));
     }
+
+    // TT-TEST: L02 primary
 
     #[test]
     fn surfaces_unfinished_request_warnings() {
@@ -315,6 +329,9 @@ mod tests {
             .any(|warning| warning.contains("unfinished request")));
     }
 
+    // TT-TEST: L02 primary
+    // TT-TEST: S02 secondary
+
     #[test]
     fn cli_loads_finalized_schema_v2_artifact() {
         let dir = tempfile::tempdir().expect("tempdir should build");
@@ -325,6 +342,8 @@ mod tests {
         assert_eq!(loaded.original_run.metadata.finalized_at_unix_ms, Some(2));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn structurally_incompatible_old_schema_fails_as_shape_error() {
         let dir = tempfile::tempdir().expect("tempdir should build");
@@ -334,6 +353,8 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("JSON shape does not match"));
     }
+
+    // TT-TEST: L02 primary
 
     #[test]
     fn cli_rejects_unfinalized_schema_v2_artifact() {

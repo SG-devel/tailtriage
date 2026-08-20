@@ -226,6 +226,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: A02 primary
+
     #[test]
     fn overlapping_same_name_stages_use_per_request_union() {
         let mut run = run_with_requests(&["a", "b", "c"], 100);
@@ -244,6 +246,8 @@ mod tests {
         assert_eq!(summary.tail_share_permille, 433);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn disjoint_repeated_same_name_stages_remain_additive_per_request() {
         let mut run = run_with_requests(&["a", "b", "c"], 100);
@@ -261,6 +265,8 @@ mod tests {
         assert_eq!(summary.tail_share_permille, 266);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn approximate_fallback_uses_all_events_in_one_request_stage_group() {
         let mut run = run_with_requests(&["a", "b", "c"], 100);
@@ -277,6 +283,8 @@ mod tests {
         assert_eq!(summary.cumulative_share_permille, 400);
         assert_eq!(summary.tail_share_permille, 400);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn interleaved_stage_request_groups_are_independent_and_deterministic() {
@@ -310,6 +318,8 @@ mod tests {
         assert_eq!(db.cumulative_share_permille, 266);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn different_stage_names_remain_independent_when_nested() {
         let mut run = run_with_requests(&["a", "b", "c"], 100);
@@ -325,6 +335,8 @@ mod tests {
         assert_eq!(summaries[1].p95_attributed_latency_us, 80);
         assert_eq!(summaries[1].cumulative_attributed_latency_us, 240);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn coarse_unix_timestamps_do_not_drive_stage_attribution() {

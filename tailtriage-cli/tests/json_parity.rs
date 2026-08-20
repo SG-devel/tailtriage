@@ -1,4 +1,3 @@
-// TT-INVARIANT: L05 primary
 #[path = "../src/artifact.rs"]
 #[allow(dead_code)]
 mod artifact;
@@ -13,6 +12,7 @@ use std::task::{Context, Poll, Waker};
 
 use tailtriage_core::{normalize_run_permissive, RequestOptions, Run, Tailtriage};
 
+// TT-TEST: L05 primary
 #[test]
 fn cli_json_matches_analyzer_renderer_output() {
     let tempdir = tempfile::tempdir().expect("tempdir should build");
@@ -60,6 +60,7 @@ fn cli_json_matches_analyzer_renderer_output() {
     assert_eq!(stdout, format!("{expected_json}\n"));
 }
 
+// TT-TEST: support
 #[test]
 fn allow_ambiguous_artifact_reports_preserve_core_warning_equivalence_for_boundary_artifacts() {
     for candidate in [
@@ -158,6 +159,7 @@ fn allow_ambiguous_artifact_reports_preserve_core_warning_equivalence_for_bounda
     }
 }
 
+// TT-TEST: support
 #[test]
 fn allow_ambiguous_artifact_emits_every_core_issue_in_order() {
     let mut original: Run =
@@ -269,6 +271,7 @@ fn precise_child_outside_parent() -> &'static str {
     r#"{"schema_version":2,"metadata":{"run_id":"r1","service_name":"svc","service_version":null,"started_at_unix_ms":1,"finalized_at_unix_ms":2,"mode":"light","host":null,"pid":null,"lifecycle_warnings":[],"unfinished_requests":{"count":0,"sample":[]}},"requests":[{"request_id":"req1","route":"/","kind":null,"started_at_unix_ms":1,"started_at_run_us":10,"finished_at_unix_ms":2,"finished_at_run_us":20,"latency_us":10,"outcome":"ok"}],"stages":[{"request_id":"req1","stage":"db","started_at_unix_ms":1,"started_at_run_us":0,"finished_at_unix_ms":2,"finished_at_run_us":5,"latency_us":5,"success":true}],"queues":[],"inflight":[],"runtime_snapshots":[]}"#
 }
 
+// TT-TEST: V02 secondary
 #[test]
 #[allow(clippy::too_many_lines)]
 fn canonical_run_integrity_equivalence_matrix_across_entries() {
@@ -429,6 +432,7 @@ fn canonical_run_integrity_equivalence_matrix_across_entries() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn canonical_tracing_conversion_matches_core_for_supported_cases() {
     for case in tracing_candidates() {
@@ -503,6 +507,7 @@ fn canonical_tracing_conversion_matches_core_for_supported_cases() {
     }
 }
 
+// TT-TEST: support
 #[test]
 fn native_run_is_strict_valid_and_normalization_idempotent() {
     let tailtriage = Tailtriage::builder("native-svc")
@@ -557,6 +562,7 @@ fn native_run_is_strict_valid_and_normalization_idempotent() {
     assert_eq!(analyzer.request_count, normalized_projection.requests.len());
 }
 
+// TT-TEST: support
 #[test]
 fn native_derived_missing_precision_keeps_duration_evidence_without_lifecycle_mutation() {
     let tailtriage = Tailtriage::builder("native-svc")
@@ -605,6 +611,7 @@ fn native_derived_missing_precision_keeps_duration_evidence_without_lifecycle_mu
     );
 }
 
+// TT-TEST: support
 #[test]
 fn cli_missing_precision_warnings_and_artifact_are_deduplicated() {
     let tempdir = tempfile::tempdir().expect("tempdir");

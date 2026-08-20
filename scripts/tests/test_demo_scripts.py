@@ -20,8 +20,8 @@ import _demo_runner  # noqa: E402
 from demo_tool import has_suspect_kind, parse_args, suspect_score  # noqa: E402
 
 
-# TT-INVARIANT: F05 primary
 class DemoWrapperTests(unittest.TestCase):
+    # TT-TEST: F05 primary
     def test_shared_scenario_metadata_owns_all_demo_paths(self) -> None:
         self.assertEqual(set(demo_tool.SCENARIOS), set(_demo_runner.SCENARIOS))
         self.assertIs(demo_tool.SCENARIO_PATHS, _demo_runner.SCENARIOS)
@@ -38,6 +38,7 @@ class DemoWrapperTests(unittest.TestCase):
                 demo_dir / "artifacts",
             )
 
+    # TT-TEST: support
     def test_fixture_refresh_owns_only_canonical_contracts(self) -> None:
         owned = [path.as_posix() for path, _ in check_demo_fixture_drift._scenario_specs()]
         self.assertEqual(len(owned), 19)
@@ -48,6 +49,7 @@ class DemoWrapperTests(unittest.TestCase):
             ["demos/downstream_service/fixtures/before-after-comparison.json"],
         )
 
+    # TT-TEST: support
     def test_demo_tool_help_runs(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(SCRIPTS_DIR / "demo_tool.py"), "--help"],
@@ -63,39 +65,46 @@ class DemoWrapperTests(unittest.TestCase):
         )
         self.assertIn("usage:", completed.stdout)
 
+    # TT-TEST: support
     def test_parse_args_accepts_mixed_scenario(self) -> None:
         args = parse_args(["run", "mixed", "baseline"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "mixed")
         self.assertEqual(args.mode, "baseline")
 
+    # TT-TEST: support
     def test_parse_args_accepts_cold_start_scenario(self) -> None:
         args = parse_args(["validate", "cold-start"])
         self.assertEqual(args.command, "validate")
         self.assertEqual(args.scenario, "cold-start")
 
 
+    # TT-TEST: support
     def test_parse_args_accepts_db_pool_scenario(self) -> None:
         args = parse_args(["run", "db-pool", "mitigated"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "db-pool")
         self.assertEqual(args.mode, "mitigated")
 
+    # TT-TEST: support
     def test_parse_args_accepts_downstream_mode(self) -> None:
         args = parse_args(["run", "downstream", "after"])
         self.assertEqual(args.command, "run")
         self.assertEqual(args.scenario, "downstream")
         self.assertEqual(args.mode, "after")
 
+    # TT-TEST: support
     def test_parse_args_accepts_retry_storm_scenario(self) -> None:
         args = parse_args(["validate", "retry-storm"])
         self.assertEqual(args.command, "validate")
         self.assertEqual(args.scenario, "retry-storm")
 
+    # TT-TEST: support
     def test_parse_args_accepts_release_shortcut(self) -> None:
         args = parse_args(["validate", "queue", "--release"])
         self.assertEqual(args.profile, "release")
 
+    # TT-TEST: support
     def test_has_suspect_kind_handles_missing_primary(self) -> None:
         report = {
             "secondary_suspects": [{"kind": "downstream_stage_dominates"}],
@@ -104,6 +113,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
         self.assertFalse(has_suspect_kind(report, {"application_queue_saturation"}))
 
+    # TT-TEST: support
     def test_has_suspect_kind_checks_primary_and_secondary(self) -> None:
         report = {
             "primary_suspect": {"kind": "application_queue_saturation"},
@@ -114,6 +124,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertTrue(has_suspect_kind(report, {"downstream_stage_dominates"}))
         self.assertFalse(has_suspect_kind(report, {"blocking_pool_pressure"}))
 
+    # TT-TEST: support
     def test_suspect_score_reads_secondary_kind_score(self) -> None:
         report = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
@@ -122,6 +133,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertEqual(suspect_score(report, "executor_pressure_suspected"), 70)
         self.assertIsNone(suspect_score(report, "blocking_pool_pressure"))
 
+    # TT-TEST: support
     def test_contains_blocking_depth_evidence_checks_secondary_suspects(self) -> None:
         report = {
             "primary_suspect": {"kind": "application_queue_saturation", "evidence": []},
@@ -134,6 +146,7 @@ class DemoWrapperTests(unittest.TestCase):
         }
         self.assertTrue(demo_tool._contains_blocking_depth_evidence(report))
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_scenario_executor")
     def test_validate_executor_requires_executor_primary(
@@ -159,42 +172,50 @@ class DemoWrapperTests(unittest.TestCase):
         ):
             demo_tool.validate_executor(Path("/tmp/tailscope"), profile="release")
 
+    # TT-TEST: support
     def test_parse_args_accepts_diagnosis_matrix(self) -> None:
         args = parse_args(["diagnosis-matrix", "--scenario", "queue", "--scenario", "executor"])
         self.assertEqual(args.command, "diagnosis-matrix")
         self.assertEqual(args.scenario, ["queue", "executor"])
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity(self) -> None:
         args = parse_args(["validate-tracing-parity", "queue", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "queue")
         self.assertEqual(args.profile, "dev")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_retry_storm(self) -> None:
         args = parse_args(["validate-tracing-parity", "retry-storm"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "retry-storm")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_blocking(self) -> None:
         args = parse_args(["validate-tracing-parity", "blocking", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "blocking")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_executor(self) -> None:
         args = parse_args(["validate-tracing-parity", "executor", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "executor")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_parity_all(self) -> None:
         args = parse_args(["validate-tracing-parity", "all", "--profile", "dev"])
         self.assertEqual(args.command, "validate-tracing-parity")
         self.assertEqual(args.scenario, "all")
 
+    # TT-TEST: support
     def test_parse_args_accepts_validate_tracing_retention_parity(self) -> None:
         args = parse_args(["validate-tracing-retention-parity", "--profile", "release"])
         self.assertEqual(args.command, "validate-tracing-retention-parity")
         self.assertEqual(args.profile, "release")
 
+    # TT-TEST: support
     @patch("demo_tool._require_equal")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -224,6 +245,7 @@ class DemoWrapperTests(unittest.TestCase):
             self.assertEqual(extra_args[extra_args.index("--max-queues") + 1], "3")
         self.assertTrue(require_equal_mock.called)
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_and_analyze")
     @patch("demo_tool._tracing_parity_config")
@@ -271,6 +293,7 @@ class DemoWrapperTests(unittest.TestCase):
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -328,6 +351,7 @@ class DemoWrapperTests(unittest.TestCase):
         self.assertIn("after-investigation-native-run.json", artifact_basenames)
         self.assertIn("after-investigation-tracing-run.json", artifact_basenames)
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -377,6 +401,7 @@ class DemoWrapperTests(unittest.TestCase):
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "queue", profile="release")
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -424,6 +449,7 @@ class DemoWrapperTests(unittest.TestCase):
         with patch.object(Path, "exists", return_value=True):
             demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool._load_run")
     @patch("demo_tool.run_and_analyze")
@@ -474,6 +500,7 @@ class DemoWrapperTests(unittest.TestCase):
             ):
                 demo_tool.validate_tracing_parity(Path("/tmp/repo"), "blocking", profile="release")
 
+    # TT-TEST: support
     def test_parity_failure_message_contains_scenario_field_expected_actual(self) -> None:
         with self.assertRaisesRegex(
             SystemExit,
@@ -488,6 +515,7 @@ class DemoWrapperTests(unittest.TestCase):
                 actual="investigation",
             )
 
+    # TT-TEST: support
     def test_queue_score_increase_allowed_with_material_p95_drop_and_nonworsening_queue_evidence(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
@@ -506,6 +534,7 @@ class DemoWrapperTests(unittest.TestCase):
             scenario="queue",
         )
 
+    # TT-TEST: support
     def test_queue_score_increase_rejected_when_p95_worsens(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
@@ -525,6 +554,7 @@ class DemoWrapperTests(unittest.TestCase):
                 scenario="queue",
             )
 
+    # TT-TEST: support
     def test_queue_score_increase_rejected_when_queue_evidence_worsens(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 90},
@@ -544,6 +574,7 @@ class DemoWrapperTests(unittest.TestCase):
                 scenario="queue",
             )
 
+    # TT-TEST: support
     def test_queue_score_increase_allows_primary_shift_when_queue_share_drops_materially(self) -> None:
         before = {
             "primary_suspect": {"kind": "application_queue_saturation", "score": 95},
@@ -562,6 +593,7 @@ class DemoWrapperTests(unittest.TestCase):
             scenario="queue",
         )
 
+    # TT-TEST: support
     def test_downstream_score_increase_rejected_when_kind_shifts(self) -> None:
         before = {
             "primary_suspect": {"kind": "downstream_stage_dominates", "score": 90},
@@ -581,6 +613,7 @@ class DemoWrapperTests(unittest.TestCase):
                 scenario="downstream",
             )
 
+    # TT-TEST: support
     @patch("demo_tool.load_report_json")
     @patch("demo_tool.run_scenario_downstream")
     def test_validate_downstream_uses_downstream_context(
@@ -605,6 +638,7 @@ class DemoWrapperTests(unittest.TestCase):
 
 
 class DemoMainRoutingTests(unittest.TestCase):
+    # TT-TEST: support
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_queue")
     def test_main_run_queue_baseline_dispatches_queue_scenario(
@@ -620,6 +654,7 @@ class DemoMainRoutingTests(unittest.TestCase):
             profile="dev",
         )
 
+    # TT-TEST: support
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.validate_mixed")
     def test_main_validate_mixed_dispatches_validate_mixed(
@@ -631,6 +666,7 @@ class DemoMainRoutingTests(unittest.TestCase):
 
         validate_mixed_mock.assert_called_once_with(Path("/tmp/tailscope"), profile="dev")
 
+    # TT-TEST: support
     @patch("demo_tool.repo_root", return_value=Path("/tmp/tailscope"))
     @patch("demo_tool.run_scenario_downstream")
     def test_main_run_downstream_baseline_dispatches_downstream_scenario(

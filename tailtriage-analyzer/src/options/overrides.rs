@@ -288,6 +288,8 @@ mod tests {
         format!("[analyzer]\nschema_version = 1\n[analyzer.{group}]\n{field} = {value}\n")
     }
 
+    // TT-TEST: support
+
     #[test]
     fn registry_paths_are_unique_and_exact() {
         let paths = AnalyzeOptions::valid_override_paths();
@@ -297,6 +299,8 @@ mod tests {
         assert_eq!(paths, EXPECTED_PATHS);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn descriptor_paths_and_valid_override_paths_are_identical() {
         let descriptor_paths: Vec<_> = analyze_option_descriptors()
@@ -305,6 +309,8 @@ mod tests {
             .collect();
         assert_eq!(descriptor_paths, AnalyzeOptions::valid_override_paths());
     }
+
+    // TT-TEST: support
 
     #[test]
     fn every_registered_path_accepts_equivalent_cli_and_toml_value() {
@@ -319,6 +325,8 @@ mod tests {
         }
     }
 
+    // TT-TEST: support
+
     #[test]
     fn every_registered_path_produces_one_expected_summary_entry() {
         for case in CASES {
@@ -332,6 +340,8 @@ mod tests {
             assert_eq!(summaries[0].value, case.summary);
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn multiple_non_default_summaries_are_deterministically_sorted() {
@@ -358,6 +368,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn toml_unknown_groups_and_fields_remain_errors() {
         assert!(AnalyzeOptions::from_toml_str(
@@ -370,6 +382,8 @@ mod tests {
         .is_err());
     }
 
+    // TT-TEST: support
+
     #[test]
     fn misspelled_path_has_suggestion() {
         match AnalyzeOptions::default().apply_override("queuing.trigger_permille=1") {
@@ -379,6 +393,8 @@ mod tests {
             other => panic!("unexpected: {other:?}"),
         }
     }
+
+    // TT-TEST: support
 
     #[test]
     fn toml_string_list_preserves_commas_inside_items() {
@@ -391,6 +407,8 @@ mod tests {
             vec!["db,primary", "cache"]
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn descriptor_defaults_and_value_types_remain_public_contract() {
@@ -446,6 +464,8 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn missing_equals_is_invalid_override_syntax() {
         let err = AnalyzeOptions::default()
@@ -458,6 +478,8 @@ mod tests {
             }
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn multiple_equals_is_invalid_override_syntax() {
@@ -472,6 +494,8 @@ mod tests {
         );
     }
 
+    // TT-TEST: support
+
     #[test]
     fn unknown_path_returns_unknown_override_path() {
         let err = AnalyzeOptions::default()
@@ -485,6 +509,8 @@ mod tests {
             }
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn negative_unsigned_override_is_invalid_override_value() {
@@ -501,6 +527,8 @@ mod tests {
         ));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn u8_overflow_is_invalid_override_value() {
         let err = AnalyzeOptions::default()
@@ -515,6 +543,8 @@ mod tests {
             } if value == "256"
         ));
     }
+
+    // TT-TEST: support
 
     #[test]
     fn invalid_bool_text_is_invalid_override_value() {
@@ -531,6 +561,8 @@ mod tests {
         ));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn comma_separated_cli_lists_trim_entries() {
         let mut options = AnalyzeOptions::default();
@@ -542,6 +574,8 @@ mod tests {
             vec!["db", "cache", "worker"]
         );
     }
+
+    // TT-TEST: support
 
     #[test]
     fn empty_cli_list_entries_are_rejected() {
@@ -558,6 +592,8 @@ mod tests {
         ));
     }
 
+    // TT-TEST: support
+
     #[test]
     fn repeated_valid_overrides_use_last_value() {
         let mut options = AnalyzeOptions::default();
@@ -569,6 +605,8 @@ mod tests {
             .expect("valid repeated overrides");
         assert_eq!(options.queueing.trigger_permille, 450);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn semantically_invalid_single_override_leaves_original_options_unchanged() {
@@ -587,6 +625,8 @@ mod tests {
         assert_eq!(options, before);
     }
 
+    // TT-TEST: support
+
     #[test]
     fn invalid_path_leaves_original_options_unchanged() {
         let mut options = AnalyzeOptions::default();
@@ -600,6 +640,8 @@ mod tests {
         ));
         assert_eq!(options, before);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn batch_processing_stops_without_applying_later_entries() {
@@ -621,6 +663,8 @@ mod tests {
         ));
         assert_eq!(options, before);
     }
+
+    // TT-TEST: support
 
     #[test]
     fn apply_overrides_is_transactional_when_later_override_fails() {
