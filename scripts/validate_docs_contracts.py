@@ -360,23 +360,32 @@ def validate_governance_pending_state_contract() -> None:
     lower_text = text.lower()
 
     required_tokens = (
-        "pending/unfinished request state can grow with admitted requests",
-        "completion token finishes or the collector is dropped",
-        "shutdown()` currently inspects pending requests",
-        "does not clear pending bookkeeping",
-        "seal the collector against later admissions",
-        "separate from the retained request, queue, stage, in-flight, and runtime vectors",
-        "known current limitations rather than desired permanent contracts",
+        "pending request admission is bounded together with completed retained requests",
+        "configured request capacity (`max_requests`)",
+        "completed retained requests plus pending requests remain below that capacity",
+        "refused requests create no child evidence",
+        "later completion is inert",
+        "shutdown lifecycle behavior is separate from that admission bound",
+        "shutdown()` inspects pending requests for lifecycle reporting",
+        "eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping",
+        "strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector",
+        "must not attribute the request-capacity bound to shutdown",
     )
     for token in required_tokens:
         if token not in lower_text:
             raise ValueError(f"DESIGN_NOTES.md pending-state contract missing token: {token}")
 
-    if re.search(r"pending/unfinished request state[^\n]*until[^\n]*run shuts down", lower_text):
-        raise ValueError("DESIGN_NOTES.md must not claim shutdown clears pending request state")
+    if re.search(
+        r"pending(?:/unfinished)? request state[^\n]*can grow (?:unbounded )?with admitted requests",
+        lower_text,
+    ):
+        raise ValueError("DESIGN_NOTES.md must not claim pending request state grows with admissions")
 
-    if re.search(r"(?m)^\s*all live (?:bookkeeping|state) (?:is|are) (?:capture-limited|bounded by capture limits)", lower_text):
-        raise ValueError("DESIGN_NOTES.md must not claim all live bookkeeping is capture-limited")
+    if re.search(r"shutdown\(\)[^\n]*establish(?:es)? the request-capacity bound", lower_text):
+        raise ValueError("DESIGN_NOTES.md must keep shutdown lifecycle separate from admission bounds")
+
+    if re.search(r"(?m)^\s*all (?:live )?(?:collector )?(?:bookkeeping|state) (?:is|are) (?:universally )?(?:capture-limited|bounded)", lower_text):
+        raise ValueError("DESIGN_NOTES.md must not claim all collector state is universally bounded")
 
 def validate_analyzer_ownership_navigation(
     *,

@@ -274,16 +274,12 @@ Schema contract:
                 validate_docs_contracts.validate_analyzer_strictness_ownership_contract(path=path)
 
     # TT-TEST: M01 primary
-    def test_governance_pending_state_contract_accepts_unsealed_shutdown_wording(self) -> None:
+    def test_governance_pending_state_contract_accepts_bounded_admission_wording(self) -> None:
         design_text = """# Notes
 
-Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
 
-`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity.
-
-Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound.
-
-Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting. An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector; the requests may still complete before shutdown is retried. Documentation must not attribute the request-capacity bound to shutdown.
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
@@ -293,21 +289,36 @@ Pending-state limits and unsealed shutdown behavior remain known current limitat
                 validate_docs_contracts.validate_governance_pending_state_contract()
 
     # TT-TEST: M01 primary
-    def test_governance_pending_state_contract_rejects_shutdown_as_boundary(self) -> None:
+    def test_governance_pending_state_contract_rejects_unbounded_admission_regression(self) -> None:
         design_text = """# Notes
 
-Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests until those requests complete or the run shuts down.
-Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
-`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity.
-Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound.
-Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
+Pending/unfinished request state can grow unbounded with admitted requests.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting. An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector. Documentation must not attribute the request-capacity bound to shutdown.
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
             design_path.write_text(design_text, encoding="utf-8")
 
             with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
-                with self.assertRaisesRegex(ValueError, r"shutdown clears pending request state"):
+                with self.assertRaisesRegex(ValueError, r"pending request state grows with admissions"):
+                    validate_docs_contracts.validate_governance_pending_state_contract()
+
+    # TT-TEST: M01 primary
+    def test_governance_pending_state_contract_keeps_shutdown_lifecycle_separate(self) -> None:
+        design_text = """# Notes
+
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting and establishes the request-capacity bound by clearing pending bookkeeping.
+An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector.
+Documentation must not attribute the request-capacity bound to shutdown.
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            design_path = Path(tmp_dir) / "DESIGN_NOTES.md"
+            design_path.write_text(design_text, encoding="utf-8")
+
+            with mock.patch.object(validate_docs_contracts, "DESIGN_NOTES_PATH", design_path):
+                with self.assertRaisesRegex(ValueError, r"shutdown lifecycle separate from admission bounds"):
                     validate_docs_contracts.validate_governance_pending_state_contract()
 
     # TT-TEST: M01 primary

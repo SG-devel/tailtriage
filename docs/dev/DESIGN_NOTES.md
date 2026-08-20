@@ -418,19 +418,19 @@ Retained event vectors and runtime snapshots should use capture limits and expos
 
 An investigation tool should not create unbounded artifact growth from retained request, queue, stage, in-flight, or runtime evidence. Bounded retained evidence reduces operational risk and keeps artifacts reviewable.
 
-### Current limitation
+### Current admission and lifecycle behavior
 
-Not all live bookkeeping is bounded by capture limits today. Pending/unfinished request state can grow with admitted requests and remains until the corresponding request completion token finishes or the collector is dropped.
+Pending request admission is bounded together with completed retained requests by the configured request capacity (`max_requests`). A new request is admitted only while completed retained requests plus pending requests remain below that capacity. Refused requests create no child evidence, and their later completion is inert.
 
-`shutdown()` currently inspects pending requests and records unfinished-request metadata, but it does not clear pending bookkeeping or seal the collector against later admissions or completion activity. Documentation and operations guidance must therefore avoid claiming that all live state is capture-limited or that shutdown currently establishes a final lifecycle boundary.
+Shutdown lifecycle behavior is separate from that admission bound. `shutdown()` inspects pending requests for lifecycle reporting. An eligible shutdown finalization records unfinished-request metadata, clears pending bookkeeping, and terminally seals the collector against later lifecycle activity. A strict-lifecycle shutdown rejected because requests remain pending does not clear pending bookkeeping or seal the collector; the requests may still complete before shutdown is retried. Documentation and operations guidance must not attribute the request-capacity bound to shutdown or claim that all collector state is universally bounded.
 
 ### Tradeoff
 
-Bounded retained evidence can drop data under heavy load, which weakens diagnosis. Pending-state tracking preserves lifecycle warnings but remains separate from the retained request, queue, stage, in-flight, and runtime vectors that capture limits bound. Operators should still use bounded capture windows and care during long or high-cardinality captures.
+Bounded retained evidence can drop data under heavy load, which weakens diagnosis. Request capacity covers completed retained requests and pending admissions, while the other configured limits independently bound retained queue, stage, in-flight, and runtime evidence. Operators should still use bounded capture windows and care during long or high-cardinality captures.
 
 ### Why this is acceptable
 
-Dropped retained evidence is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate. Pending-state limits and unsealed shutdown behavior remain known current limitations rather than desired permanent contracts.
+Dropped retained evidence is acceptable only if it is visible. Truncation must appear in the artifact and should reduce confidence where appropriate. Refused request admission is likewise visible through deterministic truncation accounting without allowing refused work to create child evidence.
 
 ---
 
@@ -682,13 +682,15 @@ Mitigation:
 
 ### Risk: Cancellation and early drop may hide partial work
 
-The current queue and stage helper guards record completed intervals. If a helper is cancelled or dropped before recording a complete interval, no partial queue/stage event is emitted. Dropped request completions remain unfinished instead of being auto-completed.
+A queue or stage helper that is never polled records no event. Once polled, dropping a still-pending helper while capture is open records one bounded partial event; its duration is an observed lower bound from first poll to Drop and does not prove that the underlying operation stopped. Late Drop after finalization is inert. Partial stages follow the completion and success semantics described in [Partial queue and stage events](#partial-queue-and-stage-events).
+
+Dropping an admitted request completion while capture is open records cancellation under the request lifecycle contract rather than leaving the request merely unfinished; Drop after finalization is inert.
 
 Mitigation:
 
-* document explicit completion as the current lifecycle contract,
-* surface unfinished requests in run metadata and warnings,
-* use strict lifecycle mode when unfinished requests should fail a capture.
+* distinguish partial lower-bound evidence from completed timing evidence,
+* use explicit completion when an outcome is known,
+* use lifecycle warnings and strict lifecycle mode to identify requests that are still pending at shutdown.
 
 ### Risk: Validation artifacts mix execution levels
 
