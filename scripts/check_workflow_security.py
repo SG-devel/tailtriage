@@ -45,46 +45,80 @@ def cargo_deny_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
 
 def _action_steps(text: str) -> list[tuple[str, dict[str, str]]]:
     """Extract only action-step ``uses`` and its own immediate ``with`` scalar mapping."""
-    lines = text.splitlines(); result = []
-    for index, line in enumerate(lines):
-        match = USES_RE.match(line)
-        if not match: continue
-        step_indent = len(line) - len(line.lstrip())
-        indent = step_indent + (2 if line.lstrip().startswith("-") else 0)
-        values = {}; j = index + 1
-        with_indent = None
-        # ``uses`` and ``with`` are siblings inside a list step; stop at the next list item.
-        while j < len(lines) and not (
-            lines[j].strip().startswith("-")
-            and len(lines[j]) - len(lines[j].lstrip()) <= step_indent
-        ):
-            current = lines[j]
-            current_indent = len(current) - len(current.lstrip())
-            if re.match(r"^\s*with:\s*(?:#.*)?$", current) and current_indent == indent:
-                with_indent = current_indent
-            elif with_indent is not None:
-                # Only direct scalar children of this step's sibling `with:` mapping count.
-                if current.strip() and current_indent <= with_indent:
-                    with_indent = None
-                elif current_indent > with_indent:
-                    child = re.match(r"^\s+([A-Za-z0-9_-]+):\s*([^#\s]+)\s*(?:#.*)?$", current)
-                    if child and current_indent == with_indent + 2:
-                        values[child.group(1)] = child.group(2).strip("'\"")
-            j += 1
-        result.append((match.group(1).strip("'\""), values))
+    lines = text.splitlines()
+    result = []
+    jobs = next((i for i, line in enumerate(lines) if re.match(r"^jobs:\s*(?:#.*)?$", line)), None)
+    if jobs is None:
+        return result
+    jobs_end = jobs + 1
+    while jobs_end < len(lines) and (not lines[jobs_end].strip() or lines[jobs_end].startswith((" ", "\t"))):
+        jobs_end += 1
+    job_indent = min(
+        (len(lines[i]) - len(lines[i].lstrip()) for i in range(jobs + 1, jobs_end)
+         if re.match(r"^\s+[A-Za-z0-9_-]+:\s*(?:#.*)?$", lines[i])), default=None,
+    )
+    if job_indent is None:
+        return result
+    for index in range(jobs + 1, jobs_end):
+        steps_match = re.match(r"^(\s+)steps:\s*(?:#.*)?$", lines[index])
+        if not steps_match or len(steps_match.group(1)) != job_indent + 2:
+            continue
+        steps_indent = len(steps_match.group(1)); end = index + 1
+        while end < len(lines):
+            if lines[end].strip() and len(lines[end]) - len(lines[end].lstrip()) <= steps_indent:
+                break
+            end += 1
+        list_indent = next((len(lines[i]) - len(lines[i].lstrip()) for i in range(index + 1, end)
+                            if re.match(r"^\s+-\s+", lines[i])), None)
+        items = [i for i in range(index + 1, end) if re.match(r"^\s+-\s+", lines[i])
+                 and len(lines[i]) - len(lines[i].lstrip()) == list_indent]
+        for position, item in enumerate(items):
+            item_indent = len(lines[item]) - len(lines[item].lstrip())
+            item_end = items[position + 1] if position + 1 < len(items) else end
+            field_indent = item_indent + 2; action = None; values = {}; with_indent = None
+            for current in range(item, item_end):
+                source = lines[current]; indent = len(source) - len(source.lstrip())
+                first_uses = re.match(r"^\s+-\s+uses:\s*([^\s#]+)", source)
+                sibling_uses = re.match(r"^\s+uses:\s*([^\s#]+)", source)
+                if current == item and first_uses:
+                    action = first_uses.group(1).strip("'\"")
+                elif sibling_uses and indent == field_indent:
+                    action = sibling_uses.group(1).strip("'\"")
+                elif re.match(r"^\s*with:\s*(?:#.*)?$", source) and indent == field_indent:
+                    with_indent = indent
+                elif with_indent is not None:
+                    if source.strip() and indent <= with_indent:
+                        with_indent = None
+                    elif indent == with_indent + 2:
+                        child = re.match(r"^\s+([A-Za-z0-9_-]+):\s*([^#\s]+)\s*(?:#.*)?$", source)
+                        if child: values[child.group(1)] = child.group(2).strip("'\"")
+            if action is not None: result.append((action, values))
     return result
 
 
 def ci_source_policy_errors(text: str, *, name: str = "ci.yml") -> list[str]:
     """Check narrow, repository-specific CI trust-boundary source contracts."""
     errors: list[str] = []
-    dispatch = re.search(r"(?m)^(\s*)workflow_dispatch:\s*(?:\{\s*\})?\s*$", text)
-    if not dispatch:
+    lines = text.splitlines()
+    on_index = next((i for i, line in enumerate(lines) if re.match(r"^on:\s*(?:#.*)?$", line)), None)
+    dispatch_index = dispatch_indent = None
+    if on_index is not None:
+        on_end = on_index + 1
+        while on_end < len(lines) and (not lines[on_end].strip() or lines[on_end].startswith((" ", "\t"))):
+            on_end += 1
+        child_indent = min((len(lines[i]) - len(lines[i].lstrip()) for i in range(on_index + 1, on_end)
+                            if lines[i].strip() and not lines[i].lstrip().startswith("#")), default=None)
+        if child_indent is not None:
+            for i in range(on_index + 1, on_end):
+                if (len(lines[i]) - len(lines[i].lstrip()) == child_indent and
+                        re.match(r"^\s*workflow_dispatch:\s*(?:\{\s*\})?\s*(?:#.*)?$", lines[i])):
+                    dispatch_index, dispatch_indent = i, child_indent
+                    break
+    if dispatch_index is None:
         errors.append(f"{name}: workflow_dispatch must be present and input-free")
     else:
-        indent=len(dispatch.group(1)); tail=text[dispatch.end():].splitlines()
-        for line in tail:
-            if line.strip() and len(line)-len(line.lstrip()) <= indent: break
+        for line in lines[dispatch_index + 1:]:
+            if line.strip() and len(line)-len(line.lstrip()) <= dispatch_indent: break
             if re.match(r"^\s*inputs:\s*", line): errors.append(f"{name}: workflow_dispatch must not define inputs"); break
     permission = re.search(r"(?m)^permissions:\s*$", text)
     approved = False

@@ -47,7 +47,12 @@ class WorkflowSecurityTests(unittest.TestCase):
 
     # TT-TEST: S05 primary
     def test_exact_cargo_deny_policy_is_accepted(self) -> None:
-        text = f"- uses: taiki-e/install-action@{SHA}\n  with:\n    tool: cargo-deny@0.20.2\n    fallback: none\n"
+        text = f"jobs:\n  check:\n    steps:\n      - uses: taiki-e/install-action@{SHA}\n        with:\n          tool: cargo-deny@0.20.2\n          fallback: none\n"
+        self.assertEqual(check_workflow_security.cargo_deny_policy_errors(text), [])
+
+    # TT-TEST: S05 primary
+    def test_named_action_step_layout_is_accepted(self) -> None:
+        text = f"jobs:\n  check:\n    steps:\n      - name: Install\n        uses: taiki-e/install-action@{SHA}\n        with:\n          tool: cargo-deny@0.20.2\n          fallback: none\n"
         self.assertEqual(check_workflow_security.cargo_deny_policy_errors(text), [])
 
     # TT-TEST: support
@@ -114,6 +119,29 @@ class WorkflowSecurityTests(unittest.TestCase):
     # TT-TEST: S05 primary
     def test_cargo_deny_env_values_do_not_satisfy_action_inputs(self) -> None:
         text = f"- uses: taiki-e/install-action@{SHA}\n  env:\n    tool: cargo-deny@0.20.2\n    fallback: none\n"
+        self.assertTrue(check_workflow_security.cargo_deny_policy_errors(text))
+
+    # TT-TEST: S05 primary
+    def test_non_event_dispatch_names_do_not_satisfy_requirement(self) -> None:
+        for text in (
+            f"permissions:\n  contents: read\njobs:\n  workflow_dispatch:\n    steps:\n      - uses: dtolnay/rust-toolchain@{SHA}\n        with:\n          toolchain: stable\n",
+            f"on:\n  push:\n    workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  check:\n    steps:\n      - uses: dtolnay/rust-toolchain@{SHA}\n        with:\n          toolchain: stable\n",
+        ):
+            with self.subTest(text=text): self.assertTrue(check_workflow_security.ci_source_policy_errors(text))
+
+    # TT-TEST: S05 primary
+    def test_unrelated_inputs_do_not_make_dispatch_invalid(self) -> None:
+        text = f"on:\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  check:\n    strategy:\n      matrix:\n        inputs: [one]\n    steps:\n      - uses: dtolnay/rust-toolchain@{SHA}\n        with:\n          toolchain: stable\n"
+        self.assertEqual(check_workflow_security.ci_source_policy_errors(text), [])
+
+    # TT-TEST: S05 primary
+    def test_matrix_action_data_does_not_satisfy_rust_setup(self) -> None:
+        text = f"on:\n  workflow_dispatch:\npermissions:\n  contents: read\njobs:\n  check:\n    strategy:\n      matrix:\n        include:\n          - uses: dtolnay/rust-toolchain@{SHA}\n            with:\n              toolchain: stable\n    steps:\n      - run: cargo check\n"
+        self.assertTrue(check_workflow_security.ci_source_policy_errors(text))
+
+    # TT-TEST: S05 primary
+    def test_non_step_action_data_does_not_satisfy_cargo_deny_policy(self) -> None:
+        text = f"jobs:\n  check:\n    env:\n      uses: taiki-e/install-action@{SHA}\n      with:\n        tool: cargo-deny@0.20.2\n        fallback: none\n    steps:\n      - run: cargo deny check\n"
         self.assertTrue(check_workflow_security.cargo_deny_policy_errors(text))
 
     # TT-TEST: support

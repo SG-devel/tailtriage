@@ -381,6 +381,9 @@ def validate_governance_pending_state_contract() -> None:
     ):
         raise ValueError("DESIGN_NOTES.md must not claim pending request state grows with admissions")
 
+    if "pending request bookkeeping is not capture-limited" in lower_text:
+        raise ValueError("DESIGN_NOTES.md must not use the obsolete pending-bookkeeping summary")
+
     if re.search(r"shutdown\(\)[^\n]*establish(?:es)? the request-capacity bound", lower_text):
         raise ValueError("DESIGN_NOTES.md must keep shutdown lifecycle separate from admission bounds")
 

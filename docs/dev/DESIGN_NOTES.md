@@ -28,7 +28,7 @@ The design should be judged by whether it:
 | Capture model      | Artifact-based analysis                      | Reproducible and testable                       | Extra workflow step                  |
 | Workspace          | Multiple crates                              | Dependency and responsibility separation        | More complexity                      |
 | CLI                | First-class analyzer                         | Useful for validation and offline investigation | Extra public interface               |
-| Collector behavior | Bounded retained event vectors with truncation summaries | Avoid unbounded artifact growth for retained evidence | Pending request bookkeeping is not capture-limited |
+| Collector behavior | Bounded retained event vectors with truncation summaries | Avoid unbounded artifact growth for retained evidence | Saturation refuses new request admissions and drops excess retained evidence |
 | Overhead claims    | Machine/workload scoped                      | Credible measurement                            | Less marketable                      |
 | Validation         | Controlled demos first                       | Known injected causes                           | Synthetic limits                     |
 | AI usage           | AI-assisted implementation under specs/tests | Productivity without abandoning ownership       | Requires clear ownership and review  |
