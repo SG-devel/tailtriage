@@ -8,6 +8,16 @@ Pre-generated and synthetic Reports validate Report fields, warnings, evidence, 
 
 ## Validation responsibilities
 
+### Invariant proof linkage
+
+The living [invariant proof registry](INVARIANT_PROOF_MATRIX.md) owns stable invariant semantics
+and proof-boundary classification. Adjacent `TT-INVARIANT` source markers own exact executable
+proof linkage, and the dependency-free `python3 scripts/validate_invariant_proofs.py` validator
+checks consistency in the existing `docs-contracts` CI job. Repository completion and release
+validation also run it through `AGENTS.md` and `scripts/validate_all.py`; profiles that run Python
+helper tests also run its focused unit tests. Linkage consistency does not prove absence of all
+bugs and does not replace execution of the underlying tests and checks.
+
 | Layer | Purpose | Mechanism | Execution |
 | --- | --- | --- | --- |
 | Analyzer rule correctness | Explicit evidence selects the intended diagnosis | Typed Rust tests | Normal CI |

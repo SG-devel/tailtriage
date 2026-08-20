@@ -36,6 +36,8 @@ pub use tailtriage_tokio as tokio;
 /// expose progressively richer live and Tokio-coupled session APIs.
 pub use tailtriage_tracing as tracing;
 
+// TT-INVARIANT: P01 primary
+// TT-INVARIANT: P02 primary
 #[cfg(test)]
 mod tests {
     #[test]

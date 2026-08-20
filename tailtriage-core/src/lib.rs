@@ -122,5 +122,6 @@ pub mod __internal {
     }
 }
 
+// TT-INVARIANT: S04 primary
 #[cfg(test)]
 mod tests;

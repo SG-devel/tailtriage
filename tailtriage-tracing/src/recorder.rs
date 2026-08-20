@@ -1542,6 +1542,9 @@ impl Visit for FieldVisitor {
     }
 }
 
+// TT-INVARIANT: R03 primary
+// TT-INVARIANT: R06 primary
+// TT-INVARIANT: S03 primary
 #[cfg(test)]
 mod tests {
     use super::*;

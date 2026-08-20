@@ -1884,6 +1884,11 @@ fn generated_artifact_path(template: &ControllerSinkTemplate, generation_id: u64
     }
 }
 
+// TT-INVARIANT: G01 primary
+// TT-INVARIANT: G02 primary
+// TT-INVARIANT: G03 primary
+// TT-INVARIANT: G04 primary
+// TT-INVARIANT: G05 primary
 #[cfg(test)]
 mod tests {
     use std::fs;

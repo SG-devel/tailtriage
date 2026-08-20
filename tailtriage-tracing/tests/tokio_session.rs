@@ -1,3 +1,4 @@
+// TT-INVARIANT: R04 primary
 #![cfg(feature = "tokio")]
 
 use std::time::Duration;

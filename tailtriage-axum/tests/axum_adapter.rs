@@ -1,3 +1,5 @@
+// TT-INVARIANT: X01 primary
+// TT-INVARIANT: X02 primary
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 

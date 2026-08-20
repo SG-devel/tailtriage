@@ -10,6 +10,7 @@ from scripts import check_workflow_security
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
+# TT-INVARIANT: S05 primary
 class WorkflowSecurityTests(unittest.TestCase):
     def test_full_sha_is_accepted(self) -> None:
         self.assertEqual(check_workflow_security.workflow_policy_errors(f"uses: owner/action@{SHA}"), [])
@@ -62,13 +63,27 @@ class WorkflowSecurityTests(unittest.TestCase):
     def test_actual_repository_workflows_pass(self) -> None:
         self.assertEqual(check_workflow_security.check_repository(), [])
 
+    def test_ci_source_policy_accepts_input_free_read_only_explicit_toolchain(self) -> None:
+        text = "on:\n  workflow_dispatch:\npermissions:\n  contents: read\n    toolchain: stable\n"
+        self.assertEqual(check_workflow_security.ci_source_policy_errors(text), [])
+
+    def test_ci_source_policy_rejects_dispatch_inputs_permissions_and_implicit_toolchain(self) -> None:
+        cases = (
+            "on:\n  workflow_dispatch:\n    inputs:\n      data: {}\npermissions:\n  contents: read\n    toolchain: stable\n",
+            "on:\n  workflow_dispatch:\npermissions:\n  contents: write\n    toolchain: stable\n",
+            "on:\n  workflow_dispatch:\npermissions:\n  contents: read\n",
+        )
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertTrue(check_workflow_security.ci_source_policy_errors(text))
+
     def test_repository_scan_checks_yaml_and_yml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             workflows = Path(tmp_dir)
             (workflows / "one.yaml").write_text("uses: owner/action@main\n", encoding="utf-8")
             ci = workflows / "ci.yml"
             ci.write_text(
-                f"uses: owner/action@{SHA}\ntool: cargo-deny@0.20.2\nfallback: none\n",
+                f"on:\n  workflow_dispatch:\npermissions:\n  contents: read\nuses: owner/action@{SHA}\n    toolchain: stable\ntool: cargo-deny@0.20.2\nfallback: none\n",
                 encoding="utf-8",
             )
             self.assertTrue(

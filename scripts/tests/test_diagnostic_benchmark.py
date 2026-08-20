@@ -59,6 +59,7 @@ def manifest(*cases):
     return {"schema_version": 2, "cases": list(cases)}
 
 
+# TT-INVARIANT: D01 primary
 class Result:
     def __init__(self, code=0, out="", err=""):
         self.returncode = code

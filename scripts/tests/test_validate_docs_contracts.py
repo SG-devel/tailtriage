@@ -17,6 +17,9 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import validate_docs_contracts  # noqa: E402
 
 
+# TT-INVARIANT: M01 primary
+# TT-INVARIANT: M02 primary
+# TT-INVARIANT: Z02 primary
 class ValidateDocsContractsTests(unittest.TestCase):
 
     def test_analyzer_rationale_contract_accepts_structure_and_index_link(self) -> None:

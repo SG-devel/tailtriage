@@ -1,3 +1,16 @@
+// TT-INVARIANT: C01 primary
+// TT-INVARIANT: C02 primary
+// TT-INVARIANT: C03 primary
+// TT-INVARIANT: C04 primary
+// TT-INVARIANT: C05 primary
+// TT-INVARIANT: C06 primary
+// TT-INVARIANT: C07 primary
+// TT-INVARIANT: C08 primary
+// TT-INVARIANT: V01 primary
+// TT-INVARIANT: V02 primary
+// TT-INVARIANT: V04 primary
+// TT-INVARIANT: K01 primary
+// TT-INVARIANT: K02 primary
 use std::future::ready;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};

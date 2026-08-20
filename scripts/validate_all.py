@@ -72,6 +72,7 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
     cmds: list[CommandSpec] = [
         CommandSpec("deterministic benchmark", "diagnostics", _py(args, *deterministic_benchmark_args)),
         CommandSpec("docs contract", "docs", _py(args, "scripts/validate_docs_contracts.py")),
+        CommandSpec("invariant proofs", "docs", _py(args, "scripts/validate_invariant_proofs.py")),
     ]
     nfts = ["--no-fail-thresholds"] if args.no_fail_thresholds else []
     mode = ["--profile", args.profile_mode]
@@ -90,6 +91,7 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
             CommandSpec("mitigation tests", "mitigation", _py(args, "-m", "unittest", "scripts.tests.test_run_mitigation_matrix")),
             CommandSpec("operational tests", "operational", _py(args, "-m", "unittest", "scripts.tests.test_run_operational_validation")),
             CommandSpec("docs contract tests", "docs", _py(args, "-m", "unittest", "scripts.tests.test_validate_docs_contracts")),
+            CommandSpec("invariant proof tests", "docs", _py(args, "-m", "unittest", "scripts.tests.test_validate_invariant_proofs")),
             CommandSpec("fixture drift", "diagnostics", _py(args, "scripts/check_demo_fixture_drift.py", "--profile", args.profile_mode)),
         ]
     if args.profile in {"full", "publish"}:

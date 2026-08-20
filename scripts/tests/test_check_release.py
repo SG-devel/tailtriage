@@ -32,6 +32,7 @@ def metadata(version: str = "1.2.3") -> dict:
     return {"workspace_members": [package["id"] for package in packages], "packages": packages}
 
 
+# TT-INVARIANT: Z01 primary
 class CheckReleaseTests(unittest.TestCase):
     def test_classification_and_deterministic_dependency_order(self) -> None:
         packages = metadata()["packages"]

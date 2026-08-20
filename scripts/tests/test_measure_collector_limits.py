@@ -14,6 +14,8 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import measure_collector_limits  # noqa: E402
 
 
+# TT-INVARIANT: O02 primary
+# TT-INVARIANT: K01 primary
 class CollectorLimitsSummaryTests(unittest.TestCase):
     def _make_row(
         self,
