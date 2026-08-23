@@ -39,6 +39,10 @@ def default_out_dir(profile: str) -> Path:
     return Path("target") / "validation" / profile
 
 
+def default_runs(profile: str) -> int:
+    return 1 if profile in {"smoke", "ci"} else 5
+
+
 def derive_publish_dir() -> Path:
     day = datetime.now(timezone.utc).strftime("%Y%m%d")
     sha = "unknown"
@@ -98,7 +102,7 @@ def build_plan(args: argparse.Namespace) -> list[CommandSpec]:
             CommandSpec("diag matrix full", "diagnostic_matrix", _py(args, "scripts/run_diagnostic_matrix.py", "--runs", str(args.runs), "--scenario", "queue", "--scenario", "blocking", "--scenario", "executor", "--scenario", "downstream", "--out", str(out / "diagnostic-matrix/runs.jsonl"), "--summary", str(out / "diagnostic-matrix/summary.json"), "--scorecard", str(out / "diagnostic-matrix/scorecard.md"), *mode, *nfts)),
             CommandSpec("mitigation full", "mitigation", _py(args, "scripts/run_mitigation_matrix.py", "--scenario", "queue", "--scenario", "blocking", "--scenario", "downstream", "--scenario", "db-pool", "--out", str(out / "mitigation/runs.jsonl"), "--summary", str(out / "mitigation/summary.json"), "--scorecard", str(out / "mitigation/scorecard.md"), *mode, *nfts)),
             CommandSpec("runtime-cost full", "runtime_cost", _py(args, "scripts/measure_runtime_cost.py", "--rounds", str(args.runs), "--artifact-dir", str(runtime_cost_artifact_dir))),
-            CommandSpec("collector-limits full", "collector_limits", _py(args, "scripts/measure_collector_limits.py", "--profile", "default", "--repeats", str(args.runs), "--artifact-dir", str(collector_limits_artifact_dir))),
+            CommandSpec("collector-limits full", "collector_limits", _py(args, "scripts/measure_collector_limits.py", "--profile", "default", "--repeats", "1", "--artifact-dir", str(collector_limits_artifact_dir))),
         ]
 
     include_cargo = not args.skip_cargo
@@ -153,7 +157,7 @@ def summarize_results(results: list[CommandResult], profile: str, profile_mode: 
 
 def write_scorecard(path: Path, summary: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["# Tailtriage validation scorecard", "", f"Profile: {summary['profile']}", f"Build profile: {summary['profile_mode']}", f"Status: {summary['status']}", f"Generated: {summary['finished_at_utc']}", "", "| Track | Status | Output | Notes |", "|---|---|---|---|", "| Deterministic diagnostics | {} | diagnostics/benchmark-summary.json | corpus benchmark |".format(summary["tracks"]["diagnostics"]["status"]), "| Repeated-run diagnostic matrix | {} | diagnostic-matrix/summary.json | machine/workload scoped |".format(summary["tracks"]["diagnostic_matrix"]["status"]), "| Mitigation matrix | {} | mitigation/summary.json | baseline vs mitigated evidence movement |".format(summary["tracks"]["mitigation"]["status"]), "| Runtime cost | {} | operational/runtime-cost/runtime-cost-summary.json | measured, not universal |".format(summary["tracks"].get("runtime_cost", {}).get("status", "skipped")), "| Collector limits | {} | operational/collector-limits/collector-limits-*-summary.json | bounded drops + warnings/downgrades |".format(summary["tracks"].get("collector_limits", {}).get("status", "skipped")), "| Docs contracts | {} | logs/commands.jsonl | docs consistency |".format(summary["tracks"]["docs"]["status"]), "| Cargo checks | {} | logs/commands.jsonl | profile/config dependent |".format(summary["tracks"]["cargo"]["status"]), "", "Root cause is not proven by this triage validation.", "Runtime-cost numbers are machine/workload/profile scoped.", "Collector-limit checks do not claim no drops.", "Generated outputs are local unless explicitly published."]
+    lines = ["# Tailtriage validation scorecard", "", f"Profile: {summary['profile']}", f"Build profile: {summary['profile_mode']}", f"Status: {summary['status']}", f"Generated: {summary['finished_at_utc']}", "", "| Track | Status | Output | Notes |", "|---|---|---|---|", "| Deterministic diagnostics | {} | diagnostics/benchmark-summary.json | corpus benchmark |".format(summary["tracks"]["diagnostics"]["status"]), "| Repeated-run diagnostic matrix | {} | diagnostic-matrix/summary.json | machine/workload scoped |".format(summary["tracks"]["diagnostic_matrix"]["status"]), "| Mitigation matrix | {} | mitigation/summary.json | baseline vs mitigated evidence movement |".format(summary["tracks"]["mitigation"]["status"]), "| Runtime cost | {} | operational/runtime-cost/runtime-cost-summary.json | measured, not universal |".format(summary["tracks"].get("runtime_cost", {}).get("status", "skipped")), "| Collector limits | {} | operational/collector-limits/collector-limits-*-summary.json | retained/truncation/drop evidence + measured onset/resource behavior |".format(summary["tracks"].get("collector_limits", {}).get("status", "skipped")), "| Docs contracts | {} | logs/commands.jsonl | docs consistency |".format(summary["tracks"]["docs"]["status"]), "| Cargo checks | {} | logs/commands.jsonl | profile/config dependent |".format(summary["tracks"]["cargo"]["status"]), "", "Root cause is not proven by this triage validation.", "Runtime-cost numbers are machine/workload/profile scoped.", "Collector-limit checks do not claim no drops.", "Generated outputs are local unless explicitly published."]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -161,7 +165,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--profile", choices=["smoke", "ci", "full", "publish"], default="smoke")
     p.add_argument("--out")
-    p.add_argument("--runs", type=int)
+    p.add_argument("--runs", type=int, help="diagnostic-matrix runs and runtime-cost rounds (default: 1 for smoke/ci, 5 for full/publish); does not change collector repeats")
     p.add_argument("--profile-mode", choices=["dev", "release"], default="dev")
     p.add_argument("--skip-cargo", action="store_true")
     p.add_argument("--no-fail-fast", action="store_true")
@@ -170,7 +174,7 @@ def main() -> int:
     p.add_argument("--python", default=sys.executable)
     args = p.parse_args()
     if args.runs is None:
-        args.runs = 1 if args.profile in {"smoke", "ci"} else (30 if args.profile == "full" else 50)
+        args.runs = default_runs(args.profile)
     args.out = args.out or str(derive_publish_dir() if args.profile == "publish" else default_out_dir(args.profile))
     out = Path(args.out)
     plan = build_plan(args)

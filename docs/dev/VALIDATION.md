@@ -81,7 +81,7 @@ checker enforces mechanically verifiable syntax and configuration, not provenanc
 | Repeated-run matrix | No (manual/local) | stability metrics across repeated controlled runs on one machine/workload profile | universal stability across production environments |
 | Mitigation matrix | No (manual/local) | baseline vs mitigated movement checks for next-check usefulness | formal causal proof |
 | Runtime-cost measurement | Yes (bounded hard-gated smoke in CI) + manual/local deeper runs | overhead measurement under documented synthetic workloads | universal production overhead guarantees |
-| Collector-limit stress | Yes (smoke profile + summary validation) | bounded drop/truncation/warning/downgrade behavior under stress | zero drops under all load |
+| Collector-limit stress | Yes (bounded smoke profile) | bounded collector-pressure characterization with retained/truncation/drop evidence and measured onset/resource behavior | zero drops under all load; analyzer warning or diagnosis downgrade behavior |
 | Real-service validation | No (planned) | future curated real-service truth checks when artifacts exist | current real-service validation coverage |
 
 Tracing-intake contract coverage is currently validated by unit/package tests and examples that exercise:
@@ -132,7 +132,7 @@ Operational validation has dedicated domain folders under `validation/runtime-co
 Runtime-cost results are machine/workload/profile scoped and are not universal production guarantees.
 
 ## Collector-limit validation
-Collector-limit validation checks visible bounded drops, truncation warnings, and confidence downgrade behavior.
+Collector-limit validation characterizes bounded collector pressure through retained counts, truncation and dropped-category counters, and measured onset/resource behavior. Results are machine/workload/profile scoped. Analyzer warning and diagnosis-downgrade behavior for partial or truncated evidence is owned separately by analyzer tests and deterministic corpus validation.
 
 It does not claim no drops.
 
@@ -148,8 +148,8 @@ This page owns the profile meanings and invocation policy:
 |---|---|
 | `smoke` | Local fast pass over one bounded scenario per live validation track, deterministic diagnostics, docs contracts, and Cargo completion checks. |
 | `ci` | Contributor/CI-shaped deterministic and script-test coverage without the full repeated-run and mitigation matrices. |
-| `full` | Manual/local full repeated-run, mitigation, runtime-cost, and collector-limit validation. Outputs remain machine/workload/profile scoped. |
-| `publish` | Credential-free, check-only release-readiness validation using the full tracks and a release-artifact directory. It does **not** publish crates; the manual procedure is owned solely by [RELEASING.md](RELEASING.md). |
+| `full` | Manual/local repeated-run, mitigation, runtime-cost, and one complete default collector-limit matrix repeat. Diagnostic and runtime-cost tracks default to five repetitions. Outputs remain machine/workload/profile scoped. |
+| `publish` | The same substantive validation depth as `full`, using a release-artifact directory. It is credential-free and check-only: it does **not** publish crates; the manual procedure is owned solely by [RELEASING.md](RELEASING.md). |
 
 Cargo formatting, Clippy, and workspace tests run by default in every profile. Use `--skip-cargo`
 only when those checks were run separately and the intended invocation is limited to non-Cargo

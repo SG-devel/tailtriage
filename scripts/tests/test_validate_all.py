@@ -72,7 +72,30 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("--rounds", runtime_cost.argv)
         self.assertIn("7", runtime_cost.argv)
         self.assertIn("--repeats", collector_limits.argv)
-        self.assertIn("7", collector_limits.argv)
+        self.assertEqual(collector_limits.argv[collector_limits.argv.index("--repeats") + 1], "1")
+
+        diagnostic_matrix = next(c for c in plan if c.name == "diag matrix full")
+        self.assertEqual(diagnostic_matrix.argv[diagnostic_matrix.argv.index("--runs") + 1], "7")
+        self.assertEqual(runtime_cost.argv[runtime_cost.argv.index("--rounds") + 1], "7")
+
+    def test_default_repetition_depths(self):
+        self.assertEqual(va.default_runs("smoke"), 1)
+        self.assertEqual(va.default_runs("ci"), 1)
+        self.assertEqual(va.default_runs("full"), 5)
+        self.assertEqual(va.default_runs("publish"), 5)
+
+    def test_full_and_publish_have_same_substantive_depth(self):
+        for profile in ("full", "publish"):
+            a = self.args(profile)
+            a.runs = va.default_runs(profile)
+            plan = va.build_plan(a)
+            diagnostic = next(c for c in plan if c.name == "diag matrix full")
+            runtime = next(c for c in plan if c.name == "runtime-cost full")
+            collector = next(c for c in plan if c.name == "collector-limits full")
+            self.assertEqual(diagnostic.argv[diagnostic.argv.index("--runs") + 1], "5")
+            self.assertEqual(runtime.argv[runtime.argv.index("--rounds") + 1], "5")
+            self.assertEqual(collector.argv[collector.argv.index("--profile") + 1], "default")
+            self.assertEqual(collector.argv[collector.argv.index("--repeats") + 1], "1")
 
     def test_publish_has_separate_operational_tracks(self):
         plan = va.build_plan(self.args("publish"))
@@ -101,6 +124,7 @@ class ValidateAllTests(unittest.TestCase):
     def test_publish_default_dir(self):
         p = va.derive_publish_dir()
         self.assertIn("validation/artifacts", str(p))
+        self.assertNotEqual(p, va.default_out_dir("full"))
 
     def test_cargo_baseline_matches_ci_flags(self):
         a = self.args("smoke")
@@ -163,6 +187,8 @@ class ValidateAllTests(unittest.TestCase):
             sc = Path(d) / "nested" / "scorecards" / "scorecard.md"
             va.write_scorecard(sc, s)
             self.assertIn("Tailtriage validation scorecard", sc.read_text())
+            self.assertNotIn("warnings/downgrades", sc.read_text())
+            self.assertIn("retained/truncation/drop evidence", sc.read_text())
 
     def test_environment_best_effort(self):
         env = va.collect_environment("dev")

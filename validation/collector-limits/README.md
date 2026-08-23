@@ -7,7 +7,7 @@ This directory is the operational validation domain for collector-limit checks.
 
 Generated outputs are written to the selected `--artifact-dir` and are not committed by default.
 
-Collector-limit validation checks bounded/visible drops plus downgrade/warning behavior; it does not claim the collector never drops.
+Collector-limit validation characterizes bounded collector pressure with retained/truncation/drop evidence and measured onset/resource behavior. Results are machine/workload/profile scoped, and the path does not claim the collector never drops. Analyzer warning and diagnosis-downgrade behavior is validated separately.
 
 
 Unified orchestration: `scripts/validate_all.py` invokes collector-limits operational validation in `full` and `publish` profiles while preserving direct domain-runner usage.

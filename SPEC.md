@@ -330,7 +330,7 @@ Mitigation validation supports next-check usefulness. It does not prove formal c
 
 Runtime-cost validation measures overhead under documented synthetic workloads.
 
-Collector-limit validation measures bounded retention behavior, visible drops, truncation warnings, and confidence downgrade behavior.
+Collector-limit validation measures bounded retention behavior, visible truncation/drop counters, and pressure-onset and resource behavior. Analyzer and deterministic diagnostic validation separately own truncation warnings and confidence downgrade behavior.
 
 Operational validation is machine-scoped, workload-scoped, and profile-scoped. It is not a universal production guarantee.
 
