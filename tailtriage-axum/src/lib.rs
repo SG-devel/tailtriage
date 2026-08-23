@@ -103,12 +103,17 @@ where
 {
     type Rejection = TailtriageExtractorError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        parts
-            .extensions
-            .get::<TailtriageRequest>()
-            .cloned()
-            .ok_or(TailtriageExtractorError)
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> {
+        std::future::ready(
+            parts
+                .extensions
+                .get::<TailtriageRequest>()
+                .cloned()
+                .ok_or(TailtriageExtractorError),
+        )
     }
 }
 
