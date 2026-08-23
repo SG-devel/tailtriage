@@ -350,7 +350,7 @@ Primary references:
 * [validation overview](dev/VALIDATION.md)
 * [runtime cost measurement](runtime-cost.md)
 * [collector limits and stress guidance](collector-limits.md)
-* [`scripts/run_operational_validation.py`](../scripts/run_operational_validation.py)
+* [`scripts/measure_runtime_cost.py`](../scripts/measure_runtime_cost.py)
 * [`scripts/measure_collector_limits.py`](../scripts/measure_collector_limits.py)
 
 These measurements are:

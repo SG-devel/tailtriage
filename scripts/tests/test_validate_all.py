@@ -16,7 +16,7 @@ class ValidateAllTests(unittest.TestCase):
         names = " ".join(c.name for c in plan)
         self.assertIn("deterministic benchmark", names)
         self.assertIn("docs contract", names)
-        self.assertIn("diag matrix smoke", names)
+        self.assertNotIn("diag matrix smoke", names)
         self.assertIn("mitigation smoke", names)
         self.assertIn("runtime-cost smoke", names)
         self.assertIn("collector-limits smoke", names)
@@ -27,7 +27,8 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("scripts.tests.test_diagnostic_benchmark", joined)
         self.assertIn("scripts.tests.test_run_diagnostic_matrix", joined)
         self.assertIn("scripts.tests.test_run_mitigation_matrix", joined)
-        self.assertIn("scripts.tests.test_run_operational_validation", joined)
+        self.assertIn("scripts.tests.test_measure_runtime_cost", joined)
+        self.assertIn("scripts.tests.test_measure_collector_limits", joined)
         self.assertIn("scripts.tests.test_validate_docs_contracts", joined)
 
     def test_ci_plan_deterministic_benchmark_uses_ci_thresholds(self):
@@ -66,13 +67,11 @@ class ValidateAllTests(unittest.TestCase):
         collector_limits = next(c for c in plan if c.name == "collector-limits full")
         self.assertEqual(runtime_cost.track, "runtime_cost")
         self.assertEqual(collector_limits.track, "collector_limits")
-        self.assertIn("--domain", runtime_cost.argv)
-        self.assertIn("runtime-cost", runtime_cost.argv)
-        self.assertIn("--domain", collector_limits.argv)
-        self.assertIn("collector-limits", collector_limits.argv)
-        self.assertIn("--runs", runtime_cost.argv)
+        self.assertIn("scripts/measure_runtime_cost.py", runtime_cost.argv)
+        self.assertIn("scripts/measure_collector_limits.py", collector_limits.argv)
+        self.assertIn("--rounds", runtime_cost.argv)
         self.assertIn("7", runtime_cost.argv)
-        self.assertIn("--runs", collector_limits.argv)
+        self.assertIn("--repeats", collector_limits.argv)
         self.assertIn("7", collector_limits.argv)
 
     def test_publish_has_separate_operational_tracks(self):
@@ -82,17 +81,22 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("collector-limits full", names)
         self.assertNotIn("operational full", names)
 
-    def test_operational_commands_include_artifact_root(self):
+    def test_operational_commands_use_direct_owner_artifact_dirs(self):
         for profile in ("smoke", "full", "publish"):
             a = self.args(profile)
             plan = va.build_plan(a)
-            expected = str(Path(a.out) / "operational/artifacts")
-            operational = [c for c in plan if c.track in {"runtime_cost", "collector_limits"}]
+            expected_root = Path(a.out) / "operational"
+            operational = [
+                c
+                for c in plan
+                if c.track in {"runtime_cost", "collector_limits"}
+                and any(arg.startswith("scripts/measure_") for arg in c.argv)
+            ]
             self.assertGreaterEqual(len(operational), 2)
             for command in operational:
                 joined = " ".join(command.argv)
-                self.assertIn("--artifact-root", joined)
-                self.assertIn(expected, joined)
+                self.assertIn("--artifact-dir", joined)
+                self.assertIn(str(expected_root), joined)
 
     def test_publish_default_dir(self):
         p = va.derive_publish_dir()

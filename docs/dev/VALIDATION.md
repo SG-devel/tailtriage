@@ -36,7 +36,8 @@ This document is the repository validation map and trust boundary. `docs/diagnos
 | `scripts/generate_diagnostic_scorecard.py` | Local/manual deterministic scorecard generation with provenance | No, local/manual | Local outputs only |
 | `scripts/run_diagnostic_matrix.py` | Repeated controlled demo runs | No, local/manual | No |
 | `scripts/run_mitigation_matrix.py` | Baseline vs mitigated evidence-movement checks | No, local/manual | No |
-| `scripts/run_operational_validation.py` | Runtime-cost and collector-limit operational validation | Manual/local; some narrower smoke checks exist elsewhere | No |
+| `scripts/measure_runtime_cost.py` | Runtime-cost operational validation | Manual/local; bounded smoke runs in CI | No |
+| `scripts/measure_collector_limits.py` | Collector-limit operational validation | Manual/local; bounded smoke runs in CI | No |
 | `scripts/validate_all.py` | Optional orchestration wrapper over existing validation tracks | No single source of truth; local/manual wrapper | Local outputs only |
 
 Normal CI owns the deterministic diagnostic regression gate and does not publish scorecards or GitHub artifacts. `scripts/generate_diagnostic_scorecard.py` owns local/manual deterministic scorecard generation; its outputs are local evidence unless a maintainer separately archives them.
@@ -126,7 +127,7 @@ This workflow is machine/workload scoped and supports triage next checks. Mitiga
 ## Runtime-cost / operational validation
 Operational validation has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`.
 
-`scripts/run_operational_validation.py` adds manual/local operational validation for runtime-cost and collector-limit behavior. It emits raw JSONL records, stable summary JSON, and optional scorecard markdown under `target/operational-validation/`.
+`scripts/measure_runtime_cost.py` and `scripts/measure_collector_limits.py` directly own manual/local runtime-cost and collector-limit validation. They emit raw JSONL records and summary JSON in their selected artifact directories.
 
 Runtime-cost results are machine/workload/profile scoped and are not universal production guarantees.
 
