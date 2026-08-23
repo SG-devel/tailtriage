@@ -94,9 +94,9 @@ Like all tool output, these results are evidence for triage and next checks; the
 
 ## Operational trust-boundary validation
 
-Operational validation complements deterministic corpus, adversarial synthetic checks, repeated-run matrix validation, and mitigation validation. Use `scripts/run_operational_validation.py` for runtime-cost and collector-limit trust boundaries with machine/workload-scoped outputs.
+Operational validation complements deterministic corpus, adversarial synthetic checks, repeated-run matrix validation, and mitigation validation. Use `scripts/measure_runtime_cost.py` and `scripts/measure_collector_limits.py` directly for runtime-cost and collector-limit trust boundaries with machine/workload-scoped outputs.
 
-Operational validation has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`. The diagnostics scorecard can reference these operational domains, but it is not the only operational validation location. Generated operational outputs remain under `target/operational-validation/` and are not committed by default.
+Operational validation has dedicated domain folders under `validation/runtime-cost/` and `validation/collector-limits/`. The diagnostics scorecard can reference these operational domains, but it is not the only operational validation location. Generated operational outputs remain local in each command’s selected artifact directory and are not committed by default.
 
 ## Unified orchestration option
 

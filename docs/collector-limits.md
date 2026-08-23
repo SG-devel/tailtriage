@@ -59,6 +59,7 @@ It does not prove:
 - universal production behavior
 - fixed safe operating ranges for all environments
 - root cause certainty
+- analyzer warning or diagnosis downgrade behavior from partial or truncated evidence
 
 Like runtime-cost data, these are synthetic, machine-scoped, workload-scoped measurements from this repository.
 
@@ -84,4 +85,4 @@ python3 scripts/measure_collector_limits.py --profile smoke
 
 ## Operational collector-limit validation
 
-Use `python3 scripts/run_operational_validation.py --domain collector-limits` for manual/local limit-pressure validation. The claim is bounded and visible drops with downgrade/warning signaling under partial data; this does **not** claim the collector never drops. Visibility should include drop counters and truncation/partial-data warnings when limits are hit.
+Use `python3 scripts/measure_collector_limits.py` for manual/local limit-pressure validation. The bounded claim covers retained counts, truncation and dropped-category counters, and measured pressure-onset and resource behavior; it does **not** claim the collector never drops. Analyzer warning and diagnosis-downgrade behavior for partial or truncated evidence is validated separately by analyzer tests and the deterministic diagnostic corpus.

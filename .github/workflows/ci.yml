@@ -37,7 +37,6 @@ env:
 # - Independent deterministic, live, and bounded operational Linux proof runs in parallel after path detection.
 # - Runtime-cost and collector-limit results are machine/workload/profile scoped, not universal guarantees.
 # - CI required only aggregates applicable job results and performs no validation itself.
-# - The external crates.io consumer smoke step remains intentionally disabled.
 jobs:
   changes:
     name: Detect changed paths
@@ -261,17 +260,10 @@ jobs:
             . -> target
       - name: Measure collector limits (smoke)
         run: python3 scripts/measure_collector_limits.py --profile smoke
-      - name: Validate collector limits smoke outputs
-        run: |
-          python3 scripts/validate_collector_limits_summary.py \
-            --raw demos/collector_stress/artifacts/collector-limits-smoke-raw.jsonl \
-            --summary demos/collector_stress/artifacts/collector-limits-smoke-summary.json
       - name: Validate collector limits summary helper unit tests
         run: python3 -m unittest scripts.tests.test_measure_collector_limits
       - name: Validate runtime-cost script unit tests
         run: python3 -m unittest scripts.tests.test_measure_runtime_cost
-      - name: Validate runtime-cost summary validator unit tests
-        run: python3 -m unittest scripts.tests.test_validate_runtime_cost_summary
       - name: Measure runtime cost (bounded smoke)
         run: |
           python3 scripts/measure_runtime_cost.py \
@@ -281,11 +273,6 @@ jobs:
             --rounds 4 \
             --warmup-rounds 1 \
             --artifact-dir demos/runtime_cost/artifacts/ci-smoke
-      - name: Validate runtime cost smoke outputs
-        run: |
-          python3 scripts/validate_runtime_cost_summary.py \
-            --raw demos/runtime_cost/artifacts/ci-smoke/runtime-cost-raw.jsonl \
-            --summary demos/runtime_cost/artifacts/ci-smoke/runtime-cost-summary.json
 
   required:
     name: CI required

@@ -162,10 +162,10 @@ directories by workflows that consume it; it is not a committed fixture contract
 
 | Domain | Generated evidence and commands | Committed `latest/` role and mutation |
 | --- | --- | --- |
-| Runtime cost | `python3 scripts/measure_runtime_cost.py` produces raw/summary files; `python3 scripts/validate_runtime_cost_summary.py --raw <raw> --summary <summary>` validates them. `python3 scripts/run_operational_validation.py --domain runtime-cost --profile <dev|release>` orchestrates output under `target/operational-validation/`. | `validation/runtime-cost/latest/scorecard.md` is a stable checked-in availability/status note, not measured latest output. Manual-reviewed only; keep. Measurements are machine/workload/profile sensitive. |
-| Collector limits | `python3 scripts/measure_collector_limits.py` produces raw/summary files; `python3 scripts/validate_collector_limits_summary.py --raw <raw> --summary <summary>` validates them. `python3 scripts/run_operational_validation.py --domain collector-limits --profile <dev|release>` orchestrates output under `target/operational-validation/`. | `validation/collector-limits/latest/scorecard.md` is a stable checked-in availability/status note. Manual-reviewed only; keep. Evidence is machine/workload/profile sensitive and proves visible bounded drops, warnings, and downgrade behavior—not no drops. |
+| Runtime cost | `python3 scripts/measure_runtime_cost.py --artifact-dir <dir>` directly produces and sanity-checks raw/summary files. | `validation/runtime-cost/latest/scorecard.md` is a stable checked-in availability/status note, not measured latest output. Manual-reviewed only; keep. Measurements are machine/workload/profile sensitive. |
+| Collector limits | `python3 scripts/measure_collector_limits.py --artifact-dir <dir>` directly produces raw/summary files for the selected matrix. | `validation/collector-limits/latest/scorecard.md` is a stable checked-in availability/status note. Manual-reviewed only; keep. Evidence is machine/workload/profile sensitive and characterizes retained/truncation/drop evidence plus measured onset/resource behavior—not no drops or analyzer warning/downgrade behavior. |
 
-`scripts/run_operational_validation.py --domain all` composes both domains. Generated `target/`
+`scripts/validate_all.py` composes both direct owners. Generated `target/`
 files are local/CI evidence, not committed contracts and not sources for automatic `latest/`
 refresh. The diagnostic scorecard described above is a third, separate deterministic-corpus status
 reference, not an operational measurement.

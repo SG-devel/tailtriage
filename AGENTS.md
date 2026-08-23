@@ -112,7 +112,7 @@ When editing validation-related files, preserve these rules:
 - State whether each validation path is mandatory CI, manual/local, release-only, or planned.
 - Treat generated runtime-cost, collector-limit, repeated-run, and mitigation outputs as machine/workload/profile scoped unless explicitly proven otherwise.
 - Never present runtime overhead measurements as universal production guarantees.
-- Never present collector-limit validation as “no drops”; it validates visible bounded drops, warnings, and downgrade behavior.
+- Never present collector-limit validation as “no drops.” Collector-stress measurement characterizes retained/truncation/drop evidence and onset/resource behavior; analyzer and deterministic validation separately own warning and diagnosis-downgrade behavior for partial or truncated evidence.
 - Never present mitigation movement as formal causal proof; it supports the capture -> analyze -> next check -> re-run workflow.
 
 If validation corpus schema or benchmark semantics change, update together:
